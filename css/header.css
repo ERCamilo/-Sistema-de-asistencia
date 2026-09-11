@@ -102,6 +102,26 @@
     stroke-linejoin: round;
 }
 
+.header-transfer-icon {
+    display: block;
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+@media (max-width: 640px) {
+    .header-content {
+        padding: 0 12px;
+    }
+    .header-right {
+        gap: 8px;
+    }
+}
+
 .header-sync-center-btn {
     width: 44px;
     height: 44px;

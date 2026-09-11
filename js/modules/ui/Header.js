@@ -6,6 +6,7 @@ import { escapeHTML, escapeAttr } from '../utils/Sanitize.js';
 // ============================================
 const _HEADER_ACTION_MAP = {
     'export-data': () => window.exportData?.(),
+    'open-p2p-transfer': () => window.openP2PRosterTransfer?.(),
     'change-tab': (tab) => window.changeTab?.(tab)
 };
 
@@ -111,6 +112,13 @@ export const Header = ({
                             : ''}
 
                         ${window._systemAlerts ? window._systemAlerts.renderAlertButton() : ''}
+
+                        <button class="header-icon-btn" type="button" data-header-action="open-p2p-transfer" aria-label="Transferencias directas" title="Transferencias directas SA ↔ Mini">
+                            <svg class="header-transfer-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M7 7h11m0 0-3-3m3 3-3 3"></path>
+                                <path d="M17 17H6m0 0 3 3m-3-3 3-3"></path>
+                            </svg>
+                        </button>
 
                         <button class="header-icon-btn primary" type="button" data-header-action="export-data" aria-label="Exportar Backup" title="Exportar Backup">
                             <svg class="header-export-icon" viewBox="0 0 24 24" aria-hidden="true">

@@ -102,7 +102,7 @@ test('peer aliases are local presentation metadata with rename/clear/unlink wiri
   expect(aliases).not.toContain('Firebase');
 });
 
-test('linked peer identity UX uses recent activity ordering and editable self name',()=>{
+test('linked peer identity UX uses recent activity ordering and project-name self presentation',()=>{
   const ordered = sortPeersByRecentActivity([
     { peerId: 'old', linkedAt: '2026-09-07T10:00:00Z', lastSeenAt: '2026-09-07T11:00:00Z' },
     { peerId: 'fallback', linkedAt: '2026-09-07T13:00:00Z' },
@@ -113,10 +113,11 @@ test('linked peer identity UX uses recent activity ordering and editable self na
   const ui=read('js/modules/features/p2p/P2PRosterUI.js');
   expect(ui).toContain('Última conexión:');
   expect(ui).toContain('peer.lastSeenAt || peer.linkedAt');
-  expect(ui).toContain('data-rename-self');
-  expect(ui).toContain('Nombre de este SA');
-  expect(ui).toContain('identityStore.renameSelf(nextName)');
-  expect(ui).toContain('futuros emparejamientos');
+  expect(ui).toContain('resolveSaSelfPresentationName(projectState, self)');
+  expect(ui).toContain('Nombre oficial del proyecto');
+  expect(ui).toContain('ensureSaSelfMatchesProject(identityStore, projectState)');
+  expect(ui).not.toContain('data-rename-self');
+  expect(ui).not.toContain('renderSelfNameEditor');
   expect(ui).not.toContain('En línea');
 });
 

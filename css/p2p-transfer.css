@@ -56,6 +56,7 @@ button.sa-p2p-capability:hover { background:var(--p2p-hover); }
 .sa-p2p-devices-head h3 { margin:0;font-size:15px; }
 .sa-p2p-self { font-size:11px;color:var(--p2p-faint);display:flex;align-items:center;gap:5px;min-width:0; }
 .sa-p2p-self strong { color:var(--p2p-dim);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.sa-p2p-self small { font-size:10px;color:var(--p2p-faint);white-space:nowrap; }
 .sa-p2p-peer-list { display:grid;gap:8px; }
 .sa-p2p-peer-row { display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 11px;border:1px solid var(--p2p-border);border-radius:12px;background:color-mix(in oklch,var(--p2p-panel-2) 72%,var(--p2p-panel)); }
 .sa-p2p-peer-avatar { width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--p2p-panel-2);color:var(--p2p-accent); }

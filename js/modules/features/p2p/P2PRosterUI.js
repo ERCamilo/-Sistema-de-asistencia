@@ -96,6 +96,49 @@ async function getProjectSetupState() {
   return window.getProjectSetupState();
 }
 
+export const SA_SELF_NAME_MAX_LENGTH = 80;
+
+export function normalizeProjectPresentationName(value) {
+  const clean = String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  return Array.from(clean).slice(0, SA_SELF_NAME_MAX_LENGTH).join('');
+}
+
+export function resolveSaSelfPresentationName(projectState, self) {
+  const projectName = normalizeProjectPresentationName(projectState?.activeProject?.name);
+  if (projectState?.ready === true && projectName) return projectName;
+  const fallback = String(self?.displayName || '').trim().slice(0, SA_SELF_NAME_MAX_LENGTH);
+  return fallback || 'SA';
+}
+
+export function getNewPairingProjectGate(projectState) {
+  if (projectState?.ready !== true || !normalizeProjectPresentationName(projectState?.activeProject?.name)) {
+    return {
+      code: 'project-not-ready',
+      title: 'Configura un proyecto para vincular',
+      message: 'SA se presenta con el nombre oficial del proyecto activo. Configura el proyecto para continuar.'
+    };
+  }
+  return null;
+}
+
+export async function ensureSaSelfMatchesProject(identityStore, projectState) {
+  const gate = getNewPairingProjectGate(projectState);
+  if (gate) throw new Error(gate.message);
+  const projectName = normalizeProjectPresentationName(projectState.activeProject.name);
+  const self = await identityStore.getSelf();
+  if (self.displayName !== projectName) {
+    await identityStore.renameSelf(projectName);
+    return identityStore.getSelf();
+  }
+  return self;
+}
+
+function renderPairingBlockedByProject() {
+  setBodyHtml(`<div class="sa-p2p-step">${backButton()}<div><h3>Configura un proyecto para vincular</h3><p>SA se presenta con el nombre oficial del proyecto activo. Configura el proyecto para continuar.</p></div><div class="sa-p2p-actions">${button('Configurar proyecto', 'data-configure-project', 'primary', 'project')}</div></div>`);
+  body().querySelector('[data-back]').addEventListener('click', renderHome);
+  body().querySelector('[data-configure-project]').addEventListener('click', () => window.openProjectSetupModal?.());
+}
+
 function cleanupSession() {
   if (activeMorphCleanup) activeMorphCleanup();
   try { activeSession?.close?.(); } catch (_) {}
@@ -231,6 +274,8 @@ async function renderHome() {
       </div>`;
   }).join('') : '<div class="sa-p2p-empty">Aún no hay Minis vinculados. Usa el botón Vincular Mini para agregar el primero.</div>';
 
+  const selfPresentation = resolveSaSelfPresentationName(projectState, self);
+  const pairingGate = getNewPairingProjectGate(projectState);
   setBodyHtml(`
     <section class="sa-p2p-capabilities-wrap" aria-labelledby="sa-p2p-capabilities-title">
       <h3 id="sa-p2p-capabilities-title" class="sa-p2p-section-label">Capacidades</h3>
@@ -244,16 +289,16 @@ async function renderHome() {
     <section class="sa-p2p-devices" aria-labelledby="sa-p2p-devices-title">
       <div class="sa-p2p-devices-head">
         <div><h3 id="sa-p2p-devices-title">Minis vinculados</h3><div class="sa-p2p-subtitle">${peers.length} dispositivo${peers.length === 1 ? '' : 's'} guardado${peers.length === 1 ? '' : 's'} en este SA</div></div>
-        <div class="sa-p2p-self">Este SA: <strong>${esc(self.displayName)}</strong><button type="button" class="sa-p2p-icon-btn" data-rename-self aria-label="Cambiar nombre de este SA" title="Cambiar nombre de este SA">${p2pIcon('edit', 15)}</button></div>
+        <div class="sa-p2p-self">Este SA: <strong>${esc(selfPresentation)}</strong><small>Nombre oficial del proyecto</small></div>
       </div>
       <div class="sa-p2p-peer-list">${peerRows}</div>
     </section>
+    ${pairingGate ? '<div class="sa-p2p-status is-warning">SA se presenta con el nombre oficial del proyecto activo. Configura el proyecto para vincular un Mini.</div>' : ''}
     <div>${button('Vincular Mini', 'data-new-pair aria-label="Vincular un nuevo Mini por QR o código"', 'primary', 'link')}</div>
     <p class="sa-p2p-footnote">Vincular sólo crea una relación segura entre dispositivos. Ningún dato se importa o modifica automáticamente.</p>`);
   body().querySelector('[data-new-pair]').classList.add('sa-p2p-link-cta');
   body().querySelector('[data-configure-project]')?.addEventListener('click', () => window.openProjectSetupModal?.());
   body().querySelector('[data-new-pair]').addEventListener('click', startNewPairing);
-  body().querySelector('[data-rename-self]')?.addEventListener('click', renderSelfNameEditor);
   body().querySelectorAll('[data-rename-peer]').forEach(btn => btn.addEventListener('click', () => renderPeerAliasEditor(btn.dataset.renamePeer)));
   body().querySelectorAll('[data-send-peer]').forEach(btn => btn.addEventListener('click', () => connectTrustedAndSend(btn.dataset.sendPeer)));
   body().querySelectorAll('[data-unlink-peer]').forEach(btn => btn.addEventListener('click', async () => {
@@ -264,28 +309,6 @@ async function renderHome() {
     aliasStore.removeAlias(peerId);
     renderHome();
   }));
-}
-
-async function renderSelfNameEditor() {
-  const identityStore = store();
-  const self = await identityStore.getSelf();
-  setBodyHtml(`
-    <div class="sa-p2p-step">
-      ${backButton()}
-      <div><h3>Nombre de este SA</h3><p>Es el nombre que este dispositivo presenta en futuros emparejamientos.</p></div>
-      <div class="sa-p2p-field"><label for="sa-p2p-self-name">Nombre del dispositivo</label><input id="sa-p2p-self-name" data-self-name maxlength="80" value="${esc(self.displayName)}" placeholder="Ej: SA oficina"></div>
-      <p class="sa-p2p-footnote">Cambiarlo no modifica deviceId, claves ni vínculos existentes. Los aliases guardados en otros dispositivos tampoco cambian.</p>
-      <div class="sa-p2p-actions">${button('Guardar nombre', 'data-save-self-name', 'primary')}</div>
-    </div>`);
-  const input = body().querySelector('[data-self-name]');
-  input?.focus(); input?.select();
-  body().querySelector('[data-back]').addEventListener('click', renderHome);
-  body().querySelector('[data-save-self-name]').addEventListener('click', async () => {
-    const nextName = String(input.value || '').trim();
-    if (!nextName) { notify('Escribe un nombre para este SA.', 'warning'); return; }
-    await identityStore.renameSelf(nextName);
-    renderHome();
-  });
 }
 
 async function renderPeerAliasEditor(peerId) {
@@ -325,8 +348,15 @@ export function renderQr(url) {
 async function startNewPairing() {
   cleanupSession();
   try {
+    let projectState;
+    try { projectState = await getProjectSetupState(); }
+    catch (error) { projectState = { enabled: true, ready: false, activeProject: null, error }; }
+    if (getNewPairingProjectGate(projectState)) {
+      renderPairingBlockedByProject();
+      return;
+    }
     const identityStore = store();
-    const self = await identityStore.getSelf();
+    const self = await ensureSaSelfMatchesProject(identityStore, projectState);
     const descriptor = await window.SaMiniP2P.makePairDescriptor(self);
     const pairUrl = window.SaMiniP2P.buildPairUrl(descriptor, MINI_PAIR_BASE_URL);
     setBodyHtml(`
