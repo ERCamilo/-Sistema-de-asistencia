@@ -129,8 +129,14 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         host.querySelector('[data-mini-action="create-mini-consolidated"]').click(); await wait();
 
         expect(modal.connectedView).toBe('sa-comparison');
-        expect(host.querySelector('[data-mini-day-date="2026-09-06"]').textContent).toBe('Conflicto con SA');
-        expect(host.querySelector('[data-mini-sa-conflict="EMP-001"]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-day-date="2026-09-06"]').textContent).toBe('Listo para aplicar');
+        const conflict = host.querySelector('[data-mini-sa-conflict="EMP-001"]');
+        expect(conflict).not.toBeNull();
+        expect(conflict.querySelector('[data-mini-action="keep-sa"]').textContent).toBe('Conservar actual');
+        expect(conflict.querySelector('[data-mini-action="keep-sa"]').getAttribute('aria-pressed')).toBe('true');
+        expect(conflict.querySelector('[data-mini-action="use-imported"]').getAttribute('aria-pressed')).toBe('false');
+        expect(conflict.querySelector('[data-mini-sa-compare]')?.textContent).toContain('Mini');
+        expect(conflict.querySelector('[data-mini-sa-compare]')?.textContent).toContain('Actual');
         expect(appliedPlans).toHaveLength(0);
     });
 
@@ -276,7 +282,7 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         expect(host.querySelector('[data-mini-select-position="EMP-003"]')).toBeNull();
         host.querySelector('[data-mini-action="complete-mini-day"]').click(); await wait();
         host.querySelector('[data-mini-action="create-mini-consolidated"]').click(); await wait();
-        expect(host.querySelector('[data-mini-day-date="2026-09-09"]').textContent).toBe('Conflicto con SA');
+        expect(host.querySelector('[data-mini-day-date="2026-09-09"]').textContent).toBe('Cambio por revisar');
         const select = host.querySelector('[data-mini-select-position="EMP-003"]');
         const assign = host.querySelector('[data-mini-action="resolve-position"][data-mini-employee-id="EMP-003"]');
         expect(select).not.toBeNull(); expect(assign.disabled).toBe(true);

@@ -83,8 +83,14 @@ describe('SAFE bulk predicate — only plain two-way hours conflicts', () => {
         };
     }
 
-    test('accepts a plain single-position present-hours conflict', () => {
+    test('accepts a plain single-position present-hours conflict, including the safe keep-current default', () => {
         expect(isSafeBulkSaConflict(safeItem(), safeRow(), employees)).toBe(true);
+        const defaulted = {
+            ...safeRow(),
+            decision: { action: 'keep_existing', acknowledged: true, defaulted: true },
+            blockers: []
+        };
+        expect(isSafeBulkSaConflict(safeItem(), defaulted, employees)).toBe(true);
     });
 
     test('rejects identity, position, paused, missing and multi-choice cases', () => {
@@ -148,7 +154,7 @@ describe('resolver day bulk — current day only, through canonical decisions', 
             saProjectId: SA_PROJECT, entityScope: SA_SCOPE, stage: 'sa', applyPlan: jest.fn()
         });
         expect(resolver.getDayState(date1).status).toBe('stage_b_conflict');
-        expect(resolver.getDayState(date2).status).toBe('stage_b_conflict');
+        expect(resolver.getDayState(date2).status).toBe('ready');
 
         const result = resolver.resolveDaySafeBulkConflicts(date1, 'use_imported');
         expect(result).toMatchObject({ date: date1, action: 'use_imported', resolvedCount: 1 });
@@ -165,7 +171,7 @@ describe('resolver day bulk — current day only, through canonical decisions', 
 
         // Other day untouched.
         const day2 = resolver.getDayState(date2);
-        expect(day2.conflictPlan.rows.find(r => r.employeeId === 'EMP-001').decision.acknowledged).toBe(false);
+        expect(day2.conflictPlan.rows.find(r => r.employeeId === 'EMP-001').decision).toMatchObject({ action: 'keep_existing', acknowledged: true, defaulted: true });
 
         // Canonical writer bypass check: injected attendance untouched until applyDay.
         expect(attendance[`EMP-001-${date1}`].hoursWorked).toBe(9);
@@ -341,8 +347,10 @@ describe('MiniAttendanceImportModal — exception-first day review + SA bulk', (
         expect(bulkBar).not.toBeNull();
         const keepBtn = host.querySelector('[data-mini-action="bulk-keep-sa"]');
         const useBtn = host.querySelector('[data-mini-action="bulk-use-mini"]');
-        expect(keepBtn?.textContent).toBe('Conservar SA en pendientes');
-        expect(useBtn?.textContent).toBe('Usar Mini en pendientes');
+        expect(keepBtn?.textContent).toBe('Conservar actuales');
+        expect(useBtn?.textContent).toBe('Usar Mini en cambios');
+        expect(keepBtn?.classList.contains('is-selected')).toBe(true);
+        expect(keepBtn?.getAttribute('aria-pressed')).toBe('true');
         expect(host.querySelectorAll('[data-mini-sa-conflict]').length).toBe(3);
 
         useBtn.click();
@@ -367,7 +375,10 @@ describe('MiniAttendanceImportModal — exception-first day review + SA bulk', (
         expect(toggle?.textContent).toContain('2 resueltos');
         toggle.click();
         expect(rowNumbers(host)).toEqual(['#003', '#001', '#002']);
-        // Live selection survived the toggle.
-        expect(host.querySelectorAll('[data-mini-sa-conflict]').length).toBe(1);
+        // Expanded resolved rows remain inspectable and preserve their explicit Mini selection.
+        expect(host.querySelectorAll('[data-mini-sa-conflict]').length).toBe(3);
+        const emp1Conflict = host.querySelector('[data-mini-sa-conflict="EMP-001"]');
+        expect(emp1Conflict.querySelector('[data-mini-action="use-imported"]').getAttribute('aria-pressed')).toBe('true');
+        expect(emp1Conflict.querySelector('[data-mini-action="keep-sa"]').getAttribute('aria-pressed')).toBe('false');
     });
 });

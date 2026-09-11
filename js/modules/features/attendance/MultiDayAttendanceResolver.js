@@ -9,7 +9,7 @@
  * - Missing row from a Mini is never absence/deletion.
  * - Structured rows without saEmployeeId require explicit identity resolution; NEVER auto-linked.
  * - Hours conflict requires explicit source choice (or manual hours); no majority auto-win.
- * - Existing SA records that differ require explicit keep-SA/use-imported decision.
+ * - Plain existing-record differences default safely to keep-current; complex/inactive cases still require explicit resolution.
  * - Identical existing rows are treated as no-op (keep_existing).
  * - Provenance preserved in miniImportAudit.sources.
  * - Day and period views supported; period is presentation only, resolution/apply remains day-atomic.
@@ -42,6 +42,18 @@ function cloneValue(value) {
         return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, cloneValue(child)]));
     }
     return value;
+}
+
+function canDefaultKeepCurrentConflict({ item, employee, existing, positionIds, imported, isIdentical }) {
+    if (isIdentical || !existing?.record || !employee) return false;
+    if (employee.active === false || employee.deletedAt != null) return false;
+    if (item?.status !== 'resolved') return false;
+    if (imported?.rosterStatus && imported.rosterStatus !== 'active') return false;
+    if (!Array.isArray(positionIds) || positionIds.length !== 1) return false;
+    if (Array.isArray(existing.breakdown) && existing.breakdown.length > 1) return false;
+    const sources = Array.isArray(item?.sources) ? item.sources : [];
+    if (sources.some(source => source?.missingRoster === true)) return false;
+    return true;
 }
 
 /**
@@ -114,7 +126,8 @@ export function adaptResolvedDayToConflictPlan({
         if (userDecision) {
             decision = {
                 action: userDecision.action,
-                acknowledged: userDecision.acknowledged === true
+                acknowledged: userDecision.acknowledged === true,
+                defaulted: userDecision.defaulted === true
             };
             targetPositionId = userDecision.targetPositionId || (positionIds.length === 1 ? positionIds[0] : null);
             positionAllocations = userDecision.positionAllocations || (targetPositionId ? [{
@@ -126,7 +139,8 @@ export function adaptResolvedDayToConflictPlan({
             // Identical existing row: auto-acknowledged keep_existing -> no-op in apply (keptKeys)
             decision = {
                 action: 'keep_existing',
-                acknowledged: true
+                acknowledged: true,
+                defaulted: false
             };
             targetPositionId = positionIds[0] || null;
             positionAllocations = targetPositionId ? [{
@@ -135,10 +149,15 @@ export function adaptResolvedDayToConflictPlan({
                 overtimeHours: imported.overtimeHours
             }] : [];
         } else if (existingRecord) {
-            // Differing existing record requires explicit decision
+            // Plain hour differences safely default to preserving the current value.
+            // Complex/inactive/missing-roster cases keep the explicit-decision blocker.
+            const defaultKeepCurrent = canDefaultKeepCurrentConflict({
+                item, employee, existing, positionIds, imported, isIdentical
+            });
             decision = {
                 action: 'keep_existing',
-                acknowledged: false
+                acknowledged: defaultKeepCurrent,
+                defaulted: defaultKeepCurrent
             };
             targetPositionId = positionIds.length === 1 ? positionIds[0] : null;
             positionAllocations = targetPositionId ? [{
@@ -150,7 +169,8 @@ export function adaptResolvedDayToConflictPlan({
             // New record: use imported
             decision = {
                 action: 'use_imported',
-                acknowledged: true
+                acknowledged: true,
+                defaulted: false
             };
             targetPositionId = positionIds.length === 1 ? positionIds[0] : null;
             positionAllocations = targetPositionId ? [{
@@ -216,9 +236,13 @@ export function isSafeBulkSaConflict(item, conflictRow, employees = []) {
     if (item.status !== 'resolved') return false;
     if (conflictRow.employeeId !== item.saEmployeeId) return false;
     if (conflictRow.isIdentical === true) return false;
-    if (!conflictRow.decision || conflictRow.decision.acknowledged === true) return false;
+    if (!conflictRow.decision) return false;
     const blockers = Array.isArray(conflictRow.blockers) ? conflictRow.blockers : [];
-    if (blockers.length !== 1 || blockers[0] !== 'decision_unacknowledged') return false;
+    const isDefaultKeepCurrent = conflictRow.decision.action === 'keep_existing' &&
+        conflictRow.decision.acknowledged === true && conflictRow.decision.defaulted === true && blockers.length === 0;
+    const isUnacknowledgedSimpleChoice = conflictRow.decision.acknowledged !== true &&
+        blockers.length === 1 && blockers[0] === 'decision_unacknowledged';
+    if (!isDefaultKeepCurrent && !isUnacknowledgedSimpleChoice) return false;
     const positionIds = Array.isArray(conflictRow.employeePositionIds)
         ? conflictRow.employeePositionIds
         : [];
@@ -642,6 +666,7 @@ export class MultiDayAttendanceResolver {
         this.dayDecisions.set(key, {
             action,
             acknowledged: true,
+            defaulted: false,
             targetPositionId,
             positionAllocations
         });
@@ -690,6 +715,7 @@ export class MultiDayAttendanceResolver {
             this.dayDecisions.set(`${employeeId}-${date}`, {
                 action,
                 acknowledged: true,
+                defaulted: false,
                 targetPositionId: null,
                 positionAllocations: null
             });

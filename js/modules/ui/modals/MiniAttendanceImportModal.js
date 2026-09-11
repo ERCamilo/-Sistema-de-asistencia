@@ -142,6 +142,18 @@ function selectedCheckSvg() {
     return svg;
 }
 
+function comparisonArrowSvg() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    svg.setAttribute('class', 'mini-sa-compare-arrow');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M5 12h14M14 7l5 5-5 5');
+    svg.appendChild(path);
+    return svg;
+}
+
 function isIncorporatedDraft(draft) {
     return draft?.status === 'incorporated' || draft?.status === 'imported';
 }
@@ -2224,6 +2236,9 @@ export class MiniAttendanceImportModal {
         if (!item.saEmployeeId || item.status === 'identity_conflict' || item.status === 'conflict') return true;
         const conflictRow = dayState?.conflictPlan?.rows?.find(row => row.employeeId === item.saEmployeeId);
         if (!conflictRow) return item.status !== 'resolved';
+        // A safe keep-current default remains visible so the user can switch to Mini,
+        // even though it no longer blocks applying the day.
+        if (conflictRow.decision?.defaulted === true) return true;
         if (Array.isArray(conflictRow.blockers) && conflictRow.blockers.length > 0) return true;
         if (conflictRow.decision?.acknowledged !== true) return true;
         return false;
@@ -2283,18 +2298,19 @@ export class MiniAttendanceImportModal {
             className: 'mini-sa-bulk-actions',
             dataset: { miniSaBulkActions: group.workDate }
         });
-        bar.append(element('span', `Acciones para ${safeCandidates.length} pendiente${safeCandidates.length === 1 ? '' : 's'} de horas:`, { className: 'mini-control-label' }));
-        const keepBtn = actionButton('Conservar SA en pendientes', 'bulk-keep-sa');
-        keepBtn.classList.add('mini-import-action-secondary');
-        keepBtn.dataset.miniDate = group.workDate;
-        keepBtn.dataset.miniSaBulk = 'keep';
-        keepBtn.addEventListener('click', () => this.applySafeBulkForDay(group.workDate, 'keep_existing'));
-        const useBtn = actionButton('Usar Mini en pendientes', 'bulk-use-mini');
-        useBtn.classList.add('mini-import-action-primary');
+        bar.append(element('span', `Acción para ${safeCandidates.length} diferencia${safeCandidates.length === 1 ? '' : 's'}:`, { className: 'mini-control-label' }));
+        const useBtn = actionButton('Usar Mini en cambios', 'bulk-use-mini');
+        useBtn.classList.add('mini-sa-choice-button');
         useBtn.dataset.miniDate = group.workDate;
         useBtn.dataset.miniSaBulk = 'use';
         useBtn.addEventListener('click', () => this.applySafeBulkForDay(group.workDate, 'use_imported'));
-        bar.append(keepBtn, useBtn);
+        const keepBtn = actionButton('Conservar actuales', 'bulk-keep-sa');
+        keepBtn.classList.add('mini-sa-choice-button', 'is-selected');
+        keepBtn.setAttribute('aria-pressed', 'true');
+        keepBtn.dataset.miniDate = group.workDate;
+        keepBtn.dataset.miniSaBulk = 'keep';
+        keepBtn.addEventListener('click', () => this.applySafeBulkForDay(group.workDate, 'keep_existing'));
+        bar.append(useBtn, keepBtn);
         return bar;
     }
 
@@ -2378,7 +2394,7 @@ export class MiniAttendanceImportModal {
                 const groupEl = element('div', null, { className: 'mini-consolidation-group-card' });
                 const headerEl = element('div', null, { className: 'mini-consolidation-group-header' });
                 headerEl.append(
-                    element('h4', `Fecha: ${group.workDate} (${group.items.length} trabajadores)`)
+                    element('h4', `${displayDate(group.workDate)} · ${group.items.length} trabajadores`)
                 );
 
                 const dayState = this.multiDayResolver ? this.multiDayResolver.getDayState(group.workDate) : null;
@@ -2392,7 +2408,7 @@ export class MiniAttendanceImportModal {
                                 : dayState.status === 'ready'
                                     ? 'Listo para aplicar'
                                     : dayState.status === 'stage_b_conflict'
-                                        ? 'Conflicto con SA'
+                                        ? 'Cambio por revisar'
                                         : 'Conflicto entre Minis';
                     headerEl.append(element('span', statusText, {
                         className: `mini-day-status is-${dayState.status}`,
@@ -2557,26 +2573,51 @@ export class MiniAttendanceImportModal {
                         // 3. Existing SA conflict
                         if (dayState && dayState.conflictPlan) {
                             const conflictRow = dayState.conflictPlan.rows.find(r => r.employeeId === item.saEmployeeId);
-                            if (conflictRow && !conflictRow.isIdentical && !conflictRow.decision.acknowledged) {
+                            if (conflictRow && !conflictRow.isIdentical) {
                                 const saConflictEl = element('div', null, {
                                     className: 'mini-sa-conflict-row',
                                     dataset: { miniSaConflict: item.saEmployeeId }
                                 });
-                                const existingNormal = conflictRow.existing?.record?.hoursWorked || 0;
-                                const existingOvertime = conflictRow.existing?.record?.overtimeHours || 0;
-                                saConflictEl.append(
-                                    element('span', `SA tiene ${existingNormal + existingOvertime}h vs consolidado Mini ${Number(item.normalHours || 0) + Number(item.overtimeHours || 0)}h:`, { className: 'mini-control-label' })
-                                );
+                                const existingRecord = conflictRow.existing?.record || null;
+                                const existingNormal = existingRecord?.hoursWorked || 0;
+                                const existingOvertime = existingRecord?.overtimeHours || 0;
+                                const importedTotal = Number(item.normalHours || 0) + Number(item.overtimeHours || 0);
+                                const existingTotal = existingNormal + existingOvertime;
+                                const selectedAction = conflictRow.decision?.action || 'keep_existing';
+                                const importedSelected = selectedAction === 'use_imported';
+                                const currentSelected = !importedSelected;
 
-                                const keepSaBtn = actionButton('Conservar SA', 'keep-sa');
-                                keepSaBtn.dataset.miniEmployeeId = item.saEmployeeId;
-                                keepSaBtn.dataset.miniDate = group.workDate;
-                                keepSaBtn.addEventListener('click', () => {
-                                    this.multiDayResolver.resolveDayConflict(group.workDate, item.saEmployeeId, { action: 'keep_existing' });
-                                    this.render();
+                                const compare = element('div', null, {
+                                    className: 'mini-sa-compare',
+                                    dataset: { miniSaCompare: item.saEmployeeId }
                                 });
+                                const importedSide = element('div', null, {
+                                    className: `mini-sa-compare-side ${importedSelected ? 'is-selected' : 'is-discarded'}`
+                                });
+                                importedSide.append(
+                                    element('span', 'Mini', { className: 'mini-sa-compare-label' }),
+                                    element('strong', this.formatConnectedHours(item.normalHours, item.overtimeHours, {
+                                        status: item.sourceStatus,
+                                        rosterStatus: item.rosterStatus
+                                    }), { className: 'mini-sa-compare-value' })
+                                );
+                                const currentStatus = existingRecord?.present === false && existingTotal === 0 ? 'unmarked' : 'present';
+                                const currentSide = element('div', null, {
+                                    className: `mini-sa-compare-side ${currentSelected ? 'is-selected' : 'is-discarded'}`
+                                });
+                                currentSide.append(
+                                    element('span', 'Actual', { className: 'mini-sa-compare-label' }),
+                                    element('strong', this.formatConnectedHours(existingNormal, existingOvertime, {
+                                        status: currentStatus
+                                    }), { className: 'mini-sa-compare-value' })
+                                );
+                                compare.append(importedSide, comparisonArrowSvg(), currentSide);
 
+                                const actions = element('div', null, { className: 'mini-sa-conflict-actions' });
                                 const useImportedBtn = actionButton('Usar Mini', 'use-imported');
+                                useImportedBtn.classList.add('mini-sa-choice-button');
+                                useImportedBtn.classList.toggle('is-selected', importedSelected);
+                                useImportedBtn.setAttribute('aria-pressed', importedSelected ? 'true' : 'false');
                                 useImportedBtn.dataset.miniEmployeeId = item.saEmployeeId;
                                 useImportedBtn.dataset.miniDate = group.workDate;
                                 useImportedBtn.addEventListener('click', () => {
@@ -2584,7 +2625,18 @@ export class MiniAttendanceImportModal {
                                     this.render();
                                 });
 
-                                saConflictEl.append(keepSaBtn, useImportedBtn);
+                                const keepCurrentBtn = actionButton('Conservar actual', 'keep-sa');
+                                keepCurrentBtn.classList.add('mini-sa-choice-button');
+                                keepCurrentBtn.classList.toggle('is-selected', currentSelected);
+                                keepCurrentBtn.setAttribute('aria-pressed', currentSelected ? 'true' : 'false');
+                                keepCurrentBtn.dataset.miniEmployeeId = item.saEmployeeId;
+                                keepCurrentBtn.dataset.miniDate = group.workDate;
+                                keepCurrentBtn.addEventListener('click', () => {
+                                    this.multiDayResolver.resolveDayConflict(group.workDate, item.saEmployeeId, { action: 'keep_existing' });
+                                    this.render();
+                                });
+                                actions.append(useImportedBtn, keepCurrentBtn);
+                                saConflictEl.append(compare, actions);
                                 rowEl.append(saConflictEl);
                             }
 

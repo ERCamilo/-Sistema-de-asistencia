@@ -255,7 +255,7 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         expect(() => resolver.resolveItemIdentity('unknown-id', 'EMP-INACTIVE')).toThrow();
     });
 
-    test('4. Existing SA conflict: differing SA record requires explicit keep-SA/use-imported decision; identical SA record is no-op', async () => {
+    test('4. Simple existing-value conflict defaults to keep current and can be explicitly switched to Mini; identical current value is no-op', async () => {
         // Existing record in SA for EMP-001 has 9h (differs from imported 8h)
         mockState.attendance['EMP-001-2026-09-06'] = {
             employeeId: 'EMP-001',
@@ -298,10 +298,10 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         });
 
         const dayState = resolver.getDayState('2026-09-06');
-        // Stage B conflict because EMP-001 differs from existing SA
-        expect(dayState.status).toBe('stage_b_conflict');
-        expect(dayState.canApply).toBe(false);
-        expect(dayState.stageBBlockers).toContain('decision_unacknowledged');
+        // Plain hours differences preserve the current value by default and do not block the day.
+        expect(dayState.status).toBe('ready');
+        expect(dayState.canApply).toBe(true);
+        expect(dayState.stageBBlockers).not.toContain('decision_unacknowledged');
 
         // Check conflict plan rows
         const conflictRows = dayState.conflictPlan.rows;
@@ -314,10 +314,10 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         expect(emp2Row.decision.acknowledged).toBe(true);
         expect(emp2Row.blockers).toHaveLength(0);
 
-        // EMP-001 differs: unacknowledged keep_existing with blocker
+        // EMP-001 differs: keep-current is selected safely by default but remains changeable in UI.
         expect(emp1Row.isIdentical).toBe(false);
-        expect(emp1Row.decision.acknowledged).toBe(false);
-        expect(emp1Row.blockers).toContain('decision_unacknowledged');
+        expect(emp1Row.decision).toMatchObject({ action: 'keep_existing', acknowledged: true, defaulted: true });
+        expect(emp1Row.blockers).toHaveLength(0);
 
         // User explicitly chooses to use imported for EMP-001
         resolver.resolveDayConflict('2026-09-06', 'EMP-001', { action: 'use_imported' });
@@ -657,7 +657,8 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
             positions: mockPositions, saProjectId: PROJECT_ID, entityScope: PROJECT_SCOPE,
             stage: 'sa', applyPlan: mockApplyPlan
         });
-        expect(saResolver.getDayState(date).status).toBe('stage_b_conflict');
+        expect(saResolver.getDayState(date).status).toBe('ready');
+        expect(saResolver.getDayState(date).conflictPlan.rows[0].decision).toMatchObject({ action: 'keep_existing', acknowledged: true, defaulted: true });
     });
 
     test('explicit zero-hour unmarked survives adaptation into a writable SA record', () => {

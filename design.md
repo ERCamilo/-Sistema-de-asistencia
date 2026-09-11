@@ -352,3 +352,14 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
 - Un pequeño punto refuerza el estado del aro. Un badge rojo numerado se reserva exclusivamente para **datos nuevos o trabajo pendiente de revisión**; no debe usarse para decoración ni para conteos históricos.
 - El badge se oculta cuando su valor es 0 y debe usar números compactos (`99+` como máximo visual). El nombre accesible del botón comunica app remota, estado, pendientes y acción disponible.
 - Los IDs técnicos nunca sustituyen al icono, alias o nombre humano en el header.
+
+
+## Regla canónica: selección sólida y comparación Mini → valor actual
+- En comparaciones de datos entrantes, la lectura sigue el flujo natural izquierda→derecha: **Mini → valor actual**. El valor entrante se coloca a la izquierda y el valor ya guardado a la derecha.
+- El usuario no debe ver nombres internos de arquitectura como `SA` para describir el dato existente. Usar `Actual`, `Valor actual` o `Conservar actual`.
+- En conflictos simples y seguros de horas, **Conservar actual** es la selección predeterminada. El usuario sólo cambia la decisión si quiere aplicar el valor de Mini. Casos complejos (identidad, múltiples posiciones, pausado/inactivo, reactivación, cobertura ausente) siguen requiriendo resolución explícita.
+- El valor que no quedará aplicado se muestra atenuado; el valor seleccionado conserva máximo contraste. La atenuación nunca debe ocultar por completo el dato descartado.
+- Los botones de elección se ordenan igual que la comparación: `Usar Mini` a la izquierda y `Conservar actual` a la derecha.
+- El botón seleccionado debe ser claramente dominante mediante **relleno sólido** y alto contraste; el alternativo usa un relleno sólido más oscuro/atenuado.
+- **Prohibido** usar en botones, chips, badges o etiquetas el patrón `borde de color + centro transparente + texto de color`. No usar controles tipo outline/hollow como estado principal.
+- Estados, acciones y etiquetas se diferencian con rellenos sólidos, contraste, opacidad, tipografía y jerarquía. Un borde puede existir como detalle estructural, pero nunca ser el único portador del estado con fondo transparente.
