@@ -117,6 +117,24 @@ button.sa-p2p-capability:hover { background:var(--p2p-hover); }
 .sa-p2p-status.is-success strong { color:var(--p2p-good); display:inline-flex;align-items:center;gap:6px; }
 .sa-p2p-status.is-success span { color:var(--p2p-dim); font-size:11px; }
 
+/* Meta 3 — terminal success pulse (canonical --p2p-good, no emoji). */
+@keyframes p2pSuccessPulse {
+  0% { transform: scale(0.92); box-shadow: 0 0 0 0 color-mix(in oklch, var(--p2p-good) 55%, transparent); }
+  60% { transform: scale(1.03); box-shadow: 0 0 0 10px transparent; }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+}
+.sa-p2p-result-icon.is-success-pulse,
+.sa-p2p-status.is-success.is-success-pulse {
+  animation: p2pSuccessPulse 520ms cubic-bezier(.2,.8,.2,1) both;
+  border-color: color-mix(in oklch, var(--p2p-good) 65%, var(--p2p-border));
+}
+@media (prefers-reduced-motion: reduce) {
+  .sa-p2p-result-icon.is-success-pulse,
+  .sa-p2p-status.is-success.is-success-pulse {
+    animation: none !important;
+  }
+}
+
 
 .sa-p2p-qr-block { text-align:center; }
 .sa-p2p-qr-label { margin-bottom:7px; }

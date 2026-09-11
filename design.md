@@ -289,6 +289,12 @@ Al escribir en un input (ej. nombre de empresa o cargo), debajo se renderiza una
 * **Sin emoji**: el número es texto plano, sin iconos emoji ni símbolos decorativos.
 * **Movimiento reducido**: sin `pop`/`scale` ni transiciones cuando `prefers-reduced-motion: reduce`; el cambio de conteo es instantáneo y no mueve el layout vecino.
 
+### 5.10 Retroalimentación terminal de éxito (Meta 3)
+* **Sólo eventos terminales**: el pulso/toast de éxito se dispara únicamente en `Mini vinculado`, `Roster recibido y validado por Mini`, `Asistencia transferida y guardada` (éxito total, no parcial) e `Importación completada`. Nunca en estados intermedios/autenticación (`Conectando`, `Autenticando`, `Transfiriendo`, `Recibiendo`), errores, cancelaciones ni parciales.
+* **Siempre visual in-app**: cada evento terminal muestra estado `is-success` con tokens canónicos (`--good` / `--mini-good` / `--p2p-good`), pulso `is-success-pulse` (`p2pSuccessPulse` / `miniSuccessPulse`, `520ms cubic-bezier(.2,.8,.2,1)`) y toast in-app (`window.showNotification`, tipo `success`). El icono es SVG del IconSet; prohibido emoji/símbolos Unicode como iconografía y prohibido `alert`/`confirm` nativos.
+* **Mejora progresiva**: `navigator.vibrate` sólo si existe como función; chime WebAudio corto y de bajo volumen sólo si `AudioContext` está disponible y permitido (nunca lanza, nunca pide permiso); `Notification` de sistema sólo cuando `permission === 'granted'` y `document.hidden === true`, y NUNCA se llama a `requestPermission`.
+* **Movimiento reducido y anti-repetición**: con `prefers-reduced-motion: reduce` no hay animación de pulso ni vibración; el estado/toast sigue visible de forma instantánea. Cada clave terminal usa dedupe con cooldown (`≈4s`) para que re-renders o doble resolución no disparen el feedback dos veces. No se altera el protocolo P2P ni los writers canónicos.
+
 ## 6. Clases Utilitarias (Hover & Interactions)
 
 Para asegurar interactividad táctil sin CSS inline engorroso:

@@ -2093,6 +2093,26 @@
     font-weight: 650;
 }
 
+/* Meta 3 — terminal success pulse (canonical --mini-good, no emoji). */
+@keyframes miniSuccessPulse {
+    0% { transform: scale(0.97); box-shadow: 0 0 0 0 color-mix(in oklch, var(--mini-good) 50%, transparent); }
+    60% { transform: scale(1.015); box-shadow: 0 0 0 8px transparent; }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+}
+
+.mini-import-transport-notice.is-success.is-success-pulse,
+.mini-import-completion-message.is-success-pulse {
+    animation: miniSuccessPulse 520ms cubic-bezier(.2,.8,.2,1) both;
+    border-color: var(--mini-good);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mini-import-transport-notice.is-success.is-success-pulse,
+    .mini-import-completion-message.is-success-pulse {
+        animation: none !important;
+    }
+}
+
 .mini-import-draft-list {
     display: grid;
     gap: 9px;

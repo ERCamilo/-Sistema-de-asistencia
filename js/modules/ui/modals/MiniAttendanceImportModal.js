@@ -28,6 +28,7 @@ import {
     createMultiDayAttendanceResolver,
     isSafeBulkSaConflict
 } from '../../features/attendance/MultiDayAttendanceResolver.js';
+import { P2P_SUCCESS_EVENTS, signalP2PSuccess } from '../../features/p2p/P2PSuccessFeedback.js';
 
 let nextControlId = 1;
 
@@ -1330,6 +1331,15 @@ export class MiniAttendanceImportModal {
             this.connectedView = 'inbox';
             this.completionStatusMessage = `Importación completada. ${completedCount} borrador${completedCount === 1 ? '' : 'es'} marcado${completedCount === 1 ? '' : 's'} como incorporado${completedCount === 1 ? '' : 's'}.`;
             this.render();
+            try {
+                const completionEl = this.host?.querySelector('.mini-import-completion-message');
+                signalP2PSuccess(P2P_SUCCESS_EVENTS.IMPORT_COMPLETED, {
+                    message: this.completionStatusMessage,
+                    title: 'Importación completada',
+                    statusEl: completionEl || undefined,
+                    pulseEl: completionEl || undefined
+                });
+            } catch (_) {}
         } catch (err) {
             console.error('Error completing connected import:', err);
             this.completionStatusMessage = 'No se pudo completar la importación. Los borradores no fueron marcados como incorporados.';
@@ -1519,6 +1529,19 @@ export class MiniAttendanceImportModal {
             this.activeAbortController = null;
             // Render only while the modal/mounted host still exists.
             if (this.host) this.render();
+            // Terminal success only: full success, never partial/error/cancelled
+            // and never intermediate connecting/authenticating/requesting states.
+            if (this.connectionState === 'success' && this.host) {
+                try {
+                    const statusEl = this.host.querySelector('[data-mini-transport-seam]');
+                    signalP2PSuccess(P2P_SUCCESS_EVENTS.ATTENDANCE_TRANSFERRED, {
+                        message: this.transportStatusMessage || 'Asistencia transferida correctamente',
+                        title: 'Asistencia recibida',
+                        statusEl: statusEl || undefined,
+                        pulseEl: statusEl || undefined
+                    });
+                } catch (_) {}
+            }
         }
     }
 

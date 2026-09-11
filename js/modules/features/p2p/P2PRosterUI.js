@@ -1,6 +1,7 @@
 import { state } from '../../core/AppState.js';
 import { getEntityScope } from '../projects/ProjectContext.js';
 import { p2pPeerAliasStore } from './P2PPeerAliasStore.js';
+import { P2P_SUCCESS_EVENTS, signalP2PSuccess } from './P2PSuccessFeedback.js';
 import {
   buildSaMiniRosterPayload,
   resolveSaMiniRosterScope,
@@ -401,6 +402,18 @@ function renderPairConfirmation(remote, sas, accept, reject) {
   box.querySelector('[data-reject]').addEventListener('click', reject);
 }
 
+function signalPairLinkedFeedback() {
+  try {
+    const iconEl = body()?.querySelector('.sa-p2p-result-icon');
+    signalP2PSuccess(P2P_SUCCESS_EVENTS.PAIR_LINKED, {
+      message: 'Mini vinculado correctamente',
+      title: 'Mini vinculado',
+      statusEl: iconEl || undefined,
+      pulseEl: iconEl || undefined
+    });
+  } catch (_) {}
+}
+
 async function renderPairLinked(peer, channel) {
   activePeer = peer;
   let projectState;
@@ -411,11 +424,13 @@ async function renderPairLinked(peer, channel) {
     setBodyHtml(`<div class="sa-p2p-step">${linkedHeader}<div class="sa-p2p-status is-warning">El vínculo está listo. Para enviar empleados, configura primero el proyecto oficial.</div><div class="sa-p2p-actions">${button('Configurar proyecto','data-configure-project','primary','project')}${button('Terminar','data-done','secondary')}</div></div>`);
     body().querySelector('[data-configure-project]').addEventListener('click', () => window.openProjectSetupModal?.());
     body().querySelector('[data-done]').addEventListener('click', renderHome);
+    signalPairLinkedFeedback();
     return;
   }
   setBodyHtml(`<div class="sa-p2p-step">${linkedHeader}<div class="sa-p2p-status">Proyecto: <strong>${esc(projectState.activeProject?.name || projectState.activeProjectId)}</strong></div><label class="sa-p2p-checkbox"><input type="checkbox" data-salary> <span>Incluir sueldo en este roster</span></label><div class="sa-p2p-actions">${button('Enviar roster ahora','data-send-now','primary','send')}${button('Terminar','data-done','secondary')}</div><div class="sa-p2p-status" data-send-status hidden></div></div>`);
   body().querySelector('[data-send-now]').addEventListener('click', () => { const status=body().querySelector('[data-send-status]'); if(status) status.hidden=false; sendRosterOnChannel(channel, peer, body().querySelector('[data-salary]').checked); });
   body().querySelector('[data-done]').addEventListener('click', renderHome);
+  signalPairLinkedFeedback();
 }
 
 function renderPairError(error) {
@@ -501,7 +516,16 @@ async function sendRosterOnChannel(channel, peer, includeSalary) {
     if (status) status.textContent = 'Bytes enviados. Esperando validación de Mini…';
     await waitForRosterStageAck(channel, transfer);
     if (status) { status.classList.add('is-success'); status.innerHTML = `<strong>${p2pIcon('link', 15)} Roster recibido y validado por ${esc(peerName(peer))}</strong><br><span>Mini todavía debe revisarlo y confirmar la importación.</span>`; }
-    notify('Roster enviado y validado por Mini', 'success');
+    try {
+      signalP2PSuccess(P2P_SUCCESS_EVENTS.ROSTER_VALIDATED, {
+        message: 'Roster enviado y validado por Mini',
+        title: 'Roster validado',
+        statusEl: status || undefined,
+        pulseEl: status || undefined
+      });
+    } catch (_) {
+      notify('Roster enviado y validado por Mini', 'success');
+    }
   } catch (error) {
     if (status) { status.classList.add('is-error'); status.innerHTML = `<strong>Error:</strong> ${esc(error.message || error)}`; }
   }
