@@ -141,3 +141,24 @@ button.sa-p2p-capability:hover { background:var(--p2p-hover); }
 .sa-p2p-qr-card { display:inline-block;padding:10px;border-radius:12px;background:var(--p2p-qr-bg); }
 .sa-p2p-qr-image { display:block;width:min(100%,240px);max-width:100%;height:auto;aspect-ratio:1 / 1;image-rendering:pixelated; }
 .sa-p2p-qr-warning { font-size:12px;color:var(--p2p-warn); }
+
+/* Actividad P2P reciente (SA local, sin protocolo). */
+.sa-p2p-activity { display:grid;gap:10px;padding:14px;border:1px solid var(--p2p-border);border-radius:12px;background:color-mix(in oklch,var(--p2p-panel-2) 60%,var(--p2p-panel)); }
+.sa-p2p-activity-head { display:flex;align-items:center;justify-content:space-between;gap:10px; }
+.sa-p2p-activity-head h3 { margin:0;font-size:14px; }
+.sa-p2p-badge { min-width:20px;height:20px;padding:0 6px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:var(--p2p-accent);border:1px solid var(--p2p-accent);color:var(--p2p-on-accent);font-size:11px;font-weight:700;font-variant-numeric:tabular-nums; }
+.sa-p2p-badge[hidden] { display:none; }
+.sa-p2p-visually-hidden { position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap; }
+.sa-p2p-activity-list { display:grid;gap:8px; }
+.sa-p2p-activity-row { display:flex;align-items:center;gap:10px;padding:10px 11px;border:1px solid var(--p2p-border);border-radius:10px;background:var(--p2p-panel-2); }
+.sa-p2p-activity-copy { flex:1;min-width:0; }
+.sa-p2p-activity-copy strong { display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sa-p2p-activity-meta { margin-top:3px;font-size:11px;color:var(--p2p-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sa-p2p-activity-status { flex:none;height:24px;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:700;display:inline-flex;align-items:center; }
+.sa-p2p-activity-status.is-success { background:var(--p2p-good);border:1px solid var(--p2p-good);color:#06281c; }
+.sa-p2p-activity-status.is-warning { background:var(--p2p-warn);border:1px solid var(--p2p-warn);color:#3a2403; }
+.sa-p2p-activity-status.is-error { background:var(--p2p-bad);border:1px solid var(--p2p-bad);color:#fff; }
+.sa-p2p-activity-status.is-pending { background:var(--p2p-accent);border:1px solid var(--p2p-accent);color:var(--p2p-on-accent); }
+.sa-p2p-activity-details { flex:none;min-height:44px;padding:0 10px;border:1px solid var(--p2p-border);border-radius:8px;background:transparent;color:var(--p2p-dim);font-size:11px;font-weight:600;cursor:pointer; }
+.sa-p2p-activity-popup { margin-top:8px;padding:8px;border:1px solid var(--p2p-border);border-radius:8px;background:var(--p2p-panel);font-size:11px;color:var(--p2p-dim); }
+@media (prefers-reduced-motion: reduce) { .sa-p2p-badge,.sa-p2p-activity-status { transition:none !important;animation:none !important; } }

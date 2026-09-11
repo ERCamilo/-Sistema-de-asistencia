@@ -15,6 +15,7 @@
  */
 
 import { p2pPeerAliasStore } from './P2PPeerAliasStore.js';
+import { p2pActivityStore } from './P2PActivityStore.js';
 import {
     validateAttendanceSubmission,
     normalizeAttendanceSubmissionId
@@ -329,6 +330,37 @@ export async function listLinkedMiniPeers({
     });
 }
 
+function resolveAttendanceActivityStore(override) {
+  if (override === false) return null;
+  if (override && typeof override.recordActivity === 'function') return override;
+  return p2pActivityStore;
+}
+
+function safeAttendanceRecord(storeObj, entry) {
+  if (!storeObj || typeof storeObj.recordActivity !== 'function') return null;
+  try { return storeObj.recordActivity(entry); }
+  catch (_) { return null; }
+}
+
+function safeAttendanceUpdate(storeObj, id, patch) {
+  if (!storeObj || typeof storeObj.updateActivity !== 'function') return null;
+  try { return storeObj.updateActivity(id, patch); }
+  catch (_) { return null; }
+}
+
+function truncateAttendanceText(value, max) {
+  const text = String(value == null ? '' : value).trim();
+  const limit = Number.isSafeInteger(max) && max > 0 ? max : 280;
+  return text.length > limit ? text.slice(0, limit) : text;
+}
+
+function makeAggregateAttendanceId() {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return 'attendance-' + crypto.randomUUID();
+  } catch (_) {}
+  return 'attendance-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);
+}
+
 export async function requestAttendanceFromPeer({
     peerId,
     saProjectId,
@@ -342,7 +374,9 @@ export async function requestAttendanceFromPeer({
     inboxStore = null,
     requestId = null,
     onStateChange = null,
-    signal = null
+    signal = null,
+    activityStore = null,
+    projectName = ''
 } = {}) {
     const core = getP2PCore(p2pCore);
     if (!core) throw new Error('SaMiniP2P core no está disponible.');
@@ -363,6 +397,9 @@ export async function requestAttendanceFromPeer({
         throw new Error(`Mini vinculado "${peerId}" no encontrado o no compatible.`);
     }
     const peerName = aliasStore?.resolveName ? aliasStore.resolveName(peer) : (peer.displayName || 'Mini');
+    const activeActivityStore = resolveAttendanceActivityStore(activityStore);
+    const humanProjectName = String(projectName || '').trim();
+    const rangeLabel = request.fromDate === request.toDate ? request.fromDate : request.fromDate + ' al ' + request.toDate;
 
     const notifyState = (state, details = {}) => {
         if (typeof onStateChange === 'function') {
@@ -402,6 +439,7 @@ export async function requestAttendanceFromPeer({
     let peerAttendanceReady = false;
     let requestSent = false;
 
+    safeAttendanceRecord(activeActivityStore, { id: request.requestId, kind: 'attendance', status: 'pending', peerName, projectName: humanProjectName, summary: rangeLabel, peerId: String(peer.peerId || ''), saProjectId: String(request.saProjectId || '') });
     try {
         const response = await new Promise((resolve, reject) => {
             const fail = (error) => {
@@ -572,6 +610,10 @@ export async function requestAttendanceFromPeer({
             submissions: response.submissions || [],
             importedRecords
         });
+        try { globalThis.refreshSaP2PHeaderIndicator?.(); } catch (_) {}
+        const successCount = Array.isArray(response.submissions) ? response.submissions.length : 0;
+        const successSummary = successCount === 0 ? rangeLabel + ' · sin registros' : rangeLabel + ' · ' + successCount + ' registros';
+        safeAttendanceUpdate(activeActivityStore, request.requestId, { status: 'success', summary: truncateAttendanceText(successSummary, 280) });
 
         return {
             peerId: peer.peerId,
@@ -580,6 +622,9 @@ export async function requestAttendanceFromPeer({
             submissions: response.submissions || [],
             importedRecords
         };
+    } catch (peerErr) {
+        safeAttendanceUpdate(activeActivityStore, request.requestId, { status: 'error', summary: truncateAttendanceText(peerErr && peerErr.message ? peerErr.message : String(peerErr), 280) });
+        throw peerErr;
     } finally {
         // ALWAYS clean up fail-closed
         if (timeoutTimer) clearTimeout(timeoutTimer);
@@ -620,7 +665,9 @@ export async function requestMiniAttendance({
     p2pCore = null,
     p2pPairing = null,
     onProgress = null,
-    signal = null
+    signal = null,
+    activityStore = null,
+    projectName = ''
 } = {}) {
     if (!saProjectId || typeof saProjectId !== 'string' || !saProjectId.trim()) {
         throw new Error('Se requiere un proyecto activo para solicitar asistencia a Minis.');
@@ -684,6 +731,12 @@ export async function requestMiniAttendance({
     let duplicateCount = 0;
     let ignoredCount = 0;
     let unchangedCount = 0;
+    const aggregateActivityStore = resolveAttendanceActivityStore(activityStore);
+    const aggregateHumanProject = String(projectName || '').trim();
+    const aggregateId = makeAggregateAttendanceId();
+    const aggregatePeerLabel = targets.length === 1 ? String(targets[0].name || targets[0].displayName || 'Mini') : targets.length + ' Minis';
+    const aggregateRange = validFromDate === validToDate ? validFromDate : validFromDate + ' al ' + validToDate;
+    safeAttendanceRecord(aggregateActivityStore, { id: aggregateId, kind: 'attendance', status: 'pending', peerName: aggregatePeerLabel, projectName: aggregateHumanProject, summary: aggregateRange, peerId: '', saProjectId: cleanSaProjectId });
 
     for (let i = 0; i < targets.length; i++) {
         const target = targets[i];
@@ -701,6 +754,7 @@ export async function requestMiniAttendance({
                         });
                     } catch (_) {}
                 }
+                safeAttendanceUpdate(aggregateActivityStore, aggregateId, { status: 'error', summary: 'Solicitud cancelada por el usuario.' });
                 throw cancelErr;
             }
             for (let j = i; j < targets.length; j++) {
@@ -735,6 +789,8 @@ export async function requestMiniAttendance({
                 p2pPairing,
                 inboxStore,
                 signal,
+                activityStore: false,
+                projectName,
                 onStateChange: (peerState, detail) => {
                     if (typeof onProgress === 'function') {
                         try {
@@ -768,6 +824,7 @@ export async function requestMiniAttendance({
         } catch (err) {
             errors.push({ peer: target, error: err });
             if (targets.length === 1) {
+                safeAttendanceUpdate(aggregateActivityStore, aggregateId, { status: 'error', summary: truncateAttendanceText(err && err.message ? err.message : String(err), 280) });
                 throw err;
             }
             if (err?.name === 'AbortError' || signal?.aborted) {
@@ -799,6 +856,7 @@ export async function requestMiniAttendance({
         if (errors.every(e => e.error?.name === 'AbortError')) {
             combinedErr.name = 'AbortError';
         }
+        safeAttendanceUpdate(aggregateActivityStore, aggregateId, { status: 'error', summary: truncateAttendanceText(combinedErr.message, 280) });
         throw combinedErr;
     }
 
@@ -827,6 +885,8 @@ export async function requestMiniAttendance({
             message = `✓ Asistencia solicitada a ${targets.length} Minis (${results.length} respondieron, ${importedCount} nuevos, ${duplicateCount} duplicados${ignoredSuffix}${unchangedSuffix}).`;
         }
     }
+    const aggregateStatus = hasPartialError ? 'partial' : 'success';
+    safeAttendanceUpdate(aggregateActivityStore, aggregateId, { status: aggregateStatus, summary: truncateAttendanceText(message, 280) });
 
     return {
         ok: true,

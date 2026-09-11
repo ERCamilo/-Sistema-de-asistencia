@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0e27"/>
+      <stop offset="100%" style="stop-color:#151b35"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff"/>
+      <stop offset="100%" style="stop-color:#0099cc"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fondo con esquinas redondeadas -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- Borde sutil -->
+  <rect width="512" height="512" rx="96" fill="none" stroke="#1f2744" stroke-width="8"/>
+
+  <!-- Icono de personas (2 siluetas) -->
+  <!-- Persona izquierda -->
+  <circle cx="176" cy="168" r="52" fill="#1f2744"/>
+  <path d="M80 340 Q80 268 176 268 Q224 268 248 296" fill="#1f2744"/>
+
+  <!-- Persona derecha (más grande, en primer plano) -->
+  <circle cx="296" cy="180" r="60" fill="#1a2040"/>
+  <path d="M168 370 Q168 290 296 290 Q424 290 424 370 L424 400 Q424 420 400 420 L192 420 Q168 420 168 400 Z" fill="#1a2040"/>
+
+  <!-- Círculo con check (elemento principal) -->
+  <circle cx="362" cy="342" r="88" fill="url(#bg)" stroke="#1f2744" stroke-width="4"/>
+  <circle cx="362" cy="342" r="80" fill="url(#accent)"/>
+
+  <!-- Check mark -->
+  <polyline points="326,342 350,366 400,308"
+    fill="none"
+    stroke="white"
+    stroke-width="22"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+</svg>

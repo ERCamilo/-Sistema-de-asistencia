@@ -389,6 +389,16 @@ globalThis.eventBus = eventBus;
 globalThis.perfMonitor = perfMonitor;
 globalThis.IndexedDBService = IndexedDBService;
 globalThis.indexedDBService = indexedDBService;
+
+const p2pHeaderReviewInbox = new AttendanceSubmissionInboxStore({ db: indexedDBService });
+globalThis.getSaP2PPendingReviewCount = async () => {
+    try {
+        const groups = await p2pHeaderReviewInbox.listVersionGroups();
+        return groups.filter(group => group?.current?.status === 'pending').length;
+    } catch (_) {
+        return 0;
+    }
+};
 globalThis.Employee = Employee;
 globalThis.Position = Position;
 globalThis.Leader = Leader;

@@ -1,6 +1,8 @@
 import { state } from '../../core/AppState.js';
+import { eventBus } from '../../core/Events.js';
 import { getEntityScope } from '../projects/ProjectContext.js';
 import { p2pPeerAliasStore } from './P2PPeerAliasStore.js';
+import { p2pActivityStore, P2P_ACTIVITY_KINDS, P2P_ACTIVITY_STATUSES, P2P_ACTIVITY_MAX_RECENT, getActivityKindLabel, getActivityStatusLabel } from './P2PActivityStore.js';
 import { P2P_SUCCESS_EVENTS, signalP2PSuccess } from './P2PSuccessFeedback.js';
 import {
   buildSaMiniRosterPayload,
@@ -16,6 +18,7 @@ let activeSession = null;
 let activeChannel = null;
 let activePeer = null;
 let projectSetupListenerAttached = false;
+let headerIndicatorListenerAttached = false;
 let activeMorphCleanup = null;
 
 function esc(value) {
@@ -47,6 +50,144 @@ export function sortPeersByRecentActivity(peers = []) {
 function formatPeerDate(value) {
   const date = new Date(value || '');
   return Number.isFinite(date.getTime()) ? date.toLocaleString('es-DO') : 'Sin registro';
+}
+
+export function formatActivityDate(value) {
+  const date = new Date(value || '');
+  return Number.isFinite(date.getTime()) ? date.toLocaleString('es-DO') : 'Sin registro';
+}
+
+function makeActivityId(prefix) {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return `${prefix}-${crypto.randomUUID()}`;
+  } catch (_) {}
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+}
+
+function safeRecordActivity(entry) {
+  try { const result = p2pActivityStore.recordActivity(entry); scheduleSaP2PHeaderRefresh(); return result; }
+  catch (_) { return null; }
+}
+
+function safeUpdateActivity(id, patch) {
+  try { const result = p2pActivityStore.updateActivity(id, patch); scheduleSaP2PHeaderRefresh(); return result; }
+  catch (_) { return null; }
+}
+
+export function getRecentP2PActivity(limit = P2P_ACTIVITY_MAX_RECENT) {
+  try { return p2pActivityStore.listRecent({ limit }); }
+  catch (_) { return []; }
+}
+
+export function getPendingP2PActivityCount() {
+  try { return p2pActivityStore.getPendingCount(); }
+  catch (_) { return 0; }
+}
+
+export async function getPendingP2PReviewCount() {
+  try {
+    const provider = window.getSaP2PPendingReviewCount;
+    if (typeof provider !== 'function') return 0;
+    const value = await provider();
+    return Number.isSafeInteger(value) && value > 0 ? value : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function saP2PHeaderIndicatorEl() {
+  try { return document.getElementById('header-p2p-indicator'); }
+  catch (_) { return null; }
+}
+
+function isSaP2PChannelLive() {
+  try {
+    if (!activeChannel || activeChannel.readyState !== 'open') return false;
+    return window.SaMiniP2P?.isChannelAuthenticated?.(activeChannel) === true;
+  } catch (_) { return false; }
+}
+
+export async function refreshSaP2PHeaderIndicator() {
+  const button = saP2PHeaderIndicatorEl();
+  if (!button) return 'missing';
+  let peers = [];
+  try { peers = (await store().listPeers()).filter(peer => peer?.peerApp === 'mini'); }
+  catch (_) { peers = []; }
+  const stateName = peers.length === 0 ? 'unlinked' : (isSaP2PChannelLive() ? 'connected' : 'disconnected');
+  const pending = await getPendingP2PReviewCount();
+  const badge = button.querySelector?.('[data-p2p-header-badge]');
+  button.setAttribute('data-p2p-state', stateName);
+  if (badge) {
+    if (pending > 0) { badge.hidden = false; badge.textContent = pending > 99 ? '99+' : String(pending); }
+    else { badge.hidden = true; badge.textContent = ''; }
+  }
+  const stateLabel = stateName === 'connected' ? 'conectado' : stateName === 'disconnected' ? 'vinculado, sin conexión activa' : 'no vinculado';
+  const pendingLabel = pending > 0 ? `. ${pending} pendiente${pending === 1 ? '' : 's'}` : '';
+  button.setAttribute('aria-label', `Mini ${stateLabel}${pendingLabel}. Abrir Transferencias`);
+  button.setAttribute('title', `Mini ${stateLabel}${pendingLabel}`);
+  return stateName;
+}
+
+function scheduleSaP2PHeaderRefresh() {
+  try { Promise.resolve().then(() => refreshSaP2PHeaderIndicator()).catch(() => {}); }
+  catch (_) {}
+}
+
+export function buildPendingBadgeMarkup(pendingCount) {
+  const count = Number(pendingCount);
+  const safe = Number.isSafeInteger(count) && count > 0 ? count : 0;
+  if (safe === 0) return '<span class="sa-p2p-badge" data-p2p-pending-badge hidden aria-hidden="true"></span>';
+  const label = `${safe} pendiente${safe === 1 ? '' : 's'}`;
+  return `<span class="sa-p2p-badge" data-p2p-pending-badge aria-label="${safe} pendientes">${safe}</span><span class="sa-p2p-visually-hidden">${esc(label)}</span>`;
+}
+
+function activityStatusClass(status) {
+  if (status === P2P_ACTIVITY_STATUSES.SUCCESS) return 'is-success';
+  if (status === P2P_ACTIVITY_STATUSES.PARTIAL) return 'is-warning';
+  if (status === P2P_ACTIVITY_STATUSES.ERROR) return 'is-error';
+  return 'is-pending';
+}
+
+export function buildActivityListMarkup(entries = []) {
+  const list = Array.isArray(entries) ? entries.slice(0, P2P_ACTIVITY_MAX_RECENT) : [];
+  if (!list.length) return '<div class="sa-p2p-empty" data-p2p-activity-empty>Sin actividad reciente.</div>';
+  return list.map(entry => {
+    const kindLabel = getActivityKindLabel(entry.kind);
+    const statusLabel = getActivityStatusLabel(entry.status);
+    const peerLabel = String(entry.peerName || 'Mini');
+    const projectLabel = String(entry.projectName || '').trim();
+    const summary = String(entry.summary || '').trim();
+    const when = formatActivityDate(entry.updatedAt || entry.createdAt);
+    const projectLine = projectLabel ? ` · ${esc(projectLabel)}` : '';
+    const summaryLine = summary ? ` · ${esc(summary)}` : '';
+    const hasAudit = Boolean(String(entry.peerId || '').trim() || String(entry.saProjectId || '').trim() || String(entry.id || '').trim());
+    const detailsButton = hasAudit ? `<button type="button" class="sa-p2p-activity-details" data-p2p-activity-details="${esc(entry.id)}" aria-haspopup="dialog" aria-label="Detalles de actividad">Detalles</button>` : '';
+    const auditPopup = hasAudit ? `<div class="sa-p2p-activity-popup" data-p2p-activity-popup="${esc(entry.id)}" role="dialog" aria-label="Detalles de actividad" hidden><div>ID: ${esc(entry.id)}</div>${entry.peerId ? `<div>Mini ID: ${esc(entry.peerId)}</div>` : ''}${entry.saProjectId ? `<div>Proyecto ID: ${esc(entry.saProjectId)}</div>` : ''}<button type="button" data-p2p-activity-close>Cerrar</button></div>` : '';
+    return `<div class="sa-p2p-activity-row" data-p2p-activity-row="${esc(entry.id)}"><div class="sa-p2p-activity-copy"><strong>${esc(kindLabel)} · ${esc(peerLabel)}${projectLine}</strong><div class="sa-p2p-activity-meta">${esc(when)}${summaryLine}</div></div><span class="sa-p2p-activity-status ${activityStatusClass(entry.status)}">${esc(statusLabel)}</span>${detailsButton}${auditPopup}</div>`;
+  }).join('');
+}
+
+export function buildActivitySectionMarkup(entries = [], pendingCount = 0) {
+  const badge = buildPendingBadgeMarkup(pendingCount);
+  return `<section class="sa-p2p-activity" aria-labelledby="sa-p2p-activity-title"><div class="sa-p2p-activity-head"><h3 id="sa-p2p-activity-title">Actividad P2P</h3>${badge}</div><div class="sa-p2p-activity-list" data-p2p-activity-list>${buildActivityListMarkup(entries)}</div><p class="sa-p2p-footnote">Historial local de este SA. No cambia datos ni importa asistencia automáticamente.</p></section>`;
+}
+
+function wireActivityDetails(root) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  root.querySelectorAll('[data-p2p-activity-details]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-p2p-activity-details');
+      const safeId = (globalThis.CSS && typeof globalThis.CSS.escape === 'function') ? globalThis.CSS.escape(id) : id.replace(/[\"\\]/g, '\\$&');
+      const popup = root.querySelector(`[data-p2p-activity-popup="${safeId}"]`);
+      if (popup) popup.hidden = !popup.hidden;
+    });
+  });
+  root.querySelectorAll('[data-p2p-activity-close]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const popup = btn.closest('[data-p2p-activity-popup]');
+      if (popup) popup.hidden = true;
+    });
+  });
 }
 
 function modal() { return document.getElementById(MODAL_ID); }
@@ -146,6 +287,7 @@ function cleanupSession() {
   activeSession = null;
   activeChannel = null;
   activePeer = null;
+  scheduleSaP2PHeaderRefresh();
 }
 
 export function closeP2PRosterTransfer() {
@@ -277,6 +419,8 @@ async function renderHome() {
 
   const selfPresentation = resolveSaSelfPresentationName(projectState, self);
   const pairingGate = getNewPairingProjectGate(projectState);
+  const recentActivity = getRecentP2PActivity(P2P_ACTIVITY_MAX_RECENT);
+  const pendingActivity = getPendingP2PActivityCount();
   setBodyHtml(`
     <section class="sa-p2p-capabilities-wrap" aria-labelledby="sa-p2p-capabilities-title">
       <h3 id="sa-p2p-capabilities-title" class="sa-p2p-section-label">Capacidades</h3>
@@ -294,9 +438,11 @@ async function renderHome() {
       </div>
       <div class="sa-p2p-peer-list">${peerRows}</div>
     </section>
+    ${buildActivitySectionMarkup(recentActivity, pendingActivity)}
     ${pairingGate ? '<div class="sa-p2p-status is-warning">SA se presenta con el nombre oficial del proyecto activo. Configura el proyecto para vincular un Mini.</div>' : ''}
     <div>${button('Vincular Mini', 'data-new-pair aria-label="Vincular un nuevo Mini por QR o código"', 'primary', 'link')}</div>
     <p class="sa-p2p-footnote">Vincular sólo crea una relación segura entre dispositivos. Ningún dato se importa o modifica automáticamente.</p>`);
+  wireActivityDetails(body());
   body().querySelector('[data-new-pair]').classList.add('sa-p2p-link-cta');
   body().querySelector('[data-configure-project]')?.addEventListener('click', () => window.openProjectSetupModal?.());
   body().querySelector('[data-new-pair]').addEventListener('click', startNewPairing);
@@ -416,6 +562,7 @@ function signalPairLinkedFeedback() {
 
 async function renderPairLinked(peer, channel) {
   activePeer = peer;
+  scheduleSaP2PHeaderRefresh();
   let projectState;
   try { projectState = await getProjectSetupState(); }
   catch (error) { projectState = { ready: false, error }; }
@@ -428,7 +575,7 @@ async function renderPairLinked(peer, channel) {
     return;
   }
   setBodyHtml(`<div class="sa-p2p-step">${linkedHeader}<div class="sa-p2p-status">Proyecto: <strong>${esc(projectState.activeProject?.name || projectState.activeProjectId)}</strong></div><label class="sa-p2p-checkbox"><input type="checkbox" data-salary> <span>Incluir sueldo en este roster</span></label><div class="sa-p2p-actions">${button('Enviar roster ahora','data-send-now','primary','send')}${button('Terminar','data-done','secondary')}</div><div class="sa-p2p-status" data-send-status hidden></div></div>`);
-  body().querySelector('[data-send-now]').addEventListener('click', () => { const status=body().querySelector('[data-send-status]'); if(status) status.hidden=false; sendRosterOnChannel(channel, peer, body().querySelector('[data-salary]').checked); });
+  body().querySelector('[data-send-now]').addEventListener('click', () => { const status=body().querySelector('[data-send-status]'); if(status) status.hidden=false; const ctx={ projectName: String(projectState.activeProject?.name || '').trim(), saProjectId: String(projectState.activeProjectId || projectState.activeProject?.id || ''), activityId: makeActivityId('roster') }; sendRosterOnChannel(channel, peer, body().querySelector('[data-salary]').checked === true, ctx); });
   body().querySelector('[data-done]').addEventListener('click', renderHome);
   signalPairLinkedFeedback();
 }
@@ -442,6 +589,7 @@ function renderPairError(error) {
 
 async function connectTrustedAndSend(peerId) {
   cleanupSession();
+  let activityId = null;
   try {
     const projectState = await getProjectSetupState();
     if (!projectState.ready) { notify('Configura un proyecto activo antes de enviar el roster.', 'warning'); await window.openProjectSetupModal?.(); return; }
@@ -450,10 +598,29 @@ async function connectTrustedAndSend(peerId) {
     const peer = await identityStore.getPeer(peerId);
     if (!peer || peer.peerApp !== 'mini') throw new Error('Mini vinculado no encontrado.');
     activePeer = peer;
-    setBodyHtml(`<div class="sa-p2p-step">${backButton()}<div><h3>Enviar roster a ${esc(peerName(peer))}</h3><p>Proyecto: <strong>${esc(projectState.activeProject?.name || projectState.activeProjectId)}</strong>. En Mini abre Transferencias → Personal / Roster → Esperar roster.</p></div><label class="sa-p2p-checkbox"><input type="checkbox" data-salary> <span>Incluir sueldo en esta transferencia</span></label><div class="sa-p2p-status" data-connect-status>Buscando el Mini vinculado…</div></div>`);
-    body().querySelector('[data-back]').addEventListener('click', renderHome);
+    const humanPeer = peerName(peer);
+    const humanProject = String(projectState.activeProject?.name || '').trim();
+    const auditProjectId = String(projectState.activeProjectId || projectState.activeProject?.id || '');
+    activityId = makeActivityId('roster');
+    const activityContext = { projectName: humanProject, saProjectId: auditProjectId, activityId };
+    safeRecordActivity({ id: activityId, kind: P2P_ACTIVITY_KINDS.ROSTER, status: P2P_ACTIVITY_STATUSES.PENDING, peerName: humanPeer, projectName: humanProject, summary: 'Conectando con Mini…', peerId: String(peer?.peerId || ''), saProjectId: auditProjectId });
+    setBodyHtml(`<div class="sa-p2p-step">${backButton()}<div><h3>Enviar roster a ${esc(humanPeer)}</h3><p>Proyecto: <strong>${esc(humanProject || projectState.activeProjectId)}</strong>. Al autenticar, el roster se envía automáticamente una sola vez.</p></div><label class="sa-p2p-checkbox"><input type="checkbox" data-salary> <span>Incluir sueldo en esta transferencia</span></label><div class="sa-p2p-status" data-connect-status>Buscando el Mini vinculado…</div></div>`);
+    body().querySelector('[data-back]').addEventListener('click', () => {
+      safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: 'Transferencia cancelada por el usuario.' });
+      cleanupSession();
+      renderHome();
+    });
     const route = await window.SaMiniP2P.deriveTrustedRoute(peer.linkToken);
     const signaling = new window.SaMiniP2P.SignalingClient({ room: route.room, peerId: self.deviceId, proof: route.proof });
+    let autoSendStarted = false;
+    const triggerAutoSend = (channel) => {
+      if (autoSendStarted) return;
+      autoSendStarted = true;
+      const includeSalaryAtAuth = body()?.querySelector('[data-salary]')?.checked === true;
+      const box = body()?.querySelector('[data-connect-status]');
+      if (box) box.textContent = `${humanPeer} autenticado. Enviando roster automáticamente…`;
+      sendRosterOnChannel(channel, peer, includeSalaryAtAuth, activityContext);
+    };
     activeSession = await window.SaMiniP2P.createRtcSession({
       signaling, initiator: true,
       onState: (status, error) => { const box=body()?.querySelector('[data-connect-status]'); if(box && error) box.textContent='Error: '+error.message; },
@@ -461,16 +628,22 @@ async function connectTrustedAndSend(peerId) {
         activeChannel = channel;
         window.SaMiniP2PPairing.attachTrusted(channel, {
           self, peer, store: identityStore,
-          onAuthenticated: () => {
+          onAuthenticated: () => { scheduleSaP2PHeaderRefresh(); triggerAutoSend(channel); },
+          onError: error => {
             const box=body()?.querySelector('[data-connect-status]');
-            if (box) box.innerHTML = `<div class="sa-p2p-auth-ready"><span>${p2pIcon('link',16)} ${esc(peerName(peer))} autenticado.</span>${button('Enviar roster','data-trusted-send','primary','send')}</div>`;
-            box?.querySelector('[data-trusted-send]')?.addEventListener('click', () => sendRosterOnChannel(channel, peer, body().querySelector('[data-salary]').checked));
-          },
-          onError: error => { const box=body()?.querySelector('[data-connect-status]'); if(box) box.textContent='Autenticación falló: '+error.message; }
+            if (box) box.textContent='Autenticación falló: '+error.message;
+            safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: String(error?.message || 'Autenticación falló').slice(0, 280) });
+          }
         });
       }
     });
-  } catch (error) { notify(error.message || error,'error'); renderHome(); }
+  } catch (error) {
+    try {
+      if (activityId) safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: String(error?.message || error || 'Error de conexión').slice(0, 280) });
+    } catch (_) {}
+    notify(error.message || error,'error');
+    renderHome();
+  }
 }
 
 function waitForRosterStageAck(channel, transfer, timeoutMs = 15000) {
@@ -504,8 +677,13 @@ function waitForRosterStageAck(channel, transfer, timeoutMs = 15000) {
   });
 }
 
-async function sendRosterOnChannel(channel, peer, includeSalary) {
+async function sendRosterOnChannel(channel, peer, includeSalary, activityContext = {}) {
   const status = body()?.querySelector('[data-send-status]') || body()?.querySelector('[data-connect-status]');
+  const humanPeer = peerName(peer);
+  const humanProject = String(activityContext.projectName || '').trim();
+  const auditProjectId = String(activityContext.saProjectId || '');
+  const activityId = String(activityContext.activityId || makeActivityId('roster'));
+  safeRecordActivity({ id: activityId, kind: P2P_ACTIVITY_KINDS.ROSTER, status: P2P_ACTIVITY_STATUSES.PENDING, peerName: humanPeer, projectName: humanProject, summary: 'Enviando roster…', peerId: String(peer?.peerId || ''), saProjectId: auditProjectId });
   try {
     const { payload, text } = await buildRosterText(includeSalary);
     if (status) status.textContent = `Preparando ${payload.employees.length} empleados…`;
@@ -515,7 +693,8 @@ async function sendRosterOnChannel(channel, peer, includeSalary) {
     });
     if (status) status.textContent = 'Bytes enviados. Esperando validación de Mini…';
     await waitForRosterStageAck(channel, transfer);
-    if (status) { status.classList.add('is-success'); status.innerHTML = `<strong>${p2pIcon('link', 15)} Roster recibido y validado por ${esc(peerName(peer))}</strong><br><span>Mini todavía debe revisarlo y confirmar la importación.</span>`; }
+    safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.SUCCESS, summary: `${payload.employees.length} empleados validados` });
+    if (status) { status.classList.add('is-success'); status.innerHTML = `<strong>${p2pIcon('link', 15)} Roster recibido y validado por ${esc(humanPeer)}</strong><br><span>Mini todavía debe revisarlo y confirmar la importación.</span>`; }
     try {
       signalP2PSuccess(P2P_SUCCESS_EVENTS.ROSTER_VALIDATED, {
         message: 'Roster enviado y validado por Mini',
@@ -527,6 +706,7 @@ async function sendRosterOnChannel(channel, peer, includeSalary) {
       notify('Roster enviado y validado por Mini', 'success');
     }
   } catch (error) {
+    safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: String(error?.message || error || 'Error').slice(0, 280) });
     if (status) { status.classList.add('is-error'); status.innerHTML = `<strong>Error:</strong> ${esc(error.message || error)}`; }
   }
 }
@@ -541,6 +721,12 @@ export async function openP2PRosterTransfer() {
 export function registerP2PRosterGlobals() {
   window.openP2PRosterTransfer = openP2PRosterTransfer;
   window.closeP2PRosterTransfer = closeP2PRosterTransfer;
+  window.refreshSaP2PHeaderIndicator = refreshSaP2PHeaderIndicator;
+  if (!headerIndicatorListenerAttached) {
+    eventBus.on('render:complete', () => scheduleSaP2PHeaderRefresh());
+    headerIndicatorListenerAttached = true;
+  }
+  scheduleSaP2PHeaderRefresh();
   if (!projectSetupListenerAttached) {
     window.addEventListener('projects:setup-changed', () => {
       if (modal()) renderHome().catch(error => notify(error.message || error, 'error'));

@@ -130,9 +130,9 @@ describe('Block B item 9 — Transferencias as first-class header action', () =>
       if (global.window) global.window.currentUser = { displayName: 'Erlin Camilo', email: 'e@x.com' };
       const html = renderHeader();
       expect(html).toContain('data-header-action="open-p2p-transfer"');
-      expect(html).toContain('aria-label="Transferencias directas"');
-      expect(html).toContain('Transferencias directas SA');
-      expect(html).toContain('header-transfer-icon');
+      expect(html).toContain('aria-label="Mini no vinculado. Abrir Transferencias"');
+      expect(html).toContain('mini-app-icon.svg');
+      expect(html).toContain('header-p2p-ring');
       // Export/backup semantics stay intact and distinct.
       expect(html).toContain('data-header-action="export-data"');
       expect(html).toContain('aria-label="Exportar Backup"');
@@ -148,18 +148,18 @@ describe('Block B item 9 — Transferencias as first-class header action', () =>
     }
   });
 
-  test('transfer action uses vector SVG only with an accessible 44px target', () => {
+  test('transfer action uses the real Mini SVG app icon with an accessible 44px target', () => {
     const html = renderHeader();
     const btnStart = html.indexOf('data-header-action="open-p2p-transfer"');
     const btnEnd = html.indexOf('</button>', btnStart);
     const btn = html.slice(html.lastIndexOf('<button', btnStart), btnEnd);
-    expect(btn).toContain('<svg');
-    expect(btn).toContain('aria-hidden="true"');
+    expect(btn).toContain('mini-app-icon.svg');
+    expect(btn).toContain('header-p2p-ring');
     expect(btn).not.toMatch(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\u2B00-\u2BFF]/u);
-    expect(btn).toContain('header-icon-btn');
+    expect(btn).toContain('header-p2p-indicator');
     const css = read('css/header.css');
-    expect(css).toContain('.header-transfer-icon');
-    expect(css).toMatch(/\.header-icon-btn \{[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;/);
+    expect(css).toContain('.header-p2p-ring');
+    expect(css).toMatch(/\.header-p2p-indicator \{[^}]*min-width:\s*48px;[^}]*min-height:\s*48px;/);
     expect(css).toMatch(/@media\s*\(max-width:\s*640px\)/);
   });
 

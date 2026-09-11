@@ -344,3 +344,11 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
    * Vista en tabla con estética limpia, selector inline de horas y separación visual clara entre empleados. Los estados de conflicto usan etiquetas **sólidas** con relleno semántico y texto claro; los estados resueltos usan un **SVG checkmark** en lugar de una etiqueta textual `Resuelto`. Botón `Volver a la vista general`.
 5. **Paso 4: Resumen Final**:
    * Estilo `readySection`: Gran check verde circular animado con `popIn`, resumen de filas aprobadas e ignoradas en caja estilizada, y botón definitivo `Aplicar asistencia a SA`.
+
+## Indicador de conexión entre aplicaciones
+- El acceso P2P del header representa siempre la **otra aplicación**, no una flecha genérica: SA muestra el icono oficial de Mini y Mini muestra el icono oficial de SA.
+- El control es circular, táctil (mínimo 44×44 px) y utiliza un aro de estado: **no vinculado** = aro gris discontinuo; **vinculado sin conexión activa** = aro gris continuo; **conexión autenticada activa** = aro verde.
+- El icono se mantiene monocromático o atenuado mientras no exista conexión activa y recupera su color al conectarse.
+- Un pequeño punto refuerza el estado del aro. Un badge rojo numerado se reserva exclusivamente para **datos nuevos o trabajo pendiente de revisión**; no debe usarse para decoración ni para conteos históricos.
+- El badge se oculta cuando su valor es 0 y debe usar números compactos (`99+` como máximo visual). El nombre accesible del botón comunica app remota, estado, pendientes y acción disponible.
+- Los IDs técnicos nunca sustituyen al icono, alias o nombre humano en el header.

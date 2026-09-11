@@ -1300,6 +1300,7 @@ export class MiniAttendanceImportModal {
             )));
             const byId = new Map(persisted.map(record => [record.submissionId, record]));
             this.savedDrafts = this.savedDrafts.map(draft => byId.get(draft.submissionId) || draft);
+            try { globalThis.refreshSaP2PHeaderIndicator?.(); } catch (_) {}
         } catch (err) {
             console.warn('No se pudo marcar el borrador como revisado:', err);
         }
@@ -1323,6 +1324,7 @@ export class MiniAttendanceImportModal {
             this.savedDrafts = await this.inboxStore.list(
                 this.saProjectId ? { saProjectId: this.saProjectId } : null
             );
+            try { globalThis.refreshSaP2PHeaderIndicator?.(); } catch (_) {}
             const completedCount = drafts.length;
             this.selectedDraftIds.clear();
             this.consolidatedResult = null;
