@@ -964,7 +964,7 @@ describe('MiniAttendanceImportModal — Connected Mode Async Behavior', () => {
         // In-flight state: onRequestSubmissions called once
         expect(onRequestSpy).toHaveBeenCalledTimes(1);
         expect(modal.isFetchingConnected).toBe(true);
-        expect(modal.transportStatusMessage).toContain('Solicitando');
+        expect(modal.transportStatusMessage).toContain('Transfiriendo');
 
         // 2. Click again while in-flight: must NOT trigger second request (duplicate click prevention)
         fetchBtn.click();

@@ -235,7 +235,7 @@ describe('MiniAttendanceImportModal — Conectados vs Pegar texto slice', () => 
         // Verify proposal seam banner is present
         const proposalSeam = host.querySelector('[data-mini-proposal-seam]');
         expect(proposalSeam).not.toBeNull();
-        expect(proposalSeam.textContent).toContain('Resolución Mini ↔ Mini');
+        expect(proposalSeam.textContent).toContain('Consolidar Minis');
         expect(proposalSeam.textContent).toContain('SA no participa todavía');
     });
 
@@ -399,10 +399,10 @@ describe('MiniAttendanceImportModal — All-Mini Progress, Cancel, Partial, Retr
         progressCallback({
             peerId: 'peer-mini-1',
             state: 'requesting',
-            message: 'Solicitando asistencia a Mini Obra 1…'
+            message: 'Transfiriendo asistencia desde Mini Obra 1…'
         });
         expect(badge.dataset.miniPeerState).toBe('requesting');
-        expect(badge.textContent).toBe('Solicitando…');
+        expect(badge.textContent).toBe('Transfiriendo…');
         expect(badge.classList.contains('is-active')).toBe(true);
         expect(renderSpy).toHaveBeenCalledTimes(1); // NO full render!
 
@@ -513,7 +513,7 @@ describe('MiniAttendanceImportModal — All-Mini Progress, Cancel, Partial, Retr
         // Retry failed button is visible
         const retryFailedBtn = host.querySelector('[data-mini-action="retry-failed"]');
         expect(retryFailedBtn).not.toBeNull();
-        expect(retryFailedBtn.textContent).toContain('Reintentar fallidos (1)');
+        expect(retryFailedBtn.textContent).toContain('Reintentar transferencia (1)');
 
         // Per-peer retry button is also visible on row 2
         const peerRetryBtn = host.querySelector('[data-mini-action="retry-peer"][data-mini-target-peer-id="peer-mini-2"]');
@@ -577,7 +577,7 @@ describe('MiniAttendanceImportModal — All-Mini Progress, Cancel, Partial, Retr
         expect(modal.connectionState).toBe('partial_success');
         expect(modal.failedMiniTargets).toEqual(['peer-mini-2']);
 
-        // Click "Reintentar fallidos"
+        // Click "Reintentar transferencia"
         const retryBtn = host.querySelector('[data-mini-action="retry-failed"]');
         expect(retryBtn).not.toBeNull();
         retryBtn.click();

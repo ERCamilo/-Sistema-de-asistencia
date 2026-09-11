@@ -171,7 +171,7 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         await inbox.importSubmission(buildSubmission({ id: b, workDate: '2026-09-08', deviceId: 'mini-b', rows: [
             { miniLocalId: 'b1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' },
             { miniLocalId: 'b2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 2, status: 'present', saEmployeeId: 'EMP-002' }
-        ] }), { expectedSaProjectId: SA_PROJECT });
+        ] }), { expectedSaProjectId: SA_PROJECT, metadata: { sourcePeerName: 'Mini Cuadrilla B' } });
 
         const modal = makeModal({ db, employees, positions, attendance, applyPlan });
         modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
@@ -179,12 +179,12 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         await modal.consolidateSelectedDrafts();
 
         const firstMiniB = [...host.querySelectorAll('[data-mini-action="resolve-hours"]')]
-            .find(button => button.textContent.includes('mini-b'));
+            .find(button => button.textContent.includes('Mini Cuadrilla B'));
         expect(firstMiniB).toBeDefined();
         firstMiniB.click(); await wait();
         const selected = host.querySelector('[data-mini-action="resolve-hours"].is-selected[aria-pressed="true"]');
         expect(selected).not.toBeNull();
-        expect(selected.textContent).toContain('mini-b');
+        expect(selected.textContent).toContain('Mini Cuadrilla B');
         expect(selected.querySelector('svg.mini-source-choice-check')).not.toBeNull();
 
         const bulk = host.querySelector('[data-mini-action="use-day-source"][data-mini-device-id="mini-b"]');
@@ -194,7 +194,7 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         expect(modal.multiDayResolver.getDayState('2026-09-08').items.every(item => item.resolutionSource?.deviceId === 'mini-b')).toBe(true);
         const selectedButtons = [...host.querySelectorAll('[data-mini-action="resolve-hours"].is-selected')];
         expect(selectedButtons).toHaveLength(2);
-        expect(selectedButtons.every(button => button.textContent.includes('mini-b'))).toBe(true);
+        expect(selectedButtons.every(button => button.textContent.includes('Mini Cuadrilla B'))).toBe(true);
     });
 
     test('footer can save a day pending or confirm it and continue to the next day', async () => {

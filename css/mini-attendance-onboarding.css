@@ -2552,6 +2552,36 @@
 .mini-import-overtime-option:focus-within { outline: 2px solid var(--mini-accent); outline-offset: 2px; }
 
 
+/* Exception-first day review: pending rows surface first; resolved rows collapse
+   behind a compact toggle. SA comparison adds day-level bulk for safe hours-only rows. */
+.mini-sa-bulk-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--mini-border);
+    background: var(--mini-panel);
+}
+.mini-sa-bulk-actions .mini-import-action {
+    min-height: 44px;
+    min-width: 44px;
+}
+.mini-resolved-toggle-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 10px 16px;
+    border-top: 1px dashed var(--mini-border);
+    background: var(--mini-panel);
+}
+.mini-resolved-toggle.mini-import-action {
+    min-height: 44px;
+    min-width: 44px;
+}
+.mini-consolidation-resolved-list {
+    border-top: 1px dashed var(--mini-border);
+}
+
 /* Mini↔Mini day review: explicit source choice and fast day-level actions. */
 .mini-day-source-actions {
     display: flex;
@@ -2620,9 +2650,56 @@
     justify-self: end;
 }
 .mini-day-review-actions .mini-import-action { min-height: 46px; }
+
+/* P2P UX polish 3: technical identifiers live only in an optional disclosure. */
+.mini-technical-details {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+    border: 1px dashed var(--mini-border);
+    border-radius: 10px;
+    background: var(--mini-panel-2);
+    padding: 0 10px;
+}
+.mini-technical-details summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--mini-text-dim);
+}
+.mini-technical-details summary:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 2px;
+}
+.mini-technical-details-list {
+    display: grid;
+    gap: 4px;
+    padding: 0 0 10px;
+}
+.mini-technical-details-row {
+    font-size: 11px;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--mini-text-faint);
+    overflow-wrap: anywhere;
+}
+.mini-import-draft-info .mini-technical-details {
+    margin-top: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+    .mini-technical-details,
+    .mini-technical-details summary {
+        transition: none !important;
+        animation: none !important;
+    }
+}
 @media (max-width: 640px) {
-    .mini-day-source-actions { align-items: stretch; flex-direction: column; }
-    .mini-day-source-actions .mini-import-action { width: 100%; }
+    .mini-day-source-actions,
+    .mini-sa-bulk-actions { align-items: stretch; flex-direction: column; }
+    .mini-day-source-actions .mini-import-action,
+    .mini-sa-bulk-actions .mini-import-action,
+    .mini-resolved-toggle-wrap .mini-import-action { width: 100%; }
     .mini-consolidation-batch-actions { grid-template-columns: 1fr; }
     .mini-consolidation-day-pager,
     .mini-day-review-actions,

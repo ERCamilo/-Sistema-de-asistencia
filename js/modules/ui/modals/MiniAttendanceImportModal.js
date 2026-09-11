@@ -25,7 +25,8 @@ import {
     buildConsolidationProposal
 } from '../../features/attendance/AttendanceConsolidation.js';
 import {
-    createMultiDayAttendanceResolver
+    createMultiDayAttendanceResolver,
+    isSafeBulkSaConflict
 } from '../../features/attendance/MultiDayAttendanceResolver.js';
 
 let nextControlId = 1;
@@ -144,7 +145,69 @@ function isIncorporatedDraft(draft) {
     return draft?.status === 'incorporated' || draft?.status === 'imported';
 }
 
-function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini', subtitle = '', chipText = '', onClose = null) {
+function humanMiniLabel(mini) {
+    if (!mini || typeof mini !== 'object') return 'Mini';
+    const alias = typeof mini.alias === 'string' ? mini.alias.trim() : '';
+    const name = typeof mini.name === 'string' ? mini.name.trim() : '';
+    const displayName = typeof mini.displayName === 'string' ? mini.displayName.trim() : '';
+    if (name && alias && alias !== name) return `${name} (${alias})`;
+    return name || alias || displayName || 'Mini';
+}
+
+function humanSourceLabel(source) {
+    if (!source || typeof source !== 'object') return 'Mini';
+    const peerName = typeof source.sourcePeerName === 'string' ? source.sourcePeerName.trim() : '';
+    if (peerName) return peerName;
+    return 'Mini';
+}
+
+function humanDraftSourceLabel(draft) {
+    const peerName = draft?.metadata?.sourcePeerName || draft?.sourceSnapshot?.scope?.sourcePeerName;
+    if (typeof peerName === 'string' && peerName.trim()) return peerName.trim();
+    return 'Mini desconocido';
+}
+
+function technicalDetailsDisclosure(lines) {
+    const items = Array.isArray(lines) ? lines.filter(text => typeof text === 'string' && text.trim()) : [];
+    if (!items.length) return null;
+    const details = element('details', null, {
+        className: 'mini-technical-details',
+        dataset: { miniTechnicalDetails: '' }
+    });
+    details.append(element('summary', 'Detalles técnicos'));
+    const list = element('div', null, { className: 'mini-technical-details-list' });
+    items.forEach(text => list.append(element('div', text, { className: 'mini-technical-details-row' })));
+    details.append(list);
+    return details;
+}
+
+function draftTechnicalLines(draft) {
+    const snapshot = draft?.sourceSnapshot || {};
+    return [
+        draft?.submissionId ? `Envío: ${draft.submissionId}` : '',
+        snapshot?.submissionId && snapshot.submissionId !== draft?.submissionId ? `Envío original: ${snapshot.submissionId}` : '',
+        snapshot?.deviceId ? `Dispositivo: ${snapshot.deviceId}` : '',
+        draft?.metadata?.sourcePeerId ? `Mini (técnico): ${draft.metadata.sourcePeerId}` : '',
+        snapshot?.scope?.sourceId ? `Origen: ${snapshot.scope.sourceId}` : ''
+    ];
+}
+
+function consolidationTechnicalLines(item) {
+    const lines = [];
+    if (item?.saEmployeeId) lines.push(`Empleado SA (técnico): ${item.saEmployeeId}`);
+    const seen = new Set();
+    (item?.sources || []).forEach(source => {
+        const key = `${source?.submissionId || ''}|${source?.deviceId || ''}|${source?.sourcePeerId || ''}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        if (source?.submissionId) lines.push(`Envío: ${source.submissionId}`);
+        if (source?.deviceId) lines.push(`Dispositivo: ${source.deviceId}`);
+        if (source?.sourcePeerId) lines.push(`Mini (técnico): ${source.sourcePeerId}`);
+    });
+    return lines;
+}
+
+function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini', subtitle = '', chipText = '', onClose = null, progressOptions = null) {
     const bar = element('div', null, { className: 'mini-import-topbar' });
     const brand = element('div', null, { className: 'mini-import-topbar-brand' });
     const img = element('img', null, { src: 'icon-512.png', alt: '', width: '28', height: '28' });
@@ -160,7 +223,10 @@ function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini'
     if (chipText) {
         rightGroup.append(element('div', chipText, { className: 'mini-import-chip mini-import-topbar-chip' }));
     }
-    const stepEl = element('div', `${step}/${totalSteps}`, { className: 'mini-import-topbar-step' });
+    const stepText = progressOptions?.stepText || `${step}/${totalSteps}`;
+    const stepEl = element('div', stepText, { className: 'mini-import-topbar-step' });
+    if (progressOptions?.stepAriaLabel) stepEl.setAttribute('aria-label', progressOptions.stepAriaLabel);
+    else stepEl.setAttribute('aria-label', subtitle || `${step} de ${totalSteps}`);
     rightGroup.append(stepEl);
 
     if (onClose) {
@@ -175,9 +241,22 @@ function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini'
         rightGroup.append(closeBtn);
     }
 
+    const now = Number.isFinite(Number(progressOptions?.now)) ? Number(progressOptions.now) : step;
+    const min = Number.isFinite(Number(progressOptions?.min)) ? Number(progressOptions.min) : 1;
+    const max = Number.isFinite(Number(progressOptions?.max)) && Number(progressOptions.max) > 0
+        ? Number(progressOptions.max)
+        : totalSteps;
+    const safeMax = max > 0 ? max : 1;
+    const safeNow = Math.max(min, Math.min(now, safeMax));
+    const percent = Math.round((safeNow / safeMax) * 100);
     const progress = element('div', null, {
         className: 'mini-import-progress-bar',
-        style: `width: ${Math.round((step / totalSteps) * 100)}%;`
+        style: `width: ${percent}%;`,
+        role: 'progressbar',
+        'aria-valuemin': String(min),
+        'aria-valuemax': String(safeMax),
+        'aria-valuenow': String(safeNow),
+        'aria-label': progressOptions?.ariaLabel || subtitle || title
     });
     bar.append(brand, rightGroup, progress);
     return bar;
@@ -347,6 +426,7 @@ export class MiniAttendanceImportModal {
         this.showDetailedTable = false;
         this.dateCardCollapsed = false;
         this.allocationCardCollapsed = true;
+        this.resolvedRowsExpanded = new Map();
         this._modalLayoutSignature = null;
         this._activeMorphCleanup = null;
     }
@@ -828,6 +908,7 @@ export class MiniAttendanceImportModal {
         this.connectedView = 'sa-comparison';
         this.consolidationDayIndex = 0;
         this.resumableConsolidation = this.activeConsolidationRecord;
+        this.clearResolvedRowsExpansion();
         this.render();
     }
 
@@ -866,6 +947,7 @@ export class MiniAttendanceImportModal {
         const firstPending = miniStage ? dates.findIndex(date => this.multiDayResolver.getDayState(date)?.status !== 'mini_day_completed') : 0;
         this.consolidationDayIndex = firstPending >= 0 ? firstPending : Math.max(0, dates.length - 1);
         this.connectedView = miniStage ? 'consolidation' : 'sa-comparison';
+        this.clearResolvedRowsExpansion();
         this.render();
     }
 
@@ -891,6 +973,7 @@ export class MiniAttendanceImportModal {
         this.consolidationDayIndex = 0;
         this.selectedDraftIds.clear();
         this.connectedView = 'inbox';
+        this.clearResolvedRowsExpansion();
         await this.loadResumableConsolidation();
         this.render();
     }
@@ -1086,6 +1169,7 @@ export class MiniAttendanceImportModal {
         });
         this.connectedView = 'consolidation';
         this.consolidationDayIndex = 0;
+        this.clearResolvedRowsExpansion();
         this.reviewStatusPromise = this.markDraftsReviewed(drafts);
         // Render the Mini↔Mini step immediately; persistence then completes in the
         // same action without blocking the modal transition.
@@ -1134,14 +1218,14 @@ export class MiniAttendanceImportModal {
         });
 
         if (isRetry) {
-            this.transportStatusMessage = `Reintentando ${targetMiniIds.length} Mini(s) fallido(s)...`;
+            this.transportStatusMessage = `Reintentando transferencia de ${targetMiniIds.length} Mini(s)...`;
         } else if (requestedMiniId) {
             const targetName = activeTargets[0]?.name || 'Mini vinculado';
-            this.transportStatusMessage = `Solicitando asistencia a ${targetName}...`;
+            this.transportStatusMessage = `Transfiriendo asistencia desde ${targetName}...`;
         } else {
             this.transportStatusMessage = this.linkedMinis.length > 1
-                ? `Solicitando asistencia a ${this.linkedMinis.length} Minis vinculados...`
-                : 'Solicitando asistencia al Mini vinculado...';
+                ? `Transfiriendo asistencia desde ${this.linkedMinis.length} Minis vinculados...`
+                : 'Transfiriendo asistencia desde el Mini vinculado...';
         }
 
         // Render once at start to mount in-flight UI, cancel button, and initial progress state
@@ -1184,15 +1268,15 @@ export class MiniAttendanceImportModal {
             const stillHasFailures = this.failedMiniTargets.length > 0;
             if (result?.hasPartialError || result?.status === 'partial_success' || stillHasFailures) {
                 this.connectionState = 'partial_success';
-                const baseMessage = result?.message || 'Asistencia recibida parcialmente de algunos Minis.';
+                const baseMessage = result?.message || 'Asistencia transferida parcialmente desde algunos Minis.';
                 this.transportStatusMessage = stillHasFailures && isRetry
-                    ? `${baseMessage} · ${this.failedMiniTargets.length} Mini(s) aún pendientes de reintento.`
+                    ? `${baseMessage} · ${this.failedMiniTargets.length} Mini(s) aún pendientes de transferir.`
                     : baseMessage;
             } else {
                 this.connectionState = 'success';
                 const count = result?.importedCount ?? (Array.isArray(result?.submissions) ? result.submissions.length : (result?.totalSubmissions ?? ''));
                 const countText = count !== '' ? ` (${count} importados)` : '';
-                this.transportStatusMessage = result?.message || `✓ Asistencia recibida y guardada en borrador${countText}.`;
+                this.transportStatusMessage = result?.message || `Asistencia transferida y guardada en borrador${countText}.`;
             }
         } catch (error) {
             if (this.inboxStore) {
@@ -1209,7 +1293,7 @@ export class MiniAttendanceImportModal {
 
             if (isAbort) {
                 this.connectionState = 'cancelled';
-                this.transportStatusMessage = 'Solicitud cancelada por el usuario.';
+                this.transportStatusMessage = 'Transferencia cancelada por el usuario.';
             } else {
                 this.connectionState = 'error';
                 this.transportStatusMessage = `Error: ${error.message || error}`;
@@ -1296,7 +1380,7 @@ export class MiniAttendanceImportModal {
         switch (state) {
             case 'connecting': return 'Conectando…';
             case 'authenticating': return 'Autenticando…';
-            case 'requesting': return 'Solicitando…';
+            case 'requesting': return 'Transfiriendo…';
             case 'receiving': return 'Recibiendo…';
             case 'success': return 'Completado';
             case 'timeout': return 'Tiempo agotado';
@@ -1382,21 +1466,57 @@ export class MiniAttendanceImportModal {
         const connectedStep = this.connectedView === 'inbox' ? 2
             : this.connectedView === 'consolidation' ? 3
                 : this.connectedView === 'sa-comparison' ? 4 : 1;
-        const subtitle = this.connectedView === 'inbox'
+        let subtitle = this.connectedView === 'inbox'
             ? 'Paso 2 · Bandeja de borradores'
             : this.connectedView === 'consolidation'
-                ? 'Paso 3 · Resolver Minis'
+                ? 'Consolidar Minis'
                 : this.connectedView === 'sa-comparison'
-                    ? 'Paso 4 · Comparar consolidado con SA'
-                    : 'Paso 1 · Solicitar asistencia';
-        const chip = this.connectedView === 'inbox'
+                    ? 'Comparar con SA'
+                    : 'Paso 1 · Transferir desde Mini';
+        let chip = this.connectedView === 'inbox'
             ? 'BANDEJA'
             : this.connectedView === 'consolidation'
-                ? 'MINI ↔ MINI'
+                ? 'CONSOLIDAR'
                 : this.connectedView === 'sa-comparison'
-                    ? 'MINI ↔ SA'
-                    : 'CONECTADOS';
-        section.append(renderTopbar(connectedStep, 4, 'Importar asistencia desde Mini', subtitle, chip, () => this.close()));
+                    ? 'COMPARAR'
+                    : 'TRANSFERIR';
+        let topbarStep = connectedStep;
+        let topbarTotal = 4;
+        let topbarProgress = null;
+        if (this.connectedView === 'consolidation' || this.connectedView === 'sa-comparison') {
+            const isMiniStage = this.multiDayResolver?.stage === 'mini' || this.connectedView === 'consolidation';
+            const stageLabel = isMiniStage ? 'Consolidar Minis' : 'Comparar con SA';
+            const dates = this.multiDayResolver?.workDates || this.consolidatedResult?.workDates || [];
+            const totalDays = Array.isArray(dates) ? dates.length : 0;
+            if (totalDays > 0) {
+                const currentDay = Math.max(1, Math.min(this.consolidationDayIndex + 1, totalDays));
+                const dayText = `Día ${currentDay} de ${totalDays}`;
+                subtitle = `${stageLabel} · ${dayText}`;
+                chip = isMiniStage ? 'CONSOLIDAR' : 'COMPARAR';
+                topbarStep = currentDay;
+                topbarTotal = totalDays;
+                topbarProgress = {
+                    stepText: dayText,
+                    stepAriaLabel: subtitle,
+                    now: currentDay,
+                    min: 1,
+                    max: totalDays,
+                    ariaLabel: subtitle
+                };
+            } else {
+                subtitle = stageLabel;
+                chip = isMiniStage ? 'CONSOLIDAR' : 'COMPARAR';
+                topbarProgress = {
+                    stepText: stageLabel,
+                    stepAriaLabel: subtitle,
+                    now: 1,
+                    min: 1,
+                    max: 1,
+                    ariaLabel: subtitle
+                };
+            }
+        }
+        section.append(renderTopbar(topbarStep, topbarTotal, 'Importar asistencia desde Mini', subtitle, chip, () => this.close(), topbarProgress));
         const content = element('div', null, { className: 'mini-import-content-gutter' });
         if (this.connectedView === 'request') content.append(this.renderModeTabs());
 
@@ -1416,7 +1536,7 @@ export class MiniAttendanceImportModal {
             });
             selector.append(defaultOpt);
             this.linkedMinis.forEach(mini => {
-                const opt = element('option', `${mini.name || 'Mini'} (${mini.deviceId || mini.id})`, {
+                const opt = element('option', humanMiniLabel(mini), {
                     value: mini.id || mini.deviceId,
                     selected: Boolean(this.selectedMiniId) && (mini.id || mini.deviceId) === this.selectedMiniId
                 });
@@ -1431,11 +1551,20 @@ export class MiniAttendanceImportModal {
             this.render();
         });
 
-        const hint = element('p', 'Vincula dispositivos Mini desde Ajustes P2P para sincronización directa.', {
+        const hint = element('p', 'Vincula dispositivos Mini desde Ajustes P2P para transferencia directa.', {
             className: 'mini-import-hint',
             dataset: { miniConnectedHint: '' }
         });
         selectionSection.append(selectLabel, selector, hint);
+        if (this.linkedMinis.length > 0) {
+            const linkedTechnical = this.linkedMinis.map(mini => {
+                const human = humanMiniLabel(mini);
+                const technicalId = mini.deviceId || mini.id || mini.peerId || '';
+                return technicalId ? `${human} · ID: ${technicalId}` : '';
+            });
+            const linkedDetails = technicalDetailsDisclosure(linkedTechnical);
+            if (linkedDetails) selectionSection.append(linkedDetails);
+        }
 
         // 2. Day / Range controls + Grouping mode
         const dateSection = element('div', null, { className: 'mini-import-date-controls', dataset: { miniDateControls: '' } });
@@ -1495,7 +1624,7 @@ export class MiniAttendanceImportModal {
         const actionsContainer = element('div', null, { className: 'mini-import-connected-actions' });
 
         const fetchBtn = actionButton(
-            this.isFetchingConnected ? 'Solicitando...' : (this.connectionState === 'error' ? 'Reintentar solicitud' : 'Solicitar asistencia al Mini'),
+            this.isFetchingConnected ? 'Transfiriendo...' : (this.connectionState === 'error' ? 'Reintentar transferencia' : 'Transferir asistencia desde Mini'),
             'fetch-connected',
             this.isFetchingConnected
         );
@@ -1513,7 +1642,7 @@ export class MiniAttendanceImportModal {
 
         if (!this.isFetchingConnected && this.failedMiniTargets.length > 0) {
             const retryBtn = actionButton(
-                `Reintentar fallidos (${this.failedMiniTargets.length})`,
+                `Reintentar transferencia (${this.failedMiniTargets.length})`,
                 'retry-failed'
             );
             retryBtn.classList.add('mini-import-retry-btn');
@@ -1547,9 +1676,7 @@ export class MiniAttendanceImportModal {
                 const peerId = mini.id || mini.peerId || mini.deviceId;
                 const progress = this.peerProgress.get(peerId);
                 const currentState = progress?.state || 'pending';
-                const displayName = mini.alias && mini.alias !== mini.name
-                    ? `${mini.name} (${mini.alias})`
-                    : (mini.name || mini.displayName || 'Mini');
+                const displayName = humanMiniLabel(mini);
                 const lastSeenText = `Última vez: ${formatMiniDate(mini.lastSeenAt)}`;
 
                 const row = element('div', null, {
@@ -1685,7 +1812,7 @@ export class MiniAttendanceImportModal {
                 const checkbox = element('input', null, { type: 'checkbox', checked: isChecked, disabled: incorporated, dataset: { miniDraftCheckbox: draft.submissionId } });
                 checkbox.addEventListener('change', () => this.toggleVersionGroupSelection(group, checkbox.checked));
                 const info = element('div', null, { className: 'mini-import-draft-info' });
-                const sourceName = draft.metadata?.sourcePeerName || draft.metadata?.sourcePeerId || draft.sourceSnapshot?.scope?.sourceId || draft.sourceSnapshot?.deviceId || 'Mini desconocido';
+                const sourceName = humanDraftSourceLabel(draft);
                 const statusLabel = draft.status === 'pending' ? 'Nuevo' : draft.status === 'reviewed' ? 'No incorporado' : incorporated ? 'Incorporado' : draft.status || 'No incorporado';
                 const headline = element('div', null, { className: 'mini-import-draft-title' });
                 headline.append(element('strong', displayDate(draft.workDate) || draft.workDate), element('span', sourceName, { className: 'mini-import-draft-source' }));
@@ -1696,6 +1823,8 @@ export class MiniAttendanceImportModal {
                 );
                 if (group.updateCount > 0) meta.append(element('span', `Actualizado ${group.updateCount} ${group.updateCount === 1 ? 'vez' : 'veces'}`));
                 info.append(headline, meta);
+                const draftDetails = technicalDetailsDisclosure(draftTechnicalLines(draft));
+                if (draftDetails) info.append(draftDetails);
 
                 if (original?.submissionId !== draft?.submissionId) {
                     const choices = element('div', null, { className: 'mini-import-version-choices', dataset: { miniVersionChoices: group.seriesKey } });
@@ -1743,7 +1872,7 @@ export class MiniAttendanceImportModal {
                 element('h3', 'Bandeja de borradores'),
                 element('p', this.getVersionGroups().length
                     ? `${this.getVersionGroups().length} fuente${this.getVersionGroups().length === 1 ? '' : 's'}/día guardada${this.getVersionGroups().length === 1 ? '' : 's'} para revisar cuando quieras.`
-                    : 'Las respuestas recibidas se guardan aquí sin modificar la asistencia oficial de SA.')
+                    : 'Las transferencias recibidas se guardan aquí sin aplicar nada en SA.')
             );
             const openInboxBtn = actionButton(
                 `Revisar borradores (${this.getVersionGroups().length})`,
@@ -1759,10 +1888,10 @@ export class MiniAttendanceImportModal {
 
         if (this.connectedView === 'inbox') {
             const nav = element('div', null, { className: 'mini-import-connected-nav' });
-            const back = actionButton('← Volver a solicitar', 'back-connected-request');
+            const back = actionButton('Volver a transferir', 'back-connected-request');
             back.classList.add('mini-import-action-secondary');
             back.addEventListener('click', () => this.openConnectedRequest());
-            nav.append(back, element('p', 'Selecciona uno o varios borradores. Nada se escribe en SA hasta completar la conciliación.', {
+            nav.append(back, element('p', 'Selecciona uno o varios borradores. Nada se aplica en SA hasta consolidar y comparar.', {
                 className: 'mini-import-hint'
             }));
             content.append(nav);
@@ -1771,7 +1900,7 @@ export class MiniAttendanceImportModal {
                 const completed = this.resumableConsolidation.completedDays?.length || 0;
                 const total = this.resumableConsolidation.workDates?.length || 0;
                 const label = this.resumableConsolidation.status === 'resolving'
-                    ? `Resolución Mini pendiente · ${completed}/${total} días completados`
+                    ? `Consolidación Mini pendiente · ${completed}/${total} días completados`
                     : 'Consolidado Mini revisado · pendiente de comparar/aplicar en SA';
                 resume.append(element('strong', 'Continuar consolidación guardada'), element('p', label));
                 const resumeBtn = actionButton('Continuar', 'resume-consolidation');
@@ -1792,9 +1921,7 @@ export class MiniAttendanceImportModal {
         const back = actionButton('← Volver a la bandeja', 'back-connected-inbox');
         back.classList.add('mini-import-action-secondary');
         back.addEventListener('click', () => { void this.openConnectedInbox(); });
-        nav.append(back, element('p', 'Primero se resuelven diferencias entre Minis y después se compara la propuesta con SA.', {
-            className: 'mini-import-hint'
-        }));
+        nav.append(back);
         content.append(nav);
         if (this.consolidatedResult) {
             content.append(this.renderConsolidationSkeleton());
@@ -1826,6 +1953,112 @@ export class MiniAttendanceImportModal {
         return item?.status === 'identity_conflict' ? 'Identidad no resuelta' : 'Conflicto';
     }
 
+    isConsolidationRowPending(item, dayState, isMiniStage) {
+        if (!item) return false;
+        if (isMiniStage) {
+            if (item.status !== 'resolved') return true;
+            // Keep explicitly chosen rows visible until the day is confirmed so the
+            // decision remains inspectable/changeable (live selection state).
+            const hasVisibleSourceChoice = Array.isArray(item.sources) && item.sources.length > 1 &&
+                (item.resolutionSource || Array.isArray(item.conflictingHours));
+            if (hasVisibleSourceChoice) return true;
+            return false;
+        }
+        if (!item.saEmployeeId || item.status === 'identity_conflict' || item.status === 'conflict') return true;
+        const conflictRow = dayState?.conflictPlan?.rows?.find(row => row.employeeId === item.saEmployeeId);
+        if (!conflictRow) return item.status !== 'resolved';
+        if (Array.isArray(conflictRow.blockers) && conflictRow.blockers.length > 0) return true;
+        if (conflictRow.decision?.acknowledged !== true) return true;
+        return false;
+    }
+
+    partitionConsolidationDayItems(group, dayState, isMiniStage) {
+        const pending = [];
+        const resolved = [];
+        for (const item of (group?.items || [])) {
+            if (this.isConsolidationRowPending(item, dayState, isMiniStage)) pending.push(item);
+            else resolved.push(item);
+        }
+        return { pending, resolved };
+    }
+
+    isResolvedSectionExpanded(workDate) {
+        return this.resolvedRowsExpanded?.get(workDate) === true;
+    }
+
+    toggleResolvedSection(workDate) {
+        if (!this.resolvedRowsExpanded) this.resolvedRowsExpanded = new Map();
+        const next = !this.isResolvedSectionExpanded(workDate);
+        this.resolvedRowsExpanded.set(workDate, next);
+        this.render();
+    }
+
+    getSafeBulkSaCandidates(group, dayState) {
+        if (!group || !dayState?.conflictPlan) return [];
+        const rowsByEmployee = new Map(
+            (dayState.conflictPlan.rows || []).map(row => [row.employeeId, row])
+        );
+        return (group.items || []).filter(item => {
+            const conflictRow = rowsByEmployee.get(item.saEmployeeId);
+            return isSafeBulkSaConflict(item, conflictRow, this.employees);
+        });
+    }
+
+    applySafeBulkForDay(workDate, action) {
+        if (!this.multiDayResolver || typeof this.multiDayResolver.resolveDaySafeBulkConflicts !== 'function') return;
+        try {
+            this.multiDayResolver.resolveDaySafeBulkConflicts(workDate, action);
+        } catch (err) {
+            console.error('Error applying day bulk action:', err);
+            return;
+        }
+        this.render();
+    }
+
+    clearResolvedRowsExpansion() {
+        if (this.resolvedRowsExpanded) this.resolvedRowsExpanded.clear();
+    }
+
+    buildSaBulkActions(group, dayState) {
+        const safeCandidates = this.getSafeBulkSaCandidates(group, dayState);
+        if (!safeCandidates.length) return null;
+        const bar = element('div', null, {
+            className: 'mini-sa-bulk-actions',
+            dataset: { miniSaBulkActions: group.workDate }
+        });
+        bar.append(element('span', `Acciones para ${safeCandidates.length} pendiente${safeCandidates.length === 1 ? '' : 's'} de horas:`, { className: 'mini-control-label' }));
+        const keepBtn = actionButton('Conservar SA en pendientes', 'bulk-keep-sa');
+        keepBtn.classList.add('mini-import-action-secondary');
+        keepBtn.dataset.miniDate = group.workDate;
+        keepBtn.dataset.miniSaBulk = 'keep';
+        keepBtn.addEventListener('click', () => this.applySafeBulkForDay(group.workDate, 'keep_existing'));
+        const useBtn = actionButton('Usar Mini en pendientes', 'bulk-use-mini');
+        useBtn.classList.add('mini-import-action-primary');
+        useBtn.dataset.miniDate = group.workDate;
+        useBtn.dataset.miniSaBulk = 'use';
+        useBtn.addEventListener('click', () => this.applySafeBulkForDay(group.workDate, 'use_imported'));
+        bar.append(keepBtn, useBtn);
+        return bar;
+    }
+
+    buildResolvedToggle(group, resolvedCount, expanded) {
+        const wrap = element('div', null, {
+            className: 'mini-resolved-toggle-wrap',
+            dataset: { miniResolvedWrap: group.workDate }
+        });
+        const toggle = actionButton(
+            `${resolvedCount} resuelto${resolvedCount === 1 ? '' : 's'} · ${expanded ? 'Ocultar' : 'Mostrar'}`,
+            'toggle-resolved-rows'
+        );
+        toggle.classList.add('mini-import-action-secondary', 'mini-resolved-toggle');
+        toggle.dataset.miniDate = group.workDate;
+        toggle.dataset.miniResolvedToggle = group.workDate;
+        toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        toggle.addEventListener('click', () => this.toggleResolvedSection(group.workDate));
+        wrap.append(toggle);
+        return wrap;
+    }
+
     renderConsolidationSkeleton() {
         const container = element('div', null, {
             className: 'mini-import-consolidation-skeleton',
@@ -1837,7 +2070,11 @@ export class MiniAttendanceImportModal {
         const summary = this.consolidatedResult.summary || this.multiDayResolver?.getMiniProgressSnapshot?.().summary || {
             totalItems: 0, resolvedCount: 0, hoursConflictCount: 0, unresolvedIdentityCount: 0
         };
-        const badges = element('div', null, { className: 'mini-consolidation-summary-badges' });
+        const badges = element('div', null, {
+            className: 'mini-consolidation-summary-badges',
+            dataset: { miniExecutiveStatus: '' },
+            role: 'status'
+        });
         const appendPositiveBadge = (value, label, className) => {
             const count = Number(value || 0);
             if (count <= 0) return;
@@ -1929,7 +2166,7 @@ export class MiniAttendanceImportModal {
                         (item.sources || []).forEach(source => {
                             if (!source?.deviceId || source.missingRoster === true) return;
                             if (!sourceMap.has(source.deviceId)) {
-                                sourceMap.set(source.deviceId, source.sourcePeerName || source.sourceId || source.deviceId);
+                                sourceMap.set(source.deviceId, humanSourceLabel(source));
                             }
                         });
                     });
@@ -1954,16 +2191,27 @@ export class MiniAttendanceImportModal {
                     }
                 }
 
+                if (!isMiniStage && dayState?.conflictPlan) {
+                    const bulkBar = this.buildSaBulkActions(group, dayState);
+                    if (bulkBar) groupEl.append(bulkBar);
+                }
+                const __partition = this.partitionConsolidationDayItems(group, dayState, isMiniStage);
+                const __showResolvedToggle = __partition.pending.length > 0 && __partition.resolved.length > 0;
+                const __resolvedExpanded = this.isResolvedSectionExpanded(group.workDate);
+                const __displayItems = !__showResolvedToggle
+                    ? [...__partition.pending, ...__partition.resolved]
+                    : (__resolvedExpanded ? [...__partition.pending, ...__partition.resolved] : [...__partition.pending]);
                 const itemsList = element('div', null, { className: 'mini-consolidation-items-list' });
-                group.items.forEach(item => {
+                __displayItems.forEach(item => {
                     const rowEl = element('div', null, {
                         className: `mini-consolidation-row is-${item.status}`,
                         dataset: { miniConsolidationItem: item.id }
                     });
                     const statusLabel = this.connectedConflictLabel(item);
-                    const sourcesText = Array.isArray(item.sources)
-                        ? [...new Set(item.sources.map(s => s.deviceId).filter(Boolean))].join(', ')
-                        : '';
+                    const humanSources = Array.isArray(item.sources)
+                        ? [...new Set(item.sources.map(humanSourceLabel).filter(Boolean))]
+                        : [];
+                    const sourcesText = humanSources.join(', ');
                     rowEl.append(
                         element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
                         element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }),
@@ -1975,8 +2223,10 @@ export class MiniAttendanceImportModal {
                             : element('span', statusLabel, { className: `mini-row-status is-${item.status}` })
                     );
                     if (sourcesText) {
-                        rowEl.append(element('span', sourcesText, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
+                        rowEl.append(element('span', `Mini: ${sourcesText}`, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
                     }
+                    const itemTechnical = technicalDetailsDisclosure(consolidationTechnicalLines(item));
+                    if (itemTechnical) rowEl.append(itemTechnical);
 
                     // Multi-day Resolver interactive controls
                     if (this.multiDayResolver) {
@@ -2024,7 +2274,7 @@ export class MiniAttendanceImportModal {
                                 : 'Elegir versión para el consolidado:', { className: 'mini-control-label' }));
                             item.sources.forEach((src, srcIndex) => {
                                 if (src.missingRoster === true) return;
-                                const sourceName = src.sourcePeerName || src.sourceId || src.deviceId || 'Mini';
+                                const sourceName = humanSourceLabel(src);
                                 const sourceDetail = this.formatConnectedHours(src.normalHours, src.overtimeHours, {
                                     status: src.status,
                                     rosterStatus: src.rosterStatus,
@@ -2132,6 +2382,9 @@ export class MiniAttendanceImportModal {
                     itemsList.append(rowEl);
                 });
                 groupEl.append(itemsList);
+                if (__showResolvedToggle) {
+                    groupEl.append(this.buildResolvedToggle(group, __partition.resolved.length, __resolvedExpanded));
+                }
                 groupsContainer.append(groupEl);
             });
         } else {
@@ -2163,8 +2416,8 @@ export class MiniAttendanceImportModal {
                         className: 'mini-consolidation-row is-identity_conflict',
                         dataset: { miniConsolidationItem: item.id }
                     });
-                    const sourcesText = Array.isArray(item.sources)
-                        ? [...new Set(item.sources.map(s => s.deviceId).filter(Boolean))].join(', ')
+                    const periodSources = Array.isArray(item.sources)
+                        ? [...new Set(item.sources.map(humanSourceLabel).filter(Boolean))].join(', ')
                         : '';
                     rowEl.append(
                         element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
@@ -2172,9 +2425,11 @@ export class MiniAttendanceImportModal {
                         element('span', `${item.normalHours}h`, { className: 'mini-row-hours' }),
                         element('span', 'Identidad no resuelta', { className: 'mini-row-status is-identity_conflict' })
                     );
-                    if (sourcesText) {
-                        rowEl.append(element('span', sourcesText, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
+                    if (periodSources) {
+                        rowEl.append(element('span', `Mini: ${periodSources}`, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
                     }
+                    const periodTechnical = technicalDetailsDisclosure(consolidationTechnicalLines(item));
+                    if (periodTechnical) rowEl.append(periodTechnical);
 
                     if (this.multiDayResolver) {
                         const resolveIdentityEl = element('div', null, {
@@ -2210,23 +2465,17 @@ export class MiniAttendanceImportModal {
             groupsContainer.append(itemsList);
         }
 
-        // Proposal Seam banner
+        // Single compact stage notice: one sentence, no counts (counts live only in the executive badges above).
         const proposalNotice = element('div', null, {
             className: 'mini-proposal-seam-notice',
             dataset: { miniProposalSeam: '' }
         });
         proposalNotice.append(
-            element('strong', isMiniStage ? 'Resolución Mini ↔ Mini:' : 'Comparación consolidado ↔ SA:'),
+            element('strong', isMiniStage ? 'Consolidar Minis:' : 'Comparar con SA:'),
             element('p', isMiniStage
-                ? 'En este paso sólo se comparan los Minis. SA no participa todavía y no se escribe asistencia oficial.'
+                ? 'En este paso solo se consolidan los Minis. SA no participa todavía y nada se aplica.'
                 : 'Esta etapa usa únicamente el consolidado Mini revisado para compararlo con SA. Nada se aplica sin confirmación.')
         );
-        if (this.consolidationProposal) {
-            const pSummary = this.consolidationProposal.summary;
-            proposalNotice.append(
-                element('div', `Propuestas generadas: ${pSummary.total} · Listas: ${pSummary.readyToApply} · Bloqueadas: ${pSummary.blockedCount}`)
-            );
-        }
 
         container.append(badges, groupsContainer);
         if (!isMiniStage && this.multiDayResolver) {
@@ -2312,7 +2561,7 @@ export class MiniAttendanceImportModal {
                 flowActions.append(discardBtn, createBtn);
                 batchSection.append(flowActions);
                 if (!this.multiDayResolver.isMiniStageComplete()) {
-                    batchSection.append(element('span', 'Completa cada día antes de crear el consolidado revisado.', {
+                    batchSection.append(element('span', 'Consolida cada día antes de crear el consolidado revisado.', {
                         className: 'mini-import-complete-hint'
                     }));
                 }
@@ -2345,7 +2594,7 @@ export class MiniAttendanceImportModal {
                 flowActions.append(applyReadyBtn, completeBtn);
                 batchSection.append(flowActions);
                 if (!allDaysApplied) {
-                    batchSection.append(element('span', 'Resuelve y aplica todos los días para completar la importación.', {
+                    batchSection.append(element('span', 'Compara y aplica todos los días para completar la importación.', {
                         className: 'mini-import-complete-hint'
                     }));
                 }

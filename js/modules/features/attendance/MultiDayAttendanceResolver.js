@@ -201,6 +201,59 @@ export function adaptResolvedDayToConflictPlan({
     });
 }
 
+/**
+ * SAFE predicate for day-level Mini↔SA bulk actions.
+ * Only plain two-way attendance-hours conflicts are bulk-compatible.
+ * Identity conflicts, position choices, paused/blocked/reactivation cases,
+ * roster-status differences, missing/not-reported semantics, or any case with
+ * more than the simple SA-vs-consolidated hours choice return false.
+ */
+export function isSafeBulkSaConflict(item, conflictRow, employees = []) {
+    if (!item || typeof item !== 'object') return false;
+    if (!conflictRow || typeof conflictRow !== 'object') return false;
+    if (item.excluded === true) return false;
+    if (typeof item.saEmployeeId !== 'string' || !item.saEmployeeId) return false;
+    if (item.status !== 'resolved') return false;
+    if (conflictRow.employeeId !== item.saEmployeeId) return false;
+    if (conflictRow.isIdentical === true) return false;
+    if (!conflictRow.decision || conflictRow.decision.acknowledged === true) return false;
+    const blockers = Array.isArray(conflictRow.blockers) ? conflictRow.blockers : [];
+    if (blockers.length !== 1 || blockers[0] !== 'decision_unacknowledged') return false;
+    const positionIds = Array.isArray(conflictRow.employeePositionIds)
+        ? conflictRow.employeePositionIds
+        : [];
+    if (positionIds.length !== 1) return false;
+    const allocations = Array.isArray(conflictRow.positionAllocations)
+        ? conflictRow.positionAllocations
+        : [];
+    if (allocations.length !== 1) return false;
+    if (allocations[0]?.positionId !== positionIds[0]) return false;
+    const existing = conflictRow.existing;
+    if (!existing || !existing.record) return false;
+    const breakdown = Array.isArray(existing.breakdown) ? existing.breakdown : null;
+    if (!breakdown || breakdown.length > 1) return false;
+    const list = Array.isArray(employees) ? employees : [];
+    const employee = list.find(candidate => candidate?.id === item.saEmployeeId);
+    if (!employee) return false;
+    if (employee.active === false || employee.deletedAt != null) return false;
+    if (item.rosterStatus && item.rosterStatus !== 'active') return false;
+    const sources = Array.isArray(item.sources) ? item.sources : [];
+    if (sources.some(source => source?.missingRoster === true)) return false;
+    if (sources.some(source => source?.rosterStatus && source.rosterStatus !== 'active')) return false;
+    const rosterStates = new Set(
+        sources.filter(source => source?.rosterStatus).map(source => source.rosterStatus)
+    );
+    if (rosterStates.size > 1) return false;
+    if (!Number.isFinite(item.normalHours) || !Number.isFinite(item.overtimeHours)) return false;
+    const total = Number(item.normalHours) + Number(item.overtimeHours);
+    if (!(total >= 0 && total <= 24)) return false;
+    const effectiveStatus = item.sourceStatus || (total > 0 ? 'present' : 'unmarked');
+    if (effectiveStatus !== 'present') return false;
+    if (sources.some(source => source?.status != null && source.status !== 'present')) return false;
+    if (Array.isArray(item.conflictReasons) && item.conflictReasons.length > 0) return false;
+    return true;
+}
+
 export class MultiDayAttendanceResolver {
     constructor({
         consolidation = null,
@@ -595,6 +648,54 @@ export class MultiDayAttendanceResolver {
 
         this._recomputeDayState(date);
         return this.getDayState(date);
+    }
+
+    /**
+     * Day-level bulk resolution for consolidated Mini↔SA, limited to SAFE
+     * compatible plain attendance-hours conflicts only. Never bulk-resolves
+     * identity conflicts, position choices, paused/blocked/reactivation cases,
+     * roster-status differences, missing/not-reported semantics, or any case
+     * with more than the simple two-way hours choice. Affects only the given
+     * day and unresolved compatible rows, persists through dayDecisions and
+     * the canonical conflict plan, and never writes attendance directly.
+     */
+    resolveDaySafeBulkConflicts(date, action) {
+        if (!['keep_existing', 'use_imported'].includes(action)) {
+            throw new TypeError(`Invalid conflict action: "${action}". Expected "keep_existing" or "use_imported"`);
+        }
+        const dayState = this.getDayState(date);
+        if (!dayState) throw new Error(`Unknown date: ${date}`);
+        if (!dayState.conflictPlan) {
+            return deepFreeze({
+                date,
+                action,
+                resolvedCount: 0,
+                skippedCount: (dayState.items || []).length
+            });
+        }
+        const rowsByEmployee = new Map(
+            (dayState.conflictPlan.rows || []).map(row => [row.employeeId, row])
+        );
+        const targets = [];
+        let skippedCount = 0;
+        for (const item of (dayState.items || [])) {
+            const conflictRow = rowsByEmployee.get(item.saEmployeeId);
+            if (isSafeBulkSaConflict(item, conflictRow, this.employees)) {
+                targets.push(item.saEmployeeId);
+            } else {
+                skippedCount += 1;
+            }
+        }
+        for (const employeeId of targets) {
+            this.dayDecisions.set(`${employeeId}-${date}`, {
+                action,
+                acknowledged: true,
+                targetPositionId: null,
+                positionAllocations: null
+            });
+        }
+        if (targets.length) this._recomputeDayState(date);
+        return deepFreeze({ date, action, resolvedCount: targets.length, skippedCount });
     }
 
 
