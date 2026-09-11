@@ -2996,3 +2996,78 @@
         transition: none !important;
     }
 }
+
+
+/* ---- Physical E2E polish: draft action placement + collision-proof footer ---- */
+.mini-import-version-card .mini-import-draft-info {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 4px;
+}
+.mini-import-version-card .mini-import-draft-title,
+.mini-import-version-card .mini-import-version-choices,
+.mini-import-version-card .mini-import-version-diff {
+    grid-column: 1 / -1;
+}
+.mini-import-version-card .mini-import-draft-meta {
+    grid-column: 1;
+    margin-top: 0;
+}
+.mini-import-version-card .mini-technical-wrap {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+    align-self: center;
+    margin: 0;
+}
+.mini-import-version-card .mini-technical-trigger {
+    min-height: 44px;
+}
+
+/* Footer zones are always separate rows. This intentionally trades a little
+   vertical space for deterministic touch layout and prevents overlap at modal
+   widths that do not match the browser viewport breakpoint. */
+.mini-consolidation-batch-actions {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 10px;
+}
+.mini-consolidation-footer-nav,
+.mini-consolidation-footer-decision,
+.mini-consolidation-footer-global {
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+    justify-content: stretch;
+    padding: 0;
+    border-left: 0;
+    border-right: 0;
+}
+.mini-consolidation-footer-decision,
+.mini-consolidation-footer-global {
+    padding-top: 10px;
+    border-top: 1px dashed var(--mini-border);
+}
+.mini-consolidation-footer-nav .mini-consolidation-day-pager,
+.mini-consolidation-footer-decision .mini-day-review-actions,
+.mini-consolidation-footer-global .mini-consolidation-flow-actions {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.mini-consolidation-footer-nav .mini-import-action,
+.mini-consolidation-footer-decision .mini-import-action,
+.mini-consolidation-footer-global .mini-import-action {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+}
+@media (max-width: 520px) {
+    .mini-consolidation-footer-decision .mini-day-review-actions,
+    .mini-consolidation-footer-global .mini-consolidation-flow-actions {
+        grid-template-columns: 1fr;
+    }
+}
