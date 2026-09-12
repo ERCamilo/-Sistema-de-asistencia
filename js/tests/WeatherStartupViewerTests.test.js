@@ -177,7 +177,7 @@ describe('Weather viewer narrow-screen contract', () => {
         expect(weatherStyles).toMatch(/\.weather-summary\s*\{[\s\S]*?grid-template-columns:\s*minmax\(180px,\s*1\.15fr\)\s+minmax\(0,\s*1\.8fr\)\s+44px/);
         expect(weatherStyles).not.toMatch(/\.weather-summary\s*\{[\s\S]*?grid-template-columns:\s*minmax\(240px,[^)]+\)\s+minmax\(360px,/);
         expect(weatherStyles).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*?\.weather-bar\s*\{[\s\S]*?max-width:\s*100%[\s\S]*?overflow-x:\s*hidden/);
-        expect(weatherStyles).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*?\.weather-summary-metrics\s*\{[\s\S]*?grid-template-columns:\s*1fr/);
+        expect(weatherStyles).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*?\.weather-summary-metrics\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
         expect(weatherStyles).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*?\.weather-metric-copy\s+small\s*\{[\s\S]*?display:\s*block[\s\S]*?white-space:\s*normal/);
         expect(weatherStyles).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*?\.weather-footer-actions\s*\{[\s\S]*?flex-wrap:\s*wrap/);
         expect(weatherStyles).toMatch(/\.weather-bar--narrow\s*\{/);

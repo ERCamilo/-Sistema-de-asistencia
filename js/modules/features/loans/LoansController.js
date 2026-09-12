@@ -49,48 +49,78 @@ import {
 // ─── State scaffolding ───────────────────────────────────────────────────────
 
 function ensureLedgerState() {
-    if (!state.loansLedger) {
-        state.loansLedger = {
-            selectedEmployeeId: null,
-            search: '',
-            showAddForm: false,
-            newLoanDraft: createEmptyLoanDraft(),
-            showPaymentFormForLoan: null,
-            paymentDraft: {
-                amount: 0,
-                date: getDateKey(new Date()),
-                note: '',
-                mode: PAYMENT_PLAN_MODE.CUSTOM,
-                installmentCount: 1
-            },
-            showEmployeePicker: false,
-            pickerSearch: '',
-            showInactiveHistory: false,
-            showRefinanceFormForLoan: null,
-            refinanceDraft: createEmptyRefinanceDraft()
-        };
-    } else {
-        // Backfill new fields on pre-existing ledger objects (older sessions)
-        if (typeof state.loansLedger.showEmployeePicker === 'undefined') {
-            state.loansLedger.showEmployeePicker = false;
+    stateManager.batchSetState(() => {
+        if (!state.loansLedger) {
+            state.loansLedger = {
+                selectedEmployeeId: null,
+                search: '',
+                showAddForm: false,
+                newLoanDraft: createEmptyLoanDraft(),
+                showPaymentFormForLoan: null,
+                paymentDraft: {
+                    amount: 0,
+                    date: getDateKey(new Date()),
+                    note: '',
+                    mode: PAYMENT_PLAN_MODE.CUSTOM,
+                    installmentCount: 1
+                },
+                showEmployeePicker: false,
+                pickerSearch: '',
+                showInactiveHistory: false,
+                showRefinanceFormForLoan: null,
+                refinanceDraft: createEmptyRefinanceDraft(),
+                filterView: 'active',
+                sortBy: 'balance',
+                sortOrder: 'desc',
+                amountFilter: 'all',
+                dateFilter: 'all',
+                showFilterMenu: false,
+                displayMode: 'grouped'
+            };
+        } else {
+            // Backfill new fields on pre-existing ledger objects (older sessions)
+            if (typeof state.loansLedger.showEmployeePicker === 'undefined') {
+                state.loansLedger.showEmployeePicker = false;
+            }
+            if (typeof state.loansLedger.pickerSearch === 'undefined') {
+                state.loansLedger.pickerSearch = '';
+            }
+            if (typeof state.loansLedger.showInactiveHistory === 'undefined') {
+                state.loansLedger.showInactiveHistory = false;
+            }
+            if (typeof state.loansLedger.showRefinanceFormForLoan === 'undefined') {
+                state.loansLedger.showRefinanceFormForLoan = null;
+            }
+            if (typeof state.loansLedger.refinanceDraft === 'undefined') {
+                state.loansLedger.refinanceDraft = createEmptyRefinanceDraft();
+            }
+            if (typeof state.loansLedger.filterView === 'undefined') {
+                state.loansLedger.filterView = 'active';
+            }
+            if (typeof state.loansLedger.sortBy === 'undefined') {
+                state.loansLedger.sortBy = 'balance';
+            }
+            if (typeof state.loansLedger.sortOrder === 'undefined') {
+                state.loansLedger.sortOrder = 'desc';
+            }
+            if (typeof state.loansLedger.amountFilter === 'undefined') {
+                state.loansLedger.amountFilter = 'all';
+            }
+            if (typeof state.loansLedger.dateFilter === 'undefined') {
+                state.loansLedger.dateFilter = 'all';
+            }
+            if (typeof state.loansLedger.showFilterMenu === 'undefined') {
+                state.loansLedger.showFilterMenu = false;
+            }
+            if (typeof state.loansLedger.displayMode === 'undefined') {
+                state.loansLedger.displayMode = 'grouped';
+            }
         }
-        if (typeof state.loansLedger.pickerSearch === 'undefined') {
-            state.loansLedger.pickerSearch = '';
-        }
-        if (typeof state.loansLedger.showInactiveHistory === 'undefined') {
-            state.loansLedger.showInactiveHistory = false;
-        }
-        if (typeof state.loansLedger.showRefinanceFormForLoan === 'undefined') {
-            state.loansLedger.showRefinanceFormForLoan = null;
-        }
-        if (typeof state.loansLedger.refinanceDraft === 'undefined') {
-            state.loansLedger.refinanceDraft = createEmptyRefinanceDraft();
-        }
-    }
+    });
 }
 
 function createEmptyRefinanceDraft() {
-    return { basis: 'balance', mode: 'installments', interestRate: 0, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
+    return { basis: 'balance', mode: 'lump', interestRate: 0, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
 }
 
 function createEmptyLoanDraft() {
@@ -162,7 +192,80 @@ export function clearLoansEmployee() {
 
 export function setLoansSearch(value) {
     ensureLedgerState();
-    state.loansLedger.search = String(value || '');
+    stateManager.batchSetState(() => {
+        state.loansLedger.search = String(value || '');
+    });
+    render();
+}
+
+export function setLoansFilterView(view) {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.filterView = String(view || 'active');
+    });
+    render();
+}
+
+export function setLoansSortBy(criteria) {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        if (state.loansLedger.sortBy === criteria) {
+            state.loansLedger.sortOrder = state.loansLedger.sortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+            state.loansLedger.sortBy = criteria;
+            state.loansLedger.sortOrder = criteria === 'number' ? 'asc' : 'desc';
+        }
+    });
+    render();
+}
+
+export function setLoansSortOrder(order) {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.sortOrder = order === 'asc' ? 'asc' : 'desc';
+    });
+    render();
+}
+
+export function setLoansAmountFilter(range) {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.amountFilter = String(range || 'all');
+    });
+    render();
+}
+
+export function setLoansDateFilter(range) {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.dateFilter = String(range || 'all');
+    });
+    render();
+}
+
+export function toggleLoansFilterMenu() {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showFilterMenu = !state.loansLedger.showFilterMenu;
+    });
+    render();
+}
+
+export function resetLoansFilters() {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.search = '';
+        state.loansLedger.amountFilter = 'all';
+        state.loansLedger.dateFilter = 'all';
+    });
+    render();
+}
+
+export function setLoansDisplayMode(mode) {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.displayMode = mode === 'individual' ? 'individual' : 'grouped';
+    });
     render();
 }
 
@@ -191,8 +294,9 @@ export function closeLoansEmployeePicker() {
 
 export function setLoansPickerSearch(value) {
     ensureLedgerState();
-    state.loansLedger.pickerSearch = String(value || '');
-    render();
+    stateManager.batchSetState(() => {
+        state.loansLedger.pickerSearch = String(value || '');
+    });
 }
 
 /**
@@ -213,26 +317,24 @@ export function openLoansLedgerFor(employeeId) {
     if (!employeeId) return;
     ensureLedgerState();
 
-    // 1. Cerrar el modal del perfil si estaba abierto.
-    if (typeof state !== 'undefined') {
-        state.showEmployeeProfile = false;
-    }
+    stateManager.batchSetState(() => {
+        // 1. Cerrar el modal del perfil si estaba abierto.
+        if (typeof state !== 'undefined') {
+            state.showEmployeeProfile = false;
+        }
 
-    // 2. Preseleccionar al empleado en el ledger.
-    state.loansLedger.selectedEmployeeId = employeeId;
-    state.loansLedger.showPaymentFormForLoan = null;
+        // 2. Preseleccionar al empleado en el ledger.
+        state.loansLedger.selectedEmployeeId = employeeId;
+        state.loansLedger.showPaymentFormForLoan = null;
 
-    // 3. Abrir el formulario de nuevo préstamo (el usuario vino a registrar).
-    state.loansLedger.showAddForm = true;
-    state.loansLedger.newLoanDraft = createEmptyLoanDraft();
+        // 3. Abrir el formulario de nuevo préstamo (el usuario vino a registrar).
+        state.loansLedger.showAddForm = true;
+        state.loansLedger.newLoanDraft = createEmptyLoanDraft();
+    });
 
     // 4. Navegar a la vista de Cuentas por Cobrar (defensivo).
     if (typeof window !== 'undefined' && typeof window.openCuentasPorCobrar === 'function') {
         window.openCuentasPorCobrar();
-    } else {
-        // Si la función de navegación no existe (tests, ruta no inicializada),
-        // al menos disparamos un render para que la UI refleje el cambio.
-        render();
     }
 }
 
@@ -579,7 +681,7 @@ export function toggleRefinanceForm(loanId) {
         if (open) state.loansLedger.showPaymentFormForLoan = null;
         state.loansLedger.refinanceDraft = {
             basis: 'balance',
-            mode: 'installments',
+            mode: 'lump',
             interestRate: rate,
             installmentCount: 2,
             installmentFrequencyWeeks: 2,
@@ -593,7 +695,12 @@ export function setRefinanceDraftField(field, value) {
     ensureLedgerState();
     const draft = state.loansLedger.refinanceDraft;
     if (!draft) return;
-    if (field === 'interestRate' || field === 'installmentCount' || field === 'installmentFrequencyWeeks') {
+    if (field === 'installmentCount') {
+        draft.installmentCount = Number(value) || 0;
+        if (draft.installmentCount > 0) {
+            draft.mode = 'installments';
+        }
+    } else if (field === 'interestRate' || field === 'installmentFrequencyWeeks') {
         draft[field] = Number(value) || 0;
     } else {
         draft[field] = value;
@@ -668,8 +775,9 @@ export function voidRefinanceHandler(loanId, refinId) {
 
 export function toggleInactiveHistory() {
     ensureLedgerState();
-    state.loansLedger.showInactiveHistory = !state.loansLedger.showInactiveHistory;
-    render();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showInactiveHistory = !state.loansLedger.showInactiveHistory;
+    });
 }
 
 // ─── Duplicate resolution (Fase 2, U5) ───────────────────────────────────────
@@ -769,6 +877,14 @@ export function registerLegacyGlobals() {
     window.setRefinanceDraftField = setRefinanceDraftField;
     window.submitRefinance = submitRefinance;
     window.voidRefinanceHandler = voidRefinanceHandler;
+    window.setLoansFilterView = setLoansFilterView;
+    window.setLoansSortBy = setLoansSortBy;
+    window.setLoansSortOrder = setLoansSortOrder;
+    window.setLoansAmountFilter = setLoansAmountFilter;
+    window.setLoansDateFilter = setLoansDateFilter;
+    window.toggleLoansFilterMenu = toggleLoansFilterMenu;
+    window.resetLoansFilters = resetLoansFilters;
+    window.setLoansDisplayMode = setLoansDisplayMode;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;

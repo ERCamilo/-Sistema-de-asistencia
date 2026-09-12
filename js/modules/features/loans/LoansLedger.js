@@ -34,10 +34,16 @@ import {
     getRefinanceCount,
     getActiveLoanTerms,
     getTotalInterestAccrued,
+    getInterestAmount,
+    getRefinanceInterest,
     LOAN_STATUS,
     INSTALLMENT_MODE,
     VALIDATION,
-    generateInstallmentSchedule
+    generateInstallmentSchedule,
+    sortEmployeeLoans,
+    filterEmployeeLoans,
+    getIndividualLoanRecords,
+    formatLoanShortDate
 } from './LoansService.js';
 import { detectLoanDuplicateCandidates } from './LoanDuplicateDetector.js';
 import { isPendingUpload } from '../../services/EntitiesSyncStamp.js';
@@ -61,16 +67,53 @@ export function LoansLedger() {
 function LedgerOverview() {
     const ledger = state.loansLedger || {};
     const search = (ledger.search || '').toLowerCase().trim();
+    const filterView = ledger.filterView || 'active';
+    const displayMode = ledger.displayMode || 'grouped';
+    const sortBy = ledger.sortBy || 'balance';
+    const sortOrder = ledger.sortOrder || (sortBy === 'number' ? 'asc' : 'desc');
+    const amountFilter = ledger.amountFilter || 'all';
+    const dateFilter = ledger.dateFilter || 'all';
+    const showFilterMenu = Boolean(ledger.showFilterMenu);
 
     const allWithDebt = getEmployeesWithDebt(state);
     const inactiveWithDebt = allWithDebt.filter(employee => employee.active === false);
-    const filtered = search
-        ? allWithDebt.filter(e =>
-            (e.name || '').toLowerCase().includes(search) ||
-            (e.number || '').toLowerCase().includes(search))
-        : allWithDebt;
-
     const allInactive = getEmployeesWithOnlyInactiveLoans(state);
+
+    // Conteo por unidad individual para los badges
+    const allLoansFlat = (state.employees || []).flatMap(e => e.loans || []);
+    const activeLoanCount = allLoansFlat.filter(l => l.status === LOAN_STATUS.ACTIVE).length;
+    const settledLoanCount = allLoansFlat.filter(l => l.status === LOAN_STATUS.PAID || getBalance(l) <= 0.01).length;
+    const inactiveEmpLoanCount = (state.employees || []).filter(e => e.active === false).flatMap(e => e.loans || []).filter(l => l.status === LOAN_STATUS.ACTIVE).length;
+    const totalLoanCount = allLoansFlat.filter(l => l.status !== LOAN_STATUS.WRITTEN_OFF).length;
+
+    // Seleccionar lista según displayMode y filterView
+    let baseList = [];
+    if (displayMode === 'individual') {
+        baseList = getIndividualLoanRecords(state, filterView);
+    } else {
+        if (filterView === 'all') {
+            const seen = new Set();
+            baseList = [...allWithDebt, ...allInactive].filter(e => {
+                if (seen.has(e.employeeId)) return false;
+                seen.add(e.employeeId);
+                return true;
+            });
+        } else if (filterView === 'inactive-emp') {
+            baseList = inactiveWithDebt;
+        } else if (filterView === 'settled') {
+            baseList = allInactive;
+        } else {
+            // 'active' (por defecto: con deuda activa)
+            baseList = allWithDebt;
+        }
+    }
+
+    const filtered = filterEmployeeLoans(baseList, { search, amountFilter, dateFilter });
+    const sorted = sortEmployeeLoans(filtered, sortBy, sortOrder);
+
+    const hasActiveFilters = Boolean(amountFilter !== 'all' || dateFilter !== 'all');
+    const activeFilterCount = (amountFilter !== 'all' ? 1 : 0) + (dateFilter !== 'all' ? 1 : 0);
+
     const filteredInactive = search
         ? allInactive.filter(e =>
             (e.name || '').toLowerCase().includes(search) ||
@@ -148,63 +191,252 @@ function LedgerOverview() {
                     </div>
                 ` : ''}
 
-                <!-- Search + actions -->
-                <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-                    <div style="flex: 1; min-width: 220px;">
-                        <input type="text" autocomplete="off"
-                                placeholder="🔍 Buscar empleado por nombre o número..."
-                                value="${escapeAttr(ledger.search || '')}"
-                                oninput="setLoansSearch(this.value)"
-                                style="width: 100%; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
+                <!-- Toolbar de Vistas, Búsqueda, Filtros y Orden -->
+                <div class="loans-toolbar-card" style="background: #1e293b; border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 12px;">
+                    <!-- Fila 1: Pestañas de Vistas de Cartera + Selector de Modo + Agregar nuevo -->
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; border-bottom: 1px solid #334155; padding-bottom: 12px;">
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;" role="tablist" aria-label="Vistas de préstamos">
+                            <button type="button" role="tab" aria-selected="${filterView === 'active'}"
+                                    data-app-fn="setLoansFilterView" data-arg="active"
+                                    class="loan-view-tab ${filterView === 'active' ? 'active' : ''}"
+                                    title="Ver préstamos o empleados con saldo pendiente de pago">
+                                ${icons.get('payroll', { size: 14 })} Con saldo
+                                <span class="loan-tab-badge">${displayMode === 'individual' ? activeLoanCount : allWithDebt.length}</span>
+                            </button>
+                            <button type="button" role="tab" aria-selected="${filterView === 'all'}"
+                                    data-app-fn="setLoansFilterView" data-arg="all"
+                                    class="loan-view-tab ${filterView === 'all' ? 'active' : ''}"
+                                    title="Ver todos (con deuda o saldados)">
+                                ${icons.get('personnel', { size: 14 })} Todos
+                                <span class="loan-tab-badge">${displayMode === 'individual' ? totalLoanCount : (allWithDebt.length + allInactive.length)}</span>
+                            </button>
+                            <button type="button" role="tab" aria-selected="${filterView === 'inactive-emp'}"
+                                    data-app-fn="setLoansFilterView" data-arg="inactive-emp"
+                                    class="loan-view-tab ${filterView === 'inactive-emp' ? 'active' : ''}"
+                                    title="Ver exempleados inactivos que aún deben dinero">
+                                ${icons.get('alert', { size: 14 })} Inactivos
+                                <span class="loan-tab-badge">${displayMode === 'individual' ? inactiveEmpLoanCount : inactiveWithDebt.length}</span>
+                            </button>
+                            <button type="button" role="tab" aria-selected="${filterView === 'settled'}"
+                                    data-app-fn="setLoansFilterView" data-arg="settled"
+                                    class="loan-view-tab ${filterView === 'settled' ? 'active' : ''}"
+                                    title="Ver préstamos ya pagados al 100%">
+                                ${icons.get('check', { size: 14 })} Saldados
+                                <span class="loan-tab-badge">${displayMode === 'individual' ? settledLoanCount : allInactive.length}</span>
+                            </button>
+                        </div>
+
+                        <!-- Selector de Modo de Visualización: Agrupado por empleado vs Por préstamo individual -->
+                        <div class="loan-mode-toggle" role="group" aria-label="Modo de visualización" style="display: inline-flex; align-items: center; background: #0f172a; padding: 3px; border-radius: 8px; border: 1px solid #334155; gap: 3px;">
+                            <button type="button" data-app-fn="setLoansDisplayMode" data-arg="grouped"
+                                    class="loan-mode-btn ${displayMode === 'grouped' ? 'active' : ''}"
+                                    title="Ver tarjetas agrupadas por empleado">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                <span>Por empleado</span>
+                            </button>
+                            <button type="button" data-app-fn="setLoansDisplayMode" data-arg="individual"
+                                    class="loan-mode-btn ${displayMode === 'individual' ? 'active' : ''}"
+                                    title="Ver préstamos desglosados por unidad separados">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                                <span>Por préstamo</span>
+                            </button>
+                        </div>
+
+                        <button type="button" data-app-fn="openLoansEmployeePicker"
+                                style="padding: 8px 16px; background: #f59e0b; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: filter 0.15s; margin-left: auto;">
+                            ${icons.get('add', { size: 16 })} Agregar nuevo
+                        </button>
                     </div>
-                    <button type="button" data-app-fn="openLoansEmployeePicker"
-                            style="padding: 10px 16px; background: #f59e0b; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
-                        ${icons.get('add', { size: 16 })} Agregar nuevo
-                    </button>
-                    <div style="font-size: 0.8rem; color: #94a3b8;">
-                        Mostrando ${filtered.length} de ${allWithDebt.length}
+
+                    <!-- Fila 2: Buscador + Controles de Ordenación y Menú de Filtros -->
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <div style="flex: 1; min-width: 200px; position: relative;">
+                            <input type="text" autocomplete="off"
+                                    placeholder="🔍 Buscar empleado por nombre o número..."
+                                    value="${escapeAttr(ledger.search || '')}"
+                                    oninput="setLoansSearch(this.value)"
+                                    style="width: 100%; padding: 9px 34px 9px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.88rem;">
+                            ${ledger.search ? `
+                                <button type="button" onclick="setLoansSearch('')" title="Limpiar búsqueda"
+                                        style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: #94a3b8; font-size: 0.95rem; cursor: pointer; padding: 2px 4px;">
+                                    ✕
+                                </button>
+                            ` : ''}
+                        </div>
+
+                        <!-- Grupo de Ordenamiento -->
+                        <div style="display: flex; align-items: center; gap: 4px; background: #0f172a; padding: 4px 6px; border-radius: 8px; border: 1px solid #334155;">
+                            <span style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 12h12M9 18h6"/></svg>
+                                Ordenar:
+                            </span>
+                            <button type="button" data-app-fn="setLoansSortBy" data-arg="number"
+                                    title="Ordenar por número de orden / empleado (${sortBy === 'number' && sortOrder === 'asc' ? 'Menor a mayor' : 'Mayor a menor'})"
+                                    class="loan-sort-btn ${sortBy === 'number' ? 'active' : ''}">
+                                Nº Orden ${sortBy === 'number' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+                            </button>
+                            <button type="button" data-app-fn="setLoansSortBy" data-arg="balance"
+                                    title="Ordenar por monto (${sortBy === 'balance' && sortOrder === 'desc' ? 'Mayor a menor' : 'Menor a mayor'})"
+                                    class="loan-sort-btn ${sortBy === 'balance' ? 'active' : ''}">
+                                Monto ${sortBy === 'balance' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+                            </button>
+                            <button type="button" data-app-fn="setLoansSortBy" data-arg="date"
+                                    title="Ordenar por fecha del último préstamo (${sortBy === 'date' && sortOrder === 'desc' ? 'Más reciente' : 'Más antiguo'})"
+                                    class="loan-sort-btn ${sortBy === 'date' ? 'active' : ''}">
+                                Fecha ${sortBy === 'date' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+                            </button>
+                        </div>
+
+                        <!-- Botón Toggle de Filtros Avanzados -->
+                        <button type="button" data-app-fn="toggleLoansFilterMenu"
+                                class="loan-filter-toggle-btn ${hasActiveFilters || showFilterMenu ? 'active' : ''}"
+                                style="padding: 8px 12px; background: ${showFilterMenu ? 'rgba(6, 182, 212, 0.15)' : '#0f172a'}; border: 1px solid ${showFilterMenu ? '#06b6d4' : '#334155'}; border-radius: 8px; color: ${showFilterMenu ? '#06b6d4' : '#f1f5f9'}; font-size: 0.82rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                            <span>Filtros</span>
+                            ${activeFilterCount > 0 ? `<span class="loan-tab-badge" style="background: #06b6d4; color: #081a24; padding: 0 5px;">${activeFilterCount}</span>` : ''}
+                        </button>
+
+                        <div style="font-size: 0.8rem; color: #94a3b8; white-space: nowrap; margin-left: auto;">
+                            Mostrando ${sorted.length} de ${baseList.length} ${displayMode === 'individual' ? 'préstamos' : 'empleados'}
+                        </div>
                     </div>
+
+                    <!-- Panel Desplegable de Filtros Avanzados -->
+                    ${showFilterMenu ? `
+                    <div class="loans-filter-panel" style="background: #0f172a; border-radius: 8px; padding: 10px 14px; border: 1px solid #334155; display: flex; gap: 14px; flex-wrap: wrap; align-items: center;">
+                        <!-- Filtro por Monto -->
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label style="font-size: 0.75rem; color: #94a3b8; font-weight: 600;">Filtrar Monto:</label>
+                            <select onchange="setLoansAmountFilter(this.value)"
+                                    style="background: #1e293b; color: #f1f5f9; border: 1px solid #334155; border-radius: 6px; padding: 5px 8px; font-size: 0.8rem;">
+                                <option value="all" ${amountFilter === 'all' ? 'selected' : ''}>Todos los montos</option>
+                                <option value="under5k" ${amountFilter === 'under5k' ? 'selected' : ''}>Menor a $5,000</option>
+                                <option value="5k-15k" ${amountFilter === '5k-15k' ? 'selected' : ''}>$5,000 a $15,000</option>
+                                <option value="over15k" ${amountFilter === 'over15k' ? 'selected' : ''}>Mayor a $15,000</option>
+                            </select>
+                        </div>
+
+                        <!-- Filtro por Fecha de Último Préstamo -->
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label style="font-size: 0.75rem; color: #94a3b8; font-weight: 600;">Filtrar Fecha:</label>
+                            <select onchange="setLoansDateFilter(this.value)"
+                                    style="background: #1e293b; color: #f1f5f9; border: 1px solid #334155; border-radius: 6px; padding: 5px 8px; font-size: 0.8rem;">
+                                <option value="all" ${dateFilter === 'all' ? 'selected' : ''}>Cualquier fecha</option>
+                                <option value="30d" ${dateFilter === '30d' ? 'selected' : ''}>Últimos 30 días</option>
+                                <option value="90d" ${dateFilter === '90d' ? 'selected' : ''}>Últimos 90 días</option>
+                                <option value="year" ${dateFilter === 'year' ? 'selected' : ''}>Este año (${new Date().getFullYear()})</option>
+                            </select>
+                        </div>
+
+                        ${hasActiveFilters ? `
+                            <button type="button" data-app-fn="resetLoansFilters"
+                                    style="background: transparent; border: 1px dashed #ef4444; color: #ef4444; border-radius: 6px; padding: 4px 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; margin-left: auto;">
+                                ✕ Limpiar filtros
+                            </button>
+                        ` : ''}
+                    </div>
+                    ` : ''}
                 </div>
 
-                <!-- Employee list -->
-                ${filtered.length === 0 ? `
+                <!-- Employee list / Loans list -->
+                ${sorted.length === 0 ? `
                 <div style="text-align: center; padding: 60px 20px; background: #1e293b; border-radius: 12px; border: 1px solid #334155;">
                     <div style="font-size: 3rem; margin-bottom: 12px; opacity: 0.4;">${icons.get('payroll')}</div>
                     <div style="color: #94a3b8; font-size: 0.95rem;">
-                        ${search ? 'No se encontraron empleados que coincidan con la búsqueda' : 'No hay empleados con préstamos activos'}
+                        ${search ? 'No se encontraron resultados que coincidan con la búsqueda' : (hasActiveFilters ? 'No hay resultados que coincidan con los filtros seleccionados' : 'No hay datos para mostrar en esta vista')}
                     </div>
                 </div>
-                ` : filtered.map(emp => `
-                <div role="button" tabindex="0"
-                     data-app-fn="selectLoansEmployee" data-arg="${emp.employeeId}"
-                     style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px;"
-                     onmouseover="this.style.borderColor='#06b6d4'"
-                     onmouseout="this.style.borderColor='#334155'">
-                    <!-- Number avatar -->
-                    <div style="width: 36px; height: 36px; background: rgba(245,158,11,0.12); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #f59e0b; font-weight: 800; font-size: 0.8rem; flex-shrink: 0;">
-                        ${emp.number || '?'}
-                    </div>
-                    <!-- Name + sub-line, takes whatever space is left -->
-                    <div style="flex: 1; min-width: 0;">
-                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
-                            <span style="color: #f1f5f9; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(emp.name)}</span>
-                            ${emp.active === false ? '<span class="loan-employee-status loan-employee-status--inactive">Inactivo</span>' : ''}
+                ` : sorted.map(item => {
+                    const isDateSorted = sortBy === 'date';
+                    const isAmountSorted = sortBy === 'balance';
+                    const isNumberSorted = sortBy === 'number';
+                    const formattedDate = item.lastLoanDate ? formatLoanShortDate(item.lastLoanDate) : null;
+
+                    if (displayMode === 'individual') {
+                        // Tarjeta individual por préstamo (desglosada por unidad)
+                        return `
+                        <div role="button" tabindex="0"
+                             data-app-fn="selectLoansEmployee" data-arg="${item.employeeId}"
+                             style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px;"
+                             onmouseover="this.style.borderColor='#06b6d4'"
+                             onmouseout="this.style.borderColor='#334155'">
+                            <!-- Number avatar -->
+                            <div style="width: 36px; height: 36px; background: ${isNumberSorted ? 'rgba(6, 182, 212, 0.18)' : 'rgba(245,158,11,0.12)'}; border: ${isNumberSorted ? '1px solid rgba(6, 182, 212, 0.4)' : 'none'}; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: ${isNumberSorted ? '#06b6d4' : '#f59e0b'}; font-weight: 800; font-size: 0.8rem; flex-shrink: 0;">
+                                ${item.number || '?'}
+                            </div>
+                            <!-- Name + concept chip + status + sub-line -->
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap;">
+                                    <span style="color: #f1f5f9; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(item.name)}</span>
+                                    ${item.active === false ? '<span class="loan-employee-status loan-employee-status--inactive">Inactivo</span>' : ''}
+                                    <span style="background: rgba(148, 163, 184, 0.14); border: 1px solid rgba(148, 163, 184, 0.25); color: #cbd5e1; padding: 1px 7px; border-radius: 4px; font-size: 0.72rem; font-weight: 600;">
+                                        ${escapeHTML(item.concept)}
+                                    </span>
+                                    ${item.status === LOAN_STATUS.PAID ? '<span style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); color: #10b981; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Saldado</span>' : ''}
+                                </div>
+                                <div style="color: #94a3b8; font-size: 0.72rem; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+                                    <span>${item.installmentMode === 'installments' ? `${item.installmentCount || 1} cuotas` : 'Pago único'}</span>
+                                    <span>·</span>
+                                    <span>Pagado ${formatCurrency(item.totalPaid)}</span>
+                                    ${formattedDate ? `
+                                        <span>·</span>
+                                        <span style="color: ${isDateSorted ? '#06b6d4' : '#94a3b8'}; font-weight: ${isDateSorted ? '700' : '400'}; display: inline-flex; align-items: center; gap: 3px;" title="Última actividad: ${formattedDate}">
+                                            ${icons.get('calendar', { size: 11 })} ${formattedDate}
+                                        </span>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            <!-- Balance pinned to the right -->
+                            <div style="text-align: right; flex-shrink: 0;"
+                                 title="Préstamo: ${escapeAttr(item.concept)}&#10;Saldo pendiente: ${formatCurrency(item.totalBalance)} (Falta por pagar)&#10;Total a devolver: ${formatCurrency(item.totalDue)}&#10;Pagado: ${formatCurrency(item.totalPaid)}">
+                                <div style="font-size: 1.05rem; font-weight: 900; color: ${isAmountSorted ? '#f59e0b' : '#f1f5f9'}; line-height: 1.1;">${formatCurrency(item.totalBalance)}</div>
+                                <div style="font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">de ${formatCurrency(item.totalDue)}</div>
+                            </div>
                         </div>
-                        <div style="color: #94a3b8; font-size: 0.7rem; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                            ${emp.loanCount} préstamo${emp.loanCount === 1 ? '' : 's'} · Pagado ${formatCurrency(emp.totalPaid)}
+                        `;
+                    }
+
+                    // Tarjeta agrupada por empleado
+                    return `
+                    <div role="button" tabindex="0"
+                         data-app-fn="selectLoansEmployee" data-arg="${item.employeeId}"
+                         style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px;"
+                         onmouseover="this.style.borderColor='#06b6d4'"
+                         onmouseout="this.style.borderColor='#334155'">
+                        <!-- Number avatar -->
+                        <div style="width: 36px; height: 36px; background: ${isNumberSorted ? 'rgba(6, 182, 212, 0.18)' : 'rgba(245,158,11,0.12)'}; border: ${isNumberSorted ? '1px solid rgba(6, 182, 212, 0.4)' : 'none'}; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: ${isNumberSorted ? '#06b6d4' : '#f59e0b'}; font-weight: 800; font-size: 0.8rem; flex-shrink: 0;">
+                            ${item.number || '?'}
+                        </div>
+                        <!-- Name + sub-line, takes whatever space is left -->
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
+                                <span style="color: #f1f5f9; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(item.name)}</span>
+                                ${item.active === false ? '<span class="loan-employee-status loan-employee-status--inactive">Inactivo</span>' : ''}
+                            </div>
+                            <div style="color: #94a3b8; font-size: 0.72rem; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+                                <span>${item.loanCount} préstamo${item.loanCount === 1 ? '' : 's'}</span>
+                                <span>·</span>
+                                <span>Pagado ${formatCurrency(item.totalPaid)}</span>
+                                ${formattedDate ? `
+                                    <span>·</span>
+                                    <span style="color: ${isDateSorted ? '#06b6d4' : '#94a3b8'}; font-weight: ${isDateSorted ? '700' : '400'}; display: inline-flex; align-items: center; gap: 3px;" title="Última actividad: ${formattedDate}">
+                                        ${icons.get('calendar', { size: 11 })} ${formattedDate}
+                                    </span>
+                                ` : ''}
+                            </div>
+                        </div>
+                        <!-- Balance pinned to the right -->
+                        <div style="text-align: right; flex-shrink: 0;"
+                             title="Saldo pendiente: ${formatCurrency(item.totalBalance)} (Falta por pagar)&#10;Total a devolver: ${formatCurrency(item.totalDue)} (Capital + Intereses)&#10;Total pagado: ${formatCurrency(item.totalPaid)}">
+                            <div style="font-size: 1.05rem; font-weight: 900; color: ${isAmountSorted ? '#f59e0b' : '#f1f5f9'}; line-height: 1.1;">${formatCurrency(item.totalBalance)}</div>
+                            <div style="font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">de ${formatCurrency(item.totalDue)}</div>
                         </div>
                     </div>
-                    <!-- Balance pinned to the right -->
-                    <div style="text-align: right; flex-shrink: 0;"
-                         title="Saldo pendiente: ${formatCurrency(emp.totalBalance)} (Falta por pagar)&#10;Total a devolver: ${formatCurrency(emp.totalDue)} (Capital + Intereses)&#10;Total pagado: ${formatCurrency(emp.totalPaid)}">
-                        <div style="font-size: 1.05rem; font-weight: 900; color: #f59e0b; line-height: 1.1;">${formatCurrency(emp.totalBalance)}</div>
-                        <div style="font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">de ${formatCurrency(emp.totalDue)}</div>
-                    </div>
-                </div>
-                `).join('')}
+                    `;
+                }).join('')}
 
                 <!-- Apartado colapsable: Cuentas Saldadas (Inactivas) -->
-                ${allInactive.length > 0 ? `
+                ${filterView === 'active' && allInactive.length > 0 ? `
                 <div style="margin-top: 30px; margin-bottom: 20px;">
                     <button type="button" data-app-fn="toggleInactiveHistory"
                             style="width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #1e293b; border: 1px solid #334155; border-radius: 10px; color: #e2e8f0; font-weight: 700; font-size: 0.85rem; cursor: pointer; text-align: left; outline: none; transition: border-color 0.15s;"
@@ -535,12 +767,16 @@ function LoanCard(loan) {
     const refinancings = (loan.refinancings || []).filter(r => !r.voided);
     const refinCount = getRefinanceCount(loan);
     const totalInterest = getTotalInterestAccrued(loan);
+    const currentInterest = getInterestAmount(loan);
+    const refinInterest = getRefinanceInterest(loan);
+    const hasRefinancing = refinCount > 0 && refinInterest > 0;
     const isInstallmentLoan = terms.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
     const installmentCount = terms.installments.length;
     const repaymentOptions = getPayrollDeductionOptions(loan);
     const nextCharge = repaymentOptions[0] || null;
     const repaymentLabel = isInstallmentLoan ? `En cuotas · ${installmentCount}` : 'Pago único';
     const repaymentBadge = `<span class="loan-card__repayment-badge loan-card__repayment-badge--${isInstallmentLoan ? 'installments' : 'lump'}">${repaymentLabel}</span>`;
+    const accumulatedInterestBadge = `<span class="loan-card__repayment-badge ${hasRefinancing ? 'loan-card__repayment-badge--refinanced' : 'loan-card__repayment-badge--accumulated'}" title="Interés total acumulado: ${formatCurrency(totalInterest)}${hasRefinancing ? ` (incluye ${formatCurrency(refinInterest)} por refinanciamiento)` : ''}">Int. acumulado: ${formatCurrency(totalInterest)}</span>`;
     const nextChargeLabel = nextCharge
         ? nextCharge.kind === 'installment'
             ? `Próxima: cuota ${nextCharge.installmentSeq} · ${formatCurrency(nextCharge.amount)} · ${formatDateShort(nextCharge.dueDate)}`
@@ -581,6 +817,7 @@ function LoanCard(loan) {
                     <div class="loan-card__repayment-line">
                         <span>${formatDateShort(terms.startDate)}</span>
                         ${repaymentBadge}
+                        ${accumulatedInterestBadge}
                     </div>
                     ${isActive && nextChargeLabel ? `<div class="loan-card__next-charge">${nextChargeLabel}</div>` : ''}
                     ${loan.updatedAt ? `
@@ -605,9 +842,9 @@ function LoanCard(loan) {
                     <div class="loan-card__metric-label">Interés</div>
                     <div class="loan-card__metric-value">${terms.interestRate}%${terms.interestIncluded ? ' (incl.)' : ''}</div>
                 </div>
-                <div title="Interés acumulado:&#10;Monto en dinero de los intereses generados.&#10;&#10;Fórmula:&#10;Interés original + Recargos por refinanciamientos.">
-                    <div class="loan-card__metric-label">Int. acumulado</div>
-                    <div class="loan-card__metric-value ${refinCount > 0 ? 'loan-card__metric-value--refinanced' : ''}">${formatCurrency(totalInterest)}</div>
+                <div title="Interés actual del préstamo:&#10;Monto de interés calculado originalmente sobre el capital prestado.">
+                    <div class="loan-card__metric-label">Int. actual</div>
+                    <div class="loan-card__metric-value">${formatCurrency(currentInterest)}</div>
                 </div>
                 <div title="Total a devolver:&#10;Deuda total acordada antes de empezar a pagar.&#10;&#10;Fórmula:&#10;Total = Capital prestado + Interés acumulado.&#10;(No descuenta los pagos que ya se hicieron).">
                     <div class="loan-card__metric-label">Total</div>
@@ -635,6 +872,7 @@ function LoanCard(loan) {
                             ${formatDateShort(terms.startDate)}
                         </span>
                         ${repaymentBadge}
+                        ${accumulatedInterestBadge}
                         ${isActive && nextChargeLabel ? `<small class="loan-card__next-charge">${nextChargeLabel}</small>` : ''}
                         ${loan.updatedAt ? `<small>⏱️ Último cambio: ${formatTimeSince(loan.updatedAt)}</small>` : ''}
                     </span>
@@ -658,9 +896,9 @@ function LoanCard(loan) {
                             <div class="loan-card__metric-label">Interés</div>
                             <div class="loan-card__metric-value">${terms.interestRate}%${terms.interestIncluded ? ' (incl.)' : ''}</div>
                         </div>
-                        <div title="Interés acumulado:&#10;Total de intereses (inicial + refinanciamientos).">
-                            <div class="loan-card__metric-label">Int. acumulado</div>
-                            <div class="loan-card__metric-value ${refinCount > 0 ? 'loan-card__metric-value--refinanced' : ''}">${formatCurrency(totalInterest)}</div>
+                        <div title="Interés actual del préstamo.">
+                            <div class="loan-card__metric-label">Int. actual</div>
+                            <div class="loan-card__metric-value">${formatCurrency(currentInterest)}</div>
                         </div>
                         <div title="Total a devolver:&#10;Capital prestado + Intereses totales acordados.">
                             <div class="loan-card__metric-label">Total</div>
@@ -991,7 +1229,7 @@ function PaymentForm(loan, balance) {
 function RefinanceForm(loan, balance) {
     const draft = (state.loansLedger || {}).refinanceDraft || {
         basis: 'balance',
-        mode: 'installments',
+        mode: 'lump',
         interestRate: 0,
         installmentCount: 2,
         installmentFrequencyWeeks: 2,

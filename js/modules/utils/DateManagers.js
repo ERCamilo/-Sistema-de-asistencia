@@ -24,11 +24,15 @@ export class DateRangeManager {
             const now = new Date();
             this.state[this.config.startDateKey] = getDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
             console.log(`✨ ${this.config.name} Start Date inicializada:`, this.state[this.config.startDateKey]);
+        } else {
+            this.state[this.config.startDateKey] = getDateKey(this.state[this.config.startDateKey]);
         }
 
         if (!this.state[this.config.endDateKey]) {
             this.state[this.config.endDateKey] = getDateKey(new Date());
             console.log(`✨ ${this.config.name} End Date inicializada:`, this.state[this.config.endDateKey]);
+        } else {
+            this.state[this.config.endDateKey] = getDateKey(this.state[this.config.endDateKey]);
         }
 
         if (!this.state[this.config.startPickerMonthKey]) {
@@ -75,19 +79,40 @@ export class DateRangeManager {
 
     // Seleccionar fecha de inicio
     selectStartDate(isoDate) {
+        if (!isoDate) return;
         const dateStr = isoDate.split('T')[0];
         this.state[this.config.startDateKey] = dateStr;
         this.state[this.config.showStartPickerKey] = false;
+        if (this.state[this.config.endDateKey] && dateStr > this.state[this.config.endDateKey]) {
+            this.state[this.config.endDateKey] = dateStr;
+        }
         console.log(`✨ ${this.config.name} Start Date seleccionada:`, dateStr);
         if (this.onSave) this.onSave();
     }
 
     // Seleccionar fecha de fin
     selectEndDate(isoDate) {
+        if (!isoDate) return;
         const dateStr = isoDate.split('T')[0];
         this.state[this.config.endDateKey] = dateStr;
         this.state[this.config.showEndPickerKey] = false;
+        if (this.state[this.config.startDateKey] && dateStr < this.state[this.config.startDateKey]) {
+            this.state[this.config.startDateKey] = dateStr;
+        }
         console.log(`✨ ${this.config.name} End Date seleccionada:`, dateStr);
+        if (this.onSave) this.onSave();
+    }
+
+    // Establecer rango de fechas directamente
+    setRange(isoStartDate, isoEndDate) {
+        if (!isoStartDate || !isoEndDate) return;
+        const startStr = isoStartDate.split('T')[0];
+        const endStr = isoEndDate.split('T')[0];
+        this.state[this.config.startDateKey] = startStr;
+        this.state[this.config.endDateKey] = endStr;
+        this.state[this.config.showStartPickerKey] = false;
+        this.state[this.config.showEndPickerKey] = false;
+        console.log(`✨ ${this.config.name} Rango establecido:`, startStr, 'a', endStr);
         if (this.onSave) this.onSave();
     }
 

@@ -801,6 +801,83 @@ export function getAllActiveLoans(state) {
 }
 
 /**
+ * Resolves the most recent activity/modification date for a loan.
+ * Checks updatedAt, payments, refinancings, createdAt and startDate.
+ * @param {Object} loan
+ * @returns {string|null} ISO date string 'YYYY-MM-DD'
+ */
+export function getLoanLatestActivityDate(loan) {
+    if (!loan) return null;
+    let latestTs = 0;
+    if (loan.updatedAt) latestTs = Math.max(latestTs, Number(loan.updatedAt) || 0);
+    if (loan.createdAt) {
+        const cTs = typeof loan.createdAt === 'number' ? loan.createdAt : Date.parse(loan.createdAt);
+        if (!isNaN(cTs)) latestTs = Math.max(latestTs, cTs);
+    }
+    if (loan.startDate) {
+        const sTs = Date.parse(loan.startDate + 'T00:00:00');
+        if (!isNaN(sTs)) latestTs = Math.max(latestTs, sTs);
+    }
+    for (const p of (loan.payments || [])) {
+        if (!p.voided) {
+            if (p.updatedAt) latestTs = Math.max(latestTs, Number(p.updatedAt) || 0);
+            if (p.createdAt) {
+                const cTs = typeof p.createdAt === 'number' ? p.createdAt : Date.parse(p.createdAt);
+                if (!isNaN(cTs)) latestTs = Math.max(latestTs, cTs);
+            }
+            if (p.date) {
+                const pTs = Date.parse(p.date + 'T00:00:00');
+                if (!isNaN(pTs)) latestTs = Math.max(latestTs, pTs);
+            }
+        }
+    }
+    for (const r of (loan.refinancings || [])) {
+        if (!r.voided) {
+            if (r.updatedAt) latestTs = Math.max(latestTs, Number(r.updatedAt) || 0);
+            if (r.createdAt) {
+                const cTs = typeof r.createdAt === 'number' ? r.createdAt : Date.parse(r.createdAt);
+                if (!isNaN(cTs)) latestTs = Math.max(latestTs, cTs);
+            }
+            if (r.date) {
+                const rTs = Date.parse(r.date + 'T00:00:00');
+                if (!isNaN(rTs)) latestTs = Math.max(latestTs, rTs);
+            }
+        }
+    }
+    if (latestTs > 0) {
+        const d = new Date(latestTs);
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+    return loan.startDate || null;
+}
+
+/**
+ * Formats a date in short format (e.g. "11 sep 2026").
+ * @param {string|number|Date} dateInput
+ * @returns {string|null}
+ */
+export function formatLoanShortDate(dateInput) {
+    if (!dateInput) return null;
+    let d;
+    if (typeof dateInput === 'number') {
+        d = new Date(dateInput);
+    } else if (typeof dateInput === 'string') {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+            const [y, m, day] = dateInput.split('-').map(Number);
+            d = new Date(y, m - 1, day);
+        } else {
+            d = new Date(dateInput);
+        }
+    } else if (dateInput instanceof Date) {
+        d = dateInput;
+    }
+    if (!d || isNaN(d.getTime())) return null;
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/**
  * Employees with at least one ACTIVE loan, with summary numbers.
  * Sorted by total outstanding balance descending.
  */
@@ -814,6 +891,14 @@ export function getEmployeesWithDebt(state) {
         const totalDue = round2(loans.reduce((s, l) => s + getTotalDue(l), 0));
         const totalPaid = round2(loans.reduce((s, l) => s + getPaidAmount(l), 0));
 
+        let lastLoanDate = null;
+        for (const l of (emp.loans || [])) {
+            const d = getLoanLatestActivityDate(l);
+            if (d && (!lastLoanDate || d > lastLoanDate)) {
+                lastLoanDate = d;
+            }
+        }
+
         result.push({
             employeeId: emp.id,
             name: emp.name,
@@ -822,7 +907,8 @@ export function getEmployeesWithDebt(state) {
             loanCount: loans.length,
             totalBalance,
             totalDue,
-            totalPaid
+            totalPaid,
+            lastLoanDate
         });
     }
     result.sort((a, b) => b.totalBalance - a.totalBalance);
@@ -866,6 +952,14 @@ export function getEmployeesWithOnlyInactiveLoans(state) {
         const totalDue = round2(allLoans.reduce((s, l) => s + getTotalDue(l), 0));
         const totalPaid = round2(allLoans.reduce((s, l) => s + getPaidAmount(l), 0));
         const totalBalance = round2(allLoans.reduce((s, l) => s + getBalance(l), 0));
+
+        let lastLoanDate = null;
+        for (const l of allLoans) {
+            const d = getLoanLatestActivityDate(l);
+            if (d && (!lastLoanDate || d > lastLoanDate)) {
+                lastLoanDate = d;
+            }
+        }
         
         result.push({
             employeeId: emp.id,
@@ -874,10 +968,149 @@ export function getEmployeesWithOnlyInactiveLoans(state) {
             loanCount: allLoans.length,
             totalDue,
             totalPaid,
-            totalBalance
+            totalBalance,
+            lastLoanDate
         });
     }
     result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    return result;
+}
+
+/**
+ * Returns a flattened array of individual loans across all employees.
+ * When an employee has multiple loans, each loan appears as its own item.
+ * @param {Object} state
+ * @param {'active'|'all'|'inactive-emp'|'settled'} [filterView='active']
+ * @returns {Array<Object>}
+ */
+export function getIndividualLoanRecords(state, filterView = 'active') {
+    const records = [];
+    const employees = state.employees || [];
+
+    for (const emp of employees) {
+        const allLoans = emp.loans || [];
+        if (allLoans.length === 0) continue;
+
+        for (let idx = 0; idx < allLoans.length; idx++) {
+            const loan = allLoans[idx];
+            if (filterView === 'active' && loan.status !== LOAN_STATUS.ACTIVE) continue;
+            if (filterView === 'inactive-emp' && (emp.active !== false || loan.status !== LOAN_STATUS.ACTIVE)) continue;
+            if (filterView === 'settled' && loan.status !== LOAN_STATUS.PAID && getBalance(loan) > 0.01) continue;
+            if (filterView === 'all' && loan.status === LOAN_STATUS.WRITTEN_OFF) continue;
+
+            const balance = getBalance(loan);
+            const totalDue = getTotalDue(loan);
+            const totalPaid = getPaidAmount(loan);
+            const lastLoanDate = getLoanLatestActivityDate(loan);
+
+            records.push({
+                isIndividualLoan: true,
+                loanId: loan.id,
+                loanIndex: idx + 1,
+                employeeId: emp.id,
+                name: emp.name,
+                number: emp.number,
+                active: emp.active !== false,
+                concept: loan.concept || `Préstamo #${idx + 1}`,
+                installmentMode: loan.installmentMode || 'lump',
+                installmentCount: (loan.installments || []).length,
+                status: loan.status,
+                totalBalance: balance,
+                totalDue,
+                totalPaid,
+                lastLoanDate,
+                loan
+            });
+        }
+    }
+    return records;
+}
+
+/**
+ * Sorts employee loan summary records according to the chosen criteria and order.
+ * @param {Array<Object>} employees
+ * @param {'balance'|'number'|'date'} [sortBy='balance']
+ * @param {'asc'|'desc'} [sortOrder='desc']
+ * @returns {Array<Object>}
+ */
+export function sortEmployeeLoans(employees, sortBy = 'balance', sortOrder = 'desc') {
+    const list = Array.isArray(employees) ? [...employees] : [];
+    return list.sort((a, b) => {
+        let cmp = 0;
+        if (sortBy === 'number') {
+            const numA = parseInt(a.number, 10);
+            const numB = parseInt(b.number, 10);
+            if (!isNaN(numA) && !isNaN(numB)) {
+                cmp = numA - numB;
+            } else {
+                cmp = String(a.number || '').localeCompare(String(b.number || ''), undefined, { numeric: true });
+            }
+        } else if (sortBy === 'date') {
+            const dateA = a.lastLoanDate || '';
+            const dateB = b.lastLoanDate || '';
+            if (!dateA && !dateB) cmp = 0;
+            else if (!dateA) return 1;
+            else if (!dateB) return -1;
+            else cmp = dateA.localeCompare(dateB);
+        } else {
+            // 'balance' (monto de saldo pendiente)
+            cmp = (a.totalBalance || 0) - (b.totalBalance || 0);
+            if (cmp === 0) {
+                cmp = (a.totalDue || 0) - (b.totalDue || 0);
+            }
+        }
+        return sortOrder === 'desc' ? -cmp : cmp;
+    });
+}
+
+/**
+ * Filters employee loan summary records by view, search, amount range, and date.
+ * @param {Array<Object>} employees
+ * @param {Object} [filters={}]
+ * @param {string} [filters.search='']
+ * @param {'all'|'under5k'|'5k-15k'|'over15k'} [filters.amountFilter='all']
+ * @param {'all'|'30d'|'90d'|'year'} [filters.dateFilter='all']
+ * @returns {Array<Object>}
+ */
+export function filterEmployeeLoans(employees, { search = '', amountFilter = 'all', dateFilter = 'all' } = {}) {
+    let result = Array.isArray(employees) ? [...employees] : [];
+    
+    // 1. Búsqueda por texto (nombre o número)
+    const q = String(search || '').toLowerCase().trim();
+    if (q) {
+        result = result.filter(e =>
+            (e.name || '').toLowerCase().includes(q) ||
+            (e.number || '').toLowerCase().includes(q) ||
+            (e.concept && String(e.concept).toLowerCase().includes(q))
+        );
+    }
+
+    // 2. Filtro por monto
+    if (amountFilter && amountFilter !== 'all') {
+        result = result.filter(e => {
+            const amount = typeof e.totalBalance === 'number' && e.totalBalance > 0 ? e.totalBalance : (e.totalDue || 0);
+            if (amountFilter === 'under5k') return amount < 5000;
+            if (amountFilter === '5k-15k') return amount >= 5000 && amount <= 15000;
+            if (amountFilter === 'over15k') return amount > 15000;
+            return true;
+        });
+    }
+
+    // 3. Filtro por fecha de último préstamo
+    if (dateFilter && dateFilter !== 'all') {
+        const now = new Date();
+        result = result.filter(e => {
+            if (!e.lastLoanDate) return false;
+            const d = new Date(e.lastLoanDate + 'T00:00:00');
+            if (isNaN(d.getTime())) return false;
+            const diffDays = (now - d) / (1000 * 60 * 60 * 24);
+            if (dateFilter === '30d') return diffDays <= 30 && diffDays >= 0;
+            if (dateFilter === '90d') return diffDays <= 90 && diffDays >= 0;
+            if (dateFilter === 'year') return d.getFullYear() === now.getFullYear();
+            return true;
+        });
+    }
+
     return result;
 }
 

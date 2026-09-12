@@ -1044,10 +1044,57 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             window.state.viewMode = 'week';
             const html = DateControls();
             testRunner.assert(html.includes('week-span-selector'), 'Debe incluir week-span-selector');
+            testRunner.assert(html.includes('week-span-desktop'), 'Debe incluir selector desktop');
+            testRunner.assert(html.includes('week-span-mobile'), 'Debe incluir selector mobile');
+            testRunner.assert(html.includes('1 sem de período'), 'Debe incluir opción 1 sem de período para móvil');
             testRunner.assert(html.includes('data-att-action="change-week-span"'), 'Debe incluir acciones change-week-span');
             testRunner.assert(html.includes('Período'), 'Debe incluir opción Período');
         } finally {
             window.state.viewMode = originalView;
+        }
+    },
+
+    "getPeriodViewDates: en móvil limita a 7 días y subdivide el período"() {
+        const originalExport = window.state.exportConfig;
+        const originalWidth = window.innerWidth;
+        const originalSpan = window.state.attendanceWeekSpan;
+        try {
+            window.innerWidth = 375; // Simular móvil
+            window.state.exportConfig = {
+                payPeriod: { periodStart: '2026-08-01', periodLength: 15 }
+            };
+
+            // Semana 1 del período (días 1 al 7)
+            const sub1 = getPeriodViewDates('2026-08-03');
+            testRunner.assertEquals(sub1.dates.length, 7, 'Subdivisión 1 debe tener 7 días en móvil');
+            testRunner.assertEquals(sub1.subdivisionIndex, 0, 'Subdivisión 1 tiene índice 0');
+            testRunner.assertEquals(sub1.totalSubdivisions, 3, 'Período de 15 días genera 3 subdivisiones');
+            testRunner.assertEquals(sub1.isPeriodSubdivision, true, 'isPeriodSubdivision debe ser true');
+            testRunner.assertEquals(sub1.periodStart, '2026-08-01', 'Inicia en 2026-08-01');
+            testRunner.assertEquals(sub1.periodEnd, '2026-08-07', 'Termina en 2026-08-07');
+
+            // Semana 2 del período (días 8 al 14)
+            const sub2 = getPeriodViewDates('2026-08-10');
+            testRunner.assertEquals(sub2.dates.length, 7, 'Subdivisión 2 debe tener 7 días en móvil');
+            testRunner.assertEquals(sub2.subdivisionIndex, 1, 'Subdivisión 2 tiene índice 1');
+            testRunner.assertEquals(sub2.periodStart, '2026-08-08', 'Inicia en 2026-08-08');
+            testRunner.assertEquals(sub2.periodEnd, '2026-08-14', 'Termina en 2026-08-14');
+
+            // Semana 3 del período (día 15)
+            const sub3 = getPeriodViewDates('2026-08-15');
+            testRunner.assertEquals(sub3.dates.length, 1, 'Subdivisión 3 tiene el día 15 restante');
+            testRunner.assertEquals(sub3.subdivisionIndex, 2, 'Subdivisión 3 tiene índice 2');
+            testRunner.assertEquals(sub3.periodStart, '2026-08-15', 'Inicia en 2026-08-15');
+            testRunner.assertEquals(sub3.periodEnd, '2026-08-15', 'Termina en 2026-08-15');
+
+            // Si span era 3 en móvil, se autolimita a período/7 días
+            window.state.attendanceWeekSpan = '3';
+            const capped = getPeriodViewDates('2026-08-03');
+            testRunner.assertEquals(capped.dates.length, 7, 'En móvil no permite 21 días, limita a 7');
+        } finally {
+            window.state.exportConfig = originalExport;
+            window.innerWidth = originalWidth;
+            window.state.attendanceWeekSpan = originalSpan;
         }
     }
 });

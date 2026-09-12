@@ -33,5 +33,13 @@ export {
     openProfileForLoan,
     pickEmployeeForNewLoan,
     openLoansLedgerFor,
+    setLoansFilterView,
+    setLoansSortBy,
+    setLoansSortOrder,
+    setLoansAmountFilter,
+    setLoansDateFilter,
+    toggleLoansFilterMenu,
+    resetLoansFilters,
+    setLoansDisplayMode,
     registerLegacyGlobals
 } from './LoansController.js';

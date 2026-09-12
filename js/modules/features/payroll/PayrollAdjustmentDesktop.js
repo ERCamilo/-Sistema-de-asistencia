@@ -390,8 +390,10 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
             <div class="payroll-adjustment-form__fields">
                 <label>
                     <span>Concepto</span>
-                    <input name="name"
+                    <input id="${formKey}-name"
+                           name="name"
                            type="text"
+                           autocomplete="off"
                            value="${safe(adjustment.name || '')}"
                            placeholder="${kind === 'bonuses' ? 'Opcional · por defecto: Bonificación' : 'Opcional · por defecto: Descuento'}">
                 </label>
@@ -416,9 +418,11 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                 </fieldset>
                 <label>
                     <span>Valor</span>
-                    <input name="value"
+                    <input id="${formKey}-value"
+                           name="value"
                            type="number"
                            inputmode="decimal"
+                           autocomplete="off"
                            min="0"
                            step="0.01"
                            value="${Number(adjustment.value) || ''}"
@@ -431,6 +435,7 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                        data-installment-option
                        ${installmentsEligible ? '' : 'hidden'}>
                     <input type="checkbox"
+                           id="${formKey}-installments-enabled"
                            name="installmentsEnabled"
                            ${installmentsEnabled ? 'checked' : ''}>
                     <span>
@@ -443,9 +448,11 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                      ${installmentsEnabled ? '' : 'hidden'}>
                     <label>
                         <span>Cantidad de cuotas</span>
-                        <input name="installmentCount"
+                        <input id="${formKey}-installment-count"
+                               name="installmentCount"
                                type="number"
                                inputmode="numeric"
+                               autocomplete="off"
                                min="2"
                                max="52"
                                step="1"
@@ -453,8 +460,10 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                     </label>
                     <label>
                         <span>Primera nómina</span>
-                        <input name="firstPeriodStart"
+                        <input id="${formKey}-first-period-start"
+                               name="firstPeriodStart"
                                type="date"
+                               autocomplete="off"
                                value="${safe(firstPeriodStart)}">
                     </label>
                     <p data-installment-explanation>
@@ -475,7 +484,7 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
 
             <div class="payroll-adjustment-form__footer">
                 <label class="payroll-adjustment-remember">
-                    <input type="checkbox" name="remembered" ${adjustment.remembered ? 'checked' : ''}>
+                    <input type="checkbox" id="${formKey}-remembered" name="remembered" ${adjustment.remembered ? 'checked' : ''}>
                     <span data-remember-copy>${rememberAdjustmentCopy(resolved.scope)}</span>
                 </label>
                 <div class="payroll-adjustment-form__actions">

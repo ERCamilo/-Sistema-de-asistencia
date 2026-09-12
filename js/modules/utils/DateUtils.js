@@ -4,10 +4,26 @@ import icons from '../ui/IconSystem.js';
 // 💡 DATE UTILS
 // ============================================
 
-// 💡 Helper: Crear Date desde string YYYY-MM-DD sin problemas de timezone
+// 💡 Helper seguro: Normalizar cualquier entrada de fecha (Date, timestamp numérico o string)
+export function toValidDate(d) {
+    if (!d) return new Date();
+    if (d instanceof Date) return isNaN(d.getTime()) ? new Date() : d;
+    if (typeof d === 'number') {
+        const res = new Date(d);
+        return isNaN(res.getTime()) ? new Date() : res;
+    }
+    if (typeof d === 'string') return parseDate(d);
+    return new Date();
+}
+
+// 💡 Helper: Crear Date desde string YYYY-MM-DD o timestamp sin problemas de timezone
 export function parseDate(dateStr) {
     if (!dateStr) return new Date();
-    if (dateStr instanceof Date) return dateStr;
+    if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? new Date() : dateStr;
+    if (typeof dateStr === 'number') {
+        const d = new Date(dateStr);
+        return isNaN(d.getTime()) ? new Date() : d;
+    }
     if (typeof dateStr !== 'string') return new Date();
 
     // 💡 Soporta formato estándar YYYY-MM-DD para evitar problemas de timezone
@@ -27,10 +43,7 @@ export function getDateKey(d) {
         return d;
     }
 
-    // 💡 Convertir a Date si es string
-    const date = typeof d === 'string' ? parseDate(d) : d;
-
-    // Usar componentes locales para evitar problemas de offset de zona horaria y DST
+    const date = toValidDate(d);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -45,15 +58,14 @@ export function isDayHoliday(dateInput, holidays = []) {
 
 // Formateadores de fecha
 export function formatDate(d) {
-    // 💡 Convertir string a Date si es necesario
-    const date = typeof d === 'string' ? parseDate(d) : d;
+    const date = toValidDate(d);
     const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
     const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
     return `${days[date.getDay()]}, ${date.getDate()} de ${months[date.getMonth()]} de ${date.getFullYear()}`;
 }
 
 export function formatDateTime(d) {
-    const date = typeof d === 'string' ? parseDate(d) : d;
+    const date = toValidDate(d);
     const base = formatDate(date);
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
@@ -61,8 +73,7 @@ export function formatDateTime(d) {
 }
 
 export function formatDateShort(d) {
-    // 💡 Convertir string a Date si es necesario
-    const date = typeof d === 'string' ? parseDate(d) : d;
+    const date = toValidDate(d);
     const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
     const dayName = days[date.getDay()];
@@ -70,8 +81,7 @@ export function formatDateShort(d) {
 }
 
 export function formatMonthYear(d) {
-    // 💡 Convertir string a Date si es necesario
-    const date = typeof d === 'string' ? parseDate(d) : d;
+    const date = toValidDate(d);
     const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
     return `${months[date.getMonth()]} ${date.getFullYear()}`;
 }
@@ -218,6 +228,7 @@ export function getPeriodRangeText(startDateInput, endDateInput) {
     const endObj = typeof endDateInput === 'string' ? parseDate(endDateInput) : new Date(endDateInput);
     const start = startObj.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
     const end = endObj.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
+    if (start === end) return start;
     return `${start} - ${end}`;
 }
 export function wasEmployeeActiveOnDate(employee, date, attendance = {}) {

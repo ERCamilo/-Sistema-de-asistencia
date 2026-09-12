@@ -41,6 +41,121 @@
     }
 }
 
+/* --------------------------------------------------------------------------
+   Payroll View Switcher (Fix de solapamiento y soporte responsivo)
+   -------------------------------------------------------------------------- */
+.payroll-view-switcher {
+    padding: 8px 10px;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    margin-bottom: 16px;
+}
+
+.payroll-view-switcher .view-controls {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    width: 100%;
+    margin-bottom: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.payroll-view-switcher .view-controls::-webkit-scrollbar {
+    display: none;
+}
+
+.payroll-view-switcher .view-btn {
+    flex: 1 1 0;
+    min-width: max-content;
+    white-space: nowrap;
+    padding: 9px 14px;
+    min-height: 44px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border-radius: 8px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #94a3b8;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.payroll-view-switcher .view-btn.active {
+    background: #06b6d4;
+    border-color: #06b6d4;
+    color: #0f172a;
+    font-weight: 700;
+    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
+}
+
+.payroll-view-switcher .view-btn:hover:not(.active) {
+    background: #273549;
+    color: #f1f5f9;
+    border-color: #475569;
+}
+
+.payroll-view-switcher .view-btn:active {
+    transform: scale(0.98);
+}
+
+.payroll-view-switcher .label-short {
+    display: none;
+}
+
+.payroll-view-switcher .label-full {
+    display: inline;
+}
+
+@media (max-width: 600px) {
+    .payroll-view-switcher {
+        padding: 6px 8px;
+    }
+
+    .payroll-view-switcher .view-controls {
+        gap: 6px;
+    }
+
+    .payroll-view-switcher .view-btn {
+        padding: 8px 10px;
+        font-size: 0.8125rem;
+        gap: 5px;
+    }
+
+    .payroll-view-switcher .label-full {
+        display: none;
+    }
+
+    .payroll-view-switcher .label-short {
+        display: inline;
+    }
+}
+
+@media (max-width: 360px) {
+    .payroll-view-switcher {
+        padding: 5px 6px;
+    }
+
+    .payroll-view-switcher .view-controls {
+        gap: 4px;
+    }
+
+    .payroll-view-switcher .view-btn {
+        padding: 7px 6px;
+        font-size: 0.775rem;
+        gap: 4px;
+    }
+}
+
+
 .payroll-guide-steps {
     grid-area: steps;
     display: grid;
@@ -1202,7 +1317,8 @@
     }
 
     .payroll-view-switcher .view-btn {
-        flex: 0 0 auto;
+        flex: 1 1 0;
+        min-width: max-content;
     }
 
     .payroll-history__filters {
@@ -1713,6 +1829,130 @@
     color: #fbbf24;
 }
 
+/* ─── Cuentas por Cobrar — Filtros y Vistas ────────────────────────────── */
+
+.loan-view-tab {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 7px 12px;
+    color: #94a3b8;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.loan-view-tab:hover {
+    color: #f1f5f9;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.loan-view-tab.active {
+    background: rgba(6, 182, 212, 0.12);
+    border-color: rgba(6, 182, 212, 0.45);
+    color: #06b6d4;
+}
+
+.loan-tab-badge {
+    background: #334155;
+    color: #f1f5f9;
+    padding: 1px 7px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    font-family: 'IBM Plex Mono', monospace;
+    transition: all 0.15s ease;
+}
+
+.loan-view-tab.active .loan-tab-badge {
+    background: #06b6d4;
+    color: #081a24;
+}
+
+.loan-sort-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 5px 9px;
+    color: #94a3b8;
+    font-size: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.loan-sort-btn:hover {
+    color: #f1f5f9;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.loan-sort-btn.active {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.45);
+    color: #f59e0b;
+}
+
+.loan-filter-toggle-btn {
+    transition: all 0.15s ease;
+}
+
+.loan-filter-toggle-btn:hover {
+    border-color: #06b6d4 !important;
+    color: #06b6d4 !important;
+}
+
+.loans-filter-panel {
+    animation: riseIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.loan-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    background: #0f172a;
+    padding: 3px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    gap: 3px;
+}
+
+.loan-mode-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 6px 11px;
+    color: #94a3b8;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.loan-mode-btn:hover {
+    color: #f1f5f9;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.loan-mode-btn.active {
+    background: #06b6d4;
+    border-color: #06b6d4;
+    color: #081a24;
+    font-weight: 800;
+    box-shadow: 0 2px 6px rgba(6, 182, 212, 0.25);
+}
+
 .loans-detail-back {
     display: inline-flex;
     width: 46px;
@@ -1822,6 +2062,20 @@
     border-color: rgba(6, 182, 212, 0.45);
     background: rgba(6, 182, 212, 0.1);
     color: #67e8f9;
+}
+
+.loan-card__repayment-badge--refinanced {
+    border-color: rgba(168, 85, 247, 0.45);
+    background: rgba(168, 85, 247, 0.16);
+    color: #d8b4fe;
+    font-weight: 700;
+}
+
+.loan-card__repayment-badge--accumulated {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: rgba(148, 163, 184, 0.12);
+    color: #cbd5e1;
+    font-weight: 600;
 }
 
 .loan-card__next-charge {

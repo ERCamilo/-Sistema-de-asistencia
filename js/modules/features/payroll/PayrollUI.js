@@ -425,20 +425,28 @@ export function PayrollTab() {
                     <button type="button"
                             class="view-btn ${mode === 'generator' ? 'active' : ''}"
                             data-payroll-action="change-payroll-view-mode"
-                            data-value="generator">
-                        ${icons.get('payroll')} Generar Nómina
+                            data-value="generator"
+                            aria-label="Generar Nómina">
+                        ${icons.get('payroll')}
+                        <span class="label-full">Generar Nómina</span>
+                        <span class="label-short">Nómina</span>
                     </button>
                     <button type="button"
                             class="view-btn ${mode === 'ledger' ? 'active' : ''}"
                             data-payroll-action="change-payroll-view-mode"
-                            data-value="ledger">
-                        ${icons.get('dollar')} Préstamos / Adelantos
+                            data-value="ledger"
+                            aria-label="Préstamos y adelantos">
+                        ${icons.get('dollar')}
+                        <span class="label-full">Préstamos / Adelantos</span>
+                        <span class="label-short">Préstamos</span>
                     </button>
                     <button type="button"
                             class="view-btn ${mode === 'history' ? 'active' : ''}"
                             data-payroll-action="change-payroll-view-mode"
-                            data-value="history">
-                        ${icons.get('calendar')} Historial
+                            data-value="history"
+                            aria-label="Historial de nómina">
+                        ${icons.get('calendar')}
+                        <span>Historial</span>
                     </button>
                 </div>
             </div>
@@ -481,11 +489,19 @@ function ScopedPayrollTab(view) {
             </header>
             <div class="payroll-project-preview__period">
                 <label>Desde
-                    <input type="date" value="${escapeHTML(period.periodStart)}"
+                    <input type="date"
+                           id="payroll-scoped-period-start"
+                           name="scopedPeriodStart"
+                           autocomplete="off"
+                           value="${escapeHTML(period.periodStart)}"
                            onchange="PayrollUI.updateScopedPeriod('start', this.value)">
                 </label>
                 <label>Hasta
-                    <input type="date" value="${escapeHTML(period.periodEnd)}"
+                    <input type="date"
+                           id="payroll-scoped-period-end"
+                           name="scopedPeriodEnd"
+                           autocomplete="off"
+                           value="${escapeHTML(period.periodEnd)}"
                            onchange="PayrollUI.updateScopedPeriod('end', this.value)">
                 </label>
                 <button type="button" data-payroll-action="refresh-scoped-payroll-preview">
@@ -749,15 +765,21 @@ function PayrollGeneratorTab() {
                 <div style="display: ${isStepCollapsed('step1') ? 'none' : 'block'}; margin-top: 20px;">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
                         <div class="form-group">
-                            <label class="form-label">Desde:</label>
+                            <label class="form-label" for="payroll-export-period-start">Desde:</label>
                             <input type="date" 
+                                   id="payroll-export-period-start"
+                                   name="payrollPeriodStart"
+                                   autocomplete="off"
                                    value="${state.exportConfig.periodStart}" 
                                    onchange="PayrollUI.updateExportPeriod('start', this.value)"
                                    class="form-input">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Hasta:</label>
+                            <label class="form-label" for="payroll-export-period-end">Hasta:</label>
                             <input type="date" 
+                                   id="payroll-export-period-end"
+                                   name="payrollPeriodEnd"
+                                   autocomplete="off"
                                    value="${state.exportConfig.periodEnd}" 
                                    onchange="PayrollUI.updateExportPeriod('end', this.value)"
                                    class="form-input">
@@ -832,16 +854,16 @@ function PayrollGeneratorTab() {
                 <div style="margin-bottom: 16px; padding: 12px; border: 1px solid #334155; border-radius: 8px; background: #0f172a;">
                     <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 8px;">Cargo individual por empleado</p>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;">
-                        <select id="payroll-emp-deduction-employee" class="form-input">
+                        <select id="payroll-emp-deduction-employee" name="deductionEmployee" aria-label="Seleccionar empleado para cargo individual" class="form-input">
                             <option value="">Seleccionar empleado</option>
                             ${employeeOptions}
                         </select>
-                        <select id="payroll-emp-deduction-type" class="form-input">
+                        <select id="payroll-emp-deduction-type" name="deductionType" aria-label="Tipo de cargo individual" class="form-input">
                             <option value="fixed">Monto</option>
                             <option value="percentage">Porcentaje</option>
                         </select>
-                        <input id="payroll-emp-deduction-value" type="number" inputmode="decimal" class="form-input" placeholder="0.00" min="0" step="0.01">
-                        <input id="payroll-emp-deduction-name" type="text" class="form-input" placeholder="Nombre del cargo">
+                        <input id="payroll-emp-deduction-value" name="deductionValue" aria-label="Monto o porcentaje del cargo individual" autocomplete="off" type="number" inputmode="decimal" class="form-input" placeholder="0.00" min="0" step="0.01">
+                        <input id="payroll-emp-deduction-name" name="deductionName" aria-label="Nombre del cargo individual" autocomplete="off" type="text" class="form-input" placeholder="Nombre del cargo">
                         <button type="button" data-payroll-action="add-employee-deduction-from-form"
                                 style="padding: 8px 12px; background: #06b6d4; border: none; border-radius: 6px; color: #000; font-weight: 700; cursor: pointer;">
                             Agregar cargo
@@ -904,16 +926,16 @@ function PayrollGeneratorTab() {
                 <div style="margin-bottom: 16px; padding: 12px; border: 1px solid #334155; border-radius: 8px; background: #0f172a;">
                     <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 8px;">Abonar bono individual por empleado</p>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;">
-                        <select id="payroll-emp-bonus-employee" class="form-input">
+                        <select id="payroll-emp-bonus-employee" name="bonusEmployee" aria-label="Seleccionar empleado para bono individual" class="form-input">
                             <option value="">Seleccionar empleado</option>
                             ${employeeOptions}
                         </select>
-                        <select id="payroll-emp-bonus-type" class="form-input">
+                        <select id="payroll-emp-bonus-type" name="bonusType" aria-label="Tipo de bono individual" class="form-input">
                             <option value="fixed">Monto</option>
                             <option value="percentage">Porcentaje</option>
                         </select>
-                        <input id="payroll-emp-bonus-value" type="number" inputmode="decimal" class="form-input" placeholder="0.00" min="0" step="0.01">
-                        <input id="payroll-emp-bonus-name" type="text" class="form-input" placeholder="Nombre del bono">
+                        <input id="payroll-emp-bonus-value" name="bonusValue" aria-label="Monto o porcentaje del bono individual" autocomplete="off" type="number" inputmode="decimal" class="form-input" placeholder="0.00" min="0" step="0.01">
+                        <input id="payroll-emp-bonus-name" name="bonusName" aria-label="Nombre del bono individual" autocomplete="off" type="text" class="form-input" placeholder="Nombre del bono">
                         <button type="button" data-payroll-action="add-employee-bonus-from-form"
                                 style="padding: 8px 12px; background: #10b981; border: none; border-radius: 6px; color: #fff; font-weight: 700; cursor: pointer;">
                             Agregar bono
@@ -960,8 +982,8 @@ function PayrollGeneratorTab() {
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
                     <div style="display: flex; gap: 8px; align-items: center; max-width: 60%;">
-                        <span style="font-size: 0.75rem; color: #94a3b8; margin-right: 4px;">Líder:</span>
-                        <select onchange="PayrollUI.setLeaderFilter(this.value)" class="form-input" style="padding: 6px 12px; font-size: 0.875rem; border-color: #334155; background: #0f172a; color: #f1f5f9; border-radius: 6px; cursor: pointer; outline: none;">
+                        <label for="payroll-leader-filter" style="font-size: 0.75rem; color: #94a3b8; margin-right: 4px;">Líder:</label>
+                        <select id="payroll-leader-filter" name="leaderFilter" aria-label="Filtrar por líder" onchange="PayrollUI.setLeaderFilter(this.value)" class="form-input" style="padding: 6px 12px; font-size: 0.875rem; border-color: #334155; background: #0f172a; color: #f1f5f9; border-radius: 6px; cursor: pointer; outline: none;">
                             <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos</option>
                             ${leaders.map(ldr => `
                                 <option value="${ldr.id}" ${leaderFilter === ldr.id ? 'selected' : ''}>${ldr.name}</option>
@@ -1925,11 +1947,19 @@ function generateExportDeductionsHTML() {
                 </div>
                 <div style="flex: 1;">
                     <input type="number" inputmode="decimal" class="form-input" 
+                        id="export-deduction-value-${index}"
+                        name="exportDeductionValue_${index}"
+                        aria-label="Valor de deducción ${index + 1}"
+                        autocomplete="off"
                         value="${ded.value || 0}" 
                         oninput="PayrollUI.updateExportDeductionValue(${index}, this.value)" 
                         placeholder="0.00" min="0" step="${ded.type === 'fixed' ? '0.01' : '0.1'}" 
                         style="width: 100%; font-size: 0.875rem; padding: 8px; margin-bottom: 8px;">
                     <input type="text" class="form-input" 
+                        id="export-deduction-name-${index}"
+                        name="exportDeductionName_${index}"
+                        aria-label="Nombre de deducción ${index + 1}"
+                        autocomplete="off"
                         value="${ded.name || ''}" 
                         oninput="PayrollUI.updateExportDeductionName(${index}, this.value)" 
                         placeholder="Nombre (ej: AFP, SFS...)" 
@@ -2154,11 +2184,19 @@ function generateExportBonusesHTML() {
                 </div>
                 <div style="flex: 1;">
                     <input type="number" inputmode="decimal" class="form-input" 
+                        id="export-bonus-value-${index}"
+                        name="exportBonusValue_${index}"
+                        aria-label="Valor de bono ${index + 1}"
+                        autocomplete="off"
                         value="${bon.value || 0}" 
                         oninput="PayrollUI.updateExportBonusValue(${index}, this.value)" 
                         placeholder="0.00" min="0" step="${bon.type === 'fixed' ? '0.01' : '0.1'}" 
                         style="width: 100%; font-size: 0.875rem; padding: 8px; margin-bottom: 8px; border-color: rgba(16, 185, 129, 0.3);">
                     <input type="text" class="form-input" 
+                        id="export-bonus-name-${index}"
+                        name="exportBonusName_${index}"
+                        aria-label="Nombre de bono ${index + 1}"
+                        autocomplete="off"
                         value="${bon.name || ''}" 
                         oninput="PayrollUI.updateExportBonusName(${index}, this.value)" 
                         placeholder="Nombre (ej: Bono mensual...)" 

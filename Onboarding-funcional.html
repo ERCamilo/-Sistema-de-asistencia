@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onboarding · Control de Asistencia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  :root{
+    --bg: oklch(0.185 0.012 245);
+    --panel: oklch(0.228 0.013 245);
+    --panel-2: oklch(0.268 0.014 245);
+    --hover: oklch(0.31 0.015 245);
+    --border: oklch(0.33 0.014 245);
+    --text: oklch(0.96 0.004 245);
+    --text-dim: oklch(0.74 0.01 245);
+    --text-faint: oklch(0.56 0.012 245);
+    --accent: oklch(0.76 0.11 205);
+    --on-accent: oklch(0.16 0.02 240);
+    --good: oklch(0.74 0.12 158);
+    --bad: oklch(0.68 0.16 25);
+    --warn: oklch(0.82 0.11 78);
+    --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 24px 60px -24px rgba(0,0,0,0.8);
+  }
+  button{font-family:inherit;color:inherit;}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;}
+  button:focus:not(:focus-visible){outline:none;}
+  @keyframes riseIn{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+  @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+  @keyframes popIn{0%{opacity:0;transform:scale(.6);}60%{transform:scale(1.06);}100%{opacity:1;transform:scale(1);}}
+  @keyframes glowPulse{0%,100%{opacity:.22;transform:scale(1);}50%{opacity:.42;transform:scale(1.1);}}
+  @keyframes breathe{0%,100%{transform:scale(1);}50%{transform:scale(1.04);}}
+  @keyframes growW{from{width:0;}to{width:var(--w);}}
+  @keyframes slideRow{from{opacity:0;transform:translateX(-10px);}to{opacity:1;transform:none;}}
+  @keyframes tapRing{0%{opacity:0;transform:scale(.5);}40%{opacity:.7;}100%{opacity:0;transform:scale(1.9);}}
+  /* hover utilities: inline styles win the cascade, so these carry !important */
+  .hv-bg:hover{background:var(--hover)!important;}
+  .hv-bright:hover{filter:brightness(1.06);}
+  .hv-text:hover{color:var(--text)!important;}
+  .hv-bdim:hover{border-color:var(--text-dim)!important;}
+  .hv-bgtext:hover{background:var(--hover)!important;color:var(--text)!important;}
+  .hv-danger:hover{color:var(--bad)!important;border-color:var(--bad)!important;}
+  .od-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:434px;}
+  .od-demo{position:relative;background:var(--bg);border-left:1px solid var(--border);display:flex;align-items:center;justify-content:center;padding:32px;overflow:hidden;}
+  @media (max-width:860px){
+    .od-wrap{padding:14px!important;}
+    .od-grid{grid-template-columns:1fr;}
+    .od-demo{border-left:none;border-top:1px solid var(--border);}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<noscript>Esta demo interactiva necesita JavaScript habilitado.</noscript>
+<script>
+(function(){
+'use strict';
+
+/* ============================ constants ============================ */
+var STEPS = [
+  { kicker:'Bienvenido', title:'Tu obra, bajo control', body:'Registra la jornada del equipo, calcula la nómina y lleva los préstamos — todo en un solo lugar, incluso sin señal.',
+    tips:['Funciona offline: los cambios se sincronizan solos','Pensado para usarse a pie de obra','Esta guía cubre asistencia, semana, nómina y cartera'] },
+  { kicker:'Paso 1 · Asistencia', title:'Marca el día en un toque', body:'Cada empleado tiene un solo botón. Un clic lo marca presente, otro lo pasa a ausente y un tercero lo deja sin marcar.',
+    tips:['«Marcar todos presentes» cierra el día completo','Las horas por defecto se ajustan arriba','El aviso te dice a quién falta marcar'] },
+  { kicker:'Paso 2 · Semana', title:'Revisa la semana completa', body:'La vista semanal muestra los seis días en una sola tabla. Haz clic en cualquier celda para alternar presente, ausente o feriado.',
+    tips:['El total de horas por empleado se calcula solo','Corrige días pasados sin salir de la tabla','El color indica el estado de un vistazo'] },
+  { kicker:'Paso 3 · Nómina', title:'Genera la nómina en 4 pasos', body:'Elige el período, define deducciones y bonificaciones, y revisa la vista previa antes de exportar.',
+    tips:['Los montos se recalculan al instante','Exporta a JSON para tu sistema de pagos','Puedes volver a cualquier paso sin perder datos'] },
+  { kicker:'Paso 4 · Cartera', title:'Préstamos y adelantos claros', body:'Registra préstamos por empleado, aplica abonos y consulta el saldo pendiente de toda la cartera.',
+    tips:['Cada abono actualiza el saldo al momento','Refinancia o salda un préstamo en un clic','El resumen nunca modifica saldos por sí solo'] },
+  { kicker:'Listo', title:'Ya puedes empezar', body:'Eso es todo lo que necesitas para operar. Puedes volver a esta guía desde Ajustes cuando quieras.',
+    tips:['Tus datos quedan guardados en el dispositivo','Invita a tus líderes para que marquen su cuadrilla','¿Dudas? La guía sigue en Ajustes'] }
+];
+var SETUP = [
+  { kicker:'Configuración · 1 de 6', title:'¿Cómo se llama la empresa o el proyecto?', body:'Aparecerá en la cabecera, en los reportes y en la nómina que exportes.' },
+  { kicker:'Configuración · 2 de 6', title:'¿Qué días se trabaja cada semana?', body:'Define la semana laboral por defecto. Podrás marcar excepciones y feriados cualquier día.' },
+  { kicker:'Configuración · 3 de 6', title:'¿Cuántas horas se trabajan al día?', body:'Es el valor que se asigna al marcar presente. Siempre puedes ajustarlo por empleado.' },
+  { kicker:'Configuración · 4 de 6', title:'Crea la primera posición', body:'Las posiciones agrupan al personal y fijan la tarifa. Después puedes añadir todas las que necesites.' },
+  { kicker:'Configuración · 5 de 6', title:'Agrega a tu primer empleado', body:'Con uno basta para empezar a marcar asistencia. Puedes añadir más ahora o desde Personal.' },
+  { kicker:'Configuración · 6 de 6', title:'Guarda tus datos en la nube', body:'Vincula tu cuenta de Google para respaldar la información y recuperarla en otro dispositivo.' }
+];
+var DEMO = [
+  { code:'001', name:'Franklin Henrriquez', pos:'Operador Ctk', color:'oklch(0.72 0.1 200)', icon:'bolt' },
+  { code:'002', name:'Pauliny Buchamps', pos:'Capataz', color:'oklch(0.68 0.15 15)', icon:'hardhat' },
+  { code:'003', name:'Varnet Gran Pierre', pos:'Ayudante', color:'oklch(0.68 0.14 300)', icon:'box' }
+];
+var ICONS = {
+  bolt:'<path d="M13 3L5.5 13H10l-1 8 8.5-11H13z"/>',
+  hardhat:'<path d="M2.4 18a1 1 0 0 0 1 1h17.2a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1H3.4a1 1 0 0 0-1 1z"/><path d="M10.3 4.8h3.4"/><path d="M10.3 4.8L9.1 9.4M13.7 4.8l1.2 4.6"/><path d="M4 15v-2.7a6.1 6.1 0 0 1 6.1-6.1"/><path d="M13.9 6.2a6.1 6.1 0 0 1 6.1 6.1V15"/>',
+  box:'<path d="M12 3.5l8 4v9l-8 4-8-4v-9z"/><path d="M4 7.5l8 4 8-4M12 11.5V20"/>'
+};
+var DAY_LABELS = ['L','M','X','J','V','S','D'];
+var DAY_NAMES = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+var POS_COLORS = ['oklch(0.72 0.1 200)','oklch(0.68 0.15 15)','oklch(0.78 0.11 78)','oklch(0.68 0.14 300)'];
+var SETUP_TOTAL = 6;
+var FIELD_STYLE = 'width:100%;height:46px;padding:0 15px;border-radius:11px;border:1px solid var(--border);background:var(--panel-2);font-size:15px;font-family:inherit;color:inherit;';
+var SVG_CHECK = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>';
+var SVG_CHECK_SM = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>';
+var SVG_CROSS = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>';
+var G_LOGO_PATHS = '<path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>';
+function glogo(sz){ return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24">'+G_LOGO_PATHS+'</svg>'; }
+
+/* ============================ state ============================ */
+function defaultState(){
+  return {
+    phase:'guide', step:1, setupStep:1, source:null,
+    company:'', days:[true,true,true,true,true,true,false], hours:8,
+    posName:'', posRate:'', posColorIdx:0,
+    employees:[], newEmpName:'', newEmpCode:'',
+    googleConnected:false,
+    demoStates:['p','p','p'],
+    weekData:[
+      { code:'001', pattern:['p','p','p','p','p',null] },
+      { code:'002', pattern:['p','p','p','p','p','p'] },
+      { code:'003', pattern:['p','p','p','a','p','p'] },
+      { code:'004', pattern:['p','p','f','p','p',null] }
+    ],
+    counters:{ present:0, hours:0, net:0, port:0 }
+  };
+}
+var state = defaultState();
+/* render-mode flags: fresh navigation replays entrance animations;
+   in-view interactions (toggles, typing) re-render without them. */
+var _noAnim = false;
+var _action = null;          /* {t:'demo'|'all'|'week'|'empAdd', n, r, c} */
+var _cStep = null;           /* counter-animation context key */
+var _raf = 0, _cto = 0;
+var _focusId = '', _selStart = 0, _selLen = 0;
+
+/* ============================ utils ============================ */
+function esc(v){
+  return String(v).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function money(n){ return '$' + Math.round(n).toLocaleString('es-DO'); }
+function iconSvg(name,size){
+  return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+(ICONS[name]||'')+'</svg>';
+}
+
+/* position persistence (cleared once finished so reopening starts clean) */
+function persist(){
+  try{
+    if(state.phase==='ready'){ localStorage.removeItem('onboarding-pos'); return; }
+    localStorage.setItem('onboarding-pos', JSON.stringify({phase:state.phase, step:state.step, setupStep:state.setupStep}));
+  }catch(e){}
+}
+function restore(){
+  try{
+    var raw = localStorage.getItem('onboarding-pos');
+    if(!raw) return;
+    var p = JSON.parse(raw);
+    if(p.phase==='guide' && p.step>=1 && p.step<=STEPS.length){ state.phase='guide'; state.step=p.step; }
+    else if(p.phase==='choice'){ state.phase='choice'; }
+    else if(p.phase==='setup' && p.setupStep>=1 && p.setupStep<=SETUP_TOTAL){ state.phase='setup'; state.setupStep=p.setupStep; }
+  }catch(e){}
+}
+
+/* ============================ navigation logic ============================ */
+function canAdvance(s){
+  if(s.phase==='guide') return true;
+  if(s.phase==='choice') return !!s.source;
+  if(s.phase==='setup'){
+    var su = s.setupStep;
+    if(su===1) return s.company.trim().length>0;
+    if(su===2) return s.days.filter(Boolean).length>0;
+    if(su===3) return s.hours>0;
+    if(su===4) return s.posName.trim().length>0;
+    if(su===5) return s.employees.length>0;
+    return true;
+  }
+  return false;
+}
+function update(opts){
+  opts = opts || {};
+  _noAnim = !!opts.noAnim;
+  _action = opts.action || null;
+  if(opts.focus !== undefined){ _focusId = opts.focus; }
+  else if(!_noAnim){ _focusId = ''; }
+  persist();
+  render();
+}
+function navNext(){
+  if(!canAdvance(state)) return;
+  if(state.phase==='guide'){
+    if(state.step < STEPS.length){ state.step++; } else { state.phase='choice'; }
+  } else if(state.phase==='choice'){
+    if(state.source==='scratch'){ state.phase='setup'; state.setupStep=1; } else { state.phase='ready'; }
+  } else if(state.phase==='setup'){
+    if(state.setupStep < SETUP_TOTAL){ state.setupStep++; } else { state.phase='ready'; }
+  }
+  update();
+}
+function navBack(){
+  if(state.phase==='ready') return;
+  if(state.phase==='guide' && state.step===1) return;
+  if(state.phase==='guide'){ state.step=Math.max(1,state.step-1); }
+  else if(state.phase==='choice'){ state.phase='guide'; state.step=STEPS.length; }
+  else if(state.phase==='setup'){
+    if(state.setupStep>1){ state.setupStep--; } else { state.phase='choice'; }
+  }
+  update();
+}
+function goGuideStep(n){ state.step=n; update(); }
+function goLast(){ state.step=STEPS.length; update(); }
+
+/* ============================ widget actions ============================ */
+function cycleDemo(n){
+  cancelAnimationFrame(_raf);
+  var ORDER=[null,'p','a'];
+  var cur=state.demoStates[n];
+  var nxt=ORDER[(ORDER.indexOf(cur)+1)%ORDER.length];
+  state.demoStates=state.demoStates.map(function(v,i){return i===n?nxt:v;});
+  state.counters.present=state.demoStates.filter(function(x){return x==='p';}).length;
+  state.counters.hours=state.counters.present*8;
+  update({noAnim:true, action:{t:'demo', n:n}});
+}
+function markAllPresent(){
+  cancelAnimationFrame(_raf);
+  state.demoStates=state.demoStates.map(function(){return 'p';});
+  state.counters.present=state.demoStates.length;
+  state.counters.hours=state.counters.present*8;
+  update({noAnim:true, action:{t:'all'}});
+}
+function cycleWeek(r,c){
+  var ORDER=[null,'p','a','f'];
+  var cur=state.weekData[r].pattern[c];
+  var nxt=ORDER[(ORDER.indexOf(cur)+1)%ORDER.length];
+  state.weekData[r].pattern=state.weekData[r].pattern.map(function(v,i){return i===c?nxt:v;});
+  update({noAnim:true, action:{t:'week', r:r, c:c}});
+}
+function toggleDay(i){ state.days[i]=!state.days[i]; update({noAnim:true}); }
+function setHours(h){ state.hours=h; update({noAnim:true}); }
+function hMinus(){ state.hours=Math.max(1,state.hours-1); update({noAnim:true}); }
+function hPlus(){ state.hours=Math.min(16,state.hours+1); update({noAnim:true}); }
+function setPosColor(n){ state.posColorIdx=n; update({noAnim:true}); }
+function pick(src){ state.source=src; update({noAnim:true}); }
+function addEmployee(){
+  var n=state.newEmpName.trim();
+  if(!n) return;
+  var code=state.newEmpCode.trim() || String(state.employees.length+1).padStart(3,'0');
+  state.employees.push({code:code, name:n, pos:state.posName.trim()||'Sin posición'});
+  state.newEmpName=''; state.newEmpCode='';
+  update({noAnim:true, action:{t:'empAdd'}, focus:'f-empname'});
+}
+function removeEmployee(code){
+  state.employees=state.employees.filter(function(e){return e.code!==code;});
+  update({noAnim:true});
+}
+function connectGoogle(){ state.googleConnected=true; update({noAnim:true}); }
+function disconnectGoogle(){ state.googleConnected=false; update({noAnim:true}); }
+
+/* ============================ animated counters (patch text nodes only) ============================ */
+function syncCounters(key){
+  if(_cStep===key) return;
+  _cStep=key;
+  clearTimeout(_cto);
+  _cto=setTimeout(runCounters,0);
+}
+function runCounters(){
+  cancelAnimationFrame(_raf);
+  var targets={present:0,hours:0,net:0,port:0};
+  if(state.phase==='guide' && state.step===2){
+    targets.present=state.demoStates.filter(function(x){return x==='p';}).length;
+    targets.hours=targets.present*8;
+  }
+  if(state.phase==='guide' && state.step===4){ targets.net=23466; }
+  if(state.phase==='guide' && state.step===5){ targets.port=57560; }
+  var dur=1100, t0=performance.now();
+  var tick=function(t){
+    var k=Math.min(1,(t-t0)/dur);
+    var e=1-Math.pow(1-k,3);
+    patchCnt('cnt-present', String(Math.round(targets.present*e)));
+    patchCnt('cnt-hours', String(Math.round(targets.hours*e))+'h');
+    patchCnt('cnt-net', money(Math.round(targets.net*e)));
+    patchCnt('cnt-port', money(Math.round(targets.port*e)));
+    if(k<1) _raf=requestAnimationFrame(tick);
+  };
+  _raf=requestAnimationFrame(tick);
+}
+function patchCnt(id,val){
+  var el=document.getElementById(id);
+  if(el) el.textContent=val;
+}
+
+/* ============================ render helpers ============================ */
+var anim = true; /* true while building a fresh-navigation render */
+function an(style){ return anim ? style : ''; }
+
+function chip(text,mb){
+  return '<div style="display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 11px;border-radius:20px;background:var(--panel-2);border:1px solid var(--border);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);margin-bottom:'+(mb||16)+'px;white-space:nowrap;">'+text+'</div>';
+}
+
+function topbar(stepCounter, showSkip){
+  var skip = showSkip
+    ? '<button data-act="goLast" class="hv-text" style="height:32px;padding:0 13px;border-radius:8px;border:none;background:transparent;color:var(--text-faint);cursor:pointer;font-size:12.5px;font-weight:500;">Omitir guía</button>'
+    : '';
+  return '<div data-od-id="od-topbar" style="display:flex;align-items:center;justify-content:space-between;padding:18px 26px;border-bottom:1px solid var(--border);">'
+    + '<div style="display:flex;align-items:center;gap:11px;">'
+    + '<img src="icon-512.png" alt="" width="30" height="30" onerror="this.style.display=\'none\'" style="width:30px;height:30px;border-radius:8px;display:block;">'
+    + '<div style="line-height:1.15;"><div style="font-size:13.5px;font-weight:600;">Control de Asistencia</div><div style="font-size:11px;color:var(--text-faint);">Contrutek</div></div>'
+    + '</div>'
+    + '<div style="display:flex;align-items:center;gap:16px;">'
+    + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--text-faint);">'+stepCounter+'</span>' + skip
+    + '</div></div>';
+}
+
+function footer(prevDisabled, nextEnabled, showDots, hint, nextLabel, last){
+  var dots='';
+  if(showDots){
+    dots='<div style="display:flex;align-items:center;gap:7px;">';
+    for(var n=0;n<STEPS.length;n++){
+      var actN=(state.step===n+1);
+      dots+='<button data-act="dot" data-n="'+(n+1)+'" title="'+esc(STEPS[n].title)+'" style="width:'+(actN?'22px':'8px')+';height:8px;border-radius:5px;border:none;cursor:pointer;padding:0;transition:width .2s,background .2s;background:'+(actN?'var(--accent)':'var(--border)')+';"></button>';
+    }
+    dots+='</div>';
+  }
+  return '<div data-od-id="od-footer" style="display:flex;align-items:center;justify-content:space-between;padding:16px 26px;border-top:1px solid var(--border);">'
+    + '<button data-act="back" style="display:flex;align-items:center;gap:7px;height:40px;padding:0 16px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:13.5px;font-weight:500;cursor:pointer;'+(prevDisabled?'opacity:.35;pointer-events:none;':'')+'">'
+    + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg>Atrás</button>'
+    + '<div style="display:flex;align-items:center;gap:12px;">'+dots
+    + (hint?'<span style="font-size:12px;color:var(--text-faint);">'+esc(hint)+'</span>':'')
+    + '</div>'
+    + '<button data-act="next" class="hv-bright" style="display:flex;align-items:center;gap:7px;height:40px;padding:0 20px;border-radius:10px;border:none;background:var(--accent);color:var(--on-accent);font-size:13.5px;font-weight:600;cursor:pointer;'+(nextEnabled?'':'opacity:.4;pointer-events:none;')+'">'
+    + esc(nextLabel)
+    + (last
+        ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>'
+        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>')
+    + '</button></div>';
+}
+
+/* ---------- guide: left copy panel ---------- */
+function guideCopy(){
+  var step=STEPS[state.step-1];
+  var tips='';
+  step.tips.forEach(function(t,n){
+    tips+='<div style="display:flex;gap:11px;align-items:flex-start;'+an('animation:riseIn .45s cubic-bezier(.2,.8,.2,1) '+(0.16+n*0.09)+'s both;')+'">'
+      + '<span style="width:20px;height:20px;flex:none;border-radius:6px;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;margin-top:1px;">'+SVG_CHECK_SM+'</span>'
+      + '<span style="font-size:13.5px;color:var(--text-dim);line-height:1.5;">'+esc(t)+'</span></div>';
+  });
+  return '<div data-od-id="od-guide-copy" style="padding:38px 34px;display:flex;flex-direction:column;justify-content:center;">'
+    + '<div style="'+an('animation:riseIn .45s cubic-bezier(.2,.8,.2,1) both;')+'">'
+    + chip(esc(step.kicker))
+    + '<h1 style="margin:0;font-size:27px;font-weight:700;letter-spacing:-.015em;line-height:1.18;text-wrap:pretty;">'+esc(step.title)+'</h1>'
+    + '<p style="margin:12px 0 0;font-size:14.5px;color:var(--text-dim);line-height:1.55;text-wrap:pretty;">'+esc(step.body)+'</p>'
+    + '</div>'
+    + '<div style="margin-top:24px;display:grid;gap:11px;">'+tips+'</div></div>';
+}
+
+/* ---------- guide: right demo panel ---------- */
+function demoPanel(){
+  var inner='';
+  if(state.step===1) inner=demoWelcome();
+  else if(state.step===2) inner=demoAttendance();
+  else if(state.step===3) inner=demoWeek();
+  else if(state.step===4) inner=demoPayroll();
+  else if(state.step===5) inner=demoPortfolio();
+  else inner=demoReady();
+  return '<div class="od-demo" data-od-id="od-demo-'+state.step+'">'+inner+'</div>';
+}
+
+function demoWelcome(){
+  return '<div style="position:absolute;width:240px;height:240px;border-radius:50%;background:var(--accent);filter:blur(80px);animation:glowPulse 3.6s ease-in-out infinite;"></div>'
+    + '<div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:20px;">'
+    + '<img src="icon-512.png" alt="" width="112" height="112" onerror="this.style.display=\'none\'" style="width:112px;height:112px;border-radius:28px;display:block;animation:popIn .6s cubic-bezier(.2,.8,.2,1) both, breathe 3.6s ease-in-out .6s infinite;">'
+    + '<div style="text-align:center;animation:riseIn .5s ease .2s both;">'
+    + '<div style="font-size:17px;font-weight:700;">Control de Asistencia</div>'
+    + '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--text-faint);margin-top:5px;">v1.7.0</div>'
+    + '</div></div>';
+}
+
+function demoAttendance(){
+  function changed(n){ return !!(_action && (_action.t==='all' || (_action.t==='demo' && _action.n===n))); }
+  var rows='';
+  DEMO.forEach(function(d,n){
+    var stt=state.demoStates[n];
+    var base='position:absolute;inset:0;border-radius:10px;display:flex;align-items:center;justify-content:center;';
+    var markP='', markA='', tap='';
+    if(stt==='p'){
+      var pAnim = anim
+        ? 'opacity:0;animation:popIn .4s cubic-bezier(.2,.8,.2,1) '+(0.5+n*0.42)+'s both;'
+        : (changed(n) ? 'opacity:0;animation:popIn .25s cubic-bezier(.2,.8,.2,1) both;' : '');
+      markP='<span style="'+base+'background:var(--good);color:var(--panel);'+pAnim+'">'+SVG_CHECK+'</span>';
+    } else if(stt==='a'){
+      markA='<span style="'+base+'background:var(--bad);color:var(--panel);'+an('opacity:0;animation:popIn .25s cubic-bezier(.2,.8,.2,1) both;')+'">'+SVG_CROSS+'</span>';
+    }
+    if(anim){ tap='<span style="position:absolute;inset:-6px;border-radius:14px;border:2px solid var(--good);opacity:0;animation:tapRing .7s ease '+(0.42+n*0.42)+'s both;"></span>'; }
+    rows+='<button data-act="demoRow" data-n="'+n+'" title="Clic para alternar: presente · ausente · sin marcar" class="hv-bg" style="position:relative;overflow:hidden;display:flex;width:100%;align-items:center;gap:12px;padding:11px 13px;border:none;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;border-bottom:1px solid var(--border);'+an('animation:slideRow .4s ease '+(n*0.08)+'s both;')+'">'
+      + '<span style="position:absolute;right:56px;top:50%;transform:translateY(-50%);color:'+d.color+';opacity:.12;pointer-events:none;">'+iconSvg(d.icon,60)+'</span>'
+      + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:15px;font-weight:600;color:'+d.color+';position:relative;">'+esc(d.code)+'</span>'
+      + '<div style="flex:1;min-width:0;position:relative;">'
+      + '<div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(d.name)+'</div>'
+      + '<div style="font-size:10.5px;color:var(--text-faint);">'+esc(d.pos)+'</div></div>'
+      + '<div style="position:relative;width:38px;height:38px;flex:none;">'
+      + '<span style="position:absolute;inset:0;border-radius:10px;border:1px dashed var(--border);"></span>'
+      + markP + markA + tap
+      + '</div></button>';
+  });
+  return '<div data-od-id="od-demo-attendance" style="position:relative;width:100%;max-width:330px;">'
+    + '<div style="display:flex;gap:9px;margin-bottom:14px;">'
+    + '<div style="flex:1;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--good);border-radius:10px;padding:11px 13px;'+an('animation:riseIn .4s ease both;')+'">'
+    + '<div style="font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Presentes</div>'
+    + '<div id="cnt-present" style="font-family:\'IBM Plex Mono\',monospace;font-size:22px;font-weight:700;line-height:1;margin-top:4px;">'+state.counters.present+'</div></div>'
+    + '<div style="flex:1;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;padding:11px 13px;'+an('animation:riseIn .4s ease .06s both;')+'">'
+    + '<div style="font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Horas</div>'
+    + '<div id="cnt-hours" style="font-family:\'IBM Plex Mono\',monospace;font-size:22px;font-weight:700;line-height:1;margin-top:4px;">'+state.counters.hours+'h</div></div>'
+    + '</div>'
+    + '<div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden;">'+rows+'</div>'
+    + '<button data-act="markAll" class="hv-bright" style="margin-top:13px;display:flex;width:100%;align-items:center;justify-content:center;gap:8px;height:36px;border-radius:9px;border:none;background:var(--accent);color:var(--on-accent);font-size:12.5px;font-weight:600;cursor:pointer;'+an('animation:riseIn .4s ease .5s both;')+'">'
+    + '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l4 4L14 8M12 16.5l2 2L20 10"></path></svg>Marcar todos presentes</button>'
+    + '</div>';
+}
+
+function demoWeek(){
+  var ST={p:{c:'var(--good)',g:'✓'},a:{c:'var(--bad)',g:'✕'},f:{c:'var(--warn)',g:'F'}};
+  var heads='';
+  ['L','M','X','J','V','S'].forEach(function(d){ heads+='<div style="text-align:center;font-size:9px;font-weight:600;color:var(--text-faint);">'+d+'</div>'; });
+  var rows='', cellIdx=0;
+  state.weekData.forEach(function(r,rn){
+    var hrs=r.pattern.filter(function(x){return x==='p';}).length*8;
+    var cells='';
+    r.pattern.forEach(function(cs,cn){
+      var d=ST[cs];
+      var isChanged=!!(_action && _action.t==='week' && _action.r===rn && _action.c===cn);
+      var fill='display:none;';
+      if(d){
+        var stCore='position:absolute;inset:0;border-radius:6px;background:'+d.c+';color:var(--panel);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;';
+        if(anim){ fill=stCore+'opacity:0;animation:popIn .34s cubic-bezier(.2,.8,.2,1) '+(cellIdx*0.035+0.12)+'s both;'; }
+        else if(isChanged){ fill=stCore+'opacity:0;animation:popIn .28s cubic-bezier(.2,.8,.2,1) both;'; }
+        else { fill=stCore; }
+      }
+      cellIdx++;
+      cells+='<button data-act="weekCell" data-r="'+rn+'" data-c="'+cn+'" title="Alternar: presente · ausente · feriado · sin marcar" class="hv-bdim" style="position:relative;height:26px;border-radius:6px;background:var(--panel-2);border:1px solid var(--border);cursor:pointer;padding:0;font:inherit;color:inherit;"><span style="'+fill+'">'+(d?d.g:'')+'</span></button>';
+    });
+    rows+='<div style="display:grid;grid-template-columns:62px repeat(6,1fr) 34px;gap:5px;align-items:center;margin-bottom:5px;">'
+      + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;color:var(--text-faint);">'+esc(r.code)+'</span>'
+      + cells
+      + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;font-weight:600;text-align:right;'+an('animation:fadeIn .4s ease '+(0.7+rn*0.1)+'s both;')+'">'+hrs+'h</span></div>';
+  });
+  var weekTotalH=state.weekData.reduce(function(t,r){return t+r.pattern.filter(function(x){return x==='p';}).length*8;},0);
+  return '<div data-od-id="od-demo-week" style="width:100%;max-width:330px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;'+an('animation:riseIn .4s ease both;')+'">'
+    + '<div style="display:grid;grid-template-columns:62px repeat(6,1fr) 34px;gap:5px;margin-bottom:7px;"><div></div>'+heads+'<div style="text-align:right;font-size:9px;font-weight:600;color:var(--text-faint);">Tot</div></div>'
+    + rows
+    + '<div style="margin-top:11px;padding-top:9px;border-top:1px dashed var(--border);display:flex;align-items:center;gap:12px;font-size:9.5px;color:var(--text-faint);">'
+    + '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:3px;background:var(--good);"></span>Presente</span>'
+    + '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:3px;background:var(--bad);"></span>Ausente</span>'
+    + '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:3px;background:var(--warn);"></span>Feriado</span>'
+    + '<span style="margin-left:auto;">Clic en una celda para alternar</span></div>'
+    + '<div style="margin-top:9px;display:flex;justify-content:space-between;font-size:11px;">'
+    + '<span style="color:var(--text-dim);">Total de la semana</span>'
+    + '<span style="font-family:\'IBM Plex Mono\',monospace;font-weight:700;color:var(--accent);">'+weekTotalH+'h</span></div>'
+    + '</div>';
+}
+
+/* ============================ guide demos: nómina · cartera · listo ============================ */
+function demoPayroll(){
+  var labels=['Período','Deducciones','Bonificaciones','Vista previa'];
+  var rows='';
+  labels.forEach(function(label,n){
+    rows+='<div style="display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:11px 13px;'+an('animation:riseIn .4s ease '+(n*0.13)+'s both;')+'">'
+      + '<span style="width:22px;height:22px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:\'IBM Plex Mono\',monospace;font-size:11px;font-weight:600;background:var(--good);color:var(--panel);">'+(n+1)+'</span>'
+      + '<span style="font-size:12.5px;font-weight:500;white-space:nowrap;">'+label+'</span>'
+      + '<span style="margin-left:auto;width:20px;height:20px;border-radius:50%;background:var(--good);color:var(--panel);display:flex;align-items:center;justify-content:center;'+an('opacity:0;animation:popIn .35s cubic-bezier(.2,.8,.2,1) '+(0.3+n*0.15)+'s both;')+'">'+SVG_CHECK_SM+'</span></div>';
+  });
+  return '<div data-od-id="od-demo-payroll" style="width:100%;max-width:330px;">'
+    + '<div style="display:grid;gap:8px;margin-bottom:16px;">'+rows+'</div>'
+    + '<div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;'+an('animation:riseIn .45s ease .8s both;')+'">'
+    + '<div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Neto a pagar</div>'
+    + '<div id="cnt-net" style="font-family:\'IBM Plex Mono\',monospace;font-size:26px;font-weight:700;color:var(--accent);margin-top:5px;line-height:1;">'+money(state.counters.net)+'</div>'
+    + '<div style="font-size:11px;color:var(--text-faint);margin-top:6px;">7 empleados · 1 – 15 may 2026</div>'
+    + '</div></div>';
+}
+
+function demoPortfolio(){
+  var debts=[
+    {code:'004',name:'Wadne Exilien',amount:8660,pct:100},
+    {code:'014',name:'Wilson Riche',amount:8400,pct:97},
+    {code:'001',name:'Franklin H.',amount:8350,pct:96},
+    {code:'002',name:'Pauliny Buchamps',amount:6400,pct:74}
+  ];
+  var rows='';
+  debts.forEach(function(d,n){
+    var core='height:100%;border-radius:4px;background:'+(n===0?'var(--bad)':(n<3?'var(--warn)':'var(--accent)'))+';';
+    var barStyle=anim ? ('--w:'+d.pct+'%;'+core+'animation:growW .8s cubic-bezier(.2,.8,.2,1) '+(0.15+n*0.1)+'s both;') : (core+'width:'+d.pct+'%;');
+    rows+='<div><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">'
+      + '<span style="display:flex;align-items:center;gap:7px;font-size:11.5px;"><span style="font-family:\'IBM Plex Mono\',monospace;font-size:10.5px;color:var(--text-faint);">'+d.code+'</span><span style="color:var(--text-dim);">'+d.name+'</span></span>'
+      + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11.5px;font-weight:600;">'+money(d.amount)+'</span></div>'
+      + '<div style="height:4px;border-radius:4px;background:var(--panel-2);overflow:hidden;"><div style="'+barStyle+'"></div></div></div>';
+  });
+  return '<div data-od-id="od-demo-portfolio" style="width:100%;max-width:330px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;'+an('animation:riseIn .4s ease both;')+'">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:15px;">'
+    + '<span style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Saldo pendiente</span>'
+    + '<span id="cnt-port" style="font-family:\'IBM Plex Mono\',monospace;font-size:18px;font-weight:700;">'+money(state.counters.port)+'</span></div>'
+    + '<div style="display:grid;gap:13px;">'+rows+'</div></div>';
+}
+
+function demoReady(){
+  var items=['Marcar asistencia diaria','Revisar y corregir la semana','Generar y exportar nómina','Controlar préstamos del personal'];
+  var rows='';
+  items.forEach(function(text,n){
+    rows+='<div style="display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 13px;'+an('animation:riseIn .4s cubic-bezier(.2,.8,.2,1) '+(0.2+n*0.11)+'s both;')+'">'
+      + '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--good)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>'
+      + '<span style="font-size:12.5px;color:var(--text-dim);">'+text+'</span></div>';
+  });
+  return '<div data-od-id="od-demo-ready-glow" style="position:absolute;width:210px;height:210px;border-radius:50%;background:var(--good);filter:blur(80px);animation:glowPulse 3.4s ease-in-out infinite;"></div>'
+    + '<div style="position:relative;width:100%;max-width:300px;display:grid;gap:10px;">'
+    + '<div style="display:flex;justify-content:center;margin-bottom:6px;">'
+    + '<div style="width:62px;height:62px;border-radius:50%;background:var(--good);color:var(--panel);display:flex;align-items:center;justify-content:center;'+an('animation:popIn .55s cubic-bezier(.2,.8,.2,1) both;')+'">'
+    + '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>'
+    + '</div></div>' + rows + '</div>';
+}
+
+/* ============================ fase: punto de partida ============================ */
+function choiceSection(){
+  function srcCard(id){
+    return 'display:flex;gap:14px;align-items:flex-start;text-align:left;width:100%;padding:18px;border-radius:14px;cursor:pointer;font:inherit;color:inherit;background:'+(state.source===id?'var(--panel-2)':'transparent')+';border:1px solid '+(state.source===id?'var(--accent)':'var(--border)')+';';
+  }
+  function srcIcon(id){
+    return 'width:40px;height:40px;flex:none;border-radius:11px;display:flex;align-items:center;justify-content:center;background:'+(state.source===id?'var(--accent)':'var(--panel-2)')+';color:'+(state.source===id?'var(--on-accent)':'var(--text-dim)')+';border:1px solid '+(state.source===id?'var(--accent)':'var(--border)')+';';
+  }
+  var backupExtra = state.source==='backup'
+    ? '<span style="display:flex;align-items:center;justify-content:center;gap:9px;margin-top:12px;padding:16px;border-radius:11px;border:1px dashed var(--border);background:var(--panel);font-size:12.5px;color:var(--text-dim);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"></path><path d="M19 8v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7z"></path></svg>Arrastra tu archivo aquí o haz clic para buscarlo</span>'
+    : '';
+  var googleExtra = state.source==='google'
+    ? '<span style="display:flex;align-items:center;gap:11px;margin-top:12px;padding:12px 14px;border-radius:11px;border:1px solid var(--border);background:var(--panel);">'
+      + '<span style="width:28px;height:28px;flex:none;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;">'+glogo(15)+'</span>'
+      + '<span style="flex:1;min-width:0;"><span style="display:block;font-size:12.5px;font-weight:600;">erlin@gmail.com</span><span style="display:block;font-size:11px;color:var(--text-faint);">Copia del 24 jul 2026 · 16 empleados</span></span></span>'
+    : '';
+  return '<div data-od-id="od-choice" style="min-height:434px;padding:38px 34px;display:flex;flex-direction:column;justify-content:center;max-width:620px;margin:0 auto;'+an('animation:riseIn .45s cubic-bezier(.2,.8,.2,1) both;')+'">'
+    + chip('Punto de partida')
+    + '<h1 style="margin:0;font-size:26px;font-weight:700;letter-spacing:-.015em;line-height:1.2;">¿Cómo quieres empezar?</h1>'
+    + '<p style="margin:11px 0 24px;font-size:14.5px;color:var(--text-dim);line-height:1.55;">Configura la app desde cero o recupera datos que ya tengas guardados.</p>'
+    + '<div style="display:grid;gap:11px;">'
+    + '<button type="button" class="hv-bg" data-act="pick" data-v="scratch" style="'+srcCard('scratch')+'">'
+    + '<span style="'+srcIcon('scratch')+'"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg></span>'
+    + '<span style="flex:1;min-width:0;"><span style="display:block;font-size:14.5px;font-weight:600;">Empezar desde cero</span><span style="display:block;font-size:12.5px;color:var(--text-dim);margin-top:3px;line-height:1.45;">Seis pasos: empresa, días de trabajo, jornada, posiciones y personal.</span></span></button>'
+    + '<button type="button" class="hv-bg" data-act="pick" data-v="backup" style="'+srcCard('backup')+'">'
+    + '<span style="'+srcIcon('backup')+'"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"></path><path d="M14 2v5h5"></path><path d="M12 12.5V18"></path><path d="m9.5 15 2.5-2.5 2.5 2.5"></path></svg></span>'
+    + '<span style="flex:1;min-width:0;"><span style="display:block;font-size:14.5px;font-weight:600;">Cargar desde un backup</span><span style="display:block;font-size:12.5px;color:var(--text-dim);margin-top:3px;line-height:1.45;">Restaura un archivo .json exportado desde esta app.</span>' + backupExtra + '</span></button>'
+    + '<button type="button" class="hv-bg" data-act="pick" data-v="google" style="'+srcCard('google')+'">'
+    + '<span style="'+srcIcon('google')+'"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4.4 15.3"></path><path d="M12 11v7"></path><path d="m8.5 14.5 3.5 3.5 3.5-3.5"></path></svg></span>'
+    + '<span style="flex:1;min-width:0;"><span style="display:block;font-size:14.5px;font-weight:600;">Continuar con Google</span><span style="display:block;font-size:12.5px;color:var(--text-dim);margin-top:3px;line-height:1.45;">Recupera la copia guardada en tu Google Drive.</span>' + googleExtra + '</span></button>'
+    + '</div></div>';
+}
+
+/* ============================ fase: configuración ============================ */
+function setupSection(){
+  var su=state.setupStep;
+  var setup=SETUP[su-1]||SETUP[0];
+  var s='<div data-od-id="od-setup" style="min-height:434px;padding:32px 34px 34px;max-width:620px;margin:0 auto;width:100%;">';
+  s+='<div style="height:3px;border-radius:3px;background:var(--panel-2);margin-bottom:26px;overflow:hidden;"><div style="height:100%;width:'+Math.round(su/SETUP_TOTAL*100)+'%;background:var(--accent);border-radius:3px;transition:width .3s;"></div></div>';
+  s+='<div style="'+an('animation:riseIn .4s cubic-bezier(.2,.8,.2,1) both;')+'">' + chip(esc(setup.kicker),14)
+   + '<h1 style="margin:0;font-size:23px;font-weight:700;letter-spacing:-.012em;line-height:1.25;text-wrap:pretty;">'+esc(setup.title)+'</h1>'
+   + '<p style="margin:10px 0 24px;font-size:14px;color:var(--text-dim);line-height:1.55;text-wrap:pretty;">'+esc(setup.body)+'</p></div>';
+  var bodyAnim=an('animation:riseIn .4s ease .08s both;');
+  var lbl='display:block;font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:8px;';
+
+  if(su===1){
+    s+='<div style="'+bodyAnim+'"><label style="'+lbl+'" for="f-company">Nombre de la empresa o proyecto</label>'
+     + '<input id="f-company" data-field="company" value="'+esc(state.company)+'" placeholder="Ej: Constructora Horizon S.R.L." autocomplete="off" style="'+FIELD_STYLE+'">'
+     + '<div style="display:flex;align-items:center;gap:11px;margin-top:20px;padding:14px 16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border);">'
+     + '<img src="icon-512.png" alt="" width="32" height="32" onerror="this.style.display=\'none\'" style="width:32px;height:32px;border-radius:9px;display:block;">'
+     + '<div style="min-width:0;"><div style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Así se verá en la cabecera</div>'
+     + '<div style="font-size:14.5px;font-weight:700;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(state.company.trim()||'Constructora Horizon')+'</div></div></div></div>';
+  }
+  if(su===2){
+    var chips='',on=0;
+    DAY_LABELS.forEach(function(lb,n){
+      if(state.days[n]) on++;
+      chips+='<button type="button" data-act="day" data-n="'+n+'" title="'+esc(DAY_NAMES[n])+'" style="width:46px;height:52px;border-radius:12px;cursor:pointer;font-size:14px;font-weight:700;font-family:\'IBM Plex Mono\',monospace;'+(state.days[n]?'background:var(--accent);color:var(--on-accent);border:none;':'background:transparent;color:var(--text-faint);border:1px solid var(--border);')+'">'+lb+'</button>';
+    });
+    s+='<div style="'+bodyAnim+'"><div style="display:flex;gap:8px;flex-wrap:wrap;">'+chips+'</div>'
+     + '<div style="display:flex;align-items:center;gap:10px;margin-top:20px;font-size:13px;color:var(--text-dim);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="2.5"></rect><path d="M3.5 9h17"></path></svg>'
+     + esc(on+(on===1?' día seleccionado':' días seleccionados'))+' · '+esc((on*state.hours)+'h por semana')+'</div></div>';
+  }
+  if(su===3){
+    var presets='';
+    [8,9,10].forEach(function(h){
+      presets+='<button type="button" data-act="hours" data-v="'+h+'" style="height:36px;padding:0 15px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:600;'+(state.hours===h?'background:var(--accent);color:var(--on-accent);border:none;':'background:transparent;color:var(--text-dim);border:1px solid var(--border);')+'">'+h+'h</button>';
+    });
+    s+='<div style="'+bodyAnim+'"><div style="display:flex;align-items:center;gap:16px;">'
+     + '<button type="button" class="hv-bgtext" data-act="hMinus" title="Menos" style="width:44px;height:44px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text-dim);cursor:pointer;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;">−</button>'
+     + '<div style="min-width:96px;text-align:center;"><div style="font-family:\'IBM Plex Mono\',monospace;font-size:38px;font-weight:700;line-height:1;">'+state.hours+'h</div><div style="font-size:11px;color:var(--text-faint);margin-top:5px;">por día</div></div>'
+     + '<button type="button" class="hv-bgtext" data-act="hPlus" title="Más" style="width:44px;height:44px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text-dim);cursor:pointer;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center;">+</button>'
+     + '<div style="display:flex;gap:7px;margin-left:8px;">'+presets+'</div></div>'
+     + '<div style="margin-top:22px;padding:14px 16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border);display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:13px;color:var(--text-dim);">Jornada semanal resultante</span><span style="font-family:\'IBM Plex Mono\',monospace;font-size:17px;font-weight:700;color:var(--accent);">'+((state.days.filter(Boolean).length)*state.hours)+'h por semana</span></div></div>';
+  }
+  if(su===4){
+    var sw='';
+    POS_COLORS.forEach(function(c,n){
+      sw+='<button type="button" data-act="swatch" data-n="'+n+'" title="Color '+(n+1)+'" style="width:32px;height:32px;border-radius:9px;cursor:pointer;background:'+c+';border:2px solid '+(state.posColorIdx===n?'var(--text)':'transparent')+';"></button>';
+    });
+    var posDayRate=state.posRate ? money((parseFloat(state.posRate)||0)*state.hours) : money(0);
+    s+='<div style="'+bodyAnim+'display:grid;gap:16px;"><div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:12px;">'
+     + '<div><label style="'+lbl+'" for="f-posname">Nombre de la posición</label><input id="f-posname" data-field="posName" value="'+esc(state.posName)+'" placeholder="Ej: Ayudante" autocomplete="off" style="'+FIELD_STYLE+'"></div>'
+     + '<div><label style="'+lbl+'" for="f-posrate">Tarifa por hora</label><input id="f-posrate" data-field="posRate" value="'+esc(state.posRate)+'" placeholder="112.50" autocomplete="off" inputmode="decimal" style="'+FIELD_STYLE+'"></div></div>'
+     + '<div><label style="display:block;font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:9px;">Color de identificación</label><div style="display:flex;gap:9px;">'+sw+'</div></div>'
+     + '<div style="padding:14px 16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border);border-left:3px solid '+POS_COLORS[state.posColorIdx]+';display:flex;justify-content:space-between;align-items:center;"><div><div style="font-size:14px;font-weight:600;">'+esc(state.posName.trim()||'Ayudante')+'</div><div style="font-size:11.5px;color:var(--text-faint);margin-top:3px;">Tarifa del día completo</div></div><span style="font-family:\'IBM Plex Mono\',monospace;font-size:16px;font-weight:700;">'+posDayRate+'</span></div></div>';
+  }
+  if(su===5){
+    var list='',last=state.employees.length-1;
+    state.employees.forEach(function(emp,n){
+      var rowAnim = anim ? 'animation:riseIn .3s ease both;'
+        : (!!(_action&&_action.t==='empAdd'&&n===last) ? 'opacity:0;animation:popIn .3s cubic-bezier(.2,.8,.2,1) both;' : '');
+      list+='<div style="display:flex;align-items:center;gap:13px;padding:12px 14px;border-radius:11px;background:var(--panel-2);border:1px solid var(--border);'+rowAnim+'">'
+        + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:600;color:'+POS_COLORS[state.posColorIdx]+';">'+esc(emp.code)+'</span>'
+        + '<div style="flex:1;min-width:0;"><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(emp.name)+'</div><div style="font-size:11px;color:var(--text-faint);">'+esc(emp.pos)+'</div></div>'
+        + '<button type="button" class="hv-danger" data-act="rmEmp" data-code="'+esc(emp.code)+'" title="Quitar" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-faint);cursor:pointer;display:flex;align-items:center;justify-content:center;">'
+        + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>';
+    });
+    var empBlock = state.employees.length
+      ? '<div style="margin-top:18px;display:grid;gap:8px;">'+list+'<div style="font-size:11.5px;color:var(--text-faint);margin-top:2px;">'+esc(state.employees.length+(state.employees.length===1?' empleado agregado':' empleados agregados'))+'</div></div>'
+      : '<div style="margin-top:18px;padding:26px;border-radius:12px;border:1px dashed var(--border);text-align:center;font-size:13px;color:var(--text-faint);">Aún no has agregado a nadie.</div>';
+    s+='<div style="'+bodyAnim+'"><div style="display:grid;grid-template-columns:88px minmax(0,1fr) auto;gap:10px;align-items:flex-end;">'
+     + '<div><label style="'+lbl+'" for="f-empcode">Número</label><input id="f-empcode" data-field="newEmpCode" value="'+esc(state.newEmpCode)+'" placeholder="001" autocomplete="off" inputmode="numeric" style="'+FIELD_STYLE+'"></div>'
+     + '<div><label style="'+lbl+'" for="f-empname">Nombre del empleado</label><input id="f-empname" data-field="newEmpName" value="'+esc(state.newEmpName)+'" placeholder="Ej: Franklin Henrriquez" autocomplete="off" style="'+FIELD_STYLE+'"></div>'
+     + '<button type="button" class="hv-bright" data-act="addEmp" style="height:46px;padding:0 18px;border-radius:11px;border:none;background:var(--accent);color:var(--on-accent);font-size:13.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;">'
+     + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>Agregar</button></div>'
+     + empBlock + '</div>';
+  }
+  if(su===6){
+    s+='<div style="'+bodyAnim+'">';
+    if(!state.googleConnected){
+      s+='<button type="button" class="hv-bg" data-act="gConnect" style="display:flex;align-items:center;justify-content:center;gap:11px;width:100%;height:50px;border-radius:12px;border:1px solid var(--border);background:var(--panel-2);font-size:14px;font-weight:600;cursor:pointer;">'+glogo(19)+'Vincular con Google</button>'
+       + '<p style="margin:14px 0 0;font-size:12.5px;color:var(--text-faint);line-height:1.55;">Sin vincular, los datos se guardan solo en este dispositivo. Puedes hacerlo después desde Ajustes → Datos.</p>';
+    } else {
+      s+='<div style="display:flex;align-items:center;gap:13px;padding:16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--good);'+an('animation:popIn .4s cubic-bezier(.2,.8,.2,1) both;')+'">'
+       + '<span style="width:34px;height:34px;flex:none;border-radius:50%;background:var(--good);color:var(--panel);display:flex;align-items:center;justify-content:center;">'+SVG_CHECK+'</span>'
+       + '<div style="flex:1;min-width:0;"><div style="font-size:13.5px;font-weight:600;">erlin@gmail.com</div><div style="font-size:11.5px;color:var(--text-faint);margin-top:2px;">Respaldo automático activado</div></div>'
+       + '<button type="button" class="hv-bgtext" data-act="gDisconnect" style="height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer;">Desvincular</button></div>';
+    }
+    s+='</div>';
+  }
+  return s+'</div>';
+}
+
+/* ============================ fase: listo ============================ */
+function sumRows(rows,pad){
+  return rows.map(function(row){
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:'+pad+'px 16px;border-bottom:1px solid var(--border);">'
+      + '<span style="font-size:12.5px;color:var(--text-faint);">'+esc(row.label)+'</span>'
+      + '<span style="font-size:13px;font-weight:600;text-align:right;">'+esc(row.value)+'</span></div>';
+  }).join('');
+}
+function readySection(){
+  var scratch=state.source==='scratch';
+  var daysOn=state.days.filter(Boolean).length;
+  var posValid=state.posName.trim().length>0;
+  var title=scratch?'Todo listo para empezar':'Datos restaurados';
+  var bodyTxt=scratch?'Tu espacio de trabajo quedó configurado. Puedes cambiar cualquier ajuste más adelante.':'Recuperamos tu información. Ya puedes seguir marcando la asistencia donde la dejaste.';
+  var box='';
+  if(scratch){
+    var rows=[
+      {label:'Empresa',value:state.company.trim()||'—'},
+      {label:'Semana laboral',value:daysOn+' días · '+DAY_LABELS.filter(function(_,n){return state.days[n];}).join(' ')},
+      {label:'Jornada',value:state.hours+'h por día · '+(daysOn*state.hours)+'h semanales'},
+      {label:'Posiciones',value:posValid ? state.posName.trim()+(state.posRate?' · $'+state.posRate+'/hr':'') : '—'},
+      {label:'Personal',value:state.employees.length+(state.employees.length===1?' empleado':' empleados')},
+      {label:'Respaldo',value:state.googleConnected ? 'Google Drive vinculado' : 'Solo en este dispositivo'}
+    ];
+    box='<div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;">'+sumRows(rows,13)+'</div>';
+  } else {
+    var src=state.source==='google' ? 'Google Drive · erlin@gmail.com' : 'Archivo local · contrutek-backup.json';
+    var origin=state.source==='google' ? 'erlin@gmail.com' : 'contrutek-backup.json';
+    var rows=[
+      {label:'Origen',value:origin},
+      {label:'Fecha de la copia',value:'24 jul 2026 · 18:41'},
+      {label:'Empresa',value:'Contrutek'},
+      {label:'Personal',value:'16 empleados · 6 líderes'},
+      {label:'Posiciones',value:'7 posiciones'},
+      {label:'Período recuperado',value:'1 – 21 may 2026'},
+      {label:'Cartera',value:'25 préstamos activos'}
+    ];
+    box='<div><div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border);margin-bottom:12px;">'
+      + '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--good)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4.4 15.3"></path><path d="M12 11v7"></path><path d="m8.5 14.5 3.5 3.5 3.5-3.5"></path></svg>'
+      + '<span style="font-size:12.5px;color:var(--text-dim);">Restaurado desde <strong style="color:var(--text);">'+esc(src)+'</strong></span></div>'
+      + '<div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;">'+sumRows(rows,12)+'</div></div>';
+  }
+  return '<div data-od-id="od-ready" style="min-height:434px;padding:34px;max-width:620px;margin:0 auto;width:100%;display:flex;flex-direction:column;justify-content:center;'+an('animation:riseIn .45s cubic-bezier(.2,.8,.2,1) both;')+'">'
+    + '<div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">'
+    + '<div style="width:52px;height:52px;flex:none;border-radius:50%;background:var(--good);color:var(--panel);display:flex;align-items:center;justify-content:center;'+an('animation:popIn .5s cubic-bezier(.2,.8,.2,1) both;')+'">'
+    + '<svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg></div>'
+    + '<div><h1 style="margin:0;font-size:24px;font-weight:700;letter-spacing:-.012em;">'+esc(title)+'</h1>'
+    + '<p style="margin:6px 0 0;font-size:13.5px;color:var(--text-dim);line-height:1.5;">'+esc(bodyTxt)+'</p></div></div>'
+    + box + '</div>';
+}
+
+/* ============================ render ============================ */
+function render(){
+  anim=!_noAnim;
+  var ph=state.phase, su=state.setupStep;
+  var canNext=canAdvance(state);
+  var stepCounter = ph==='guide' ? (state.step+' / '+STEPS.length)
+    : (ph==='setup' ? ('Configuración '+su+' / '+SETUP_TOTAL)
+    : (ph==='choice' ? 'Punto de partida' : 'Listo'));
+  var prevDisabled=(ph==='guide'&&state.step===1)||ph==='ready';
+  var hintMap={1:'Escribe un nombre para continuar',2:'Selecciona al menos un día',3:'',4:'Ponle nombre a la posición',5:'Agrega al menos un empleado',6:''};
+  var hint = ph==='setup'&&!canNext ? (hintMap[su]||'') : (ph==='choice'&&!canNext ? 'Elige una opción para continuar' : '');
+  var nextLabel = ph==='guide' ? (state.step===STEPS.length?'Configurar la app':'Siguiente')
+    : ph==='choice' ? 'Continuar'
+    : ph==='setup' ? (su===SETUP_TOTAL?'Finalizar':'Siguiente')
+    : 'Entrar a la app';
+  var body='';
+  if(ph==='guide'){ body='<div class="od-grid">'+guideCopy()+demoPanel()+'</div>'; }
+  else if(ph==='choice'){ body=choiceSection(); }
+  else if(ph==='setup'){ body=setupSection(); }
+  else { body=readySection(); }
+  var html='<div class="od-wrap" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px;background:var(--bg);color:var(--text);font-family:\'IBM Plex Sans\',system-ui,sans-serif;">'
+    + '<div style="width:100%;max-width:980px;background:var(--panel);border:1px solid var(--border);border-radius:22px;box-shadow:var(--shadow);overflow:hidden;">'
+    + topbar(stepCounter, ph==='guide'&&state.step<STEPS.length)
+    + body
+    + footer(prevDisabled, canNext, ph==='guide', hint, nextLabel, ph==='ready')
+    + '</div></div>';
+  document.getElementById('app').innerHTML=html;
+  afterRender();
+}
+function afterRender(){
+  if(_focusId){
+    var el=document.getElementById(_focusId);
+    if(el){ el.focus(); try{ el.setSelectionRange(_selStart,_selStart+_selLen); }catch(ex){} }
+  }
+  syncCounters(state.phase+'-'+state.step+'-'+state.setupStep);
+}
+
+/* ============================ eventos ============================ */
+document.addEventListener('click', function(e){
+  var t=e.target;
+  var b=t && t.closest ? t.closest('[data-act]') : null;
+  if(!b) return;
+  switch(b.getAttribute('data-act')){
+    case 'next': navNext(); break;
+    case 'back': navBack(); break;
+    case 'goLast': goLast(); break;
+    case 'dot': goGuideStep(parseInt(b.getAttribute('data-n'),10)||1); break;
+    case 'pick': pick(b.getAttribute('data-v')); break;
+    case 'demoRow': cycleDemo(parseInt(b.getAttribute('data-n'),10)); break;
+    case 'markAll': markAllPresent(); break;
+    case 'weekCell': cycleWeek(parseInt(b.getAttribute('data-r'),10),parseInt(b.getAttribute('data-c'),10)); break;
+    case 'day': toggleDay(parseInt(b.getAttribute('data-n'),10)); break;
+    case 'hours': setHours(parseInt(b.getAttribute('data-v'),10)); break;
+    case 'hMinus': hMinus(); break;
+    case 'hPlus': hPlus(); break;
+    case 'swatch': setPosColor(parseInt(b.getAttribute('data-n'),10)); break;
+    case 'addEmp': addEmployee(); break;
+    case 'rmEmp': removeEmployee(b.getAttribute('data-code')); break;
+    case 'gConnect': connectGoogle(); break;
+    case 'gDisconnect': disconnectGoogle(); break;
+  }
+});
+document.addEventListener('input', function(e){
+  var t=e.target;
+  if(!t || !t.matches || !t.matches('[data-field]')) return;
+  _focusId=t.id||'';
+  _selStart=t.selectionStart||0;
+  _selLen=Math.max(0,(t.selectionEnd||0)-_selStart);
+  var f=t.getAttribute('data-field');
+  state[f]=t.value;
+  update({noAnim:true, focus:_focusId});
+});
+document.addEventListener('keydown', function(e){
+  var tag=e.target && e.target.tagName;
+  var typing = tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT';
+  if(e.key==='Enter' && typing){
+    e.preventDefault();
+    if(state.phase==='setup' && state.setupStep===5 && state.newEmpName.trim()){ addEmployee(); }
+    else if(canAdvance(state)){ navNext(); }
+    return;
+  }
+  if(typing || tag==='BUTTON') return;
+  if(e.key==='ArrowRight'||e.key==='ArrowDown'){ e.preventDefault(); if(canAdvance(state)) navNext(); }
+  else if(e.key==='ArrowLeft'||e.key==='Escape'){ e.preventDefault(); navBack(); }
+});
+
+/* ============================ init ============================ */
+state=defaultState();
+restore();
+render();
+})();
+</script>
+</body>
+</html>

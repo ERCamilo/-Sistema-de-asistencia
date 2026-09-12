@@ -23,6 +23,13 @@ const _ANALYTICS_ACTION_MAP = {
     'set-employee-report-this-week': () => window.AnalyticsUI?.setEmployeeReportThisWeek?.(),
     'set-employee-report-this-month': () => window.AnalyticsUI?.setEmployeeReportThisMonth?.(),
     'set-employee-report-pay-period': () => window.AnalyticsUI?.setEmployeeReportPayPeriod?.(),
+    'open-past-periods-modal': (val, el) => window.AnalyticsUI?.openPastPeriodsModal?.(val || el?.dataset?.target),
+    'close-past-periods-modal': () => window.AnalyticsUI?.closePastPeriodsModal?.(),
+    'select-past-period': (_, el) => {
+        const start = el?.dataset?.start;
+        const end = el?.dataset?.end;
+        window.AnalyticsUI?.selectPastPeriodRange?.(start, end);
+    },
     'toggle-position-collapse': (id) => window.AnalyticsUI?.togglePositionCollapse?.(id),
     // DatePicker dinámico — el nombre de la fn viene en data-fn
     'date-picker-prev': (_, el, e) => { e?.stopPropagation(); const fn = window[el.dataset.fn]; if (typeof fn === 'function') fn(-1); },
@@ -50,11 +57,28 @@ function _handleAnalyticsKeydown(e) {
     _handleAnalyticsClick(e);
 }
 
+const _ANALYTICS_CHANGE_MAP = {
+    'employee-report-start-date': (val) => window.AnalyticsUI?.selectEmployeeReportStartDate?.(val),
+    'employee-report-end-date': (val) => window.AnalyticsUI?.selectEmployeeReportEndDate?.(val),
+    'dashboard-start-date': (val) => window.AnalyticsUI?.selectStartDate?.(val),
+    'dashboard-end-date': (val) => window.AnalyticsUI?.selectEndDate?.(val)
+};
+
+function _handleAnalyticsChange(e) {
+    const target = e.target.closest('[data-analytics-change]');
+    if (!target) return;
+    const action = target.dataset.analyticsChange;
+    const handler = _ANALYTICS_CHANGE_MAP[action];
+    if (!handler) return;
+    handler(target.value, target, e);
+}
+
 let _analyticsDelegationAttached = false;
 function _attachAnalyticsDelegation() {
     if (_analyticsDelegationAttached) return;
     document.addEventListener('click', _handleAnalyticsClick);
     document.addEventListener('keydown', _handleAnalyticsKeydown);
+    document.addEventListener('change', _handleAnalyticsChange);
     _analyticsDelegationAttached = true;
 }
 _attachAnalyticsDelegation();
@@ -66,6 +90,7 @@ import { buildEmployeeReportData } from './EmployeeReportData.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
 import { ensureChartJsLoaded } from '../../utils/LazyCDN.js';
+import payrollClosureStore from '../payroll/PayrollClosureStore.js';
 
 let context = null;
 let dashboardDateManagerV2 = null;
@@ -136,10 +161,12 @@ async function initChartSafely(canvasId, chartKey, config) {
 
 export function DashboardTab() {
     if (dashboardDateManagerV2) dashboardDateManagerV2.initializeDates();
+    const state = getState();
     return `
         <div class="dashboard-container">
             ${DashboardControls()}
             ${DashboardContent()}
+            ${state?.showPastPeriodsModal ? PastPeriodsModal() : ''}
         </div>
     `;
 }
@@ -148,6 +175,8 @@ function DashboardControls() {
     const state = getState();
     const startDate = state.dashboardStartDate;
     const endDate = state.dashboardEndDate;
+    const startDateKey = getDateKey(startDate || new Date());
+    const endDateKey = getDateKey(endDate || new Date());
 
     return `
         <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
@@ -166,37 +195,40 @@ function DashboardControls() {
             </div>
             
             <!--Selector de Rango de Fechas-->
-    <div style="margin-bottom: 20px;">
-        <div style="font-size: 0.875rem; font-weight: 600; color: #94a3b8; margin-bottom: 12px;">
-            PERÍODO DE ANÁLISIS
-        </div>
-        <div style="display: flex; flex-wrap: wrap; gap: 12px;">
-            <div style="flex: 1; min-width: 140px; position: relative;">
-                <label style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 4px;">Desde:</label>
-                <div class="date-display" role="button" tabindex="0" data-analytics-action="toggle-start-date-picker"
-                    style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer;">
-                    ${formatDateShort(startDate)}
+            <div style="margin-bottom: 20px;">
+                <div style="font-size: 0.875rem; font-weight: 600; color: #94a3b8; margin-bottom: 12px;">
+                    PERÍODO DE ANÁLISIS
                 </div>
-                ${state.showStartDatePicker ? DashboardStartDatePicker() : ''}
-            </div>
-            <div style="flex: 1; min-width: 140px; position: relative;">
-                <label style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 4px;">Hasta:</label>
-                <div class="date-display" role="button" tabindex="0" data-analytics-action="toggle-end-date-picker"
-                    style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer;">
-                    ${formatDateShort(endDate)}
+                <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+                    <div style="flex: 1; min-width: 140px;">
+                        <label for="dashboardStartDate" style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.025em;">Desde:</label>
+                        <input type="date" id="dashboardStartDate" class="form-input report-date-input"
+                            data-analytics-change="dashboard-start-date"
+                            value="${startDateKey}"
+                            max="${endDateKey}"
+                            aria-label="Fecha de inicio del dashboard"
+                            style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; font-size: 0.875rem; width: 100%; color-scheme: dark; cursor: pointer; box-sizing: border-box; height: 42px;">
+                    </div>
+                    <div style="flex: 1; min-width: 140px;">
+                        <label for="dashboardEndDate" style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.025em;">Hasta:</label>
+                        <input type="date" id="dashboardEndDate" class="form-input report-date-input"
+                            data-analytics-change="dashboard-end-date"
+                            value="${endDateKey}"
+                            min="${startDateKey}"
+                            aria-label="Fecha final del dashboard"
+                            style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; font-size: 0.875rem; width: 100%; color-scheme: dark; cursor: pointer; box-sizing: border-box; height: 42px;">
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 200px;">
+                        <button type="button" data-analytics-action="set-dashboard-this-week" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; height: 42px;">Esta Semana</button>
+                        <button type="button" data-analytics-action="set-dashboard-this-month" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; height: 42px;">Este Mes</button>
+                        <button type="button" data-analytics-action="set-dashboard-last-30-days" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; height: 42px;">Últimos 30</button>
+                        <button type="button" data-analytics-action="set-dashboard-pay-period" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; white-space: nowrap; height: 42px;">${icons.get('calendar', { size: 14 })} Período Actual</button>
+                        <button type="button" data-analytics-action="open-past-periods-modal" data-target="dashboard" style="flex: 1; min-width: 130px; background: #1e293b; border: 1px solid #475569; color: #06b6d4; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap; height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">${icons.get('clock', { size: 14 }) || icons.get('calendar', { size: 14 })} Períodos Anteriores</button>
+                    </div>
                 </div>
-                ${state.showEndDatePicker ? DashboardEndDatePicker() : ''}
-            </div>
-            <div style="display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin-top: 4px;">
-                <button type="button" data-analytics-action="set-dashboard-this-week" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Esta Semana</button>
-                <button type="button" data-analytics-action="set-dashboard-this-month" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Este Mes</button>
-                <button type="button" data-analytics-action="set-dashboard-last-30-days" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Últimos 30</button>
-                <button type="button" data-analytics-action="set-dashboard-pay-period" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; font-weight: 700;">${icons.get('calendar', { size: 14 })} Período Actual</button>
             </div>
         </div>
-    </div>
-        </div>
-        `;
+    `;
 }
 
 function DashboardContent() {
@@ -514,11 +546,25 @@ function GeneratedReport() {
     const endDate = state.dashboardEndDate;
     const reportData = calculateReportData(startDate, endDate);
     return `
-        <div style="background: #0f172a; border-radius: 12px; padding: 24px; margin-top: 20px; border: 1px solid #1e293b;">
-            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.125rem;">${icons.get('reports')} Resumen General (${formatDateShort(startDate)} - ${formatDateShort(endDate)})</h3>
-            <div style="color: #f1f5f9; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                <div><div style="color:#64748b;font-size:0.75rem">Total Empleados</div><div style="font-size:1.5rem;font-weight:700">${reportData.totalEmployees}</div></div>
-                <div><div style="color:#64748b;font-size:0.75rem">Días Laborables</div><div style="font-size:1.5rem;font-weight:700">${reportData.workDays}</div></div>
+        <div class="report-section-card" style="margin-top: 20px;">
+            <div class="report-section-title-wrap">
+                <div class="report-section-icon-box">
+                    ${icons.get('reports') || icons.get('info')}
+                </div>
+                <div class="report-section-title-col">
+                    <h3 class="report-section-title">Resumen General</h3>
+                    <div class="report-section-subtitle">${formatDateShort(startDate)} – ${formatDateShort(endDate)}</div>
+                </div>
+            </div>
+            <div class="report-dashboard-kpi-grid">
+                <div class="report-dashboard-kpi-card">
+                    <span class="report-dashboard-kpi-label">Total Empleados Activos</span>
+                    <span class="report-dashboard-kpi-num">${reportData.totalEmployees}</span>
+                </div>
+                <div class="report-dashboard-kpi-card">
+                    <span class="report-dashboard-kpi-label">Días en el Período</span>
+                    <span class="report-dashboard-kpi-num" style="color: var(--accent);">${reportData.workDays}</span>
+                </div>
             </div>
         </div>`;
 }
@@ -563,6 +609,7 @@ function EmployeeReportTab() {
             ${ EmployeeReportControls() }
             ${ EmployeeReportContent() }
             ${ state?.showExcelExportModal ? ExcelExportOptionsModal() : '' }
+            ${ state?.showPastPeriodsModal ? PastPeriodsModal() : '' }
         </div>
     `;
 }
@@ -683,50 +730,69 @@ export function ExcelExportOptionsModal() {
     `;
 }
 
-function EmployeeReportControls() {
+export function EmployeeReportControls() {
     const state = getState();
     const startDate = state.employeeReportStartDate;
     const endDate = state.employeeReportEndDate;
+    const startDateKey = getDateKey(startDate || new Date());
+    const endDateKey = getDateKey(endDate || new Date());
     return `
-        <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="background: rgba(6, 182, 212, 0.1); padding: 8px; border-radius: 8px; color: #06b6d4;">
-                        ${icons.get('reports', { size: 20 })}
+        <div class="report-controls-card">
+             <div class="report-controls-header">
+                <div class="report-controls-title-group">
+                    <div class="report-kicker-chip">
+                        <span class="report-kicker-dot"></span>
+                        Reporte de Personal
                     </div>
-                    <h2 style="color: #f1f5f9; margin: 0; font-size: 1.25rem; font-weight: 600;">Reporte de Empleados</h2>
+                    <div class="report-title-row">
+                        <div class="report-icon-box">
+                            ${icons.get('reports', { size: 20 })}
+                        </div>
+                        <h2 class="report-title">Reporte de Empleados</h2>
+                    </div>
                 </div>
-                <button type="button" data-analytics-action="export-employee-report-excel" 
-                    style="background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; padding: 10px 18px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.875rem; transition: transform 0.2s; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
-                    ${icons.get('export', { size: 18 })} Exportar Excel
+                <button type="button" data-analytics-action="export-employee-report-excel" class="report-excel-btn">
+                    ${icons.get('export', { size: 18 })}
+                    <span>Exportar Excel</span>
                 </button>
              </div>
 
-             <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
-                 <div style="flex: 1; min-width: 140px; position: relative;">
-                    <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.025em;">Desde:</label>
-                    <div class="date-display" role="button" tabindex="0" data-analytics-action="toggle-employee-report-start-picker" 
-                        style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
-                        ${icons.get('calendar', { size: 14, class: 'text-cyan-500' })}
-                        ${formatDateShort(startDate)}
-                    </div>
-                    ${state.showEmployeeReportStartPicker ? EmployeeReportStartDatePicker() : ''}
+             <div class="report-controls-body">
+                 <div class="report-dates-grid">
+                     <div class="report-date-field">
+                        <label for="employeeReportStartDate" class="report-date-label">Desde:</label>
+                        <input type="date" id="employeeReportStartDate" class="report-date-input"
+                            data-analytics-change="employee-report-start-date"
+                            value="${startDateKey}"
+                            max="${endDateKey}"
+                            aria-label="Fecha de inicio del reporte">
+                     </div>
+
+                     <div class="report-date-field">
+                        <label for="employeeReportEndDate" class="report-date-label">Hasta:</label>
+                        <input type="date" id="employeeReportEndDate" class="report-date-input"
+                            data-analytics-change="employee-report-end-date"
+                            value="${endDateKey}"
+                            min="${startDateKey}"
+                            aria-label="Fecha final del reporte">
+                     </div>
                  </div>
 
-                 <div style="flex: 1; min-width: 140px; position: relative;">
-                    <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.025em;">Hasta:</label>
-                    <div class="date-display" role="button" tabindex="0" data-analytics-action="toggle-employee-report-end-picker" 
-                        style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
-                        ${icons.get('calendar', { size: 14, class: 'text-cyan-500' })}
-                        ${formatDateShort(endDate)}
-                    </div>
-                    ${state.showEmployeeReportEndPicker ? EmployeeReportEndDatePicker() : ''}
-                 </div>
-
-                 <div style="display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 200px;">
-                    <button type="button" data-analytics-action="set-employee-report-this-week" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Esta Semana</button>
-                    <button type="button" data-analytics-action="set-employee-report-this-month" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Este Mes</button>
-                    <button type="button" data-analytics-action="set-employee-report-pay-period" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; cursor: pointer; white-space: nowrap;">${icons.get('calendar', { size: 14 })} Período Actual</button>
+                 <div class="report-presets-grid">
+                    <button type="button" data-analytics-action="set-employee-report-this-week" class="report-preset-btn hv-bg hv-bdim">
+                        Esta Semana
+                    </button>
+                    <button type="button" data-analytics-action="set-employee-report-this-month" class="report-preset-btn hv-bg hv-bdim">
+                        Este Mes
+                    </button>
+                    <button type="button" data-analytics-action="set-employee-report-pay-period" class="report-preset-btn report-preset-btn--highlight">
+                        ${icons.get('calendar', { size: 14 })}
+                        <span>Período Actual</span>
+                    </button>
+                    <button type="button" data-analytics-action="open-past-periods-modal" data-target="employee-report" class="report-preset-btn hv-bg hv-bdim">
+                        ${icons.get('clock', { size: 14 }) || icons.get('calendar', { size: 14 })}
+                        <span>Períodos Anteriores</span>
+                    </button>
                  </div>
              </div>
         </div>`;
@@ -777,26 +843,63 @@ return emp;
     });
     allEmployees.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 
-return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155;">
-                <div role="button" tabindex="0" data-analytics-action="toggle-position-collapse" data-value="general" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: ${isCollapsed ? 'none' : '1px solid #334155'}; padding-bottom: ${isCollapsed ? '0' : '16px'};">
-                    <h3 style="margin: 0; color: #f1f5f9;">${icons.get('info')} Resumen General (${allEmployees.length})</h3>
-                    <div style="color: #64748b;">${isCollapsed ? '▼' : '▲'}</div>
+    const totalDaysWorked = allEmployees.reduce((sum, e) => sum + (e.totalDays || 0), 0);
+    const totalHoursWorked = allEmployees.reduce((sum, e) => sum + (e.totalHours || 0), 0);
+
+    return `<div class="report-section-card">
+                <div role="button" tabindex="0" data-analytics-action="toggle-position-collapse" data-value="general" class="report-section-header ${isCollapsed ? '' : 'is-open'}">
+                    <div class="report-section-title-wrap">
+                        <div class="report-section-icon-box">
+                            ${icons.get('reports') || icons.get('info')}
+                        </div>
+                        <div class="report-section-title-col">
+                            <h3 class="report-section-title">Resumen General</h3>
+                            <div class="report-section-subtitle">Consolidado general de todo el personal</div>
+                        </div>
+                    </div>
+                    <div class="report-section-meta">
+                        <span class="report-count-badge">${allEmployees.length} empleados</span>
+                        <span class="report-section-chevron ${isCollapsed ? '' : 'expanded'}" aria-hidden="true">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                        </span>
+                    </div>
                 </div>
-    ${ isCollapsed ? '' : `<div class="sticky-table-container modern-scroll" data-preserve-scroll="analytics-general-table">${EmployeeReportGeneralTable(allEmployees, reportData.days)}</div>` }
+
+                <div class="report-summary-kpis">
+                    <div class="report-kpi-chip">
+                        <span class="report-kpi-label">Empleados</span>
+                        <span class="report-kpi-value">${allEmployees.length}</span>
+                    </div>
+                    <div class="report-kpi-chip">
+                        <span class="report-kpi-label">Jornadas Totales</span>
+                        <span class="report-kpi-value" style="color: var(--success);">${Number(totalDaysWorked.toFixed(2))}</span>
+                    </div>
+                    <div class="report-kpi-chip">
+                        <span class="report-kpi-label">Horas Totales</span>
+                        <span class="report-kpi-value" style="color: var(--accent);">${totalHoursWorked.toFixed(1)}h</span>
+                    </div>
+                    <div class="report-kpi-chip">
+                        <span class="report-kpi-label">Días en Rango</span>
+                        <span class="report-kpi-value">${reportData.days.length}</span>
+                    </div>
+                </div>
+
+                ${ isCollapsed ? '' : `<div class="report-table-collapse-body sticky-table-container modern-scroll" data-preserve-scroll="analytics-general-table">${EmployeeReportGeneralTable(allEmployees, reportData.days)}</div>` }
             </div>`;
 }
 
 export function EmployeeReportGeneralTable(employees, days) {
+    const state = getState();
     return `<div class="responsive-table-wrapper" role="region" aria-label="Reporte general de empleados" tabindex="0"><table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem;">
                 <thead>
                     <tr>
-                        <th class="sticky-column" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 32px; min-width: 32px;">#</th>
-                        <th class="sticky-column-2" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Empleado</th>
-                        ${days.map(d => `<th style="background: #1e293b; padding: 8px 4px; text-align: center; color: ${d.isHoliday ? '#f59e0b' : '#94a3b8'}; font-size: 0.7rem; min-width: 32px;">
-                            <div>${['D', 'L', 'M', 'X', 'J', 'V', 'S'][d.date.getDay()]}</div><div>${d.date.getDate()}</div>
+                        <th class="sticky-column" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 32px; min-width: 32px; background: #1e293b; border-bottom: 1px solid #334155;">#</th>
+                        <th class="sticky-column-2" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #1e293b; border-bottom: 1px solid #334155;">Empleado</th>
+                        ${days.map(d => `<th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 8px 4px; text-align: center; color: ${d.isHoliday ? '#f59e0b' : '#94a3b8'}; font-size: 0.7rem; min-width: 32px;">
+                            <div style="font-size: 0.65rem; color: ${d.isHoliday ? '#f59e0b' : '#64748b'};">${['D', 'L', 'M', 'X', 'J', 'V', 'S'][d.date.getDay()]}</div><div>${d.date.getDate()}</div>
                         </th>`).join('')}
-                        <th style="background: #1e293b; padding: 12px 8px; color: #10b981; min-width: 50px;">Días</th>
-                        <th style="background: #1e293b; padding: 12px 8px; color: #3b82f6; min-width: 50px;">Horas</th>
+                        <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; color: #10b981; min-width: 50px;">Días</th>
+                        <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; color: #3b82f6; min-width: 50px;">Horas</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -805,18 +908,41 @@ export function EmployeeReportGeneralTable(employees, days) {
                             <td class="sticky-column" style="padding: 10px 8px; color: #94a3b8; border-bottom: 1px solid #334155; background: inherit; width: 32px; min-width: 32px;">${emp.number}</td>
                             <td class="sticky-column-2" style="padding: 10px 8px; color: #f1f5f9; border-bottom: 1px solid #334155; background: inherit; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${emp.name}">${emp.name}</td>
                             ${days.map(d => {
-        const val = emp.dayValues[getDateKey(d.date)];
-        let color = '#334155';
-        let text = '-';
-        let cellTitle = '';
-        if (val > 0) {
-            text = Number(val.toFixed(3));
-            color = Math.abs(val - 1) < 0.01 ? (d.isHoliday ? '#f59e0b' : '#10b981') : (val < 1 ? '#ef4444' : '#3b82f6');
-            if (Math.abs(val - 1) < 0.01) text = `${icons.get('check')}`;
-            cellTitle = d.isHoliday ? `Día festivo (${val}d)` : (val > 1 ? `Día no laborable / recargo (${val}d)` : `Jornada regular (${val}d)`);
-        }
-        return `<td style="padding: 10px 4px; text-align: center; color: ${color}; border-bottom: 1px solid #1e293b; font-weight: 700;" ${cellTitle ? `title="${cellTitle}"` : ''}>${text}</td>`;
-    }).join('')}
+                                const dateKey = getDateKey(d.date);
+                                const val = emp.dayValues[dateKey];
+                                const att = state?.attendance?.[`${emp.id}-${dateKey}`];
+                                const isHoliday = Boolean(d.isHoliday || att?.isHoliday);
+
+                                const empPositions = (state?.positions || []).filter(p => 
+                                    (emp.positions && emp.positions.includes(p.id)) || emp.position === p.id
+                                );
+                                const workingDays = (empPositions.length > 0 && empPositions[0].workingDays)
+                                    ? (emp.customWorkingDays?.[empPositions[0].id] || empPositions[0].workingDays)
+                                    : [1, 2, 3, 4, 5];
+                                const isRestDay = Boolean(att?.isRestDay || !workingDays.includes(d.date.getDay()));
+
+                                let color = '#334155';
+                                let text = '-';
+                                let cellTitle = '';
+                                if (val > 0) {
+                                    text = Number(val.toFixed(3));
+                                    if (isHoliday || isRestDay) {
+                                        color = '#f59e0b'; // Amarillo SOLO para día libre o festivo
+                                        cellTitle = isHoliday ? `Día festivo (${val}d)` : `Día libre trabajado (${val}d)`;
+                                    } else if (val < 1) {
+                                        color = '#ef4444'; // Rojo cuando se trabajó menos de 1 día completo (0.9)
+                                        cellTitle = `Jornada parcial (${val}d)`;
+                                    } else if (val > 1) {
+                                        color = '#3b82f6'; // Azul cuando se trabajó más de 1 día completo (1.3)
+                                        cellTitle = `Horas extras / jornada extendida (${val}d)`;
+                                    } else {
+                                        color = '#10b981'; // Verde cuando se trabajó 1 día regular completo (1.0)
+                                        text = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;" aria-label="Jornada regular"><path d="M20 6L9 17l-5-5"/></svg>`;
+                                        cellTitle = `Jornada regular (${val}d)`;
+                                    }
+                                }
+                                return `<td style="padding: 10px 4px; text-align: center; color: ${color}; border-bottom: 1px solid #1e293b; font-weight: 700;" ${cellTitle ? `title="${cellTitle}"` : ''}>${text}</td>`;
+                            }).join('')}
                             <td style="padding: 10px 8px; text-align: center; color: #10b981; border-bottom: 1px solid #1e293b;">${Number(emp.totalDays.toFixed(3))}</td>
                             <td style="padding: 10px 8px; text-align: center; color: #3b82f6; border-bottom: 1px solid #1e293b;">${emp.totalHours.toFixed(2)}</td>
                         </tr>
@@ -829,26 +955,40 @@ function EmployeeReportPositionSection(posData, days) {
     const state = getState();
     const collapses = state.collapsedPositions || {};
     const isCollapsed = collapses[posData.position.id] !== false; // Colapsado por defecto si es undefined o true
-    return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155;">
-    <div role="button" tabindex="0" data-analytics-action="toggle-position-collapse" data-value="${posData.position.id}" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: ${isCollapsed ? 'none' : '1px solid #334155'}; padding-bottom: ${isCollapsed ? '0' : '16px'};">
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="width: 12px; height: 12px; border-radius: 50%; background: ${posData.position.color};"></div>
-            <h3 style="margin: 0; color: #f1f5f9;">${posData.position.name} (${posData.employees.length})</h3>
-        </div>
-        <div style="color: #64748b;">${isCollapsed ? '▼' : '▲'}</div>
-    </div>
-                ${ isCollapsed ? '' : `<div class="sticky-table-container modern-scroll" data-preserve-scroll="analytics-pos-${posData.position.id}">${EmployeeReportTable(posData, days)}</div>` }
+    const totalPositionDays = posData.employees.reduce((acc, emp) => acc + (emp.total || 0), 0);
+
+    return `<div class="report-section-card">
+                <div role="button" tabindex="0" data-analytics-action="toggle-position-collapse" data-value="${posData.position.id}" class="report-section-header ${isCollapsed ? '' : 'is-open'}">
+                    <div class="report-section-title-wrap">
+                        <div class="report-position-dot" style="background: ${posData.position.color}; color: ${posData.position.color};"></div>
+                        <div class="report-section-title-col">
+                            <h3 class="report-section-title">${posData.position.name}</h3>
+                            <div class="report-section-subtitle">${posData.employees.length} ${posData.employees.length === 1 ? 'empleado' : 'empleados'} &bull; ${Number(totalPositionDays.toFixed(2))} jornadas</div>
+                        </div>
+                    </div>
+                    <div class="report-section-meta">
+                        <span class="report-count-badge">${posData.employees.length}</span>
+                        <span class="report-section-chevron ${isCollapsed ? '' : 'expanded'}" aria-hidden="true">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                        </span>
+                    </div>
+                </div>
+                ${ isCollapsed ? '' : `<div class="report-table-collapse-body sticky-table-container modern-scroll" data-preserve-scroll="analytics-pos-${posData.position.id}">${EmployeeReportTable(posData, days)}</div>` }
             </div>`;
 }
 
 function EmployeeReportTable(posData, days) {
+    const state = getState();
     return `<table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem;">
                 <thead>
                     <tr>
-                        <th class="sticky-column" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 32px; min-width: 32px;">#</th>
-                        <th class="sticky-column-2" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Nombre</th>
-                        ${days.map(d => `<th style="padding: 8px 4px; text-align: center; color: #fff; background: ${d.isHoliday ? '#f59e0b' : '#3b82f6'}; min-width: 32px; font-size: 0.75rem;">${d.date.getDate()}</th>`).join('')}
-                        <th style="padding: 12px 8px; color: #10b981; background: #1e293b; min-width: 60px;">TOTAL</th>
+                        <th class="sticky-column" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 32px; min-width: 32px; background: #1e293b; border-bottom: 1px solid #334155;">#</th>
+                        <th class="sticky-column-2" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #1e293b; border-bottom: 1px solid #334155;">Nombre</th>
+                        ${days.map(d => `<th style="padding: 8px 4px; text-align: center; color: ${d.isHoliday ? '#f59e0b' : '#94a3b8'}; background: #1e293b; border-bottom: 1px solid #334155; min-width: 32px; font-size: 0.75rem;">
+                            <div style="font-size: 0.65rem; color: ${d.isHoliday ? '#f59e0b' : '#64748b'};">${['D', 'L', 'M', 'X', 'J', 'V', 'S'][d.date.getDay()]}</div>
+                            <div>${d.date.getDate()}</div>
+                        </th>`).join('')}
+                        <th style="padding: 12px 8px; color: #10b981; background: #1e293b; border-bottom: 1px solid #334155; min-width: 60px;">TOTAL</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -857,11 +997,34 @@ function EmployeeReportTable(posData, days) {
                             <td class="sticky-column" style="padding: 12px 8px; color: #f1f5f9; background: inherit; width: 32px; min-width: 32px;">${emp.number}</td>
                             <td class="sticky-column-2" style="padding: 12px 8px; color: #f1f5f9; background: inherit; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${emp.name}">${emp.name}</td>
                             ${days.map(d => {
-        const val = emp.dayValues[getDateKey(d.date)] || 0;
-        let color = '#334155';
-        if (val > 0) color = val < 0.75 ? '#ef4444' : val < 1 ? '#f59e0b' : val === 1 ? '#10b981' : '#3b82f6';
-        return `<td style="padding: 8px 4px; text-align: center; background: ${color}; color: white; font-weight: 600;">${val > 0 ? Number(val.toFixed(3)) : '0'}</td>`;
-    }).join('')}
+                                const dateKey = getDateKey(d.date);
+                                const val = emp.dayValues[dateKey] || 0;
+                                const workingDays = emp.customWorkingDays?.[posData.position.id] 
+                                    || posData.position.workingDays 
+                                    || [1, 2, 3, 4, 5];
+                                const att = state?.attendance?.[`${emp.id}-${dateKey}`];
+                                const isHoliday = Boolean(d.isHoliday || att?.isHoliday);
+                                const isRestDay = Boolean(att?.isRestDay || !workingDays.includes(d.date.getDay()));
+
+                                let color = '#334155';
+                                let cellTitle = '';
+                                if (val > 0) {
+                                    if (isHoliday || isRestDay) {
+                                        color = '#f59e0b'; // Amarillo SOLO para día libre o festivo
+                                        cellTitle = isHoliday ? `Día festivo (${val}d)` : `Día libre trabajado (${val}d)`;
+                                    } else if (val < 1) {
+                                        color = '#ef4444'; // Rojo cuando se trabajó menos de 1 día completo (0.9)
+                                        cellTitle = `Jornada parcial (${val}d)`;
+                                    } else if (val > 1) {
+                                        color = '#3b82f6'; // Azul cuando se trabajó más de 1 día completo (1.3)
+                                        cellTitle = `Horas extras / jornada extendida (${val}d)`;
+                                    } else {
+                                        color = '#10b981'; // Verde cuando se trabajó 1 día regular completo (1.0)
+                                        cellTitle = `Jornada regular (${val}d)`;
+                                    }
+                                }
+                                return `<td style="padding: 8px 4px; text-align: center; background: ${color}; color: white; font-weight: 600;" ${cellTitle ? `title="${cellTitle}"` : ''}>${val > 0 ? Number(val.toFixed(3)) : '0'}</td>`;
+                            }).join('')}
                             <td style="padding: 12px 8px; text-align: center; color: #10b981; background: #0f172a;">${Number(emp.total.toFixed(3))}</td>
                         </tr>
                     `).join('')}
@@ -974,24 +1137,116 @@ export function toggleStartDatePicker() { dashboardDateManagerV2.toggleStartPick
 export function toggleEndDatePicker() { dashboardDateManagerV2.toggleEndPicker(); context.render(); }
 export function changeStartDatePickerMonth(delta) { dashboardDateManagerV2.changeStartMonth(delta); context.render(); }
 export function changeEndDatePickerMonth(delta) { dashboardDateManagerV2.changeEndMonth(delta); context.render(); }
-export function selectStartDate(dateStr) { dashboardDateManagerV2.selectStartDate(dateStr); context.render(); }
-export function selectEndDate(dateStr) { dashboardDateManagerV2.selectEndDate(dateStr); context.render(); }
+export function selectStartDate(dateStr) { 
+    if (dashboardDateManagerV2) dashboardDateManagerV2.selectStartDate(dateStr); 
+    memoCache.clear('chart-'); 
+    context.render(); 
+}
+export function selectEndDate(dateStr) { 
+    if (dashboardDateManagerV2) dashboardDateManagerV2.selectEndDate(dateStr); 
+    memoCache.clear('chart-'); 
+    context.render(); 
+}
 export function setDashboardThisWeek() { dashboardDateManagerV2.setThisWeek(); memoCache.clear('chart-'); context.render(); }
 export function setDashboardThisMonth() { dashboardDateManagerV2.setThisMonth(); memoCache.clear('chart-'); context.render(); }
 export function setDashboardLast30Days() { dashboardDateManagerV2.setLast30Days(); memoCache.clear('chart-'); context.render(); }
 export function setDashboardPayPeriod() { dashboardDateManagerV2.setPayPeriod(); memoCache.clear('chart-'); context.render(); }
 
 export function changeReportViewMode(mode) { getState().reportViewMode = mode; context.render(); }
-export function toggleEmployeeReportStartPicker() { employeeReportDateManagerV2.toggleStartPicker(); context.render(); }
-export function toggleEmployeeReportEndPicker() { employeeReportDateManagerV2.toggleEndPicker(); context.render(); }
-export function changeEmployeeReportStartPickerMonth(delta) { employeeReportDateManagerV2.changeStartMonth(delta); context.render(); }
-export function changeEmployeeReportEndPickerMonth(delta) { employeeReportDateManagerV2.changeEndMonth(delta); context.render(); }
-export function selectEmployeeReportStartDate(dateStr) { employeeReportDateManagerV2.selectStartDate(dateStr); context.render(); }
-export function selectEmployeeReportEndDate(dateStr) { employeeReportDateManagerV2.selectEndDate(dateStr); context.render(); }
-export function setEmployeeReportThisWeek() { employeeReportDateManagerV2.setThisWeek(); memoCache.clear('report-'); context.render(); }
-export function setEmployeeReportThisMonth() { employeeReportDateManagerV2.setThisMonth(); memoCache.clear('report-'); context.render(); }
-export function setEmployeeReportLast30Days() { employeeReportDateManagerV2.setLast30Days(); memoCache.clear('report-'); context.render(); }
-export function setEmployeeReportPayPeriod() { employeeReportDateManagerV2.setPayPeriod(); memoCache.clear('report-'); context.render(); }
+export function toggleEmployeeReportStartPicker() { employeeReportDateManagerV2?.toggleStartPicker?.(); context.render(); }
+export function toggleEmployeeReportEndPicker() { employeeReportDateManagerV2?.toggleEndPicker?.(); context.render(); }
+export function changeEmployeeReportStartPickerMonth(delta) { employeeReportDateManagerV2?.changeStartMonth?.(delta); context.render(); }
+export function changeEmployeeReportEndPickerMonth(delta) { employeeReportDateManagerV2?.changeEndMonth?.(delta); context.render(); }
+export function selectEmployeeReportStartDate(dateStr) { 
+    if (employeeReportDateManagerV2) employeeReportDateManagerV2.selectStartDate(dateStr); 
+    memoCache.clear('report-'); 
+    context.render(); 
+    if (context?.services?.ensureAttendanceRange) {
+        const state = getState();
+        context.services.ensureAttendanceRange(
+            getDateKey(state.employeeReportStartDate),
+            getDateKey(state.employeeReportEndDate)
+        ).then(() => {
+            memoCache.clear('report-');
+            context.render();
+        }).catch(() => {});
+    }
+}
+export function selectEmployeeReportEndDate(dateStr) { 
+    if (employeeReportDateManagerV2) employeeReportDateManagerV2.selectEndDate(dateStr); 
+    memoCache.clear('report-'); 
+    context.render(); 
+    if (context?.services?.ensureAttendanceRange) {
+        const state = getState();
+        context.services.ensureAttendanceRange(
+            getDateKey(state.employeeReportStartDate),
+            getDateKey(state.employeeReportEndDate)
+        ).then(() => {
+            memoCache.clear('report-');
+            context.render();
+        }).catch(() => {});
+    }
+}
+export function setEmployeeReportThisWeek() { 
+    employeeReportDateManagerV2.setThisWeek(); 
+    memoCache.clear('report-'); 
+    context.render(); 
+    if (context?.services?.ensureAttendanceRange) {
+        const state = getState();
+        context.services.ensureAttendanceRange(
+            getDateKey(state.employeeReportStartDate),
+            getDateKey(state.employeeReportEndDate)
+        ).then(() => {
+            memoCache.clear('report-');
+            context.render();
+        }).catch(() => {});
+    }
+}
+export function setEmployeeReportThisMonth() { 
+    employeeReportDateManagerV2.setThisMonth(); 
+    memoCache.clear('report-'); 
+    context.render(); 
+    if (context?.services?.ensureAttendanceRange) {
+        const state = getState();
+        context.services.ensureAttendanceRange(
+            getDateKey(state.employeeReportStartDate),
+            getDateKey(state.employeeReportEndDate)
+        ).then(() => {
+            memoCache.clear('report-');
+            context.render();
+        }).catch(() => {});
+    }
+}
+export function setEmployeeReportLast30Days() { 
+    employeeReportDateManagerV2.setLast30Days(); 
+    memoCache.clear('report-'); 
+    context.render(); 
+    if (context?.services?.ensureAttendanceRange) {
+        const state = getState();
+        context.services.ensureAttendanceRange(
+            getDateKey(state.employeeReportStartDate),
+            getDateKey(state.employeeReportEndDate)
+        ).then(() => {
+            memoCache.clear('report-');
+            context.render();
+        }).catch(() => {});
+    }
+}
+export function setEmployeeReportPayPeriod() { 
+    employeeReportDateManagerV2.setPayPeriod(); 
+    memoCache.clear('report-'); 
+    context.render(); 
+    if (context?.services?.ensureAttendanceRange) {
+        const state = getState();
+        context.services.ensureAttendanceRange(
+            getDateKey(state.employeeReportStartDate),
+            getDateKey(state.employeeReportEndDate)
+        ).then(() => {
+            memoCache.clear('report-');
+            context.render();
+        }).catch(() => {});
+    }
+}
 export function togglePositionCollapse(id) {
     const state = getState();
     if (!state.collapsedPositions) state.collapsedPositions = {};
@@ -1722,3 +1977,318 @@ export async function confirmExportExcel() {
     context.render();
     await exportEmployeeReportExcel();
 }
+
+// ============================================
+// 🕒 MODAL DE PERÍODOS ANTERIORES
+// ============================================
+
+export function formatPeriodRange(startKey, endKey) {
+    if (!startKey || !endKey) return '';
+    const s = parseDate(startKey);
+    const e = parseDate(endKey);
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    if (s.getFullYear() === e.getFullYear()) {
+        if (s.getMonth() === e.getMonth()) {
+            return `${s.getDate()} – ${e.getDate()} ${months[s.getMonth()]} ${s.getFullYear()}`;
+        }
+        return `${s.getDate()} ${months[s.getMonth()]} – ${e.getDate()} ${months[e.getMonth()]} ${s.getFullYear()}`;
+    }
+    return `${s.getDate()} ${months[s.getMonth()]} ${s.getFullYear()} – ${e.getDate()} ${months[e.getMonth()]} ${s.getFullYear()}`;
+}
+
+export function getPastPeriodsList(state, closures = []) {
+    const list = [];
+    const seen = new Set();
+    const today = new Date();
+
+    // 1. Cierres formales de nómina (reales)
+    if (Array.isArray(closures) && closures.length > 0) {
+        const sortedClosures = [...closures].sort((a, b) => {
+            const timeA = new Date(a.closedAt || a.periodEnd).getTime();
+            const timeB = new Date(b.closedAt || b.periodEnd).getTime();
+            return timeB - timeA;
+        });
+
+        sortedClosures.forEach(c => {
+            if (!c.periodStart || !c.periodEnd) return;
+            const key = `${c.periodStart}:${c.periodEnd}`;
+            seen.add(key);
+            list.push({
+                type: 'closure',
+                id: c.id,
+                start: c.periodStart,
+                end: c.periodEnd,
+                status: c.status || 'closed',
+                closedAt: c.closedAt,
+                employeeCount: c.employeeCount || 0,
+                label: formatPeriodRange(c.periodStart, c.periodEnd),
+                badgeText: 'CERRADO',
+                badgeColor: 'emerald',
+                subtext: (() => {
+                    let text = 'Cierre formal de nómina';
+                    if (c.closedAt) {
+                        try {
+                            text = `Cerrado el ${formatDateShort(c.closedAt)}`;
+                        } catch {
+                            text = 'Cierre formal de nómina';
+                        }
+                    }
+                    if (c.employeeCount) {
+                        text += ` • ${c.employeeCount} empleados`;
+                    }
+                    return text;
+                })()
+            });
+        });
+    }
+
+    // 2. Ciclos calculados a partir de settings.payPeriod
+    const pp = state?.settings?.payPeriod;
+    const len = Number(pp?.periodLength) || 15;
+    let anchorStart;
+    if (typeof pp?.periodStart === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(pp.periodStart)) {
+        anchorStart = parseDate(pp.periodStart);
+    } else {
+        anchorStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() >= 16 ? 16 : 1);
+    }
+
+    // Generar hacia atrás hasta 8 ciclos
+    let curAnchor = new Date(anchorStart);
+    for (let i = 0; i < 8; i++) {
+        const prevEnd = new Date(curAnchor);
+        prevEnd.setDate(prevEnd.getDate() - 1);
+        
+        const prevStart = new Date(prevEnd);
+        prevStart.setDate(prevStart.getDate() - len + 1);
+
+        const startKey = getDateKey(prevStart);
+        const endKey = getDateKey(prevEnd);
+        const key = `${startKey}:${endKey}`;
+
+        if (!seen.has(key)) {
+            seen.add(key);
+            list.push({
+                type: 'cycle',
+                start: startKey,
+                end: endKey,
+                days: len,
+                label: formatPeriodRange(startKey, endKey),
+                badgeText: `${len} DÍAS`,
+                badgeColor: 'sky',
+                subtext: `Ciclo regular (${len} días)`
+            });
+        }
+
+        curAnchor = prevStart;
+    }
+
+    // 3. Atajos de Meses Calendario Anteriores (Mes pasado y Antepasado)
+    for (let m = 1; m <= 2; m++) {
+        const firstDay = new Date(today.getFullYear(), today.getMonth() - m, 1);
+        const lastDay = new Date(today.getFullYear(), today.getMonth() - m + 1, 0);
+        const startKey = getDateKey(firstDay);
+        const endKey = getDateKey(lastDay);
+        const key = `${startKey}:${endKey}`;
+
+        if (!seen.has(key)) {
+            seen.add(key);
+            const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+            const monthName = months[firstDay.getMonth()];
+            list.push({
+                type: 'month',
+                start: startKey,
+                end: endKey,
+                label: `${monthName} ${firstDay.getFullYear()}`,
+                badgeText: 'MES COMPLETO',
+                badgeColor: 'purple',
+                subtext: formatPeriodRange(startKey, endKey)
+            });
+        }
+    }
+
+    return list;
+}
+
+function _renderPastPeriodCard(item, currentStart, currentEnd) {
+    const isCurrent = item.start === currentStart && item.end === currentEnd;
+    const isClosed = item.type === 'closure';
+    
+    return `
+        <div role="button" tabindex="0" 
+             class="past-period-card ${isCurrent ? 'is-active' : ''} ${isClosed ? 'is-closed' : ''}"
+             data-analytics-action="select-past-period"
+             data-start="${item.start}"
+             data-end="${item.end}">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                <div style="font-size: 1.1rem; flex-shrink: 0;">
+                    ${isClosed ? '🔒' : (item.type === 'month' ? '🗓️' : '⏱️')}
+                </div>
+                <div style="min-width: 0;">
+                    <div style="color: #f1f5f9; font-size: 0.875rem; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span>${item.label}</span>
+                        ${isCurrent ? '<span style="background: #8b5cf6; color: white; font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; font-weight: 700;">ACTIVO</span>' : ''}
+                    </div>
+                    <div style="color: #94a3b8; font-size: 0.75rem; margin-top: 2px;">
+                        ${item.subtext}
+                    </div>
+                </div>
+            </div>
+            <div class="past-period-meta" style="flex-shrink: 0;">
+                <span class="past-period-badge badge-${item.badgeColor}">${item.badgeText}</span>
+            </div>
+        </div>
+    `;
+}
+
+export function PastPeriodsModal() {
+    const state = getState();
+    const target = state.pastPeriodsTarget || 'employee-report';
+    const currentStart = target === 'dashboard' 
+        ? getDateKey(state.dashboardStartDate) 
+        : getDateKey(state.employeeReportStartDate);
+    const currentEnd = target === 'dashboard' 
+        ? getDateKey(state.dashboardEndDate) 
+        : getDateKey(state.employeeReportEndDate);
+
+    const closures = state.cachedPayrollClosures || [];
+    const periods = getPastPeriodsList(state, closures);
+
+    const closedItems = periods.filter(p => p.type === 'closure');
+    const cycleItems = periods.filter(p => p.type === 'cycle');
+    const monthItems = periods.filter(p => p.type === 'month');
+
+    return `
+        <div class="modal-backdrop" data-analytics-action="close-past-periods-modal" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px;">
+            <div data-analytics-action="stop-propagation" role="dialog" aria-modal="true" aria-labelledby="past-periods-title" style="background: #1e293b; border: 1px solid #334155; border-radius: 16px; max-width: 560px; width: 100%; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6); overflow: hidden;">
+                
+                <!-- Modal Header -->
+                <div style="padding: 16px 20px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; background: #0f172a; flex-shrink: 0;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 8px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                            ${icons.get('clock', { size: 20 }) || icons.get('calendar', { size: 20 })}
+                        </div>
+                        <div>
+                            <h3 id="past-periods-title" style="margin: 0; color: #f8fafc; font-size: 1.05rem; font-weight: 700;">Períodos Anteriores</h3>
+                            <p style="margin: 2px 0 0 0; color: #94a3b8; font-size: 0.75rem;">Selecciona un período cerrado o histórico para cargar el reporte</p>
+                        </div>
+                    </div>
+                    <button type="button" data-analytics-action="close-past-periods-modal" aria-label="Cerrar modal" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                        ${icons.get('close', { size: 20 }) || '✕'}
+                    </button>
+                </div>
+
+                <!-- Modal Body (Scrollable) -->
+                <div class="modern-scroll" style="padding: 16px 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px;">
+                    ${closedItems.length > 0 ? `
+                        <div>
+                            <div style="font-size: 0.72rem; font-weight: 700; color: #34d399; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                                🔒 Períodos Cerrados en Nómina (${closedItems.length})
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                ${closedItems.map(item => _renderPastPeriodCard(item, currentStart, currentEnd)).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <div>
+                        <div style="font-size: 0.72rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                            📅 Ciclos Históricos de Nómina (${cycleItems.length})
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            ${cycleItems.map(item => _renderPastPeriodCard(item, currentStart, currentEnd)).join('')}
+                        </div>
+                    </div>
+
+                    <div>
+                        <div style="font-size: 0.72rem; font-weight: 700; color: #c084fc; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                            🗓️ Meses Calendario Anteriores (${monthItems.length})
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            ${monthItems.map(item => _renderPastPeriodCard(item, currentStart, currentEnd)).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div style="padding: 12px 20px; border-top: 1px solid #334155; background: #0f172a; display: flex; justify-content: flex-end; align-items: center; flex-shrink: 0;">
+                    <button type="button" data-analytics-action="close-past-periods-modal" style="background: #334155; border: none; color: #f1f5f9; padding: 8px 16px; border-radius: 6px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;">
+                        Cerrar
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    `;
+}
+
+export async function openPastPeriodsModal(target = 'employee-report') {
+    const state = getState();
+    stateManager.batchSetState(() => {
+        state.showPastPeriodsModal = true;
+        state.pastPeriodsTarget = target;
+    });
+    try {
+        const page = await payrollClosureStore.listPage({ limit: 50 });
+        stateManager.batchSetState(() => {
+            state.cachedPayrollClosures = (page?.items || []).filter(item => item.status !== 'voided');
+        });
+    } catch (err) {
+        console.warn('No se pudieron cargar los cierres de nómina:', err);
+        stateManager.batchSetState(() => {
+            state.cachedPayrollClosures = state.cachedPayrollClosures || [];
+        });
+    }
+}
+
+export function closePastPeriodsModal() {
+    const state = getState();
+    stateManager.batchSetState(() => {
+        state.showPastPeriodsModal = false;
+    });
+}
+
+export function selectPastPeriodRange(start, end) {
+    if (!start || !end) return;
+    const state = getState();
+    const target = state.pastPeriodsTarget || 'employee-report';
+    stateManager.batchSetState(() => {
+        state.showPastPeriodsModal = false;
+
+        if (target === 'dashboard') {
+            if (dashboardDateManagerV2) {
+                dashboardDateManagerV2.setRange(start, end);
+            } else {
+                state.dashboardStartDate = start;
+                state.dashboardEndDate = end;
+            }
+        } else {
+            if (employeeReportDateManagerV2) {
+                employeeReportDateManagerV2.setRange(start, end);
+            } else {
+                state.employeeReportStartDate = start;
+                state.employeeReportEndDate = end;
+            }
+        }
+    });
+
+    if (target === 'dashboard') {
+        memoCache.clear('dash-');
+        context?.render?.();
+        if (context?.services?.ensureAttendanceRange) {
+            context.services.ensureAttendanceRange(start, end).then(() => {
+                memoCache.clear('dash-');
+                context?.render?.();
+            }).catch(() => {});
+        }
+    } else {
+        memoCache.clear('report-');
+        context?.render?.();
+        if (context?.services?.ensureAttendanceRange) {
+            context.services.ensureAttendanceRange(start, end).then(() => {
+                memoCache.clear('report-');
+                context?.render?.();
+            }).catch(() => {});
+        }
+    }
+}
+
