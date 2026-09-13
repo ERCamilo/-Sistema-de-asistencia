@@ -62,8 +62,10 @@ export function LoansLedger() {
     const body = ledger.selectedEmployeeId
         ? EmployeeLoansDetail(ledger.selectedEmployeeId)
         : LedgerOverview();
-    // The picker is an overlay that can appear over either mode.
-    return body + (ledger.showEmployeePicker ? EmployeePickerOverlay() : '');
+    // The picker and settings modal are overlays that can appear over either mode.
+    return body +
+        (ledger.showEmployeePicker ? EmployeePickerOverlay() : '') +
+        (ledger.showSettingsModal ? LoansSettingsModal() : '');
 }
 
 // ─── LIST VIEW ───────────────────────────────────────────────────────────────
@@ -563,6 +565,200 @@ function kpiCard(label, value, color, iconName, subLabel = '', subValue = '', to
     `;
 }
 
+// ─── CATÁLOGO COMPLETO DE TARJETAS DE RESUMEN (KPI) ──────────────────────────
+
+export const LOANS_KPI_CATALOG = {
+    balance: {
+        id: 'balance',
+        name: 'Saldo pendiente',
+        description: 'Monto total adeudado hoy incluyendo recargos o intereses pendientes.',
+        color: '#f59e0b',
+        icon: 'payroll',
+        render: (emp, data) => kpiCard(
+            'Saldo pendiente',
+            formatCurrency(data.totalBalance),
+            '#f59e0b',
+            'payroll',
+            'Total con interés',
+            formatCurrency(data.activeTotalDue),
+            'Saldo pendiente:\nEs el dinero total que el empleado debe actualmente a la empresa.\n\nFórmula:\nSaldo pendiente = Total a devolver − Total pagado'
+        )
+    },
+    paid: {
+        id: 'paid',
+        name: 'Total abonado',
+        description: 'Suma amortizada en préstamos activos y porcentaje de avance hacia saldo cero.',
+        color: 'rgb(16, 185, 115)',
+        icon: 'check',
+        render: (emp, data) => kpiCard(
+            'Total abonado',
+            formatCurrency(data.activePaid),
+            'rgb(16, 185, 115)',
+            'check',
+            'Progreso de pago',
+            data.active.length > 0 ? `${data.progressPct}% saldado` : (data.allLoans.length > 0 ? '100% saldado' : '0%'),
+            'Total abonado:\nDinero real que el empleado ya entregó en abonos o descuentos de nómina para sus préstamos activos.\n\n* Histórico acumulado: ' + formatCurrency(data.allTimePaid)
+        )
+    },
+    nextDeduction: {
+        id: 'nextDeduction',
+        name: 'Próximo descuento',
+        description: 'Retención programada a aplicar en el próximo corte de nómina.',
+        color: '#06b6d4',
+        icon: 'calendar',
+        render: (emp, data) => kpiCard(
+            'Próximo descuento',
+            formatCurrency(data.nextPayrollDeduction),
+            '#06b6d4',
+            'calendar',
+            'Frecuencia',
+            'Próximo cierre de nómina',
+            'Próximo descuento:\nMonto a descontar en el próximo cierre de nómina.\n\n* Corresponde a las próximas cuotas o saldos pendientes del empleado.'
+        )
+    },
+    history: {
+        id: 'history',
+        name: 'Historial de préstamos',
+        description: 'Conteo de préstamos activos, saldados con éxito y créditos anulados.',
+        color: '#a855f7',
+        icon: 'briefcase',
+        render: (emp, data) => kpiCard(
+            'Historial de préstamos',
+            `${data.active.length} ${data.active.length === 1 ? 'activo' : 'activos'}`,
+            '#a855f7',
+            'briefcase',
+            'Historial',
+            `${data.paid.length} saldados · ${data.writtenOff.length} anulados`,
+            'Récord del empleado:\nHistorial de préstamos solicitados y saldados en la empresa.\n\n* ' + data.allLoans.length + ' préstamo(s) en total.'
+        )
+    },
+    salaryPressure: {
+        id: 'salaryPressure',
+        name: 'Presión salarial',
+        description: 'Porcentaje del sueldo del período comprometido en deducciones de préstamos.',
+        color: '#ef4444',
+        icon: 'analytics',
+        render: (emp, data) => {
+            const periodSalary = data.periodSalary || 0;
+            const pressurePct = periodSalary > 0
+                ? Math.min(100, Math.round((data.nextPayrollDeduction / periodSalary) * 100))
+                : 0;
+            const color = pressurePct > 40 ? '#ef4444' : (pressurePct > 20 ? '#f59e0b' : '#10b981');
+            const label = periodSalary > 0
+                ? (pressurePct > 40 ? 'Riesgo alto (>40%)' : (pressurePct > 20 ? 'Riesgo moderado' : 'Nivel seguro'))
+                : 'Sin sueldo base';
+            return kpiCard(
+                'Presión salarial',
+                periodSalary > 0 ? `${pressurePct}% de nómina` : 'No asignado',
+                color,
+                'analytics',
+                'Semáforo',
+                label,
+                'Presión salarial:\nPorcentaje del sueldo neto del período comprometido en cuotas de préstamos.\n\n* Deducción: ' + formatCurrency(data.nextPayrollDeduction) + (periodSalary > 0 ? (' de ' + formatCurrency(periodSalary)) : '')
+            );
+        }
+    },
+    accruedInterest: {
+        id: 'accruedInterest',
+        name: 'Intereses acumulados',
+        description: 'Ganancia o costo financiero total generado por intereses devengados.',
+        color: '#f43f5e',
+        icon: 'trending-up',
+        render: (emp, data) => kpiCard(
+            'Intereses acumulados',
+            formatCurrency(data.activeTotalInterest),
+            '#f43f5e',
+            'trending-up',
+            'Total histórico',
+            data.allTimeInterest > 0 ? formatCurrency(data.allTimeInterest) : 'Sin recargos',
+            'Intereses acumulados:\nCosto financiero total generado por intereses iniciales o refinanciamientos en los préstamos activos.'
+        )
+    },
+    projectedPayoff: {
+        id: 'projectedPayoff',
+        name: 'Proyección de finiquito',
+        description: 'Períodos estimados necesarios para saldar completamente la deuda.',
+        color: '#38bdf8',
+        icon: 'clock',
+        render: (emp, data) => {
+            const estPeriods = data.nextPayrollDeduction > 0
+                ? Math.ceil(data.totalBalance / data.nextPayrollDeduction)
+                : (data.totalBalance > 0 ? 0 : 0);
+            const val = data.totalBalance <= 0
+                ? 'Al día'
+                : (estPeriods > 0 ? `~${estPeriods} período${estPeriods === 1 ? '' : 's'}` : 'Indefinido');
+            const sub = data.totalBalance <= 0 ? 'Sin saldo pendiente' : 'Al ritmo actual de pago';
+            return kpiCard(
+                'Proyección de finiquito',
+                val,
+                '#38bdf8',
+                'clock',
+                'Estimación',
+                sub,
+                'Proyección de finiquito:\nCantidad aproximada de cortes de nómina requeridos para liquidar la deuda actual al ritmo de descuento programado.'
+            );
+        }
+    },
+    totalBorrowed: {
+        id: 'totalBorrowed',
+        name: 'Capital desembolsado',
+        description: 'Suma de capitales originales entregados sin contar intereses.',
+        color: '#818cf8',
+        icon: 'dollar',
+        render: (emp, data) => kpiCard(
+            'Capital desembolsado',
+            formatCurrency(data.totalPrincipal),
+            '#818cf8',
+            'dollar',
+            'Histórico total',
+            data.allTimePrincipal > data.totalPrincipal ? formatCurrency(data.allTimePrincipal) : `${data.active.length} préstamo(s)`,
+            'Capital desembolsado:\nTotal acumulado de dinero neto prestado al empleado originalmente.'
+        )
+    },
+    availableCapacity: {
+        id: 'availableCapacity',
+        name: 'Capacidad disponible',
+        description: 'Margen libre para nuevos préstamos antes del límite de endeudamiento (40%).',
+        color: '#10b981',
+        icon: 'layers',
+        render: (emp, data) => {
+            const periodSalary = data.periodSalary || 0;
+            const maxAllowed = periodSalary * 0.40;
+            const availableQuota = Math.max(0, maxAllowed - data.nextPayrollDeduction);
+            const availablePct = periodSalary > 0 ? Math.round((availableQuota / periodSalary) * 100) : 0;
+            return kpiCard(
+                'Capacidad disponible',
+                periodSalary > 0 ? formatCurrency(availableQuota) : 'No disponible',
+                '#10b981',
+                'layers',
+                'Margen libre',
+                periodSalary > 0 ? `${availablePct}% restante` : 'Requiere salario',
+                'Capacidad disponible:\nMargen de deducción que el empleado aún puede comprometer sin sobrepasar el límite de endeudamiento responsable (40%).'
+            );
+        }
+    },
+    averageInstallment: {
+        id: 'averageInstallment',
+        name: 'Cuota promedio',
+        description: 'Monto promedio de cuota programada por préstamo o período.',
+        color: '#6366f1',
+        icon: 'reports',
+        render: (emp, data) => {
+            const count = data.active.length;
+            const avgVal = count > 0 ? (data.nextPayrollDeduction / count) : 0;
+            return kpiCard(
+                'Cuota promedio',
+                formatCurrency(avgVal),
+                '#6366f1',
+                'reports',
+                'Por préstamo activo',
+                `${count} activo${count === 1 ? '' : 's'}`,
+                'Cuota promedio:\nPromedio de deducción correspondiente a cada uno de los préstamos activos del empleado.'
+            );
+        }
+    }
+};
+
 // ─── DETAIL VIEW (one employee) ──────────────────────────────────────────────
 
 function EmployeeLoansDetail(empId) {
@@ -590,6 +786,31 @@ function EmployeeLoansDetail(empId) {
         return sum + (options.length > 0 ? Number(options[0].amount || 0) : getBalance(loan));
     }, 0);
 
+    const activeTotalInterest = active.reduce((s, l) => s + (getTotalInterestAccrued(l) || 0), 0);
+    const allTimeInterest = allLoans.reduce((s, l) => s + (getTotalInterestAccrued(l) || 0), 0);
+    const totalPrincipal = active.reduce((s, l) => s + (Number(l.principal) || 0), 0);
+    const allTimePrincipal = allLoans.reduce((s, l) => s + (Number(l.principal) || 0), 0);
+    const periodSalary = getEmployeePeriodSalary(emp, state);
+
+    const cardContext = {
+        emp,
+        allLoans,
+        active,
+        paid,
+        writtenOff,
+        totalBalance,
+        activeTotalDue,
+        activePaid,
+        allTimePaid,
+        progressPct,
+        nextPayrollDeduction,
+        activeTotalInterest,
+        allTimeInterest,
+        totalPrincipal,
+        allTimePrincipal,
+        periodSalary
+    };
+
     const employeeNameParts = String(emp.name || '').trim().split(/\s+/).filter(Boolean);
     const employeeFirstName = employeeNameParts.shift() || 'Sin nombre';
     const employeeRemainingName = employeeNameParts.join(' ');
@@ -603,7 +824,15 @@ function EmployeeLoansDetail(empId) {
     // U4 solo avisa; el wizard de resolución es U5.
     const duplicateCandidates = detectLoanDuplicateCandidates(emp);
 
-    const kpiDensity = (state.settings && state.settings.loansKpiDensity) || 'full';
+    const DEFAULT_LOANS_KPI_CARDS = ['balance', 'paid', 'nextDeduction', 'history'];
+    const activeCardIds = (state.settings && Array.isArray(state.settings.loansKpiCards) && state.settings.loansKpiCards.length > 0)
+        ? state.settings.loansKpiCards
+        : ((state.settings && state.settings.loansKpiDensity === 'compact') ? ['balance', 'nextDeduction'] : DEFAULT_LOANS_KPI_CARDS);
+
+    const renderedCardsHtml = activeCardIds
+        .filter(id => LOANS_KPI_CATALOG[id])
+        .map(id => LOANS_KPI_CATALOG[id].render(emp, cardContext))
+        .join('');
 
     return `
         <div class="loans-employee-detail" style="max-width: 1000px; margin: 0 auto;">
@@ -633,54 +862,20 @@ function EmployeeLoansDetail(empId) {
                 </div>
             </div>
 
-            <!-- Employee KPI stats cards -->
+            <!-- Employee KPI stats cards & unified gear customization -->
             <div class="loan-kpis-header">
-                <span class="loan-kpis-title">Resumen de cuenta</span>
+                <span class="loan-kpis-title">Resumen de cuenta (${activeCardIds.length} métricas)</span>
                 <button type="button"
-                        class="loan-kpis-density-toggle"
-                        data-app-fn="toggleLoansKpiDensity"
-                        title="Alternar entre vista completa (4 tarjetas) y minimalista (2 tarjetas clave)">
-                    <span aria-hidden="true">⚙️</span>
-                    <span>${kpiDensity === 'compact' ? 'Minimalista (2)' : 'Completa (4)'}</span>
+                        class="loans-unified-gear-btn loan-kpis-density-toggle"
+                        data-app-fn="openLoansSettingsModal"
+                        title="Personalizar tarjetas y visualización de préstamos"
+                        aria-label="Personalizar préstamos">
+                    ${icons.get('settings', { size: 14 })}
+                    <span>Personalizar (⚙️)</span>
                 </button>
             </div>
             <div class="loans-employee-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px;">
-                ${kpiCard(
-                    'Saldo pendiente',
-                    formatCurrency(totalBalance),
-                    '#f59e0b',
-                    'payroll',
-                    'Total con interés',
-                    formatCurrency(activeTotalDue),
-                    'Saldo pendiente:\nEs el dinero total que el empleado debe actualmente a la empresa.\n\nFórmula:\nSaldo pendiente = Total a devolver − Total pagado'
-                )}
-                ${kpiDensity === 'full' ? kpiCard(
-                    'Total abonado',
-                    formatCurrency(activePaid),
-                    'rgb(16, 185, 115)',
-                    'check',
-                    'Progreso de pago',
-                    active.length > 0 ? `${progressPct}% saldado` : (allLoans.length > 0 ? '100% saldado' : '0%'),
-                    'Total abonado:\nDinero real que el empleado ya entregó en abonos o descuentos de nómina para sus préstamos activos.\n\n* Histórico acumulado: ' + formatCurrency(allTimePaid)
-                ) : ''}
-                ${kpiCard(
-                    'Próximo descuento',
-                    formatCurrency(nextPayrollDeduction),
-                    '#06b6d4',
-                    'calendar',
-                    'Frecuencia',
-                    'Próximo cierre de nómina',
-                    'Próximo descuento:\nMonto a descontar en el próximo cierre de nómina.\n\n* Corresponde a las próximas cuotas o saldos pendientes del empleado.'
-                )}
-                ${kpiDensity === 'full' ? kpiCard(
-                    'Historial de préstamos',
-                    `${active.length} ${active.length === 1 ? 'activo' : 'activos'}`,
-                    '#a855f7',
-                    'briefcase',
-                    'Historial',
-                    `${paid.length} saldados · ${writtenOff.length} anulados`,
-                    'Récord del empleado:\nHistorial de préstamos solicitados y saldados en la empresa.\n\n* ' + allLoans.length + ' préstamo(s) en total.'
-                ) : ''}
+                ${renderedCardsHtml}
             </div>
 
             ${duplicateCandidates.length > 0 ? `
@@ -1285,12 +1480,6 @@ function LoanCapacityMeter(capacity) {
             <span class="loan-capacity-meter__badge" style="border-color: ${color}; color: ${color};">
                 ${escapeHTML(badgeText)}
             </span>
-            <button type="button"
-                    class="loan-capacity-meter__style-toggle"
-                    data-app-fn="toggleLoansCapacityStyle"
-                    title="Alternar estilo: Gauge Analítico / Barra Multicapa">
-                ${icons.get('settings', { size: 13 })}
-            </button>
         </div>
     `;
 
@@ -1990,6 +2179,190 @@ function NewLoanForm(emp = null) {
                     style="width: 100%; margin-top: 12px; padding: 12px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.95rem; cursor: pointer;">
                 ${icons.get('save', { size: 16 })} Registrar préstamo
             </button>
+        </div>
+    `;
+}
+
+// ─── LOANS SETTINGS MODAL (Unified preferences & reorderable cards) ──────────
+
+export function LoansSettingsModal() {
+    const DEFAULT_LOANS_KPI_CARDS = ['balance', 'paid', 'nextDeduction', 'history'];
+    const activeCards = (state.settings && Array.isArray(state.settings.loansKpiCards) && state.settings.loansKpiCards.length > 0)
+        ? state.settings.loansKpiCards
+        : ((state.settings && state.settings.loansKpiDensity === 'compact') ? ['balance', 'nextDeduction'] : DEFAULT_LOANS_KPI_CARDS);
+
+    const allKeys = Object.keys(LOANS_KPI_CATALOG);
+    const activeSet = new Set(activeCards);
+    const inactiveKeys = allKeys.filter(k => !activeSet.has(k));
+    const capacityStyle = (state.settings && state.settings.loansCapacityStyle) || 'gauge';
+
+    return `
+        <div class="loans-settings-modal-backdrop"
+             role="dialog" aria-modal="true" aria-labelledby="loans-settings-modal-title"
+             onclick="if(event.target===this && window.closeLoansSettingsModal) window.closeLoansSettingsModal()">
+            <div class="loans-settings-modal" onclick="event.stopPropagation()">
+                <!-- Modal Header -->
+                <div class="loans-settings-modal__header">
+                    <div class="loans-settings-modal__title-box">
+                        <div class="loans-settings-modal__icon">${icons.get('settings', { size: 20 })}</div>
+                        <div>
+                            <h3 id="loans-settings-modal-title" class="loans-settings-modal__title">Preferencias de Préstamos</h3>
+                            <p class="loans-settings-modal__subtitle">Personaliza qué tarjetas de resumen ver, su posición exacta y estilo de indicadores.</p>
+                        </div>
+                    </div>
+                    <button type="button"
+                            class="loans-settings-modal__close-btn"
+                            data-app-fn="closeLoansSettingsModal"
+                            aria-label="Cerrar preferencias">
+                        ✕
+                    </button>
+                </div>
+
+                <!-- Modal Body (Scrollable) -->
+                <div class="loans-settings-modal__body">
+                    <!-- SECTION 1: Tarjetas de Resumen -->
+                    <div class="loans-settings-section">
+                        <div class="loans-settings-section__hdr">
+                            <div>
+                                <span class="loans-settings-section__title">Tarjetas de Resumen (KPIs)</span>
+                                <span class="loans-settings-section__counter">${activeCards.length} activas de ${allKeys.length}</span>
+                            </div>
+                            <span class="loans-settings-section__hint">Usa ▲ / ▼ para definir el orden</span>
+                        </div>
+                        <p class="loans-settings-section__desc">
+                            Elige exactamente cuántas métricas mostrar en pantalla y en qué orden de prioridad se colocarán.
+                        </p>
+
+                        <!-- Active Cards (Ordered) -->
+                        <div class="loans-settings-cards-list">
+                            <div class="loans-settings-subhead">En pantalla (orden de izquierda a derecha):</div>
+                            ${activeCards.map((cardId, index) => {
+                                const cardDef = LOANS_KPI_CATALOG[cardId];
+                                if (!cardDef) return '';
+                                const isFirst = index === 0;
+                                const isLast = index === activeCards.length - 1;
+                                return `
+                                    <div class="loans-settings-card-item is-active" style="border-left-color: ${cardDef.color};">
+                                        <div class="loans-settings-card-item__meta">
+                                            <span class="loans-settings-card-pos">${index + 1}°</span>
+                                            <span class="loans-settings-card-icon" style="color: ${cardDef.color};">
+                                                ${icons.get(cardDef.icon, { size: 16 })}
+                                            </span>
+                                            <div class="loans-settings-card-info">
+                                                <span class="loans-settings-card-name">${escapeHTML(cardDef.name)}</span>
+                                                <span class="loans-settings-card-desc">${escapeHTML(cardDef.description)}</span>
+                                            </div>
+                                        </div>
+                                        <div class="loans-settings-card-actions">
+                                            <div class="loans-settings-reorder-group">
+                                                <button type="button"
+                                                        class="loans-settings-order-btn loans-settings-order-btn--up"
+                                                        data-app-fn="moveLoansKpiCard"
+                                                        data-arg="${cardId}"
+                                                        data-arg2="up"
+                                                        title="Subir posición"
+                                                        ${isFirst ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}>
+                                                    ▲
+                                                </button>
+                                                <button type="button"
+                                                        class="loans-settings-order-btn loans-settings-order-btn--down"
+                                                        data-app-fn="moveLoansKpiCard"
+                                                        data-arg="${cardId}"
+                                                        data-arg2="down"
+                                                        title="Bajar posición"
+                                                        ${isLast ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}>
+                                                    ▼
+                                                </button>
+                                            </div>
+                                            <button type="button"
+                                                    class="loans-settings-toggle-btn is-active"
+                                                    data-app-fn="toggleLoansKpiCard"
+                                                    data-arg="${cardId}"
+                                                    title="Ocultar esta tarjeta">
+                                                Ocultar
+                                            </button>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+
+                            ${inactiveKeys.length > 0 ? `
+                                <div class="loans-settings-subhead" style="margin-top: 14px;">Tarjetas disponibles para añadir:</div>
+                                ${inactiveKeys.map(cardId => {
+                                    const cardDef = LOANS_KPI_CATALOG[cardId];
+                                    if (!cardDef) return '';
+                                    return `
+                                        <div class="loans-settings-card-item is-inactive">
+                                            <div class="loans-settings-card-item__meta">
+                                                <span class="loans-settings-card-pos is-dimmed">—</span>
+                                                <span class="loans-settings-card-icon" style="color: #64748b;">
+                                                    ${icons.get(cardDef.icon, { size: 16 })}
+                                                </span>
+                                                <div class="loans-settings-card-info">
+                                                    <span class="loans-settings-card-name" style="color: #94a3b8;">${escapeHTML(cardDef.name)}</span>
+                                                    <span class="loans-settings-card-desc">${escapeHTML(cardDef.description)}</span>
+                                                </div>
+                                            </div>
+                                            <div class="loans-settings-card-actions">
+                                                <button type="button"
+                                                        class="loans-settings-toggle-btn is-add"
+                                                        data-app-fn="toggleLoansKpiCard"
+                                                        data-arg="${cardId}"
+                                                        title="Activar y colocar al final">
+                                                    + Activar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <!-- SECTION 2: Estilo de Capacidad de Endeudamiento -->
+                    <div class="loans-settings-section">
+                        <div class="loans-settings-section__hdr">
+                            <span class="loans-settings-section__title">Medidor de Capacidad de Pago</span>
+                        </div>
+                        <p class="loans-settings-section__desc">
+                            Selecciona el formato visual para evaluar el porcentaje de sueldo comprometido y la viabilidad del préstamo.
+                        </p>
+                        <div class="loans-settings-style-grid">
+                            <button type="button"
+                                    class="loans-settings-style-option ${capacityStyle === 'gauge' ? 'is-selected' : ''}"
+                                    data-app-fn="setLoansCapacityStyle"
+                                    data-arg="gauge">
+                                <div class="loans-settings-style-option__check">${capacityStyle === 'gauge' ? '✓' : ''}</div>
+                                <div class="loans-settings-style-option__title">Gauge Analítico (Circular)</div>
+                                <div class="loans-settings-style-option__desc">Velocímetro analítico con balanza de salario neto restante.</div>
+                            </button>
+                            <button type="button"
+                                    class="loans-settings-style-option ${capacityStyle === 'stacked' ? 'is-selected' : ''}"
+                                    data-app-fn="setLoansCapacityStyle"
+                                    data-arg="stacked">
+                                <div class="loans-settings-style-option__check">${capacityStyle === 'stacked' ? '✓' : ''}</div>
+                                <div class="loans-settings-style-option__title">Barra Multicapa Asistida</div>
+                                <div class="loans-settings-style-option__desc">Barra segmentada con retenciones previas y sugerencia de cuotas.</div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="loans-settings-modal__footer">
+                    <button type="button"
+                            class="loans-settings-reset-btn"
+                            data-app-fn="resetLoansKpiCards"
+                            title="Restablecer orden y tarjetas de fábrica">
+                        Restablecer valores iniciales
+                    </button>
+                    <button type="button"
+                            class="loans-settings-done-btn"
+                            data-app-fn="closeLoansSettingsModal">
+                        Listo
+                    </button>
+                </div>
+            </div>
         </div>
     `;
 }

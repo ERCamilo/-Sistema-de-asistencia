@@ -50,5 +50,10 @@ export {
     toggleLoansKpiDensity,
     setLoansKpiDensity,
     applySuggestedInstallmentCount,
+    openLoansSettingsModal,
+    closeLoansSettingsModal,
+    toggleLoansKpiCard,
+    moveLoansKpiCard,
+    resetLoansKpiCards,
     registerLegacyGlobals
 } from './LoansController.js';

@@ -123,6 +123,9 @@ function ensureLedgerState() {
             if (typeof state.loansLedger.consolidateDraft === 'undefined') {
                 state.loansLedger.consolidateDraft = null;
             }
+            if (typeof state.loansLedger.showSettingsModal === 'undefined') {
+                state.loansLedger.showSettingsModal = false;
+            }
         }
     });
 }
@@ -195,6 +198,7 @@ export function clearLoansEmployee() {
         state.loansLedger.selectedEmployeeId = null;
         state.loansLedger.showAddForm = false;
         state.loansLedger.showPaymentFormForLoan = null;
+        state.loansLedger.showSettingsModal = false;
     });
 }
 
@@ -1039,6 +1043,111 @@ export function applySuggestedInstallmentCount(count) {
 }
 
 /**
+ * Abre el modal unificado de preferencias de la sección de préstamos.
+ */
+export function openLoansSettingsModal() {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showSettingsModal = true;
+    });
+    render();
+}
+
+/**
+ * Cierra el modal unificado de preferencias de préstamos.
+ */
+export function closeLoansSettingsModal() {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showSettingsModal = false;
+    });
+    render();
+}
+
+/**
+ * Activa o desactiva una tarjeta de resumen (KPI) en la vista de préstamos.
+ * La tarjeta se añade al final de las activas o se retira.
+ * Se asegura que al menos una tarjeta permanezca visible.
+ */
+export function toggleLoansKpiCard(cardId) {
+    if (!cardId) return;
+    const current = (state.settings && Array.isArray(state.settings.loansKpiCards))
+        ? [...state.settings.loansKpiCards]
+        : ['balance', 'paid', 'nextDeduction', 'history'];
+
+    const idx = current.indexOf(cardId);
+    if (idx >= 0) {
+        if (current.length <= 1) {
+            if (typeof window !== 'undefined' && window.showNotification) {
+                window.showNotification('Debe mantenerse al menos una tarjeta de resumen visible.', 'warning');
+            }
+            return;
+        }
+        current.splice(idx, 1);
+    } else {
+        current.push(cardId);
+    }
+
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiCards = current;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    render();
+}
+
+/**
+ * Cambia la posición / orden de visualización de una tarjeta activa (arriba o abajo).
+ */
+export function moveLoansKpiCard(cardId, direction) {
+    if (!cardId) return;
+    const current = (state.settings && Array.isArray(state.settings.loansKpiCards))
+        ? [...state.settings.loansKpiCards]
+        : ['balance', 'paid', 'nextDeduction', 'history'];
+
+    const idx = current.indexOf(cardId);
+    if (idx < 0) return;
+
+    const offset = (direction === 'up' || direction === -1) ? -1 : 1;
+    const targetIdx = idx + offset;
+    if (targetIdx < 0 || targetIdx >= current.length) return;
+
+    const tmp = current[idx];
+    current[idx] = current[targetIdx];
+    current[targetIdx] = tmp;
+
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiCards = current;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    render();
+}
+
+/**
+ * Restablece las tarjetas de resumen y el estilo de capacidad a valores de fábrica.
+ */
+export function resetLoansKpiCards() {
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiCards = ['balance', 'paid', 'nextDeduction', 'history'];
+        s.settings.loansCapacityStyle = 'gauge';
+        s.settings.loansKpiDensity = 'full';
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    if (typeof window !== 'undefined' && window.showNotification) {
+        window.showNotification('Preferencias de préstamos restablecidas a valores de fábrica.', 'info');
+    }
+    render();
+}
+
+/**
  * Register handlers on window.* for the data-app-fn dispatcher used by the
  * Ledger UI. Called once at app boot from app.js.
  */
@@ -1088,6 +1197,11 @@ export function registerLegacyGlobals() {
     window.toggleLoansKpiDensity = toggleLoansKpiDensity;
     window.setLoansKpiDensity = setLoansKpiDensity;
     window.applySuggestedInstallmentCount = applySuggestedInstallmentCount;
+    window.openLoansSettingsModal = openLoansSettingsModal;
+    window.closeLoansSettingsModal = closeLoansSettingsModal;
+    window.toggleLoansKpiCard = toggleLoansKpiCard;
+    window.moveLoansKpiCard = moveLoansKpiCard;
+    window.resetLoansKpiCards = resetLoansKpiCards;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;

@@ -33,6 +33,11 @@ import {
     toggleLoansKpiDensity,
     setLoansKpiDensity,
     applySuggestedInstallmentCount,
+    openLoansSettingsModal,
+    closeLoansSettingsModal,
+    toggleLoansKpiCard,
+    moveLoansKpiCard,
+    resetLoansKpiCards,
     toggleConsolidateForm,
     toggleConsolidateAdvancedOptions
 } from '../modules/features/loans/LoansController.js';
@@ -1034,7 +1039,7 @@ testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
         testRunner.assert(meter !== null, "Debe renderizar la clase de gauge");
         testRunner.assert(meter.querySelector('.loan-capacity-gauge-svg') !== null, "Debe tener el SVG del velocímetro");
         testRunner.assert(meter.textContent.includes('Salario neto disponible:'), "Muestra la balanza de neto disponible");
-        testRunner.assert(meter.querySelector('.loan-capacity-meter__style-toggle') !== null, "Incluye el botón de engranaje para alternar");
+        testRunner.assert(meter.querySelector('.loan-capacity-meter__badge') !== null, "Incluye el badge de estado");
     },
 
     "renderiza Opción C (Stacked) con barra segmentada, leyendas y sugerencia de cuotas"() {
@@ -1172,9 +1177,9 @@ testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
         const hostFull = document.createElement('div');
         hostFull.innerHTML = htmlFull;
 
-        const toggleBtnFull = hostFull.querySelector('.loan-kpis-density-toggle');
-        testRunner.assert(toggleBtnFull !== null, "Debe tener botón de alternancia de densidad");
-        testRunner.assert(toggleBtnFull.textContent.includes('Completa (4)'), "Indica vista Completa");
+        const toggleBtnFull = hostFull.querySelector('.loans-unified-gear-btn');
+        testRunner.assert(toggleBtnFull !== null, "Debe tener botón de engranaje unificado");
+        testRunner.assert(toggleBtnFull.textContent.includes('Personalizar'), "Indica botón de personalizar");
         testRunner.assert(hostFull.textContent.includes('Saldo pendiente'), "Muestra Saldo pendiente");
         testRunner.assert(hostFull.textContent.includes('Total abonado'), "Muestra Total abonado");
         testRunner.assert(hostFull.textContent.includes('Próximo descuento'), "Muestra Próximo descuento");
@@ -1188,12 +1193,102 @@ testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
         const hostCompact = document.createElement('div');
         hostCompact.innerHTML = htmlCompact;
 
-        const toggleBtnCompact = hostCompact.querySelector('.loan-kpis-density-toggle');
-        testRunner.assert(toggleBtnCompact.textContent.includes('Minimalista (2)'), "Indica vista Minimalista");
         testRunner.assert(hostCompact.textContent.includes('Saldo pendiente'), "Muestra Saldo pendiente en modo minimalista");
         testRunner.assert(hostCompact.textContent.includes('Próximo descuento'), "Muestra Próximo descuento en modo minimalista");
         testRunner.assert(!hostCompact.querySelector('.loans-employee-kpis').textContent.includes('Total abonado'), "Oculta Total abonado en modo minimalista");
         testRunner.assert(!hostCompact.querySelector('.loans-employee-kpis').textContent.includes('Historial de préstamos'), "Oculta Historial de préstamos en modo minimalista");
+    },
+
+    "abre y cierra LoansSettingsModal mostrando secciones y catálogo de tarjetas"() {
+        resetState();
+        state.loansLedger = { selectedEmployeeId: 'e1', showSettingsModal: false };
+        state.settings = { loansCapacityStyle: 'gauge' };
+
+        // Inicialmente el modal no está en el DOM
+        let html = LoansLedger();
+        let host = document.createElement('div');
+        host.innerHTML = html;
+        testRunner.assert(host.querySelector('.loans-settings-modal') === null, "Modal no debe mostrarse inicialmente");
+
+        // Abrir modal
+        openLoansSettingsModal();
+        testRunner.assert(state.loansLedger.showSettingsModal === true, "showSettingsModal pasa a true");
+
+        html = LoansLedger();
+        host = document.createElement('div');
+        host.innerHTML = html;
+        testRunner.assert(host.querySelector('.loans-settings-modal') !== null, "Modal debe renderizarse al estar abierto");
+        testRunner.assert(host.textContent.includes('Preferencias de Préstamos'), "Muestra título del modal");
+        testRunner.assert(host.textContent.includes('Tarjetas de Resumen'), "Muestra sección de tarjetas");
+        testRunner.assert(host.textContent.includes('Medidor de Capacidad de Pago'), "Muestra sección de medidor");
+
+        // Cerrar modal
+        closeLoansSettingsModal();
+        testRunner.assert(state.loansLedger.showSettingsModal === false, "showSettingsModal pasa a false");
+    },
+
+    "gestiona tarjetas personalizadas con toggleLoansKpiCard, moveLoansKpiCard y resetLoansKpiCards"() {
+        resetState();
+        state.settings = {
+            loansKpiCards: ['balance', 'paid', 'nextDeduction', 'history']
+        };
+
+        // 1. Añadir nueva tarjeta ('salaryPressure')
+        toggleLoansKpiCard('salaryPressure');
+        testRunner.assert(state.settings.loansKpiCards.includes('salaryPressure'), "Añade salaryPressure a la lista");
+        testRunner.assertEquals(state.settings.loansKpiCards.length, 5, "Ahora tiene 5 tarjetas activas");
+
+        // 2. Mover tarjeta hacia arriba (▲)
+        // 'salaryPressure' está al final (índice 4). Al subirla pasa al índice 3.
+        moveLoansKpiCard('salaryPressure', 'up');
+        testRunner.assertEquals(state.settings.loansKpiCards[3], 'salaryPressure', "salaryPressure sube a la posición 3");
+
+        // 3. Moverla hacia abajo (▼)
+        moveLoansKpiCard('salaryPressure', 'down');
+        testRunner.assertEquals(state.settings.loansKpiCards[4], 'salaryPressure', "salaryPressure baja de vuelta al índice 4");
+
+        // 4. Desactivar tarjeta
+        toggleLoansKpiCard('salaryPressure');
+        testRunner.assert(!state.settings.loansKpiCards.includes('salaryPressure'), "salaryPressure se retira de la lista");
+        testRunner.assertEquals(state.settings.loansKpiCards.length, 4, "Vuelve a tener 4 tarjetas");
+
+        // 5. Restablecer valores de fábrica
+        resetLoansKpiCards();
+        testRunner.assertEquals(state.settings.loansKpiCards.length, 4, "Restablece 4 tarjetas por defecto");
+        testRunner.assertEquals(state.settings.loansCapacityStyle, 'gauge', "Restablece estilo gauge");
+    },
+
+    "renderiza tarjetas personalizadas en la posición y cantidad elegidas por el usuario"() {
+        resetState();
+        state.employees = [{
+            id: 'emp1',
+            name: 'Carlos Petrus',
+            number: '050',
+            active: true,
+            loans: [
+                { id: 'l1', principal: 10000, status: 'active', concept: 'Préstamo Equipamiento', payments: [] }
+            ]
+        }];
+        state.loansLedger = { selectedEmployeeId: 'emp1' };
+
+        // El usuario elige exactamente 3 tarjetas y pone 'accruedInterest' en primer lugar
+        state.settings = {
+            loansKpiCards: ['accruedInterest', 'balance', 'salaryPressure']
+        };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const cards = host.querySelectorAll('.loans-employee-kpis .loan-kpi-card');
+        testRunner.assertEquals(cards.length, 3, "Debe renderizar exactamente 3 tarjetas");
+
+        // La primera tarjeta debe ser 'Intereses acumulados'
+        testRunner.assert(cards[0].textContent.includes('Intereses acumulados'), "La 1ra tarjeta es Intereses acumulados");
+        // La segunda tarjeta debe ser 'Saldo pendiente'
+        testRunner.assert(cards[1].textContent.includes('Saldo pendiente'), "La 2da tarjeta es Saldo pendiente");
+        // La tercera tarjeta debe ser 'Presión salarial'
+        testRunner.assert(cards[2].textContent.includes('Presión salarial'), "La 3ra tarjeta es Presión salarial");
     }
 });
 
