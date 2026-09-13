@@ -1864,8 +1864,9 @@
     padding: 1px 7px;
     border-radius: 12px;
     font-size: 0.7rem;
-    font-weight: 800;
-    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
     transition: all 0.15s ease;
 }
 
@@ -2503,9 +2504,9 @@
     border: 1px solid currentColor;
     font-size: 0.72rem;
     font-weight: 700;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.02em;
     background: rgba(15, 23, 42, 0.9);
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: inherit;
     font-variant-numeric: tabular-nums;
 }
 
@@ -2586,8 +2587,8 @@
 }
 
 .loan-capacity-gauge-val {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 1.45rem;
+    font-family: inherit;
+    font-size: 1.35rem;
     font-weight: 800;
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
@@ -2630,9 +2631,9 @@
 }
 
 .loan-capacity-balance-val {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: inherit;
     font-weight: 700;
-    font-size: 0.88rem;
+    font-size: 0.85rem;
     font-variant-numeric: tabular-nums;
 }
 
@@ -2700,7 +2701,7 @@
 .loan-capacity-legends {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px 10px;
+    gap: 8px 12px;
     margin-top: 10px;
 }
 
@@ -2708,81 +2709,71 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(15, 23, 42, 0.75);
+    background: rgba(15, 23, 42, 0.6);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 5px 12px;
-    border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    padding: 4px 10px;
+    border-radius: 6px;
 }
 
 .loan-capacity-leg-dot {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     flex-shrink: 0;
 }
 
 .loan-capacity-leg-label {
     color: #94a3b8;
-    font-weight: 600;
-    font-size: 0.74rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+    font-weight: 500;
+    font-size: 0.78rem;
 }
 
 .loan-capacity-leg-val {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: inherit;
     font-weight: 700;
-    font-size: 0.88rem;
+    font-size: 0.82rem;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
 }
 
 .loan-capacity-leg-pct {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: inherit;
     font-size: 0.76rem;
-    font-weight: 600;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
-    opacity: 0.92;
+    opacity: 0.9;
 }
 
 /* Assist bar */
 .loan-capacity-assist-bar {
-    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(24, 35, 57, 0.85));
-    border: 1px solid rgba(6, 182, 212, 0.32);
-    border-radius: 10px;
-    padding: 10px 14px;
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(6, 182, 212, 0.28);
+    border-radius: 8px;
+    padding: 8px 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 12px;
     margin-top: 10px;
     flex-wrap: wrap;
-    box-shadow: 0 2px 8px -2px rgba(6, 182, 212, 0.15);
 }
 
 .loan-capacity-assist-text {
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     color: #e2e8f0;
-    line-height: 1.5;
+    line-height: 1.45;
     flex: 1;
 }
 
 .loan-capacity-assist-val {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.88rem;
+    font-family: inherit;
+    font-size: 0.8rem;
     font-weight: 700;
-    color: #38bdf8;
+    color: #22d3ee;
     font-variant-numeric: tabular-nums;
-    padding: 1px 6px;
-    background: rgba(6, 182, 212, 0.12);
-    border: 1px solid rgba(6, 182, 212, 0.25);
-    border-radius: 4px;
-    letter-spacing: -0.01em;
 }
 
 .loan-capacity-assist-pct {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: inherit;
     font-size: 0.76rem;
     font-weight: 600;
     color: #34d399;
@@ -2790,18 +2781,17 @@
 }
 
 .loan-capacity-suggest-btn {
-    font-size: 0.76rem;
+    font-size: 0.74rem;
     font-weight: 700;
     color: #081a24;
     background: #06b6d4;
-    padding: 7px 16px;
-    border-radius: 8px;
+    padding: 6px 14px;
+    border-radius: 6px;
     border: none;
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
     transition: all 0.18s ease;
-    box-shadow: 0 2px 8px -2px rgba(6, 182, 212, 0.45);
 }
 
 .loan-capacity-suggest-btn:hover {
@@ -2933,12 +2923,11 @@
 }
 
 .loan-consolidate-form__loan-amount {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: inherit;
     font-weight: 700;
-    font-size: 0.92rem;
+    font-size: 0.85rem;
     color: #fbbf24;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
 }
 
 .loan-consolidate-form__loans-total {
@@ -2958,11 +2947,10 @@
 
 .loan-consolidate-form__loans-total strong {
     color: #38bdf8;
-    font-size: 1.22rem;
-    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.05rem;
+    font-family: inherit;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
 }
 
 /* Modo por defecto: 1 sola cuota */
@@ -2971,18 +2959,18 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 12px 16px;
+    padding: 10px 14px;
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(27, 39, 61, 0.8));
     border: 1px solid rgba(6, 182, 212, 0.3);
-    border-radius: 10px;
-    font-size: 0.84rem;
+    border-radius: 8px;
+    font-size: 0.82rem;
     box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.3);
 }
 
 .loan-consolidate-form__single-info {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     color: var(--text, #f4f6fa);
     flex-wrap: wrap;
 }
@@ -3005,22 +2993,17 @@
     color: #e2e8f0;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     flex-wrap: wrap;
-    font-size: 0.84rem;
+    font-size: 0.82rem;
 }
 
 .loan-consolidate-form__amount-highlight {
     color: #22d3ee;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 1.08rem;
+    font-family: inherit;
+    font-size: 0.88rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    background: rgba(6, 182, 212, 0.12);
-    border: 1px solid rgba(6, 182, 212, 0.3);
-    padding: 1px 9px;
-    border-radius: 6px;
-    letter-spacing: -0.01em;
 }
 
 /* Toggle de opciones avanzadas */
@@ -3118,7 +3101,7 @@
 }
 
 .loan-consolidate-form__field input[type="number"] {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: inherit;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
 }
@@ -3147,8 +3130,8 @@
 }
 
 .loan-consolidate-form__proj-label {
-    font-size: 0.7rem;
-    font-weight: 600;
+    font-size: 0.65rem;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: #94a3b8;
@@ -3156,11 +3139,10 @@
 
 .loan-consolidate-form__proj-val {
     color: #f1f5f9;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.95rem;
+    font-family: inherit;
+    font-size: 0.92rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
 }
 
 .loan-consolidate-form__proj-val--warn {
@@ -3174,11 +3156,10 @@
 
 .loan-consolidate-form__quota-highlight {
     color: #38bdf8 !important;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 1.05rem;
-    font-weight: 700;
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 800;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
 }
 
 /* Botones de acción */
