@@ -272,6 +272,43 @@ export function SettingsGeneralTab(context) {
                     </div>
                 </div>
 
+                <!-- Métricas Rápidas de Préstamos -->
+                <div class="stg-panel">
+                    <div class="stg-header">
+                        <div>
+                            <h3>
+                                <span>${icons.get('analytics', { size: 18 }) || '📊'}</span>
+                                <span>Métricas Rápidas de Préstamos</span>
+                            </h3>
+                        </div>
+                    </div>
+                    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 12px; line-height: 1.5;">
+                        Controla la densidad y cantidad de tarjetas resumen mostradas en el detalle de cuenta del empleado:
+                    </div>
+                    <div class="stg-choice-group">
+                        <label class="stg-choice-option ${(state.settings.loansKpiDensity || 'full') === 'full' ? 'is-selected' : ''}">
+                            <input type="radio"
+                                   name="loansKpiDensity"
+                                   value="full"
+                                   ${(state.settings.loansKpiDensity || 'full') === 'full' ? 'checked' : ''}>
+                            <span class="stg-choice-copy">
+                                <strong>Vista Completa (4 tarjetas)</strong>
+                                <small>Saldo pendiente, Total abonado, Próximo descuento e Historial completo de préstamos.</small>
+                            </span>
+                        </label>
+                        <label class="stg-choice-option ${state.settings.loansKpiDensity === 'compact' ? 'is-selected' : ''}">
+                            <input type="radio"
+                                   name="loansKpiDensity"
+                                   value="compact"
+                                   ${state.settings.loansKpiDensity === 'compact' ? 'checked' : ''}>
+                            <span class="stg-choice-copy">
+                                <strong>Vista Minimalista (2 tarjetas clave)</strong>
+                                <small>Únicamente Saldo pendiente y Próximo descuento a retener, reduciendo la saturación en pantalla.</small>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- Iconos -->
                 <div class="stg-panel">
                     <div class="stg-header">

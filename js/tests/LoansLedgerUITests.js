@@ -30,6 +30,8 @@ import {
     setLoansDisplayMode,
     toggleLoansCapacityStyle,
     setLoansCapacityStyle,
+    toggleLoansKpiDensity,
+    setLoansKpiDensity,
     applySuggestedInstallmentCount,
     toggleConsolidateForm,
     toggleConsolidateAdvancedOptions
@@ -1134,6 +1136,64 @@ testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
         applySuggestedInstallmentCount(4);
         testRunner.assertEquals(state.loansLedger.consolidateDraft.installmentCount, 4, "Cuotas actualizadas a 4");
         testRunner.assertEquals(state.loansLedger.consolidateDraft.showAdvanced, true, "Auto-expandido a true");
+    },
+
+    "alterna entre densidad de KPIs full y compact con toggleLoansKpiDensity"() {
+        resetState();
+        state.settings = { loansKpiDensity: 'full' };
+        toggleLoansKpiDensity();
+        testRunner.assertEquals(state.settings.loansKpiDensity, 'compact', 'Pasa de full a compact');
+
+        toggleLoansKpiDensity();
+        testRunner.assertEquals(state.settings.loansKpiDensity, 'full', 'Pasa de compact a full');
+
+        setLoansKpiDensity('compact');
+        testRunner.assertEquals(state.settings.loansKpiDensity, 'compact', 'setLoansKpiDensity asigna compact');
+    },
+
+    "renderiza métricas del empleado según loansKpiDensity (completa vs minimalista)"() {
+        resetState();
+        state.settings = { loansKpiDensity: 'full' };
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            loans: [
+                { id: 'l1', principal: 5000, status: 'active', concept: 'Préstamo 1', payments: [] }
+            ]
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1'
+        };
+
+        // Modo completo (por defecto)
+        const htmlFull = LoansLedger();
+        const hostFull = document.createElement('div');
+        hostFull.innerHTML = htmlFull;
+
+        const toggleBtnFull = hostFull.querySelector('.loan-kpis-density-toggle');
+        testRunner.assert(toggleBtnFull !== null, "Debe tener botón de alternancia de densidad");
+        testRunner.assert(toggleBtnFull.textContent.includes('Completa (4)'), "Indica vista Completa");
+        testRunner.assert(hostFull.textContent.includes('Saldo pendiente'), "Muestra Saldo pendiente");
+        testRunner.assert(hostFull.textContent.includes('Total abonado'), "Muestra Total abonado");
+        testRunner.assert(hostFull.textContent.includes('Próximo descuento'), "Muestra Próximo descuento");
+        testRunner.assert(hostFull.textContent.includes('Historial de préstamos'), "Muestra Historial de préstamos");
+
+        // Cambiar a modo minimalista (compact)
+        toggleLoansKpiDensity();
+        testRunner.assertEquals(state.settings.loansKpiDensity, 'compact', "Estado actualizado a compact");
+
+        const htmlCompact = LoansLedger();
+        const hostCompact = document.createElement('div');
+        hostCompact.innerHTML = htmlCompact;
+
+        const toggleBtnCompact = hostCompact.querySelector('.loan-kpis-density-toggle');
+        testRunner.assert(toggleBtnCompact.textContent.includes('Minimalista (2)'), "Indica vista Minimalista");
+        testRunner.assert(hostCompact.textContent.includes('Saldo pendiente'), "Muestra Saldo pendiente en modo minimalista");
+        testRunner.assert(hostCompact.textContent.includes('Próximo descuento'), "Muestra Próximo descuento en modo minimalista");
+        testRunner.assert(!hostCompact.querySelector('.loans-employee-kpis').textContent.includes('Total abonado'), "Oculta Total abonado en modo minimalista");
+        testRunner.assert(!hostCompact.querySelector('.loans-employee-kpis').textContent.includes('Historial de préstamos'), "Oculta Historial de préstamos en modo minimalista");
     }
 });
 

@@ -976,6 +976,44 @@ export function setLoansCapacityStyle(style) {
 }
 
 /**
+ * Alterna la densidad de métricas rápidas del empleado
+ * entre 'full' (4 tarjetas: completa) y 'compact' (2 tarjetas: minimalista).
+ */
+export function toggleLoansKpiDensity() {
+    const current = (state.settings && state.settings.loansKpiDensity) || 'full';
+    const next = current === 'full' ? 'compact' : 'full';
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiDensity = next;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    if (typeof window !== 'undefined' && window.showNotification) {
+        window.showNotification(
+            next === 'compact' ? 'Métricas: Vista Minimalista (2 tarjetas clave)' : 'Métricas: Vista Completa (4 tarjetas)',
+            'info'
+        );
+    }
+    render();
+}
+
+/**
+ * Asigna explícitamente la densidad de métricas rápidas del empleado.
+ */
+export function setLoansKpiDensity(density) {
+    const validDensity = density === 'compact' ? 'compact' : 'full';
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiDensity = validDensity;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    render();
+}
+
+/**
  * Aplica la cantidad de cuotas sugerida por el asistente de viabilidad
  * al borrador del formulario activo (alta, refinanciamiento o consolidación).
  */
@@ -1047,6 +1085,8 @@ export function registerLegacyGlobals() {
     window.setLoansDisplayMode = setLoansDisplayMode;
     window.toggleLoansCapacityStyle = toggleLoansCapacityStyle;
     window.setLoansCapacityStyle = setLoansCapacityStyle;
+    window.toggleLoansKpiDensity = toggleLoansKpiDensity;
+    window.setLoansKpiDensity = setLoansKpiDensity;
     window.applySuggestedInstallmentCount = applySuggestedInstallmentCount;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.

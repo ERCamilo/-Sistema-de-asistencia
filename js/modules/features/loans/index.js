@@ -47,6 +47,8 @@ export {
     submitConsolidateLoans,
     toggleLoansCapacityStyle,
     setLoansCapacityStyle,
+    toggleLoansKpiDensity,
+    setLoansKpiDensity,
     applySuggestedInstallmentCount,
     registerLegacyGlobals
 } from './LoansController.js';

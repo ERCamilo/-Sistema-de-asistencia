@@ -2442,6 +2442,49 @@
 }
 
 /* Loan Repayment Capacity Meter ------------------------------------------- */
+/* Employee Loan KPIs Header & Density Toggle */
+.loan-kpis-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    gap: 8px;
+}
+
+.loan-kpis-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.loan-kpis-density-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px solid #334155;
+    background: rgba(15, 23, 42, 0.7);
+    color: #cbd5e1;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    font-family: inherit;
+}
+
+.loan-kpis-density-toggle:hover {
+    background: #1e293b;
+    border-color: #06b6d4;
+    color: #38bdf8;
+}
+
+.loan-kpis-density-toggle:active {
+    transform: scale(0.97);
+}
+
 .loan-capacity-meter {
     margin: 12px 0;
     padding: 14px 18px;

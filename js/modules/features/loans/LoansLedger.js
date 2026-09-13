@@ -556,7 +556,7 @@ function kpiCard(label, value, color, iconName, subLabel = '', subValue = '', to
                     </div>
                     ${tooltip ? `<span style="font-size: 0.65rem; color: #64748b; border: 1px solid #334155; border-radius: 50%; width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800;" aria-hidden="true">?</span>` : ''}
                 </div>
-                <div style="font-size: 1.15rem; font-weight: 900; color: #f1f5f9; word-break: break-word; line-height: 1.1;">${value}</div>
+                <div style="font-size: 1.15rem; font-weight: 900; color: #f1f5f9; word-break: break-word; line-height: 1.1; font-variant-numeric: tabular-nums;">${value}</div>
             </div>
             ${subHTML}
         </div>
@@ -603,6 +603,8 @@ function EmployeeLoansDetail(empId) {
     // U4 solo avisa; el wizard de resolución es U5.
     const duplicateCandidates = detectLoanDuplicateCandidates(emp);
 
+    const kpiDensity = (state.settings && state.settings.loansKpiDensity) || 'full';
+
     return `
         <div class="loans-employee-detail" style="max-width: 1000px; margin: 0 auto;">
             <!-- Header with back button -->
@@ -632,6 +634,16 @@ function EmployeeLoansDetail(empId) {
             </div>
 
             <!-- Employee KPI stats cards -->
+            <div class="loan-kpis-header">
+                <span class="loan-kpis-title">Resumen de cuenta</span>
+                <button type="button"
+                        class="loan-kpis-density-toggle"
+                        data-app-fn="toggleLoansKpiDensity"
+                        title="Alternar entre vista completa (4 tarjetas) y minimalista (2 tarjetas clave)">
+                    <span aria-hidden="true">⚙️</span>
+                    <span>${kpiDensity === 'compact' ? 'Minimalista (2)' : 'Completa (4)'}</span>
+                </button>
+            </div>
             <div class="loans-employee-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px;">
                 ${kpiCard(
                     'Saldo pendiente',
@@ -642,7 +654,7 @@ function EmployeeLoansDetail(empId) {
                     formatCurrency(activeTotalDue),
                     'Saldo pendiente:\nEs el dinero total que el empleado debe actualmente a la empresa.\n\nFórmula:\nSaldo pendiente = Total a devolver − Total pagado'
                 )}
-                ${kpiCard(
+                ${kpiDensity === 'full' ? kpiCard(
                     'Total abonado',
                     formatCurrency(activePaid),
                     'rgb(16, 185, 115)',
@@ -650,7 +662,7 @@ function EmployeeLoansDetail(empId) {
                     'Progreso de pago',
                     active.length > 0 ? `${progressPct}% saldado` : (allLoans.length > 0 ? '100% saldado' : '0%'),
                     'Total abonado:\nDinero real que el empleado ya entregó en abonos o descuentos de nómina para sus préstamos activos.\n\n* Histórico acumulado: ' + formatCurrency(allTimePaid)
-                )}
+                ) : ''}
                 ${kpiCard(
                     'Próximo descuento',
                     formatCurrency(nextPayrollDeduction),
@@ -660,7 +672,7 @@ function EmployeeLoansDetail(empId) {
                     'Próximo cierre de nómina',
                     'Próximo descuento:\nMonto a descontar en el próximo cierre de nómina.\n\n* Corresponde a las próximas cuotas o saldos pendientes del empleado.'
                 )}
-                ${kpiCard(
+                ${kpiDensity === 'full' ? kpiCard(
                     'Historial de préstamos',
                     `${active.length} ${active.length === 1 ? 'activo' : 'activos'}`,
                     '#a855f7',
@@ -668,7 +680,7 @@ function EmployeeLoansDetail(empId) {
                     'Historial',
                     `${paid.length} saldados · ${writtenOff.length} anulados`,
                     'Récord del empleado:\nHistorial de préstamos solicitados y saldados en la empresa.\n\n* ' + allLoans.length + ' préstamo(s) en total.'
-                )}
+                ) : ''}
             </div>
 
             ${duplicateCandidates.length > 0 ? `
