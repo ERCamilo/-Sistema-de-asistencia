@@ -773,4 +773,121 @@ testRunner.addSuite("LoansLedger UI — Modo de Vistas (Agrupado vs Por Préstam
     }
 });
 
+testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
+
+    "renderiza el medidor de capacidad en NewLoanForm con sueldo quincenal y estado seguro"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8 };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // $9,600 quincenal
+        state.employees = [{
+            id: 'e1',
+            name: 'Ada Lovelace',
+            number: '001',
+            active: true,
+            positions: ['pos1'],
+            loans: []
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showAddForm: true,
+            newLoanDraft: {
+                principal: 2000,
+                interestRate: 0,
+                installmentMode: 'installments',
+                installmentCount: 2,
+                installmentFrequencyWeeks: 2 // cuota de $1,000 quincenal vs $9,600 sueldo (~10.42%)
+            }
+        };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "El medidor de capacidad debe renderizarse en NewLoanForm");
+        testRunner.assert(meter.classList.contains('loan-capacity-meter--safe'), "Debe tener estado safe");
+        testRunner.assert(meter.textContent.includes('Capacidad de retención en nómina'), "Muestra el título de capacidad");
+        testRunner.assert(meter.textContent.includes('$9,600.00'), "Muestra el sueldo estimado del período ($9,600.00)");
+        testRunner.assert(meter.textContent.includes('$1,000.00'), "Muestra la cuota propuesta ($1,000.00)");
+    },
+
+    "renderiza alerta de riesgo alto cuando la cuota supera el 50% del sueldo"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8 };
+        state.positions = [{ id: 'pos1', hourlyRate: 50, workingDays: [1, 2, 3, 4, 5, 6] }]; // $4,800 quincenal
+        state.employees = [{
+            id: 'e1',
+            name: 'Ada Lovelace',
+            number: '001',
+            active: true,
+            positions: ['pos1'],
+            loans: []
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showAddForm: true,
+            newLoanDraft: {
+                principal: 6000,
+                interestRate: 0,
+                installmentMode: 'installments',
+                installmentCount: 2,
+                installmentFrequencyWeeks: 2 // cuota de $3,000 quincenal vs $4,800 sueldo (62.5%)
+            }
+        };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "El medidor de capacidad debe renderizarse");
+        testRunner.assert(meter.classList.contains('loan-capacity-meter--danger'), "Debe tener estado danger");
+        testRunner.assert(meter.textContent.includes('62.5% del sueldo'), "Indica el porcentaje de absorción (62.5%)");
+        testRunner.assert(meter.textContent.includes('Alto riesgo'), "Muestra la advertencia de alto riesgo");
+    },
+
+    "renderiza el medidor de capacidad dentro del formulario de Refinanciamiento"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8 };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // $9,600 quincenal
+        state.employees = [{
+            id: 'e1',
+            name: 'Ada Lovelace',
+            number: '001',
+            active: true,
+            positions: ['pos1'],
+            loans: [{
+                id: 'loan-1',
+                principal: 5000,
+                interestRate: 0,
+                status: 'active',
+                payments: []
+            }]
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showRefinanceFormForLoan: 'loan-1',
+            refinanceDraft: {
+                basis: 'balance',
+                mode: 'installments',
+                interestRate: 10, // saldo 5000 + 500 = 5500
+                installmentCount: 2, // 2750 por cuota vs 9600 (~28.65% -> safe)
+                installmentFrequencyWeeks: 2,
+                note: 'Refinanciamiento salud'
+            }
+        };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const refinForm = host.querySelector('.loan-operation-form--refinance');
+        testRunner.assert(refinForm !== null, "El formulario de refinanciamiento debe estar abierto");
+        const meter = refinForm.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "El medidor de capacidad debe estar dentro de RefinanceForm");
+        testRunner.assert(meter.textContent.includes('$9,600.00'), "Muestra el sueldo del período ($9,600.00)");
+        testRunner.assert(meter.textContent.includes('$2,750.00'), "Muestra la nueva cuota estimada ($2,750.00)");
+    }
+});
+
 console.log('🧪 LoansLedger UI tests cargados.');

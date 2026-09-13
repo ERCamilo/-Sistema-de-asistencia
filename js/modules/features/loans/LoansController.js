@@ -398,9 +398,9 @@ export function setLoanDraftField(field, value) {
     } else {
         draft[field] = value;
     }
-    // Re-render the mode transition in both directions. Other fields only
-    // need a live refresh while the installment preview is visible.
-    if (field === 'installmentMode' || draft.installmentMode === INSTALLMENT_MODE.INSTALLMENTS) {
+    // Re-render when mode, principal, or interest changes, or while installments
+    // are enabled, so the capacity meter and previews update live.
+    if (field === 'installmentMode' || field === 'principal' || field === 'interestRate' || draft.installmentMode === INSTALLMENT_MODE.INSTALLMENTS) {
         render();
     }
 }

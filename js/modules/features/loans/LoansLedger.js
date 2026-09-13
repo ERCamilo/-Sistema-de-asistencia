@@ -36,6 +36,8 @@ import {
     getTotalInterestAccrued,
     getInterestAmount,
     getRefinanceInterest,
+    getEmployeePeriodSalary,
+    calculateRepaymentCapacity,
     LOAN_STATUS,
     INSTALLMENT_MODE,
     VALIDATION,
@@ -699,7 +701,7 @@ function EmployeeLoansDetail(empId) {
             ` : ''}
 
             <!-- New loan button / form -->
-            ${showAddForm ? NewLoanForm() : `
+            ${showAddForm ? NewLoanForm(emp) : `
                 <button type="button" data-app-fn="toggleAddLoanForm"
                         style="width: 100%; padding: 14px; margin-bottom: 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 10px; font-weight: 800; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;">
                     ${icons.get('add')} Nuevo préstamo / adelanto
@@ -709,7 +711,7 @@ function EmployeeLoansDetail(empId) {
             <!-- Active loans -->
             ${active.length > 0 ? `
                 <div style="font-size: 0.8rem; font-weight: 700; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Activos (${active.length})</div>
-                ${active.map(loan => LoanCard(loan)).join('')}
+                ${active.map(loan => LoanCard(loan, emp)).join('')}
             ` : ''}
 
             <!-- Paid loans -->
@@ -718,7 +720,7 @@ function EmployeeLoansDetail(empId) {
                     <summary style="cursor: pointer; font-size: 0.8rem; font-weight: 700; color: rgb(16, 185, 115); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0;">
                         Saldados (${paid.length}) ▾
                     </summary>
-                    ${paid.map(loan => LoanCard(loan)).join('')}
+                    ${paid.map(loan => LoanCard(loan, emp)).join('')}
                 </details>
             ` : ''}
 
@@ -728,7 +730,7 @@ function EmployeeLoansDetail(empId) {
                     <summary style="cursor: pointer; font-size: 0.8rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0;">
                         Anulados (${writtenOff.length}) ▾
                     </summary>
-                    ${writtenOff.map(loan => LoanCard(loan)).join('')}
+                    ${writtenOff.map(loan => LoanCard(loan, emp)).join('')}
                 </details>
             ` : ''}
 
@@ -752,7 +754,7 @@ function DisclosureControl() {
     `;
 }
 
-function LoanCard(loan) {
+function LoanCard(loan, emp = null) {
     const terms = getActiveLoanTerms(loan);
     const balance = getBalance(loan);
     const totalDue = getTotalDue(loan);
@@ -960,7 +962,7 @@ function LoanCard(loan) {
             ${isActive && showPay ? PaymentForm(loan, balance) : ''}
 
             <!-- Refinance form -->
-            ${isActive && showRefin ? RefinanceForm(loan, balance) : ''}
+            ${isActive && showRefin ? RefinanceForm(loan, balance, emp) : ''}
 
             <!-- Actions -->
             ${isActive && !showPay && !showRefin ? `
@@ -1224,9 +1226,65 @@ function PaymentForm(loan, balance) {
     `;
 }
 
+// ─── REPAYMENT CAPACITY METER (Fase 3: Alerta de Capacidad en Nómina) ─────────
+
+function LoanCapacityMeter(capacity) {
+    if (!capacity) return '';
+    const {
+        periodSalary,
+        installmentAmount,
+        periodLabel,
+        percentage,
+        status,
+        color,
+        badgeText,
+        warningText,
+        isAvailable
+    } = capacity;
+
+    const fillPercent = Math.min(Math.max(percentage || 0, 0), 100);
+
+    return `
+        <div class="loan-capacity-meter loan-capacity-meter--${status}">
+            <div class="loan-capacity-meter__header">
+                <div class="loan-capacity-meter__title">
+                    <span class="loan-capacity-meter__icon" style="color: ${color};">
+                        ${status === 'danger' ? icons.get('alert', { size: 14 }) : (status === 'moderate' ? icons.get('info', { size: 14 }) : icons.get('check', { size: 14 }))}
+                    </span>
+                    <span>Capacidad de retención en nómina</span>
+                </div>
+                <span class="loan-capacity-meter__badge" style="border-color: ${color}; color: ${color};">
+                    ${escapeHTML(badgeText)}
+                </span>
+            </div>
+
+            ${isAvailable ? `
+                <div class="loan-capacity-meter__bar-track" title="Retención: ${percentage}% del salario del período">
+                    <div class="loan-capacity-meter__bar-fill" style="width: ${fillPercent}%; background: ${color};"></div>
+                </div>
+            ` : ''}
+
+            <div class="loan-capacity-meter__metrics">
+                <div class="loan-capacity-meter__metric">
+                    <span class="loan-capacity-meter__metric-label">Sueldo est. (${escapeHTML(periodLabel)}):</span>
+                    <strong class="loan-capacity-meter__metric-value">${isAvailable ? formatCurrency(periodSalary) : 'No configurado'}</strong>
+                </div>
+                <div class="loan-capacity-meter__metric">
+                    <span class="loan-capacity-meter__metric-label">Cuota propuesta:</span>
+                    <strong class="loan-capacity-meter__metric-value" style="color: ${color};">${formatCurrency(installmentAmount)}</strong>
+                </div>
+            </div>
+
+            <div class="loan-capacity-meter__warning" style="color: ${status === 'danger' ? '#fca5a5' : (status === 'moderate' ? '#fde68a' : '#94a3b8')};">
+                ${escapeHTML(warningText)}
+            </div>
+        </div>
+    `;
+}
+
 // ─── REFINANCE (refinanciamiento) FORM ────────────────────────────────────────
 
-function RefinanceForm(loan, balance) {
+function RefinanceForm(loan, balance, emp = null) {
     const draft = (state.loansLedger || {}).refinanceDraft || {
         basis: 'balance',
         mode: 'lump',
@@ -1245,6 +1303,19 @@ function RefinanceForm(loan, balance) {
     const newBalance = r2(balance + interestToAdd);
     const count = Number(draft.installmentCount || 2);
     const approxInstallment = isInstallments && count > 0 ? r2(newBalance / count) : 0;
+
+    const resolvedEmp = emp || (state.loansLedger?.selectedEmployeeId
+        ? (state.employees || []).find(e => e.id === state.loansLedger.selectedEmployeeId)
+        : (state.employees || []).find(e => (e.loans || []).some(l => l.id === loan.id)));
+
+    const frequencyWeeks = isInstallments ? Number(draft.installmentFrequencyWeeks || 2) : 2;
+    const periodSalary = getEmployeePeriodSalary(resolvedEmp, frequencyWeeks, state);
+    const installmentAmount = isInstallments ? approxInstallment : newBalance;
+    const capacity = calculateRepaymentCapacity({
+        installmentAmount,
+        periodSalary,
+        frequencyWeeks
+    });
 
     return `
         <div class="loan-operation-form loan-operation-form--refinance">
@@ -1327,6 +1398,9 @@ function RefinanceForm(loan, balance) {
                 <span style="color: #94a3b8;">Nuevo saldo: <strong style="color: #f59e0b;">${formatCurrency(newBalance)}</strong></span>
                 ${isInstallments && count > 0 ? `<span style="color: #94a3b8;">Cuotas est.: <strong style="color: #38bdf8;">${count} × ~${formatCurrency(approxInstallment)}</strong></span>` : ''}
             </div>
+
+            <!-- Repayment capacity meter -->
+            ${LoanCapacityMeter(capacity)}
 
             <div class="loan-refinance-form__actions">
                 <button type="button" data-app-fn="submitRefinance" data-arg="${loan.id}"
@@ -1414,9 +1488,34 @@ function EmployeePickerOverlay() {
     `;
 }
 
-function NewLoanForm() {
+function NewLoanForm(emp = null) {
     const draft = (state.loansLedger || {}).newLoanDraft || {};
     const isInstallments = draft.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+    const resolvedEmp = emp || (state.loansLedger?.selectedEmployeeId
+        ? (state.employees || []).find(e => e.id === state.loansLedger.selectedEmployeeId)
+        : null);
+
+    const frequencyWeeks = isInstallments ? Number(draft.installmentFrequencyWeeks || 2) : 2;
+    const periodSalary = getEmployeePeriodSalary(resolvedEmp, frequencyWeeks, state);
+
+    const principal = Number(draft.principal || 0);
+    const rate = Number(draft.interestRate || 0);
+    const included = !!draft.interestIncluded;
+    const totalDue = included ? principal : Math.round(((principal + (principal * rate / 100)) + Number.EPSILON) * 100) / 100;
+
+    let installmentAmount = 0;
+    if (isInstallments) {
+        const count = Number(draft.installmentCount || 4);
+        installmentAmount = count > 0 && totalDue > 0 ? Math.round(((totalDue / count) + Number.EPSILON) * 100) / 100 : 0;
+    } else {
+        installmentAmount = totalDue;
+    }
+
+    const capacity = calculateRepaymentCapacity({
+        installmentAmount,
+        periodSalary,
+        frequencyWeeks
+    });
 
     // Preview installment schedule live as the user types
     let schedulePreview = '';
@@ -1517,6 +1616,9 @@ function NewLoanForm() {
                 </div>
                 ${schedulePreview}
             ` : ''}
+
+            <!-- Repayment capacity meter -->
+            ${LoanCapacityMeter(capacity)}
 
             <button type="button" data-app-fn="submitNewLoan"
                     style="width: 100%; margin-top: 12px; padding: 12px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.95rem; cursor: pointer;">

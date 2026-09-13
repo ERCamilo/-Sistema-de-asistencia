@@ -1164,3 +1164,170 @@ export function getClosedLoansCount(state) {
         .filter(l => l.status === LOAN_STATUS.PAID || l.status === LOAN_STATUS.WRITTEN_OFF)
         .length;
 }
+
+// ─── Payroll repayment capacity (Fase 3: Alerta de Capacidad en Nómina) ─────
+
+/**
+ * 💰 Calculates the estimated regular earnings of an employee for a given period (in weeks).
+ *
+ * Resolves salary with the same precedence as PayrollService & ProfilePickers:
+ *  1. emp.positionSalaries[posId] override
+ *  2. pos.hourlyRate
+ *  3. pos.salaryConfig.amount / 30 / regularHours (legacy position fallback)
+ *  4. emp.salaryConfig (standard or custom period)
+ *  5. emp.customSalary (legacy monthly amount)
+ *
+ * @param {object} emp - The employee object
+ * @param {number} [frequencyWeeks=2] - Duration of regular period in weeks (1, 2, 3, 4)
+ * @param {object} [stateObj] - State proxy or snapshot (defaults to window.state if in browser)
+ * @returns {number} Estimated gross regular salary for that period (rounded to 2 decimals)
+ */
+export function getEmployeePeriodSalary(emp, frequencyWeeks = 2, stateObj = null) {
+    if (!emp) return 0;
+    const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
+    const weeks = Math.max(1, Number(frequencyWeeks) || 2);
+    const regularHours = Number(resolvedState.settings?.regularHoursPerDay) || 8;
+    const WEEKS_PER_MONTH = 52 / 12;
+
+    let weeklyEarnings = 0;
+    let hasPositionEarnings = false;
+
+    // 1. Iterate over assigned positions
+    const posIds = Array.isArray(emp.positions) ? emp.positions : [];
+    if (posIds.length > 0 && Array.isArray(resolvedState.positions)) {
+        for (const posId of posIds) {
+            const pos = resolvedState.positions.find(p => p.id === posId);
+            if (!pos) continue;
+
+            let hourlyRate = Number(emp.positionSalaries?.[posId] ?? pos.hourlyRate ?? 0);
+            if (!hourlyRate && pos.salaryConfig?.amount) {
+                hourlyRate = Number(pos.salaryConfig.amount) / 30 / regularHours;
+            }
+
+            if (hourlyRate > 0) {
+                const workingDays = emp.customWorkingDays?.[posId] || pos.workingDays || [1, 2, 3, 4, 5, 6];
+                const daysPerWeek = Array.isArray(workingDays) && workingDays.length > 0 ? workingDays.length : 6;
+                weeklyEarnings += hourlyRate * regularHours * daysPerWeek;
+                hasPositionEarnings = true;
+            }
+        }
+    }
+
+    // 2. Fallback to employee's salaryConfig or customSalary if no position earnings resolved
+    if (!hasPositionEarnings) {
+        if (emp.salaryConfig?.amount && Number(emp.salaryConfig.amount) > 0) {
+            const amt = Number(emp.salaryConfig.amount);
+            switch (emp.salaryConfig.period) {
+                case 'day':
+                    weeklyEarnings = amt * 6;
+                    break;
+                case 'week':
+                    weeklyEarnings = amt;
+                    break;
+                case 'biweekly':
+                    weeklyEarnings = amt / 2;
+                    break;
+                case '3weeks':
+                    weeklyEarnings = amt / 3;
+                    break;
+                case 'month':
+                default:
+                    weeklyEarnings = amt / WEEKS_PER_MONTH;
+                    break;
+            }
+        } else if (emp.customSalary && Number(emp.customSalary) > 0) {
+            weeklyEarnings = Number(emp.customSalary) / WEEKS_PER_MONTH;
+        }
+    }
+
+    return round2(weeklyEarnings * weeks);
+}
+
+/**
+ * 📊 Evaluates the repayment capacity of an installment or lump-sum deduction
+ * against an employee's estimated regular earnings for that period.
+ *
+ * Thresholds:
+ *  - Safe (<= 30%): optimal capacity, low payroll impact.
+ *  - Moderate (30% - 50%): moderate debt ratio, requires caution.
+ *  - Danger (> 50%): high risk of negative or severely depleted net payroll paycheck.
+ *
+ * @param {object} params
+ * @param {number} params.installmentAmount - Proposed installment or lump deduction amount
+ * @param {number} params.periodSalary - Estimated regular earnings for the period
+ * @param {number} [params.frequencyWeeks=2] - Weeks in the period
+ * @returns {object} Repayment capacity evaluation
+ */
+export function calculateRepaymentCapacity({ installmentAmount = 0, periodSalary = 0, frequencyWeeks = 2 } = {}) {
+    const inst = round2(Math.max(0, Number(installmentAmount) || 0));
+    const salary = round2(Math.max(0, Number(periodSalary) || 0));
+    const weeks = Math.max(1, Number(frequencyWeeks) || 2);
+
+    const periodNames = {
+        1: 'semanal (1 sem)',
+        2: 'quincenal (2 sem)',
+        3: '3 semanas',
+        4: 'mensual (4 sem)'
+    };
+    const periodLabel = periodNames[weeks] || `${weeks} sem`;
+
+    if (salary <= 0) {
+        return {
+            periodSalary: 0,
+            installmentAmount: inst,
+            frequencyWeeks: weeks,
+            periodLabel,
+            ratio: 0,
+            percentage: null,
+            status: 'unknown',
+            statusLabel: 'Sin salario base registrado',
+            color: '#64748b',
+            badgeText: 'Sin salario base',
+            warningText: 'No es posible calcular la tasa de retención sin un salario o posición configurada.',
+            isAvailable: false
+        };
+    }
+
+    const ratio = inst / salary;
+    const percentage = round2(ratio * 100);
+
+    let status = 'safe';
+    let statusLabel = 'Capacidad óptima (≤ 30%)';
+    let color = '#10b981';
+    let badgeText = `${percentage}% del sueldo · Óptimo`;
+    let warningText = 'Cuota dentro del margen saludable recomendado (≤ 30% del salario del período).';
+
+    if (percentage > 50) {
+        status = 'danger';
+        statusLabel = percentage > 100
+            ? 'Riesgo crítico (> 100% del sueldo)'
+            : 'Riesgo alto de retención (> 50%)';
+        color = '#ef4444';
+        badgeText = `${percentage}% del sueldo · Riesgo Alto`;
+        warningText = percentage > 100
+            ? '⚠️ La cuota excede el 100% del salario regular del período. Generará nómina negativa si no hay otros ingresos.'
+            : '⚠️ La cuota absorbe más de la mitad del salario del período. Alto riesgo de insuficiencia en el neto a pagar.';
+    } else if (percentage > 30) {
+        status = 'moderate';
+        statusLabel = 'Compromiso moderado (31% – 50%)';
+        color = '#f59e0b';
+        badgeText = `${percentage}% del sueldo · Moderado`;
+        warningText = 'ℹ️ Retención considerable sobre el salario. Verificar que el empleado no tenga otros descuentos recurrentes.';
+    }
+
+    return {
+        periodSalary: salary,
+        installmentAmount: inst,
+        frequencyWeeks: weeks,
+        periodLabel,
+        ratio,
+        percentage,
+        status,
+        statusLabel,
+        color,
+        badgeText,
+        warningText,
+        isAvailable: true
+    };
+}
+

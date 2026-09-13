@@ -37,6 +37,8 @@ import {
     getTotalHistoricalDue,
     getTotalHistoricalPaid,
     getClosedLoansCount,
+    getEmployeePeriodSalary,
+    calculateRepaymentCapacity,
     LOAN_STATUS,
     INSTALLMENT_MODE
 } from '../modules/features/loans/LoansService.js';
@@ -629,6 +631,127 @@ testRunner.addSuite("LoansService — deleteLoan", {
         const { emp, loan } = buildWrittenOffLoan();
         const out = deleteLoan(emp, loan.id);
         testRunner.assertEquals(out.id, loan.id, "debe devolver el préstamo eliminado");
+    }
+
+});
+
+// ─── Repayment capacity & period regular salary ──────────────────────────────
+
+testRunner.addSuite("LoansService — Repayment Capacity & Period Salary", {
+
+    "calcula el sueldo de período regular basado en posición y horario estándar"() {
+        const state = {
+            settings: { regularHoursPerDay: 8 },
+            positions: [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]
+        };
+        const emp = { id: 'emp1', positions: ['pos1'] };
+
+        // 1 semana: 100 * 8 * 6 = 4800
+        const weekly = getEmployeePeriodSalary(emp, 1, state);
+        testRunner.assertEquals(weekly, 4800, "1 semana equivale a 4,800.00");
+
+        // 2 semanas (quincenal): 4800 * 2 = 9600
+        const biweekly = getEmployeePeriodSalary(emp, 2, state);
+        testRunner.assertEquals(biweekly, 9600, "2 semanas equivalen a 9,600.00");
+
+        // 4 semanas: 4800 * 4 = 19200
+        const monthly = getEmployeePeriodSalary(emp, 4, state);
+        testRunner.assertEquals(monthly, 19200, "4 semanas equivalen a 19,200.00");
+    },
+
+    "prioriza positionSalaries específico del empleado sobre la posición general"() {
+        const state = {
+            settings: { regularHoursPerDay: 8 },
+            positions: [{ id: 'pos1', hourlyRate: 80, workingDays: [1, 2, 3, 4, 5, 6] }]
+        };
+        const emp = {
+            id: 'emp1',
+            positions: ['pos1'],
+            positionSalaries: { pos1: 120 }
+        };
+
+        // 120 * 8 * 6 * 2 = 11520
+        const salary = getEmployeePeriodSalary(emp, 2, state);
+        testRunner.assertEquals(salary, 11520, "Debe usar 120/h configurado en positionSalaries");
+    },
+
+    "respeta customWorkingDays del empleado"() {
+        const state = {
+            settings: { regularHoursPerDay: 8 },
+            positions: [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }] // 6 días
+        };
+        const emp = {
+            id: 'emp1',
+            positions: ['pos1'],
+            customWorkingDays: { pos1: [1, 2, 3, 4, 5] } // solo 5 días
+        };
+
+        // 100 * 8 * 5 * 2 = 8000
+        const salary = getEmployeePeriodSalary(emp, 2, state);
+        testRunner.assertEquals(salary, 8000, "Debe calcular sobre 5 días de trabajo");
+    },
+
+    "soporta salaryConfig mensual como fallback cuando no hay tasa horaria"() {
+        const state = {
+            settings: { regularHoursPerDay: 8 },
+            positions: []
+        };
+        const emp = {
+            id: 'emp1',
+            positions: [],
+            salaryConfig: { amount: 26000, period: 'month' }
+        };
+
+        // 26000 / (52/12) * 2 = 26000 / 4.333333333333333 * 2 = 12000
+        const salary = getEmployeePeriodSalary(emp, 2, state);
+        testRunner.assertEquals(salary, 12000, "Convierte sueldo mensual a quincenal con alta precisión");
+    },
+
+    "retorna 0 si el empleado no tiene posiciones ni sueldo configurado"() {
+        const state = { settings: { regularHoursPerDay: 8 }, positions: [] };
+        const emp = { id: 'emp1', positions: [] };
+        const salary = getEmployeePeriodSalary(emp, 2, state);
+        testRunner.assertEquals(salary, 0, "Retorna 0 sin crash");
+        testRunner.assertEquals(getEmployeePeriodSalary(null), 0, "Empleado null retorna 0");
+    },
+
+    "calcula capacidad óptima (safe <= 30%)"() {
+        // Cuota de 2,400 sobre sueldo quincenal de 9,600 (25%)
+        const res = calculateRepaymentCapacity({ installmentAmount: 2400, periodSalary: 9600, frequencyWeeks: 2 });
+        testRunner.assertEquals(res.status, 'safe', "Status debe ser safe");
+        testRunner.assertEquals(res.percentage, 25, "Porcentaje es 25%");
+        testRunner.assert(res.isAvailable, "Está disponible");
+        testRunner.assert(res.badgeText.includes('25%'), "Badge incluye 25%");
+    },
+
+    "calcula capacidad moderada (moderate 31% - 50%)"() {
+        // Cuota de 4,000 sobre sueldo quincenal de 10,000 (40%)
+        const res = calculateRepaymentCapacity({ installmentAmount: 4000, periodSalary: 10000, frequencyWeeks: 2 });
+        testRunner.assertEquals(res.status, 'moderate', "Status debe ser moderate");
+        testRunner.assertEquals(res.percentage, 40, "Porcentaje es 40%");
+        testRunner.assert(res.badgeText.includes('40%'), "Badge incluye 40%");
+    },
+
+    "calcula riesgo alto (danger > 50%) y crítico (> 100%)"() {
+        // 1. Riesgo alto (60%)
+        const high = calculateRepaymentCapacity({ installmentAmount: 6000, periodSalary: 10000, frequencyWeeks: 2 });
+        testRunner.assertEquals(high.status, 'danger', "Status debe ser danger");
+        testRunner.assertEquals(high.percentage, 60, "Porcentaje es 60%");
+        testRunner.assert(high.statusLabel.includes('> 50%'), "Etiqueta menciona > 50%");
+
+        // 2. Riesgo crítico (120% del sueldo)
+        const critical = calculateRepaymentCapacity({ installmentAmount: 12000, periodSalary: 10000, frequencyWeeks: 2 });
+        testRunner.assertEquals(critical.status, 'danger', "Status crítico sigue siendo danger");
+        testRunner.assertEquals(critical.percentage, 120, "Porcentaje es 120%");
+        testRunner.assert(critical.statusLabel.includes('100%'), "Etiqueta advierte que supera el 100%");
+    },
+
+    "maneja gracefully empleado sin sueldo configurado (status unknown)"() {
+        const res = calculateRepaymentCapacity({ installmentAmount: 1500, periodSalary: 0, frequencyWeeks: 2 });
+        testRunner.assertEquals(res.status, 'unknown', "Status debe ser unknown");
+        testRunner.assertEquals(res.percentage, null, "Porcentaje es null");
+        testRunner.assertEquals(res.isAvailable, false, "isAvailable es false");
+        testRunner.assert(res.badgeText.includes('Sin salario base'), "Badge informa falta de salario");
     }
 
 });

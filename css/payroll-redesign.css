@@ -2440,6 +2440,116 @@
     color: #a78bfa;
 }
 
+/* Loan Repayment Capacity Meter ------------------------------------------- */
+.loan-capacity-meter {
+    margin: 12px 0;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #334155;
+    background: #0b1324;
+    transition: all 0.2s ease;
+}
+
+.loan-capacity-meter--safe {
+    border-color: rgba(16, 185, 129, 0.45);
+    background: rgba(16, 185, 129, 0.06);
+}
+
+.loan-capacity-meter--moderate {
+    border-color: rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.loan-capacity-meter--danger {
+    border-color: rgba(239, 68, 68, 0.55);
+    background: rgba(239, 68, 68, 0.08);
+    box-shadow: 0 0 14px -4px rgba(239, 68, 68, 0.25);
+}
+
+.loan-capacity-meter--unknown {
+    border-color: #334155;
+    background: #0f172a;
+}
+
+.loan-capacity-meter__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.loan-capacity-meter__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #e2e8f0;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.loan-capacity-meter__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.loan-capacity-meter__badge {
+    padding: 2px 8px;
+    border-radius: 9999px;
+    border: 1px solid currentColor;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    background: rgba(15, 23, 42, 0.8);
+}
+
+.loan-capacity-meter__bar-track {
+    position: relative;
+    width: 100%;
+    height: 7px;
+    background: #1e293b;
+    border-radius: 9999px;
+    overflow: hidden;
+    margin-bottom: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.loan-capacity-meter__bar-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s ease;
+}
+
+.loan-capacity-meter__metrics {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    color: #94a3b8;
+    margin-bottom: 6px;
+}
+
+.loan-capacity-meter__metric-label {
+    margin-right: 4px;
+}
+
+.loan-capacity-meter__metric-value {
+    color: #f1f5f9;
+    font-weight: 700;
+}
+
+.loan-capacity-meter__warning {
+    font-size: 0.74rem;
+    line-height: 1.4;
+    margin-top: 4px;
+}
+
 /* Payroll loan settlement -------------------------------------------------- */
 .payroll-loan-settlement {
     display: grid;
