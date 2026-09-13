@@ -346,6 +346,7 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
    * Estilo `readySection`: Gran check verde circular animado con `popIn`, resumen de filas aprobadas e ignoradas en caja estilizada, y botón definitivo `Aplicar asistencia a SA`.
 
 ## Indicador de conexión entre aplicaciones
+- La portada de Transferencias no muestra un historial/log pasivo de eventos. Sólo se muestran pendientes que requieren una acción inmediata; el historial técnico permanece interno y una futura vista de Actividad debe ser accionable, no un listado decorativo.
 - El acceso P2P del header representa siempre la **otra aplicación**, no una flecha genérica: SA muestra el icono oficial de Mini y Mini muestra el icono oficial de SA.
 - El control es circular, táctil (mínimo 44×44 px) y utiliza un aro de estado: **no vinculado** = aro gris discontinuo; **vinculado sin conexión activa** = aro gris continuo; **conexión autenticada activa** = aro verde.
 - El icono se mantiene monocromático o atenuado mientras no exista conexión activa y recupera su color al conectarse.
@@ -363,3 +364,6 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
 - El botón seleccionado debe ser claramente dominante mediante **relleno sólido** y alto contraste; el alternativo usa un relleno sólido más oscuro/atenuado.
 - **Prohibido** usar en botones, chips, badges o etiquetas el patrón `borde de color + centro transparente + texto de color`. No usar controles tipo outline/hollow como estado principal.
 - Estados, acciones y etiquetas se diferencian con rellenos sólidos, contraste, opacidad, tipografía y jerarquía. Un borde puede existir como detalle estructural, pero nunca ser el único portador del estado con fondo transparente.
+
+### Iconos de aplicación dentro de indicadores circulares
+- Cuando un logo de aplicación se use dentro de un control circular de estado/conexión, el asset debe conservar su proporción pero quedar enmascarado visualmente al círculo (`object-fit: cover` + máscara circular), con margen interno respecto al aro. No debe verse como un cuadrado flotando dentro del botón circular.

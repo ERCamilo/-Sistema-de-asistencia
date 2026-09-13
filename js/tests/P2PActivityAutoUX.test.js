@@ -14,6 +14,8 @@ describe('P2P activity center + automatic trusted transfer', () => {
     expect(css).toContain('.header-p2p-ring');
     expect(css).toContain('[data-p2p-state="connected"]');
     expect(css).toContain('.header-p2p-notification-badge');
+    expect(css).toMatch(/\.header-p2p-app-icon[^}]*border-radius:\s*50%/);
+    expect(css).toMatch(/\.header-p2p-app-icon[^}]*clip-path:\s*circle\(50%\)/);
   });
 
   test('trusted roster send starts once after authentication without requiring Mini wait screen', () => {
@@ -25,10 +27,12 @@ describe('P2P activity center + automatic trusted transfer', () => {
     expect(ui).not.toContain('data-trusted-send');
   });
 
-  test('activity center is local metadata and transport/crypto files remain untouched by the feature', () => {
+  test('activity metadata remains local but passive logs do not occupy the connection home', () => {
     const ui = read('js/modules/features/p2p/P2PRosterUI.js');
     const activity = read('js/modules/features/p2p/P2PActivityStore.js');
-    expect(ui).toContain('Actividad P2P');
+    const home = ui.slice(ui.indexOf('async function renderHome()'), ui.indexOf('async function renderPeerAliasEditor'));
+    expect(home).not.toContain('buildActivitySectionMarkup');
+    expect(home).not.toContain('wireActivityDetails');
     expect(ui).toContain('p2pActivityStore');
     expect(activity).not.toMatch(/Firebase|fetch\(|XMLHttpRequest|WebSocket|RTCPeerConnection/);
     expect(activity).toContain('localStorage');

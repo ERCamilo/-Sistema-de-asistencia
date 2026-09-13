@@ -419,8 +419,6 @@ async function renderHome() {
 
   const selfPresentation = resolveSaSelfPresentationName(projectState, self);
   const pairingGate = getNewPairingProjectGate(projectState);
-  const recentActivity = getRecentP2PActivity(P2P_ACTIVITY_MAX_RECENT);
-  const pendingActivity = getPendingP2PActivityCount();
   setBodyHtml(`
     <section class="sa-p2p-capabilities-wrap" aria-labelledby="sa-p2p-capabilities-title">
       <h3 id="sa-p2p-capabilities-title" class="sa-p2p-section-label">Capacidades</h3>
@@ -438,11 +436,9 @@ async function renderHome() {
       </div>
       <div class="sa-p2p-peer-list">${peerRows}</div>
     </section>
-    ${buildActivitySectionMarkup(recentActivity, pendingActivity)}
     ${pairingGate ? '<div class="sa-p2p-status is-warning">SA se presenta con el nombre oficial del proyecto activo. Configura el proyecto para vincular un Mini.</div>' : ''}
     <div>${button('Vincular Mini', 'data-new-pair aria-label="Vincular un nuevo Mini por QR o código"', 'primary', 'link')}</div>
     <p class="sa-p2p-footnote">Vincular sólo crea una relación segura entre dispositivos. Ningún dato se importa o modifica automáticamente.</p>`);
-  wireActivityDetails(body());
   body().querySelector('[data-new-pair]').classList.add('sa-p2p-link-cta');
   body().querySelector('[data-configure-project]')?.addEventListener('click', () => window.openProjectSetupModal?.());
   body().querySelector('[data-new-pair]').addEventListener('click', startNewPairing);
