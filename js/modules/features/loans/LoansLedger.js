@@ -2199,8 +2199,8 @@ export function LoansSettingsModal() {
     return `
         <div class="loans-settings-modal-backdrop"
              role="dialog" aria-modal="true" aria-labelledby="loans-settings-modal-title"
-             onclick="if(event.target===this && window.closeLoansSettingsModal) window.closeLoansSettingsModal()">
-            <div class="loans-settings-modal" onclick="event.stopPropagation()">
+             data-app-close-on-self="closeLoansSettingsModal">
+            <div class="loans-settings-modal">
                 <!-- Modal Header -->
                 <div class="loans-settings-modal__header">
                     <div class="loans-settings-modal__title-box">

@@ -1071,9 +1071,9 @@ export function closeLoansSettingsModal() {
  */
 export function toggleLoansKpiCard(cardId) {
     if (!cardId) return;
-    const current = (state.settings && Array.isArray(state.settings.loansKpiCards))
+    const current = (state.settings && Array.isArray(state.settings.loansKpiCards) && state.settings.loansKpiCards.length > 0)
         ? [...state.settings.loansKpiCards]
-        : ['balance', 'paid', 'nextDeduction', 'history'];
+        : ((state.settings && state.settings.loansKpiDensity === 'compact') ? ['balance', 'nextDeduction'] : ['balance', 'paid', 'nextDeduction', 'history']);
 
     const idx = current.indexOf(cardId);
     if (idx >= 0) {
@@ -1103,9 +1103,9 @@ export function toggleLoansKpiCard(cardId) {
  */
 export function moveLoansKpiCard(cardId, direction) {
     if (!cardId) return;
-    const current = (state.settings && Array.isArray(state.settings.loansKpiCards))
+    const current = (state.settings && Array.isArray(state.settings.loansKpiCards) && state.settings.loansKpiCards.length > 0)
         ? [...state.settings.loansKpiCards]
-        : ['balance', 'paid', 'nextDeduction', 'history'];
+        : ((state.settings && state.settings.loansKpiDensity === 'compact') ? ['balance', 'nextDeduction'] : ['balance', 'paid', 'nextDeduction', 'history']);
 
     const idx = current.indexOf(cardId);
     if (idx < 0) return;

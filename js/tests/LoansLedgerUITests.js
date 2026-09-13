@@ -14,7 +14,7 @@
  */
 
 import { state } from '../modules/core/AppState.js';
-import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
+import { LoansLedger, LoansSettingsModal } from '../modules/features/loans/LoansLedger.js';
 import {
     openLoansEmployeePicker,
     closeLoansEmployeePicker,
@@ -1289,6 +1289,65 @@ testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
         testRunner.assert(cards[1].textContent.includes('Saldo pendiente'), "La 2da tarjeta es Saldo pendiente");
         // La tercera tarjeta debe ser 'Presión salarial'
         testRunner.assert(cards[2].textContent.includes('Presión salarial'), "La 3ra tarjeta es Presión salarial");
+    },
+
+    "los botones dentro de LoansSettingsModal propagan clics al dispatcher de document"() {
+        resetState();
+        state.settings = {
+            loansKpiCards: ['balance', 'paid', 'nextDeduction', 'history']
+        };
+        state.loansLedger = { selectedEmployeeId: 'e1', showSettingsModal: true };
+
+        const host = document.createElement('div');
+        host.innerHTML = LoansSettingsModal();
+        document.body.appendChild(host);
+
+        // Dispatched click listener matching app.js
+        let dispatchedFn = null;
+        let dispatchedArg = null;
+        let dispatchedArg2 = null;
+        const listener = e => {
+            const target = e.target.closest('[data-app-fn]');
+            if (target) {
+                dispatchedFn = target.dataset.appFn;
+                dispatchedArg = target.dataset.arg;
+                dispatchedArg2 = target.dataset.arg2;
+            }
+        };
+        document.addEventListener('click', listener);
+
+        try {
+            // Click en botón bajar (▼) de 'balance'
+            const downBtn = host.querySelector('[data-app-fn="moveLoansKpiCard"][data-arg="balance"][data-arg2="down"]');
+            testRunner.assert(downBtn !== null, "Botón para bajar balance debe existir");
+            downBtn.click();
+            testRunner.assertEquals(dispatchedFn, 'moveLoansKpiCard', "El clic en botón bajar burbujea a document");
+            testRunner.assertEquals(dispatchedArg, 'balance', "Pasa arg correcto");
+            testRunner.assertEquals(dispatchedArg2, 'down', "Pasa arg2 correcto");
+
+            // Click en botón de ocultar
+            dispatchedFn = null;
+            const hideBtn = host.querySelector('[data-app-fn="toggleLoansKpiCard"][data-arg="balance"]');
+            testRunner.assert(hideBtn !== null, "Botón ocultar debe existir");
+            hideBtn.click();
+            testRunner.assertEquals(dispatchedFn, 'toggleLoansKpiCard', "El clic en ocultar burbujea a document");
+            testRunner.assertEquals(dispatchedArg, 'balance', "Pasa arg correcto");
+
+            // Click en botón de estilo stacked
+            dispatchedFn = null;
+            const styleBtn = host.querySelector('[data-app-fn="setLoansCapacityStyle"][data-arg="stacked"]');
+            testRunner.assert(styleBtn !== null, "Opción stacked debe existir");
+            styleBtn.click();
+            testRunner.assertEquals(dispatchedFn, 'setLoansCapacityStyle', "El clic en estilo de capacidad burbujea a document");
+            testRunner.assertEquals(dispatchedArg, 'stacked', "Pasa arg correcto");
+
+            // Click en backdrop con data-app-close-on-self
+            const backdrop = host.querySelector('.loans-settings-modal-backdrop');
+            testRunner.assertEquals(backdrop.dataset.appCloseOnSelf, 'closeLoansSettingsModal', "Backdrop usa data-app-close-on-self para cerrar");
+        } finally {
+            document.removeEventListener('click', listener);
+            document.body.removeChild(host);
+        }
     }
 });
 
