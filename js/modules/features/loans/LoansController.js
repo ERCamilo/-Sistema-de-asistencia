@@ -928,6 +928,64 @@ export function resolveDupDeleteLoan(loanId) {
 }
 
 /**
+ * Alterna el estilo visual del indicador de capacidad de pago
+ * entre 'gauge' (Opción B: circular analítico) y 'stacked' (Opción C: barra multicapa).
+ */
+export function toggleLoansCapacityStyle() {
+    const current = (state.settings && state.settings.loansCapacityStyle) || 'gauge';
+    const next = current === 'gauge' ? 'stacked' : 'gauge';
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansCapacityStyle = next;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    if (typeof window !== 'undefined' && window.showNotification) {
+        window.showNotification(
+            next === 'gauge' ? 'Vista de capacidad: Gauge Analítico (Circular)' : 'Vista de capacidad: Barra Multicapa Asistida',
+            'info'
+        );
+    }
+    render();
+}
+
+/**
+ * Asigna explícitamente el estilo visual de capacidad.
+ */
+export function setLoansCapacityStyle(style) {
+    const validStyle = style === 'stacked' ? 'stacked' : 'gauge';
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansCapacityStyle = validStyle;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    render();
+}
+
+/**
+ * Aplica la cantidad de cuotas sugerida por el asistente de viabilidad
+ * al borrador del formulario activo (alta, refinanciamiento o consolidación).
+ */
+export function applySuggestedInstallmentCount(count) {
+    const num = parseInt(count, 10);
+    if (!num || num <= 0) return;
+
+    const ledger = state.loansLedger || {};
+    if (ledger.showConsolidateForm) {
+        setConsolidateDraftField('installmentCount', num);
+    } else if (ledger.refinancingLoanId) {
+        setRefinanceDraftField('mode', 'installments');
+        setRefinanceDraftField('installmentCount', num);
+    } else {
+        setLoanDraftField('installmentMode', 'installments');
+        setLoanDraftField('installmentCount', num);
+    }
+}
+
+/**
  * Register handlers on window.* for the data-app-fn dispatcher used by the
  * Ledger UI. Called once at app boot from app.js.
  */
@@ -971,6 +1029,9 @@ export function registerLegacyGlobals() {
     window.toggleLoansFilterMenu = toggleLoansFilterMenu;
     window.resetLoansFilters = resetLoansFilters;
     window.setLoansDisplayMode = setLoansDisplayMode;
+    window.toggleLoansCapacityStyle = toggleLoansCapacityStyle;
+    window.setLoansCapacityStyle = setLoansCapacityStyle;
+    window.applySuggestedInstallmentCount = applySuggestedInstallmentCount;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;

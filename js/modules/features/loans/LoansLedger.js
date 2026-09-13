@@ -1261,11 +1261,139 @@ function LoanCapacityMeter(capacity) {
         isAvailable
     } = capacity;
 
-    const fillPercent = Math.min(Math.max(percentage || 0, 0), 100);
+    const style = (state.settings && state.settings.loansCapacityStyle) || 'gauge';
     const hasPrior = existingDeductions > 0;
+    const netSalaryAvailable = isAvailable ? Math.max(0, periodSalary - totalDeduction) : 0;
+    const netPercentage = (isAvailable && periodSalary > 0)
+        ? Math.max(0, Math.round(((periodSalary - totalDeduction) / periodSalary) * 1000) / 10)
+        : 0;
+
+    const headerActions = `
+        <div class="loan-capacity-meter__header-actions">
+            <span class="loan-capacity-meter__badge" style="border-color: ${color}; color: ${color};">
+                ${escapeHTML(badgeText)}
+            </span>
+            <button type="button"
+                    class="loan-capacity-meter__style-toggle"
+                    data-app-fn="toggleLoansCapacityStyle"
+                    title="Alternar estilo: Gauge Analítico / Barra Multicapa">
+                ${icons.get('settings', { size: 13 })}
+            </button>
+        </div>
+    `;
+
+    // ─── OPTION B: GAUGE ANALÍTICO ──────────────────────────────────────────
+    if (style === 'gauge') {
+        const clampedPct = Math.min(Math.max(percentage || 0, 0), 100);
+        // Semi-circle arc: radius 40, circumference for 180 deg is ~125.66
+        const strokeDasharray = 125.66;
+        const strokeDashoffset = strokeDasharray * (1 - (clampedPct / 100));
+
+        const statusLabel = status === 'danger'
+            ? 'Riesgo Crítico'
+            : (status === 'moderate' ? 'Moderado' : 'Seguro');
+
+        return `
+            <div class="loan-capacity-meter loan-capacity-meter--${status} loan-capacity-meter--gauge">
+                <div class="loan-capacity-meter__header">
+                    <div class="loan-capacity-meter__title">
+                        <span class="loan-capacity-meter__icon" style="color: ${color};">
+                            ${status === 'danger' ? icons.get('alert', { size: 14 }) : (status === 'moderate' ? icons.get('info', { size: 14 }) : icons.get('check', { size: 14 }))}
+                        </span>
+                        <span>Capacidad de retención en nómina</span>
+                    </div>
+                    ${headerActions}
+                </div>
+
+                <div class="loan-capacity-gauge-layout">
+                    <div class="loan-capacity-gauge-box">
+                        <div class="loan-capacity-gauge-container">
+                            <svg class="loan-capacity-gauge-svg" viewBox="0 0 100 55">
+                                <defs>
+                                    <linearGradient id="gauge-grad-${status}" x1="0%" y1="0%" x2="100%" y2="0%">
+                                        <stop offset="0%" stop-color="#10b981" />
+                                        <stop offset="40%" stop-color="#f59e0b" />
+                                        <stop offset="100%" stop-color="#ef4444" />
+                                    </linearGradient>
+                                </defs>
+                                <path d="M 10 50 A 40 40 0 0 1 90 50"
+                                      fill="none"
+                                      stroke="#24334e"
+                                      stroke-width="9"
+                                      stroke-linecap="round" />
+                                <path d="M 10 50 A 40 40 0 0 1 90 50"
+                                      fill="none"
+                                      stroke="url(#gauge-grad-${status})"
+                                      stroke-width="9"
+                                      stroke-linecap="round"
+                                      stroke-dasharray="${strokeDasharray}"
+                                      stroke-dashoffset="${strokeDashoffset}"
+                                      style="transition: stroke-dashoffset 0.4s ease;" />
+                            </svg>
+                            <div class="loan-capacity-gauge-center">
+                                <div class="loan-capacity-gauge-val" style="color: ${color};">
+                                    ${isAvailable ? `${percentage}%` : '--'}
+                                </div>
+                                <div class="loan-capacity-gauge-lbl">${statusLabel}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="loan-capacity-balance-table">
+                        <div class="loan-capacity-balance-row">
+                            <span>Sueldo est. (${escapeHTML(periodLabel)}):</span>
+                            <strong style="color: #f1f5f9;">${isAvailable ? formatCurrency(periodSalary) : 'No configurado'}</strong>
+                        </div>
+                        ${hasPrior ? `
+                            <div class="loan-capacity-balance-row">
+                                <span>Retenciones previas en cola:</span>
+                                <strong style="color: #94a3b8;">-${formatCurrency(existingDeductions)} (${existingPercentage}%)</strong>
+                            </div>
+                        ` : ''}
+                        <div class="loan-capacity-balance-row">
+                            <span>Nueva cuota propuesta:</span>
+                            <strong style="color: ${color};">-${formatCurrency(installmentAmount)}${instPercentage != null ? ` (${instPercentage}%)` : ''}</strong>
+                        </div>
+                        ${hasPrior ? `
+                            <div class="loan-capacity-balance-row" style="color: #cbd5e1;">
+                                <span style="font-weight: 600;">Retención total proyectada:</span>
+                                <strong style="color: ${color};">${formatCurrency(totalDeduction)} (${percentage}%)</strong>
+                            </div>
+                        ` : ''}
+                        <div class="loan-capacity-balance-row" style="padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.12);">
+                            <span style="font-weight: 700; color: #f8fafc;">Salario neto disponible:</span>
+                            <strong style="color: ${status === 'danger' ? '#ef4444' : (status === 'moderate' ? '#f59e0b' : '#10b981')}; font-size: 0.88rem;">
+                                ${isAvailable ? `${formatCurrency(netSalaryAvailable)} (${netPercentage}%)` : '--'}
+                            </strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="loan-capacity-meter__warning" style="color: ${status === 'danger' ? '#fca5a5' : (status === 'moderate' ? '#fde68a' : '#94a3b8')};">
+                    ${escapeHTML(warningText)}
+                </div>
+            </div>
+        `;
+    }
+
+    // ─── OPTION C: BARRA MULTICAPA CON SUGERENCIA ───────────────────────────
+    const safeTargetPerPeriod = isAvailable ? Math.max(0, periodSalary * 0.30 - existingDeductions) : 0;
+    let suggestedCount = 0;
+    let suggestedInstallment = 0;
+    let suggestedTotalPct = 0;
+
+    if (isAvailable && safeTargetPerPeriod > 50 && (status === 'danger' || status === 'moderate')) {
+        suggestedCount = Math.min(24, Math.max(2, Math.ceil(installmentAmount / safeTargetPerPeriod)));
+        suggestedInstallment = installmentAmount / suggestedCount;
+        suggestedTotalPct = Math.round(((existingDeductions + suggestedInstallment) / periodSalary) * 1000) / 10;
+    }
+
+    const priorWidth = hasPrior ? Math.min(existingPercentage, 100) : 0;
+    const newWidth = Math.min(instPercentage || 0, Math.max(0, 100 - priorWidth));
+    const freeWidth = Math.max(0, 100 - (priorWidth + newWidth));
 
     return `
-        <div class="loan-capacity-meter loan-capacity-meter--${status}">
+        <div class="loan-capacity-meter loan-capacity-meter--${status} loan-capacity-meter--stacked">
             <div class="loan-capacity-meter__header">
                 <div class="loan-capacity-meter__title">
                     <span class="loan-capacity-meter__icon" style="color: ${color};">
@@ -1273,37 +1401,55 @@ function LoanCapacityMeter(capacity) {
                     </span>
                     <span>Capacidad de retención en nómina</span>
                 </div>
-                <span class="loan-capacity-meter__badge" style="border-color: ${color}; color: ${color};">
-                    ${escapeHTML(badgeText)}
-                </span>
+                ${headerActions}
             </div>
 
             ${isAvailable ? `
-                <div class="loan-capacity-meter__bar-track" title="Retención total: ${percentage}% del sueldo${hasPrior ? ` (Previas: ${existingPercentage}% + Nueva: ${instPercentage}%)` : ''}">
-                    <div class="loan-capacity-meter__bar-fill" style="width: ${fillPercent}%; background: ${color};"></div>
+                <div class="loan-capacity-stacked-bar" title="Retención total: ${percentage}% (Libre: ${netPercentage}%)">
+                    ${hasPrior ? `<div class="loan-capacity-seg-prior" style="width: ${priorWidth}%;" title="Previas: ${existingPercentage}%"></div>` : ''}
+                    <div class="loan-capacity-seg-new" style="width: ${newWidth}%; background: ${color};" title="Nueva cuota: ${instPercentage}%"></div>
+                    <div class="loan-capacity-seg-free" style="width: ${freeWidth}%;" title="Neto libre: ${netPercentage}%"></div>
                 </div>
             ` : ''}
 
-            <div class="loan-capacity-meter__metrics" style="${hasPrior ? 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px;' : ''}">
-                <div class="loan-capacity-meter__metric">
-                    <span class="loan-capacity-meter__metric-label">Sueldo est. (${escapeHTML(periodLabel)}):</span>
-                    <strong class="loan-capacity-meter__metric-value">${isAvailable ? formatCurrency(periodSalary) : 'No configurado'}</strong>
-                </div>
-                <div class="loan-capacity-meter__metric">
-                    <span class="loan-capacity-meter__metric-label">Nueva cuota propuesta:</span>
-                    <strong class="loan-capacity-meter__metric-value" style="color: ${color};">${formatCurrency(installmentAmount)}${instPercentage != null ? ` (${instPercentage}%)` : ''}</strong>
-                </div>
+            <div class="loan-capacity-legends">
                 ${hasPrior ? `
-                    <div class="loan-capacity-meter__metric">
-                        <span class="loan-capacity-meter__metric-label">Retenciones previas en cola:</span>
-                        <strong class="loan-capacity-meter__metric-value" style="color: #94a3b8;">${formatCurrency(existingDeductions)} (${existingPercentage}%)</strong>
-                    </div>
-                    <div class="loan-capacity-meter__metric" style="background: rgba(15,23,42,0.4); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
-                        <span class="loan-capacity-meter__metric-label" style="font-weight: 700; color: #f1f5f9;">Retención total proyectada:</span>
-                        <strong class="loan-capacity-meter__metric-value" style="color: ${color}; font-size: 0.95rem;">${formatCurrency(totalDeduction)} (${percentage}%)</strong>
+                    <div class="loan-capacity-legend-item">
+                        <span class="loan-capacity-leg-dot" style="background: #64748b;"></span>
+                        <span>Previas:</span>
+                        <strong style="color: #cbd5e1;">${formatCurrency(existingDeductions)} (${existingPercentage}%)</strong>
                     </div>
                 ` : ''}
+                <div class="loan-capacity-legend-item">
+                    <span class="loan-capacity-leg-dot" style="background: ${color};"></span>
+                    <span>Cuota:</span>
+                    <strong style="color: ${color};">${formatCurrency(installmentAmount)}${instPercentage != null ? ` (${instPercentage}%)` : ''}</strong>
+                </div>
+                <div class="loan-capacity-legend-item">
+                    <span class="loan-capacity-leg-dot" style="background: #10b981;"></span>
+                    <span>Neto libre:</span>
+                    <strong style="color: #10b981;">${isAvailable ? `${formatCurrency(netSalaryAvailable)} (${netPercentage}%)` : '--'}</strong>
+                </div>
+                <div class="loan-capacity-legend-item">
+                    <span class="loan-capacity-leg-dot" style="background: #334155;"></span>
+                    <span>Total Nómina:</span>
+                    <strong>${isAvailable ? formatCurrency(periodSalary) : 'No configurado'}</strong>
+                </div>
             </div>
+
+            ${suggestedCount > 1 ? `
+                <div class="loan-capacity-assist-bar">
+                    <span class="loan-capacity-assist-text">
+                        💡 <strong>Sugerencia de viabilidad:</strong> Aumentar a <strong>${suggestedCount} cuotas</strong> reduce el descuento a ${formatCurrency(suggestedInstallment)} (${suggestedTotalPct}% · Seguro).
+                    </span>
+                    <button type="button"
+                            class="loan-capacity-suggest-btn"
+                            data-app-fn="applySuggestedInstallmentCount"
+                            data-arg="${suggestedCount}">
+                        Aplicar ${suggestedCount} cuotas
+                    </button>
+                </div>
+            ` : ''}
 
             <div class="loan-capacity-meter__warning" style="color: ${status === 'danger' ? '#fca5a5' : (status === 'moderate' ? '#fde68a' : '#94a3b8')};">
                 ${escapeHTML(warningText)}

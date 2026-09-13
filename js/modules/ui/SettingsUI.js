@@ -289,7 +289,8 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
 ]);
 const AUTO_SAVE_OPTION_VALUES = new Map([
     ['attendanceWatermarkVisibility', new Set(['always', 'present'])],
-    ['attendanceWatermarkContent', new Set(['number', 'position'])]
+    ['attendanceWatermarkContent', new Set(['number', 'position'])],
+    ['loansCapacityStyle', new Set(['gauge', 'stacked'])]
 ]);
 
 function commitAutoSaveSetting({ key, value, deps = {} } = {}) {

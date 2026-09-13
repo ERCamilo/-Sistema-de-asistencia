@@ -44,5 +44,8 @@ export {
     toggleConsolidateForm,
     setConsolidateDraftField,
     submitConsolidateLoans,
+    toggleLoansCapacityStyle,
+    setLoansCapacityStyle,
+    applySuggestedInstallmentCount,
     registerLegacyGlobals
 } from './LoansController.js';

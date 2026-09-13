@@ -2443,27 +2443,28 @@
 /* Loan Repayment Capacity Meter ------------------------------------------- */
 .loan-capacity-meter {
     margin: 12px 0;
-    padding: 12px 14px;
-    border-radius: 10px;
-    border: 1px solid #334155;
-    background: #0b1324;
-    transition: all 0.2s ease;
+    padding: 14px 18px;
+    border-radius: 14px;
+    border: 1px solid var(--border, #2a3a56);
+    background: var(--panel-2, #1b273d);
+    transition: all 0.25s ease;
+    box-shadow: 0 4px 20px -6px rgba(0,0,0,0.35);
 }
 
 .loan-capacity-meter--safe {
-    border-color: rgba(16, 185, 129, 0.45);
-    background: rgba(16, 185, 129, 0.06);
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.05);
 }
 
 .loan-capacity-meter--moderate {
-    border-color: rgba(245, 158, 11, 0.45);
-    background: rgba(245, 158, 11, 0.06);
+    border-color: rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.05);
 }
 
 .loan-capacity-meter--danger {
-    border-color: rgba(239, 68, 68, 0.55);
+    border-color: rgba(239, 68, 68, 0.5);
     background: rgba(239, 68, 68, 0.08);
-    box-shadow: 0 0 14px -4px rgba(239, 68, 68, 0.25);
+    box-shadow: 0 0 16px -4px rgba(239, 68, 68, 0.2);
 }
 
 .loan-capacity-meter--unknown {
@@ -2476,7 +2477,7 @@
     justify-content: space-between;
     align-items: center;
     gap: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
     flex-wrap: wrap;
 }
 
@@ -2488,66 +2489,243 @@
     font-weight: 700;
     color: #e2e8f0;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
 }
 
-.loan-capacity-meter__icon {
-    display: inline-flex;
+.loan-capacity-meter__header-actions {
+    display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 8px;
 }
 
 .loan-capacity-meter__badge {
-    padding: 2px 8px;
+    padding: 3px 10px;
     border-radius: 9999px;
     border: 1px solid currentColor;
     font-size: 0.7rem;
     font-weight: 800;
     letter-spacing: 0.02em;
-    background: rgba(15, 23, 42, 0.8);
+    background: rgba(15, 23, 42, 0.85);
+    font-family: 'IBM Plex Mono', monospace, sans-serif;
 }
 
-.loan-capacity-meter__bar-track {
+.loan-capacity-meter__style-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #131d2e;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.loan-capacity-meter__style-toggle:hover {
+    background: #24334e;
+    color: #06b6d4;
+    border-color: #06b6d4;
+}
+
+/* Option B: Gauge Layout */
+.loan-capacity-gauge-layout {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 18px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+@media (max-width: 640px) {
+    .loan-capacity-gauge-layout {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+}
+
+.loan-capacity-gauge-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    padding-right: 18px;
+}
+
+@media (max-width: 640px) {
+    .loan-capacity-gauge-box {
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding-right: 0;
+        padding-bottom: 12px;
+    }
+}
+
+.loan-capacity-gauge-container {
     position: relative;
+    width: 140px;
+    height: 82px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+.loan-capacity-gauge-svg {
+    width: 140px;
+    height: 75px;
+    overflow: visible;
+}
+
+.loan-capacity-gauge-center {
+    position: absolute;
+    bottom: 2px;
+    text-align: center;
+    line-height: 1.1;
+}
+
+.loan-capacity-gauge-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.35rem;
+    font-weight: 700;
+}
+
+.loan-capacity-gauge-lbl {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #94a3b8;
+}
+
+.loan-capacity-balance-table {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     width: 100%;
-    height: 7px;
-    background: #1e293b;
-    border-radius: 9999px;
-    overflow: hidden;
-    margin-bottom: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.loan-capacity-meter__bar-fill {
-    height: 100%;
-    border-radius: 9999px;
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s ease;
-}
-
-.loan-capacity-meter__metrics {
+.loan-capacity-balance-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
+    padding-bottom: 4px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.07);
     color: #94a3b8;
-    margin-bottom: 6px;
 }
 
-.loan-capacity-meter__metric-label {
-    margin-right: 4px;
+.loan-capacity-balance-row:last-child {
+    border-bottom: none;
+    padding-top: 2px;
 }
 
-.loan-capacity-meter__metric-value {
-    color: #f1f5f9;
+.loan-capacity-balance-row strong {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+}
+
+/* Option C: Stacked Multilayer Layout */
+.loan-capacity-stacked-bar {
+    display: flex;
+    height: 12px;
+    width: 100%;
+    border-radius: 9999px;
+    overflow: hidden;
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 10px;
+}
+
+.loan-capacity-seg-prior {
+    height: 100%;
+    background: #64748b;
+    transition: width 0.3s ease;
+}
+
+.loan-capacity-seg-new {
+    height: 100%;
+    transition: width 0.3s ease, background-color 0.2s ease;
+}
+
+.loan-capacity-seg-free {
+    height: 100%;
+    background: #10b981;
+    transition: width 0.3s ease;
+}
+
+.loan-capacity-legends {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    font-size: 0.76rem;
+    color: #94a3b8;
+    margin-bottom: 8px;
+}
+
+.loan-capacity-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.loan-capacity-leg-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.loan-capacity-legend-item strong {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+}
+
+/* Assist bar */
+.loan-capacity-assist-bar {
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9px;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+}
+
+.loan-capacity-assist-text {
+    font-size: 0.74rem;
+    color: #cbd5e1;
+    line-height: 1.4;
+    flex: 1;
+}
+
+.loan-capacity-suggest-btn {
+    font-size: 0.72rem;
     font-weight: 700;
+    color: #081a24;
+    background: #06b6d4;
+    padding: 5px 12px;
+    border-radius: 7px;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.loan-capacity-suggest-btn:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
 }
 
 .loan-capacity-meter__warning {
     font-size: 0.74rem;
     line-height: 1.4;
-    margin-top: 4px;
+    margin-top: 6px;
 }
 
 .loan-consolidate-form {

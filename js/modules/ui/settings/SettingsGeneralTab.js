@@ -235,6 +235,43 @@ export function SettingsGeneralTab(context) {
                     </div>
                 </div>
 
+                <!-- Préstamos y Capacidad -->
+                <div class="stg-panel">
+                    <div class="stg-header">
+                        <div>
+                            <h3>
+                                <span>${icons.get('dollar', { size: 18 }) || '💰'}</span>
+                                <span>Capacidad de Préstamos</span>
+                            </h3>
+                        </div>
+                    </div>
+                    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 12px; line-height: 1.5;">
+                        Selecciona el estilo del indicador de salud financiera y retención en nómina:
+                    </div>
+                    <div class="stg-choice-group">
+                        <label class="stg-choice-option ${(state.settings.loansCapacityStyle || 'gauge') === 'gauge' ? 'is-selected' : ''}">
+                            <input type="radio"
+                                   name="loansCapacityStyle"
+                                   value="gauge"
+                                   ${(state.settings.loansCapacityStyle || 'gauge') === 'gauge' ? 'checked' : ''}>
+                            <span class="stg-choice-copy">
+                                <strong>Gauge Analítico (Medidor Circular)</strong>
+                                <small>Velocímetro financiero de 180° con balance contable (Bruto, Retención y Neto disponible).</small>
+                            </span>
+                        </label>
+                        <label class="stg-choice-option ${state.settings.loansCapacityStyle === 'stacked' ? 'is-selected' : ''}">
+                            <input type="radio"
+                                   name="loansCapacityStyle"
+                                   value="stacked"
+                                   ${state.settings.loansCapacityStyle === 'stacked' ? 'checked' : ''}>
+                            <span class="stg-choice-copy">
+                                <strong>Barra Multicapa con Asistencia Activa</strong>
+                                <small>Barra segmentada a 3 colores con leyendas y sugerencia de cuotas seguras en un clic.</small>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- Iconos -->
                 <div class="stg-panel">
                     <div class="stg-header">

@@ -117,7 +117,9 @@ testRunner.addSuite("SettingsUI — commitAutoSaveOption (opciones cerradas)", {
     "comete visibilidad y contenido de la marca de agua"() {
         const cases = [
             ['attendanceWatermarkVisibility', 'always'],
-            ['attendanceWatermarkContent', 'number']
+            ['attendanceWatermarkContent', 'number'],
+            ['loansCapacityStyle', 'gauge'],
+            ['loansCapacityStyle', 'stacked']
         ];
 
         for (const [name, value] of cases) {

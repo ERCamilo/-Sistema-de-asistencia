@@ -27,7 +27,10 @@ import {
     toggleLoansFilterMenu,
     resetLoansFilters,
     selectLoansEmployee,
-    setLoansDisplayMode
+    setLoansDisplayMode,
+    toggleLoansCapacityStyle,
+    setLoansCapacityStyle,
+    applySuggestedInstallmentCount
 } from '../modules/features/loans/LoansController.js';
 import { LOAN_STATUS, sortEmployeeLoans, filterEmployeeLoans, getIndividualLoanRecords } from '../modules/features/loans/LoansService.js';
 
@@ -993,6 +996,78 @@ testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
         testRunner.assert(meter.textContent.includes('Retenciones previas en cola:'), "Muestra retenciones previas");
         testRunner.assert(meter.textContent.includes('$3,000.00'), "Muestra los 3000 previos");
         testRunner.assert(meter.textContent.includes('$5,000.00'), "Muestra el total proyectado de 5000 (3000 + 2000)");
+    },
+
+    "alterna entre estilo gauge y stacked con toggleLoansCapacityStyle"() {
+        resetState();
+        state.settings = { loansCapacityStyle: 'gauge' };
+        toggleLoansCapacityStyle();
+        testRunner.assertEquals(state.settings.loansCapacityStyle, 'stacked', 'Pasa de gauge a stacked');
+
+        toggleLoansCapacityStyle();
+        testRunner.assertEquals(state.settings.loansCapacityStyle, 'gauge', 'Pasa de stacked a gauge');
+
+        setLoansCapacityStyle('stacked');
+        testRunner.assertEquals(state.settings.loansCapacityStyle, 'stacked', 'setLoansCapacityStyle asigna stacked');
+    },
+
+    "renderiza Opción B (Gauge) con layout analítico y balance de corte"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 }, loansCapacityStyle: 'gauge' };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // 9600 quincenal
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: true,
+            newLoanDraft: { principal: 2000, installmentMode: 'lump', installmentCount: 1, installmentFrequencyWeeks: 2 }
+        };
+        state.employees = [{ id: 'emp1', name: 'Charles', number: '026', active: true, positions: ['pos1'], loans: [] }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter--gauge');
+        testRunner.assert(meter !== null, "Debe renderizar la clase de gauge");
+        testRunner.assert(meter.querySelector('.loan-capacity-gauge-svg') !== null, "Debe tener el SVG del velocímetro");
+        testRunner.assert(meter.textContent.includes('Salario neto disponible:'), "Muestra la balanza de neto disponible");
+        testRunner.assert(meter.querySelector('.loan-capacity-meter__style-toggle') !== null, "Incluye el botón de engranaje para alternar");
+    },
+
+    "renderiza Opción C (Stacked) con barra segmentada, leyendas y sugerencia de cuotas"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 }, loansCapacityStyle: 'stacked' };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // 9600 quincenal
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: true,
+            newLoanDraft: { principal: 7000, installmentMode: 'lump', installmentCount: 1, installmentFrequencyWeeks: 2 }
+        };
+        state.employees = [{ id: 'emp1', name: 'Charles', number: '026', active: true, positions: ['pos1'], loans: [] }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter--stacked');
+        testRunner.assert(meter !== null, "Debe renderizar la clase de barra multicapa");
+        testRunner.assert(meter.querySelector('.loan-capacity-stacked-bar') !== null, "Debe tener la barra segmentada");
+        testRunner.assert(meter.querySelector('.loan-capacity-legends') !== null, "Debe incluir leyendas de colores");
+        
+        const assistBar = meter.querySelector('.loan-capacity-assist-bar');
+        testRunner.assert(assistBar !== null, "Debe incluir barra de sugerencia inteligente para cuota alta");
+        testRunner.assert(assistBar.textContent.includes('Sugerencia de viabilidad:'), "Muestra texto de asistencia");
+    },
+
+    "applySuggestedInstallmentCount aplica la sugerencia al borrador de cuotas"() {
+        resetState();
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: true,
+            newLoanDraft: { principal: 7000, installmentMode: 'lump', installmentCount: 1, installmentFrequencyWeeks: 2 }
+        };
+        applySuggestedInstallmentCount(4);
+        testRunner.assertEquals(state.loansLedger.newLoanDraft.installmentCount, 4, "Actualiza installmentCount a 4");
+        testRunner.assertEquals(state.loansLedger.newLoanDraft.installmentMode, 'installments', "Cambia el modo a installments");
     }
 });
 
