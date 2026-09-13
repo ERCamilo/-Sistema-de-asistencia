@@ -2727,11 +2727,385 @@
     line-height: 1.4;
     margin-top: 6px;
 }
-
+/* ─── Loan Consolidation Form (Canonical Design Tokens) ───────────────── */
 .loan-consolidate-form {
-    box-shadow: 0 8px 24px -6px rgba(124, 58, 237, 0.25);
+    background: var(--panel, #131d2e);
+    border: 1px solid var(--border, #2a3a56);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.35), 0 20px 48px -20px rgba(0,0,0,0.7);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
 }
 
+.loan-consolidate-form__topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.loan-consolidate-form__headline {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.loan-consolidate-form__icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(6, 182, 212, 0.12);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    color: var(--accent, #06b6d4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.loan-consolidate-form__title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: var(--text, #f4f6fa);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.loan-consolidate-form__close-btn {
+    background: transparent;
+    color: var(--text-dim, #a4b1c7);
+    border: 1px solid var(--border, #2a3a56);
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.loan-consolidate-form__close-btn:hover {
+    background: var(--hover, #2a3b59);
+    color: var(--text, #f4f6fa);
+}
+
+.loan-consolidate-form__subtitle {
+    color: var(--text-dim, #a4b1c7);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    margin-top: -6px;
+}
+
+/* Préstamos incluidos */
+.loan-consolidate-form__loans-box {
+    background: var(--panel-2, #1b273d);
+    border: 1px solid var(--border, #2a3a56);
+    border-radius: 10px;
+    padding: 12px 16px;
+}
+
+.loan-consolidate-form__loans-hdr {
+    font-size: 0.7rem;
+    color: var(--text-faint, #6d7d99);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+}
+
+.loan-consolidate-form__loan-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 0.82rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.loan-consolidate-form__loan-item-desc {
+    color: var(--text-dim, #a4b1c7);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.loan-consolidate-form__loan-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn, #f59e0b);
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.loan-consolidate-form__loan-amount {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    color: var(--gold, #f59e0b);
+}
+
+.loan-consolidate-form__loans-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 10px;
+    margin-top: 4px;
+    font-size: 0.88rem;
+    border-top: 1px solid var(--border, #2a3a56);
+}
+
+.loan-consolidate-form__loans-total span {
+    color: var(--text, #f4f6fa);
+    font-weight: 700;
+}
+
+.loan-consolidate-form__loans-total strong {
+    color: var(--accent, #06b6d4);
+    font-size: 1.05rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+}
+
+/* Modo por defecto: 1 sola cuota */
+.loan-consolidate-form__single-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    background: rgba(6, 182, 212, 0.07);
+    border: 1px solid rgba(6, 182, 212, 0.28);
+    border-radius: 8px;
+    font-size: 0.82rem;
+}
+
+.loan-consolidate-form__single-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text, #f4f6fa);
+    flex-wrap: wrap;
+}
+
+.loan-consolidate-form__single-badge {
+    background: var(--accent, #06b6d4);
+    color: var(--on-accent, #081a24);
+    font-size: 0.68rem;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+}
+
+.loan-consolidate-form__single-text {
+    line-height: 1.4;
+}
+
+.loan-consolidate-form__amount-highlight {
+    color: var(--accent, #06b6d4);
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+}
+
+/* Toggle de opciones avanzadas */
+.loan-consolidate-form__advanced-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px dashed var(--border, #2a3a56);
+    color: var(--text-dim, #a4b1c7);
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+
+.loan-consolidate-form__advanced-toggle-btn:hover {
+    border-color: var(--accent, #06b6d4);
+    color: var(--accent, #06b6d4);
+    background: rgba(6, 182, 212, 0.05);
+}
+
+.loan-consolidate-form__advanced-toggle-btn.is-open {
+    background: var(--panel-2, #1b273d);
+    border-style: solid;
+    border-color: var(--accent, #06b6d4);
+    color: var(--accent, #06b6d4);
+}
+
+/* Apartado de opciones avanzadas / diferimiento */
+.loan-consolidate-form__advanced-panel {
+    background: var(--panel-2, #1b273d);
+    border: 1px solid var(--border, #2a3a56);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    animation: loanConsolidateFadeIn 0.2s ease-out;
+}
+
+@keyframes loanConsolidateFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.loan-consolidate-form__advanced-hdr {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim, #a4b1c7);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding-bottom: 8px;
+}
+
+.loan-consolidate-form__advanced-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent, #06b6d4);
+}
+
+.loan-consolidate-form__inputs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+}
+
+.loan-consolidate-form__field label {
+    font-size: 0.72rem;
+    color: var(--text-dim, #a4b1c7);
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+
+.loan-consolidate-form__field input,
+.loan-consolidate-form__field select {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--panel, #131d2e);
+    border: 1px solid var(--border, #2a3a56);
+    border-radius: 6px;
+    color: var(--text, #f4f6fa);
+    font-size: 0.85rem;
+    font-family: inherit;
+    transition: border-color 0.15s ease;
+}
+
+.loan-consolidate-form__field input:focus,
+.loan-consolidate-form__field select:focus {
+    outline: none;
+    border-color: var(--accent, #06b6d4);
+}
+
+/* Fila de resumen de proyección */
+.loan-consolidate-form__projection-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--panel, #131d2e);
+    border: 1px solid var(--border, #2a3a56);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: var(--text-dim, #a4b1c7);
+}
+
+.loan-consolidate-form__projection-row strong {
+    color: var(--text, #f4f6fa);
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.loan-consolidate-form__quota-highlight {
+    color: var(--accent, #06b6d4) !important;
+}
+
+/* Botones de acción */
+.loan-consolidate-form__actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.loan-consolidate-form__submit-btn {
+    flex: 2;
+    background: var(--accent, #06b6d4);
+    color: var(--on-accent, #081a24);
+    border: none;
+    border-radius: 8px;
+    padding: 12px 18px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.15s ease;
+}
+
+.loan-consolidate-form__submit-btn:hover {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+}
+
+.loan-consolidate-form__cancel-btn {
+    flex: 1;
+    background: transparent;
+    color: var(--text-dim, #a4b1c7);
+    border: 1px solid var(--border, #2a3a56);
+    border-radius: 8px;
+    padding: 12px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.loan-consolidate-form__cancel-btn:hover {
+    background: var(--hover, #2a3b59);
+    color: var(--text, #f4f6fa);
+}
+
+@media (max-width: 640px) {
+    .loan-consolidate-form {
+        padding: 16px;
+    }
+    .loan-consolidate-form__single-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .loan-consolidate-form__advanced-toggle-btn {
+        justify-content: center;
+    }
+    .loan-consolidate-form__inputs-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .loan-consolidate-form__actions {
+        flex-direction: column;
+    }
+}
+
+@media (max-width: 440px) {
+    .loan-consolidate-form__inputs-grid {
+        grid-template-columns: 1fr;
+    }
+}
 /* Payroll loan settlement -------------------------------------------------- */
 .payroll-loan-settlement {
     display: grid;

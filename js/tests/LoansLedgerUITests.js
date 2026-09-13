@@ -30,7 +30,9 @@ import {
     setLoansDisplayMode,
     toggleLoansCapacityStyle,
     setLoansCapacityStyle,
-    applySuggestedInstallmentCount
+    applySuggestedInstallmentCount,
+    toggleConsolidateForm,
+    toggleConsolidateAdvancedOptions
 } from '../modules/features/loans/LoansController.js';
 import { LOAN_STATUS, sortEmployeeLoans, filterEmployeeLoans, getIndividualLoanRecords } from '../modules/features/loans/LoansService.js';
 
@@ -1068,6 +1070,70 @@ testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
         applySuggestedInstallmentCount(4);
         testRunner.assertEquals(state.loansLedger.newLoanDraft.installmentCount, 4, "Actualiza installmentCount a 4");
         testRunner.assertEquals(state.loansLedger.newLoanDraft.installmentMode, 'installments', "Cambia el modo a installments");
+    },
+
+    "ConsolidateLoansForm por defecto usa 1 cuota, muestra barra colapsada y preserva LoanCapacityMeter"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 } };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }];
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            positions: ['pos1'],
+            loans: [
+                { id: 'l1', principal: 4000, status: 'active', concept: 'Adelanto 1', payments: [] },
+                { id: 'l2', principal: 8000, status: 'active', concept: 'Adelanto 2', payments: [] }
+            ]
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showConsolidateForm: false
+        };
+
+        toggleConsolidateForm();
+        testRunner.assertEquals(state.loansLedger.showConsolidateForm, true, "Formulario de consolidación abierto");
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.installmentCount, 1, "Por defecto cuotas = 1");
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.showAdvanced, false, "Por defecto opciones avanzadas colapsadas");
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const form = host.querySelector('.loan-consolidate-form');
+        testRunner.assert(form !== null, "Debe renderizarse .loan-consolidate-form");
+        testRunner.assert(form.querySelector('.loan-consolidate-form__single-bar') !== null, "Debe renderizar la barra de 1 sola cuota");
+        testRunner.assert(form.textContent.includes('Deducción en 1 sola cuota'), "Informa modalidad de 1 cuota");
+        testRunner.assert(form.textContent.includes('$12,000.00'), "Muestra el total de $12,000.00");
+        testRunner.assert(form.querySelector('.loan-consolidate-form__advanced-panel') === null, "Panel avanzado no visible en estado colapsado");
+
+        // Verificación de LoanCapacityMeter preservado
+        const meter = form.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "LoanCapacityMeter debe estar incorporado intacto");
+        testRunner.assert(meter.textContent.includes('Capacidad de retención en nómina'), "Título del medidor presente");
+
+        // Alternar opciones avanzadas
+        toggleConsolidateAdvancedOptions();
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.showAdvanced, true, "showAdvanced pasa a true");
+
+        const htmlExpanded = LoansLedger();
+        const hostExpanded = document.createElement('div');
+        hostExpanded.innerHTML = htmlExpanded;
+        const formExpanded = hostExpanded.querySelector('.loan-consolidate-form');
+
+        testRunner.assert(formExpanded.querySelector('.loan-consolidate-form__advanced-panel') !== null, "Panel de opciones avanzadas visible");
+        testRunner.assert(formExpanded.textContent.includes('Número de cuotas'), "Muestra input de número de cuotas");
+        testRunner.assert(formExpanded.textContent.includes('Frecuencia'), "Muestra selector de frecuencia");
+        testRunner.assert(formExpanded.textContent.includes('Tasa adicional (%)'), "Muestra input de tasa");
+        testRunner.assert(formExpanded.querySelector('.loan-consolidate-form__projection-row') !== null, "Fila de proyección presente");
+
+        // applySuggestedInstallmentCount auto-expande opciones avanzadas
+        toggleConsolidateAdvancedOptions(); // colapsar de nuevo
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.showAdvanced, false, "Colapsado de nuevo");
+        applySuggestedInstallmentCount(4);
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.installmentCount, 4, "Cuotas actualizadas a 4");
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.showAdvanced, true, "Auto-expandido a true");
     }
 });
 

@@ -792,17 +792,27 @@ export function toggleConsolidateForm() {
             state.loansLedger.showRefinanceFormForLoan = null;
             state.loansLedger.showPaymentFormForLoan = null;
             state.loansLedger.consolidateDraft = {
-                installmentCount: 4,
+                installmentCount: 1,
                 installmentFrequencyWeeks: Math.round(getCalendarPeriodWeeks(state)) || 2,
                 interestRate: 0,
                 note: '',
-                startDate: getDateKey(new Date())
+                startDate: getDateKey(new Date()),
+                showAdvanced: false
             };
         } else {
             state.loansLedger.consolidateDraft = null;
         }
     });
     render();
+}
+
+export function toggleConsolidateAdvancedOptions() {
+    ensureLedgerState();
+    const draft = state.loansLedger?.consolidateDraft;
+    if (draft) {
+        draft.showAdvanced = !draft.showAdvanced;
+        render();
+    }
 }
 
 export function setConsolidateDraftField(field, value) {
@@ -833,7 +843,7 @@ export function submitConsolidateLoans() {
     const draft = state.loansLedger.consolidateDraft || {};
     try {
         const { consolidatedLoan, closedLoans } = consolidateLoans(emp, {
-            installmentCount: Number(draft.installmentCount || 4),
+            installmentCount: Number(draft.installmentCount || 1),
             installmentFrequencyWeeks: Number(draft.installmentFrequencyWeeks || 2),
             interestRate: Number(draft.interestRate || 0),
             startDate: draft.startDate,
@@ -975,6 +985,11 @@ export function applySuggestedInstallmentCount(count) {
 
     const ledger = state.loansLedger || {};
     if (ledger.showConsolidateForm) {
+        stateManager.batchSetState(() => {
+            if (state.loansLedger?.consolidateDraft) {
+                state.loansLedger.consolidateDraft.showAdvanced = true;
+            }
+        });
         setConsolidateDraftField('installmentCount', num);
     } else if (ledger.refinancingLoanId) {
         setRefinanceDraftField('mode', 'installments');
@@ -1019,6 +1034,7 @@ export function registerLegacyGlobals() {
     window.submitRefinance = submitRefinance;
     window.voidRefinanceHandler = voidRefinanceHandler;
     window.toggleConsolidateForm = toggleConsolidateForm;
+    window.toggleConsolidateAdvancedOptions = toggleConsolidateAdvancedOptions;
     window.setConsolidateDraftField = setConsolidateDraftField;
     window.submitConsolidateLoans = submitConsolidateLoans;
     window.setLoansFilterView = setLoansFilterView;

@@ -1462,16 +1462,17 @@ function LoanCapacityMeter(capacity) {
 
 function ConsolidateLoansForm(emp, activeLoans) {
     const draft = (state.loansLedger || {}).consolidateDraft || {
-        installmentCount: 4,
+        installmentCount: 1,
         installmentFrequencyWeeks: Math.round(getCalendarPeriodWeeks(state)) || 2,
         interestRate: 0,
         note: '',
-        startDate: getDateKey(new Date())
+        startDate: getDateKey(new Date()),
+        showAdvanced: false
     };
 
     const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
     const totalBalance = r2(activeLoans.reduce((sum, l) => sum + getBalance(l), 0));
-    const count = Math.max(1, Number(draft.installmentCount || 4));
+    const count = Math.max(1, Number(draft.installmentCount !== undefined ? draft.installmentCount : 1));
     const rate = Number(draft.interestRate || 0);
     const interestToAdd = r2(totalBalance * rate / 100);
     const consolidatedTotal = r2(totalBalance + interestToAdd);
@@ -1491,87 +1492,117 @@ function ConsolidateLoansForm(emp, activeLoans) {
         stateObj: state
     });
 
+    const isAdvancedOpen = !!draft.showAdvanced || count > 1;
+
     return `
-        <div class="loan-consolidate-form" style="background: #1e1b4b; border: 1px solid #8b5cf6; border-radius: 12px; padding: 18px; margin-bottom: 16px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="color: #a78bfa;">${icons.get('briefcase', { size: 18 })}</span>
-                    <span style="font-size: 0.95rem; font-weight: 800; color: #c4b5fd; text-transform: uppercase; letter-spacing: 0.05em;">
+        <div class="loan-consolidate-form">
+            <div class="loan-consolidate-form__topbar">
+                <div class="loan-consolidate-form__headline">
+                    <span class="loan-consolidate-form__icon">${icons.get('briefcase', { size: 18 })}</span>
+                    <span class="loan-consolidate-form__title">
                         Consolidación de Deuda (${activeLoans.length} préstamos)
                     </span>
                 </div>
-                <button type="button" data-app-fn="toggleConsolidateForm"
-                        style="background: transparent; color: #94a3b8; border: 1px solid #4338ca; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">✕ Cerrar</button>
+                <button type="button" class="loan-consolidate-form__close-btn" data-app-fn="toggleConsolidateForm">
+                    ✕ Cerrar
+                </button>
             </div>
 
-            <div style="color: #cbd5e1; font-size: 0.8rem; margin-bottom: 12px; line-height: 1.5;">
-                Unifica los saldos pendientes de los préstamos activos en un único plan de cuotas viable, aliviando la nómina de retenciones asfixiantes.
+            <div class="loan-consolidate-form__subtitle">
+                Unifica los saldos pendientes de los préstamos activos en un único plan viable, aliviando la nómina de retenciones asfixiantes.
             </div>
 
             <!-- Resumen de préstamos a unificar -->
-            <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px 12px; margin-bottom: 14px;">
-                <div style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; margin-bottom: 6px;">Préstamos incluidos en la consolidación</div>
+            <div class="loan-consolidate-form__loans-box">
+                <div class="loan-consolidate-form__loans-hdr">Préstamos incluidos en la consolidación</div>
                 ${activeLoans.map(l => `
-                    <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                        <span style="color: #cbd5e1;">${escapeHTML(l.concept || 'Préstamo')} (${formatDateShort(l.startDate)})</span>
-                        <strong style="color: #f59e0b;">${formatCurrency(getBalance(l))}</strong>
+                    <div class="loan-consolidate-form__loan-item">
+                        <span class="loan-consolidate-form__loan-item-desc">
+                            <span class="loan-consolidate-form__loan-dot"></span>
+                            ${escapeHTML(l.concept || 'Préstamo')} (${formatDateShort(l.startDate)})
+                        </span>
+                        <strong class="loan-consolidate-form__loan-amount">${formatCurrency(getBalance(l))}</strong>
                     </div>
                 `).join('')}
-                <div style="display: flex; justify-content: space-between; padding-top: 8px; margin-top: 4px; border-top: 1px solid #334155; font-size: 0.88rem;">
-                    <span style="color: #f1f5f9; font-weight: 700;">Total saldo vivo a consolidar:</span>
-                    <strong style="color: #a78bfa; font-size: 1rem;">${formatCurrency(totalBalance)}</strong>
+                <div class="loan-consolidate-form__loans-total">
+                    <span>Total saldo vivo a consolidar:</span>
+                    <strong>${formatCurrency(totalBalance)}</strong>
                 </div>
             </div>
 
-            <!-- Controles del nuevo plan -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 14px;">
-                <div>
-                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Número de cuotas</label>
-                    <input type="number" inputmode="numeric" value="${draft.installmentCount || 4}" min="1" max="24" step="1"
-                           oninput="setConsolidateDraftField('installmentCount', this.value)"
-                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #4338ca; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
+            ${!isAdvancedOpen ? `
+                <!-- Modo por defecto: 1 sola cuota al próximo cierre -->
+                <div class="loan-consolidate-form__single-bar">
+                    <div class="loan-consolidate-form__single-info">
+                        <span class="loan-consolidate-form__single-badge">Modalidad por defecto</span>
+                        <div class="loan-consolidate-form__single-text">
+                            Deducción en <strong>1 sola cuota</strong> al próximo cierre de nómina: <strong class="loan-consolidate-form__amount-highlight">${formatCurrency(consolidatedTotal)}</strong>
+                        </div>
+                    </div>
+                    <button type="button"
+                            class="loan-consolidate-form__advanced-toggle-btn"
+                            data-app-fn="toggleConsolidateAdvancedOptions">
+                        ${icons.get('chevron-down', { size: 14 })} Diferir en cuotas o ajustar
+                    </button>
                 </div>
-                <div>
-                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Frecuencia</label>
-                    <select onchange="setConsolidateDraftField('installmentFrequencyWeeks', this.value)"
-                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #4338ca; border-radius: 6px; color: #f1f5f9; font-size: 0.88rem;">
-                        ${VALIDATION.ALLOWED_FREQUENCY_WEEKS.map(w =>
-                            `<option value="${w}" ${Number(draft.installmentFrequencyWeeks || calendarWeeks) === w ? 'selected' : ''}>Cada ${w} semana${w === 1 ? '' : 's'}</option>`
-                        ).join('')}
-                    </select>
-                </div>
-                <div>
-                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Tasa adicional (%)</label>
-                    <input type="number" inputmode="decimal" value="${draft.interestRate || 0}" min="0" max="100" step="0.5"
-                           oninput="setConsolidateDraftField('interestRate', this.value)"
-                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #4338ca; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
-                </div>
-                <div>
-                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Nota (opcional)</label>
-                    <input type="text" value="${escapeAttr(draft.note || '')}" placeholder="Acuerdo con empleado"
-                           oninput="setConsolidateDraftField('note', this.value)"
-                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #4338ca; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
-                </div>
-            </div>
+            ` : `
+                <!-- Apartado de Opciones Avanzadas / Diferimiento -->
+                <div class="loan-consolidate-form__advanced-panel">
+                    <div class="loan-consolidate-form__advanced-hdr">
+                        <span class="loan-consolidate-form__advanced-title">
+                            ${icons.get('settings', { size: 14 })} Opciones del plan y diferimiento
+                        </span>
+                        <button type="button"
+                                class="loan-consolidate-form__advanced-toggle-btn is-open"
+                                data-app-fn="toggleConsolidateAdvancedOptions">
+                            ${icons.get('chevron-up', { size: 14 })} Ocultar opciones
+                        </button>
+                    </div>
 
-            <!-- Proyección del nuevo plan -->
-            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 10px 12px; background: #0f172a; border: 1px solid #4338ca; border-radius: 8px; margin-bottom: 12px; font-size: 0.82rem;">
-                <span style="color: #94a3b8;">Deuda base: <strong style="color: #f1f5f9;">${formatCurrency(totalBalance)}</strong></span>
-                ${rate > 0 ? `<span style="color: #94a3b8;">Interés: <strong style="color: #a78bfa;">+${formatCurrency(interestToAdd)} (${rate}%)</strong></span>` : ''}
-                <span style="color: #94a3b8;">Nuevo saldo: <strong style="color: #a78bfa;">${formatCurrency(consolidatedTotal)}</strong></span>
-                <span style="color: #94a3b8;">Nueva cuota periódica: <strong style="color: #38bdf8;">${count} × ~${formatCurrency(approxInstallment)}</strong></span>
-            </div>
+                    <div class="loan-consolidate-form__inputs-grid">
+                        <div class="loan-consolidate-form__field">
+                            <label>Número de cuotas</label>
+                            <input type="number" inputmode="numeric" value="${draft.installmentCount !== undefined ? draft.installmentCount : 1}" min="1" max="24" step="1"
+                                   oninput="setConsolidateDraftField('installmentCount', this.value)">
+                        </div>
+                        <div class="loan-consolidate-form__field">
+                            <label>Frecuencia</label>
+                            <select onchange="setConsolidateDraftField('installmentFrequencyWeeks', this.value)">
+                                ${VALIDATION.ALLOWED_FREQUENCY_WEEKS.map(w =>
+                                    `<option value="${w}" ${Number(draft.installmentFrequencyWeeks || calendarWeeks) === w ? 'selected' : ''}>Cada ${w} semana${w === 1 ? '' : 's'}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                        <div class="loan-consolidate-form__field">
+                            <label>Tasa adicional (%)</label>
+                            <input type="number" inputmode="decimal" value="${draft.interestRate || 0}" min="0" max="100" step="0.5"
+                                   oninput="setConsolidateDraftField('interestRate', this.value)">
+                        </div>
+                        <div class="loan-consolidate-form__field">
+                            <label>Nota (opcional)</label>
+                            <input type="text" value="${escapeAttr(draft.note || '')}" placeholder="Acuerdo con empleado"
+                                   oninput="setConsolidateDraftField('note', this.value)">
+                        </div>
+                    </div>
 
-            <!-- Medidor de capacidad para la nueva cuota consolidada -->
+                    <!-- Proyección del nuevo plan -->
+                    <div class="loan-consolidate-form__projection-row">
+                        <span>Deuda base: <strong>${formatCurrency(totalBalance)}</strong></span>
+                        ${rate > 0 ? `<span>Interés: <strong>+${formatCurrency(interestToAdd)} (${rate}%)</strong></span>` : ''}
+                        <span>Nuevo saldo: <strong>${formatCurrency(consolidatedTotal)}</strong></span>
+                        <span>Nueva cuota periódica: <strong class="loan-consolidate-form__quota-highlight">${count} × ~${formatCurrency(approxInstallment)}</strong></span>
+                    </div>
+                </div>
+            `}
+
+            <!-- Medidor de capacidad para la nueva cuota consolidada (preservado como está actualmente incorporado) -->
             ${LoanCapacityMeter(capacity)}
 
-            <div style="display: flex; gap: 10px; margin-top: 14px;">
-                <button type="button" data-app-fn="submitConsolidateLoans"
-                        style="flex: 2; padding: 12px; background: linear-gradient(135deg, #8b5cf6, #a855f7); color: #fff; border: none; border-radius: 8px; font-weight: 800; font-size: 0.92rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    ${icons.get('check', { size: 16 })} Confirmar y consolidar deuda (${formatCurrency(totalBalance)})
+            <div class="loan-consolidate-form__actions">
+                <button type="button" class="loan-consolidate-form__submit-btn" data-app-fn="submitConsolidateLoans">
+                    ${icons.get('check', { size: 16 })} Confirmar y consolidar deuda (${formatCurrency(consolidatedTotal)})
                 </button>
-                <button type="button" data-app-fn="toggleConsolidateForm"
-                        style="flex: 1; padding: 12px; background: transparent; color: #94a3b8; border: 1px solid #4338ca; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer;">
+                <button type="button" class="loan-consolidate-form__cancel-btn" data-app-fn="toggleConsolidateForm">
                     Cancelar
                 </button>
             </div>

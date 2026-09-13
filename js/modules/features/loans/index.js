@@ -42,6 +42,7 @@ export {
     resetLoansFilters,
     setLoansDisplayMode,
     toggleConsolidateForm,
+    toggleConsolidateAdvancedOptions,
     setConsolidateDraftField,
     submitConsolidateLoans,
     toggleLoansCapacityStyle,
