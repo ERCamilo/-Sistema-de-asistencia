@@ -1168,6 +1168,22 @@ export function getClosedLoansCount(state) {
 // ─── Payroll repayment capacity (Fase 3: Alerta de Capacidad en Nómina) ─────
 
 /**
+ * 📅 Resolves the pay period duration in fractional weeks from the system calendar settings.
+ * If not set or invalid, defaults to standard biweekly (15 days / 2.14 weeks).
+ *
+ * @param {object} [stateObj] - State proxy or snapshot
+ * @returns {number} Period duration in weeks (rounded to 2 decimals)
+ */
+export function getCalendarPeriodWeeks(stateObj = null) {
+    const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
+    const periodLength = Number(resolvedState.settings?.payPeriod?.periodLength);
+    if (Number.isInteger(periodLength) && periodLength > 0) {
+        return round2(periodLength / 7);
+    }
+    return 2;
+}
+
+/**
  * 💰 Calculates the estimated regular earnings of an employee for a given period (in weeks).
  *
  * Resolves salary with the same precedence as PayrollService & ProfilePickers:
@@ -1178,14 +1194,14 @@ export function getClosedLoansCount(state) {
  *  5. emp.customSalary (legacy monthly amount)
  *
  * @param {object} emp - The employee object
- * @param {number} [frequencyWeeks=2] - Duration of regular period in weeks (1, 2, 3, 4)
+ * @param {number|null} [frequencyWeeks=null] - Duration of regular period in weeks. If omitted/null, takes calendar period length.
  * @param {object} [stateObj] - State proxy or snapshot (defaults to window.state if in browser)
  * @returns {number} Estimated gross regular salary for that period (rounded to 2 decimals)
  */
-export function getEmployeePeriodSalary(emp, frequencyWeeks = 2, stateObj = null) {
+export function getEmployeePeriodSalary(emp, frequencyWeeks = null, stateObj = null) {
     if (!emp) return 0;
     const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
-    const weeks = Math.max(1, Number(frequencyWeeks) || 2);
+    const weeks = frequencyWeeks && Number(frequencyWeeks) > 0 ? Number(frequencyWeeks) : getCalendarPeriodWeeks(resolvedState);
     const regularHours = Number(resolvedState.settings?.regularHoursPerDay) || 8;
     const WEEKS_PER_MONTH = 52 / 12;
 
@@ -1244,8 +1260,27 @@ export function getEmployeePeriodSalary(emp, frequencyWeeks = 2, stateObj = null
 }
 
 /**
+ * 📥 Calculates total upcoming payroll deductions across an employee's active loans
+ * (scheduled installments + pending lump-sum balances).
+ *
+ * @param {object} emp - The employee object
+ * @param {string|null} [excludeLoanId=null] - Optional loan ID to exclude (e.g. loan being refinanced)
+ * @returns {number} Total amount scheduled to be deducted on next payroll close
+ */
+export function getEmployeeUpcomingDeductions(emp, excludeLoanId = null) {
+    if (!emp || !Array.isArray(emp.loans)) return 0;
+    const active = emp.loans.filter(l => l.status === LOAN_STATUS.ACTIVE && (!excludeLoanId || l.id !== excludeLoanId));
+    const total = active.reduce((sum, loan) => {
+        const options = getPayrollDeductionOptions(loan);
+        return sum + (options.length > 0 ? Number(options[0].amount || 0) : getBalance(loan));
+    }, 0);
+    return round2(total);
+}
+
+/**
  * 📊 Evaluates the repayment capacity of an installment or lump-sum deduction
- * against an employee's estimated regular earnings for that period.
+ * against an employee's estimated regular earnings for that period, factoring in
+ * all existing upcoming deductions.
  *
  * Thresholds:
  *  - Safe (<= 30%): optimal capacity, low payroll impact.
@@ -1254,14 +1289,27 @@ export function getEmployeePeriodSalary(emp, frequencyWeeks = 2, stateObj = null
  *
  * @param {object} params
  * @param {number} params.installmentAmount - Proposed installment or lump deduction amount
+ * @param {number} [params.existingDeductions=0] - Already queued deductions on next payroll close
  * @param {number} params.periodSalary - Estimated regular earnings for the period
- * @param {number} [params.frequencyWeeks=2] - Weeks in the period
+ * @param {number|null} [params.frequencyWeeks=null] - Weeks in the period (defaults to calendar period)
+ * @param {object|null} [params.stateObj=null] - State proxy or snapshot
  * @returns {object} Repayment capacity evaluation
  */
-export function calculateRepaymentCapacity({ installmentAmount = 0, periodSalary = 0, frequencyWeeks = 2 } = {}) {
+export function calculateRepaymentCapacity({
+    installmentAmount = 0,
+    existingDeductions = 0,
+    periodSalary = 0,
+    frequencyWeeks = null,
+    stateObj = null
+} = {}) {
     const inst = round2(Math.max(0, Number(installmentAmount) || 0));
+    const existing = round2(Math.max(0, Number(existingDeductions) || 0));
+    const totalDeduction = round2(inst + existing);
     const salary = round2(Math.max(0, Number(periodSalary) || 0));
-    const weeks = Math.max(1, Number(frequencyWeeks) || 2);
+    const weeks = frequencyWeeks && Number(frequencyWeeks) > 0 ? Number(frequencyWeeks) : getCalendarPeriodWeeks(stateObj);
+
+    const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
+    const configuredDays = Number(resolvedState.settings?.payPeriod?.periodLength);
 
     const periodNames = {
         1: 'semanal (1 sem)',
@@ -1269,16 +1317,20 @@ export function calculateRepaymentCapacity({ installmentAmount = 0, periodSalary
         3: '3 semanas',
         4: 'mensual (4 sem)'
     };
-    const periodLabel = periodNames[weeks] || `${weeks} sem`;
+    const periodLabel = periodNames[weeks] || (configuredDays ? `período (${configuredDays} días)` : `${weeks} sem`);
 
     if (salary <= 0) {
         return {
             periodSalary: 0,
             installmentAmount: inst,
+            existingDeductions: existing,
+            totalDeduction,
             frequencyWeeks: weeks,
             periodLabel,
             ratio: 0,
             percentage: null,
+            instPercentage: null,
+            existingPercentage: null,
             status: 'unknown',
             statusLabel: 'Sin salario base registrado',
             color: '#64748b',
@@ -1288,14 +1340,18 @@ export function calculateRepaymentCapacity({ installmentAmount = 0, periodSalary
         };
     }
 
-    const ratio = inst / salary;
+    const ratio = totalDeduction / salary;
     const percentage = round2(ratio * 100);
+    const instPct = round2((inst / salary) * 100);
+    const existingPct = round2((existing / salary) * 100);
 
     let status = 'safe';
     let statusLabel = 'Capacidad óptima (≤ 30%)';
     let color = '#10b981';
     let badgeText = `${percentage}% del sueldo · Óptimo`;
-    let warningText = 'Cuota dentro del margen saludable recomendado (≤ 30% del salario del período).';
+    let warningText = existing > 0
+        ? `Retención total de ${percentage}% ($${existing.toFixed(2)} previas + $${inst.toFixed(2)} nuevo) dentro del margen saludable.`
+        : 'Cuota dentro del margen saludable recomendado (≤ 30% del salario del período).';
 
     if (percentage > 50) {
         status = 'danger';
@@ -1304,24 +1360,36 @@ export function calculateRepaymentCapacity({ installmentAmount = 0, periodSalary
             : 'Riesgo alto de retención (> 50%)';
         color = '#ef4444';
         badgeText = `${percentage}% del sueldo · Riesgo Alto`;
-        warningText = percentage > 100
-            ? '⚠️ La cuota excede el 100% del salario regular del período. Generará nómina negativa si no hay otros ingresos.'
-            : '⚠️ La cuota absorbe más de la mitad del salario del período. Alto riesgo de insuficiencia en el neto a pagar.';
+        if (percentage > 100) {
+            warningText = existing > 0
+                ? `⚠️ Retención total de ${percentage}% ($${existing.toFixed(2)} en cola + $${inst.toFixed(2)} nuevo) excede el 100% del sueldo. Generará nómina negativa.`
+                : '⚠️ La cuota excede el 100% del salario regular del período. Generará nómina negativa si no hay otros ingresos.';
+        } else {
+            warningText = existing > 0
+                ? `⚠️ Retención total de ${percentage}% ($${existing.toFixed(2)} en cola + $${inst.toFixed(2)} nuevo). Alto riesgo de insuficiencia en el neto a pagar.`
+                : '⚠️ La cuota absorbe más de la mitad del salario del período. Alto riesgo de insuficiencia en el neto a pagar.';
+        }
     } else if (percentage > 30) {
         status = 'moderate';
         statusLabel = 'Compromiso moderado (31% – 50%)';
         color = '#f59e0b';
         badgeText = `${percentage}% del sueldo · Moderado`;
-        warningText = 'ℹ️ Retención considerable sobre el salario. Verificar que el empleado no tenga otros descuentos recurrentes.';
+        warningText = existing > 0
+            ? `ℹ️ Retención total considerable de ${percentage}% ($${existing.toFixed(2)} en cola + $${inst.toFixed(2)} nuevo).`
+            : 'ℹ️ Retención considerable sobre el salario. Verificar que el empleado no tenga otros descuentos recurrentes.';
     }
 
     return {
         periodSalary: salary,
         installmentAmount: inst,
+        existingDeductions: existing,
+        totalDeduction,
         frequencyWeeks: weeks,
         periodLabel,
         ratio,
         percentage,
+        instPercentage: instPct,
+        existingPercentage: existingPct,
         status,
         statusLabel,
         color,
@@ -1330,4 +1398,116 @@ export function calculateRepaymentCapacity({ installmentAmount = 0, periodSalary
         isAvailable: true
     };
 }
+
+/**
+ * 🔗 Consolidates multiple active loans into a single unified loan with a restructured installment schedule.
+ *
+ * Marks old loans as PAID with audit tracking and creates a single consolidated loan
+ * for the total alive balance.
+ *
+ * @param {object} emp - Employee object
+ * @param {object} options
+ * @param {string[]} [options.loanIds=null] - Specific active loan IDs to consolidate (or all if null)
+ * @param {string} [options.concept=''] - Optional custom concept for the consolidated loan
+ * @param {number} [options.installmentCount=4] - Number of installments
+ * @param {number|null} [options.installmentFrequencyWeeks=null] - Installment frequency in weeks
+ * @param {number} [options.interestRate=0] - Additional interest rate (if any)
+ * @param {string|null} [options.startDate=null] - Effective date (YYYY-MM-DD)
+ * @param {string} [options.note=''] - Additional note
+ * @param {string|null} [user=null] - Identifier of user performing the consolidation
+ * @returns {object} { consolidatedLoan, closedLoans }
+ */
+export function consolidateLoans(emp, {
+    loanIds = null,
+    concept = '',
+    installmentCount = 4,
+    installmentFrequencyWeeks = null,
+    interestRate = 0,
+    startDate = null,
+    note = ''
+} = {}, user = null) {
+    assertTandaBBlockedWhenScoped('LoansService.consolidateLoans');
+    if (!emp) throw new Error('Empleado no proporcionado');
+    if (!Array.isArray(emp.loans)) emp.loans = [];
+
+    const activeLoans = emp.loans.filter(l => l.status === LOAN_STATUS.ACTIVE);
+    const targetLoans = Array.isArray(loanIds) && loanIds.length > 0
+        ? activeLoans.filter(l => loanIds.includes(l.id))
+        : activeLoans;
+
+    if (targetLoans.length < 2) {
+        throw new Error('Se requieren al menos 2 préstamos activos para consolidar.');
+    }
+
+    const totalBalanceToConsolidate = round2(
+        targetLoans.reduce((sum, l) => sum + getBalance(l), 0)
+    );
+
+    if (totalBalanceToConsolidate <= 0) {
+        throw new Error('No hay saldo pendiente a consolidar en los préstamos seleccionados.');
+    }
+
+    const newLoanId = genId('LOAN');
+    const now = Date.now();
+    const effectiveStartDate = startDate || new Date().toISOString().slice(0, 10);
+    const resolvedFrequencyWeeks = Number(installmentFrequencyWeeks) || Math.round(getCalendarPeriodWeeks()) || 2;
+    const count = Math.max(1, Number(installmentCount) || 1);
+    const mode = count > 1 ? INSTALLMENT_MODE.INSTALLMENTS : INSTALLMENT_MODE.LUMP;
+
+    // 1. Close source loans with full audit trace
+    for (const sourceLoan of targetLoans) {
+        sourceLoan.status = LOAN_STATUS.PAID;
+        sourceLoan.closedAt = now;
+        sourceLoan.closedBy = user;
+        sourceLoan.consolidatedIntoLoanId = newLoanId;
+        const consolidationAudit = `[Consolidado en ${newLoanId} el ${effectiveStartDate}]`;
+        sourceLoan.concept = sourceLoan.concept ? `${sourceLoan.concept} ${consolidationAudit}` : consolidationAudit;
+        sourceLoan.updatedAt = now;
+    }
+
+    // 2. Build consolidated installment schedule
+    const installments = mode === INSTALLMENT_MODE.INSTALLMENTS
+        ? generateInstallmentSchedule({
+            principal: totalBalanceToConsolidate,
+            interestRate: Number(interestRate || 0),
+            interestIncluded: false,
+            startDate: effectiveStartDate,
+            count,
+            frequencyWeeks: resolvedFrequencyWeeks
+        })
+        : [];
+
+    const consolidatedConcept = (concept || '').trim() ||
+        `Consolidación de deuda (${targetLoans.length} préstamos)${note ? ` · ${note}` : ''}`;
+
+    const newLoan = {
+        id: newLoanId,
+        seq: nextLoanSeq(emp.loans),
+        principal: totalBalanceToConsolidate,
+        interestRate: Number(interestRate || 0),
+        interestType: 'simple',
+        interestIncluded: false,
+        startDate: effectiveStartDate,
+        concept: consolidatedConcept,
+        status: LOAN_STATUS.ACTIVE,
+        installmentMode: mode,
+        installmentFrequencyWeeks: resolvedFrequencyWeeks,
+        installments,
+        payments: [],
+        consolidatedFromLoanIds: targetLoans.map(l => l.id),
+        createdAt: now,
+        updatedAt: now,
+        closedAt: null,
+        closedBy: null
+    };
+
+    emp.loans.push(newLoan);
+    emp.updatedAt = now;
+
+    return {
+        consolidatedLoan: newLoan,
+        closedLoans: targetLoans
+    };
+}
+
 

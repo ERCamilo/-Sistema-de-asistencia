@@ -36,7 +36,9 @@ import {
     getTotalInterestAccrued,
     getInterestAmount,
     getRefinanceInterest,
+    getCalendarPeriodWeeks,
     getEmployeePeriodSalary,
+    getEmployeeUpcomingDeductions,
     calculateRepaymentCapacity,
     LOAN_STATUS,
     INSTALLMENT_MODE,
@@ -594,6 +596,7 @@ function EmployeeLoansDetail(empId) {
 
     const ledger = state.loansLedger || {};
     const showAddForm = !!ledger.showAddForm;
+    const showConsolidateForm = !!ledger.showConsolidateForm;
 
     // Fase 2 U4: detector post-merge de posibles duplicados por creación
     // concurrente (doble señal: mismo seq + monto igual + fechas cercanas).
@@ -700,13 +703,25 @@ function EmployeeLoansDetail(empId) {
                 </div>
             ` : ''}
 
-            <!-- New loan button / form -->
-            ${showAddForm ? NewLoanForm(emp) : `
-                <button type="button" data-app-fn="toggleAddLoanForm"
-                        style="width: 100%; padding: 14px; margin-bottom: 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 10px; font-weight: 800; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                    ${icons.get('add')} Nuevo préstamo / adelanto
-                </button>
-            `}
+            <!-- Action buttons: New loan & Consolidate (if >= 2 active) -->
+            ${showConsolidateForm ? ConsolidateLoansForm(emp, active) : ''}
+            ${showAddForm ? NewLoanForm(emp) : ''}
+
+            ${!showAddForm && !showConsolidateForm ? `
+                <div style="display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;">
+                    <button type="button" data-app-fn="toggleAddLoanForm"
+                            style="flex: 1; min-width: 220px; padding: 14px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 10px; font-weight: 800; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                        ${icons.get('add')} Nuevo préstamo / adelanto
+                    </button>
+                    ${active.length >= 2 ? `
+                        <button type="button" data-app-fn="toggleConsolidateForm"
+                                style="flex: 1; min-width: 220px; padding: 14px; background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fff; border: none; border-radius: 10px; font-weight: 800; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                            Consolidar préstamos (${active.length} activos)
+                        </button>
+                    ` : ''}
+                </div>
+            ` : ''}
 
             <!-- Active loans -->
             ${active.length > 0 ? `
@@ -1233,8 +1248,12 @@ function LoanCapacityMeter(capacity) {
     const {
         periodSalary,
         installmentAmount,
+        existingDeductions = 0,
+        totalDeduction = installmentAmount,
         periodLabel,
         percentage,
+        instPercentage,
+        existingPercentage,
         status,
         color,
         badgeText,
@@ -1243,6 +1262,7 @@ function LoanCapacityMeter(capacity) {
     } = capacity;
 
     const fillPercent = Math.min(Math.max(percentage || 0, 0), 100);
+    const hasPrior = existingDeductions > 0;
 
     return `
         <div class="loan-capacity-meter loan-capacity-meter--${status}">
@@ -1259,20 +1279,30 @@ function LoanCapacityMeter(capacity) {
             </div>
 
             ${isAvailable ? `
-                <div class="loan-capacity-meter__bar-track" title="Retención: ${percentage}% del salario del período">
+                <div class="loan-capacity-meter__bar-track" title="Retención total: ${percentage}% del sueldo${hasPrior ? ` (Previas: ${existingPercentage}% + Nueva: ${instPercentage}%)` : ''}">
                     <div class="loan-capacity-meter__bar-fill" style="width: ${fillPercent}%; background: ${color};"></div>
                 </div>
             ` : ''}
 
-            <div class="loan-capacity-meter__metrics">
+            <div class="loan-capacity-meter__metrics" style="${hasPrior ? 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px;' : ''}">
                 <div class="loan-capacity-meter__metric">
                     <span class="loan-capacity-meter__metric-label">Sueldo est. (${escapeHTML(periodLabel)}):</span>
                     <strong class="loan-capacity-meter__metric-value">${isAvailable ? formatCurrency(periodSalary) : 'No configurado'}</strong>
                 </div>
                 <div class="loan-capacity-meter__metric">
-                    <span class="loan-capacity-meter__metric-label">Cuota propuesta:</span>
-                    <strong class="loan-capacity-meter__metric-value" style="color: ${color};">${formatCurrency(installmentAmount)}</strong>
+                    <span class="loan-capacity-meter__metric-label">Nueva cuota propuesta:</span>
+                    <strong class="loan-capacity-meter__metric-value" style="color: ${color};">${formatCurrency(installmentAmount)}${instPercentage != null ? ` (${instPercentage}%)` : ''}</strong>
                 </div>
+                ${hasPrior ? `
+                    <div class="loan-capacity-meter__metric">
+                        <span class="loan-capacity-meter__metric-label">Retenciones previas en cola:</span>
+                        <strong class="loan-capacity-meter__metric-value" style="color: #94a3b8;">${formatCurrency(existingDeductions)} (${existingPercentage}%)</strong>
+                    </div>
+                    <div class="loan-capacity-meter__metric" style="background: rgba(15,23,42,0.4); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                        <span class="loan-capacity-meter__metric-label" style="font-weight: 700; color: #f1f5f9;">Retención total proyectada:</span>
+                        <strong class="loan-capacity-meter__metric-value" style="color: ${color}; font-size: 0.95rem;">${formatCurrency(totalDeduction)} (${percentage}%)</strong>
+                    </div>
+                ` : ''}
             </div>
 
             <div class="loan-capacity-meter__warning" style="color: ${status === 'danger' ? '#fca5a5' : (status === 'moderate' ? '#fde68a' : '#94a3b8')};">
@@ -1281,6 +1311,128 @@ function LoanCapacityMeter(capacity) {
         </div>
     `;
 }
+
+// ─── CONSOLIDATE (consolidación de deuda) FORM ──────────────────────────────
+
+function ConsolidateLoansForm(emp, activeLoans) {
+    const draft = (state.loansLedger || {}).consolidateDraft || {
+        installmentCount: 4,
+        installmentFrequencyWeeks: Math.round(getCalendarPeriodWeeks(state)) || 2,
+        interestRate: 0,
+        note: '',
+        startDate: getDateKey(new Date())
+    };
+
+    const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const totalBalance = r2(activeLoans.reduce((sum, l) => sum + getBalance(l), 0));
+    const count = Math.max(1, Number(draft.installmentCount || 4));
+    const rate = Number(draft.interestRate || 0);
+    const interestToAdd = r2(totalBalance * rate / 100);
+    const consolidatedTotal = r2(totalBalance + interestToAdd);
+    const approxInstallment = r2(consolidatedTotal / count);
+
+    const calendarWeeks = getCalendarPeriodWeeks(state);
+    const frequencyWeeks = Number(draft.installmentFrequencyWeeks) || calendarWeeks;
+    const periodSalary = getEmployeePeriodSalary(emp, frequencyWeeks, state);
+
+    // Las deudas viejas se cancelan al consolidar, por lo que la retención
+    // previa en cola pasa a ser reemplazada íntegramente por esta cuota.
+    const capacity = calculateRepaymentCapacity({
+        installmentAmount: approxInstallment,
+        existingDeductions: 0,
+        periodSalary,
+        frequencyWeeks,
+        stateObj: state
+    });
+
+    return `
+        <div class="loan-consolidate-form" style="background: #1e1b4b; border: 1px solid #8b5cf6; border-radius: 12px; padding: 18px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #a78bfa;">${icons.get('briefcase', { size: 18 })}</span>
+                    <span style="font-size: 0.95rem; font-weight: 800; color: #c4b5fd; text-transform: uppercase; letter-spacing: 0.05em;">
+                        Consolidación de Deuda (${activeLoans.length} préstamos)
+                    </span>
+                </div>
+                <button type="button" data-app-fn="toggleConsolidateForm"
+                        style="background: transparent; color: #94a3b8; border: 1px solid #4338ca; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">✕ Cerrar</button>
+            </div>
+
+            <div style="color: #cbd5e1; font-size: 0.8rem; margin-bottom: 12px; line-height: 1.5;">
+                Unifica los saldos pendientes de los préstamos activos en un único plan de cuotas viable, aliviando la nómina de retenciones asfixiantes.
+            </div>
+
+            <!-- Resumen de préstamos a unificar -->
+            <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px 12px; margin-bottom: 14px;">
+                <div style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; margin-bottom: 6px;">Préstamos incluidos en la consolidación</div>
+                ${activeLoans.map(l => `
+                    <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <span style="color: #cbd5e1;">${escapeHTML(l.concept || 'Préstamo')} (${formatDateShort(l.startDate)})</span>
+                        <strong style="color: #f59e0b;">${formatCurrency(getBalance(l))}</strong>
+                    </div>
+                `).join('')}
+                <div style="display: flex; justify-content: space-between; padding-top: 8px; margin-top: 4px; border-top: 1px solid #334155; font-size: 0.88rem;">
+                    <span style="color: #f1f5f9; font-weight: 700;">Total saldo vivo a consolidar:</span>
+                    <strong style="color: #a78bfa; font-size: 1rem;">${formatCurrency(totalBalance)}</strong>
+                </div>
+            </div>
+
+            <!-- Controles del nuevo plan -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 14px;">
+                <div>
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Número de cuotas</label>
+                    <input type="number" inputmode="numeric" value="${draft.installmentCount || 4}" min="1" max="24" step="1"
+                           oninput="setConsolidateDraftField('installmentCount', this.value)"
+                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #4338ca; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
+                </div>
+                <div>
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Frecuencia</label>
+                    <select onchange="setConsolidateDraftField('installmentFrequencyWeeks', this.value)"
+                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #4338ca; border-radius: 6px; color: #f1f5f9; font-size: 0.88rem;">
+                        ${VALIDATION.ALLOWED_FREQUENCY_WEEKS.map(w =>
+                            `<option value="${w}" ${Number(draft.installmentFrequencyWeeks || calendarWeeks) === w ? 'selected' : ''}>Cada ${w} semana${w === 1 ? '' : 's'}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Tasa adicional (%)</label>
+                    <input type="number" inputmode="decimal" value="${draft.interestRate || 0}" min="0" max="100" step="0.5"
+                           oninput="setConsolidateDraftField('interestRate', this.value)"
+                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #4338ca; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
+                </div>
+                <div>
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Nota (opcional)</label>
+                    <input type="text" value="${escapeAttr(draft.note || '')}" placeholder="Acuerdo con empleado"
+                           oninput="setConsolidateDraftField('note', this.value)"
+                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #4338ca; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
+                </div>
+            </div>
+
+            <!-- Proyección del nuevo plan -->
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 10px 12px; background: #0f172a; border: 1px solid #4338ca; border-radius: 8px; margin-bottom: 12px; font-size: 0.82rem;">
+                <span style="color: #94a3b8;">Deuda base: <strong style="color: #f1f5f9;">${formatCurrency(totalBalance)}</strong></span>
+                ${rate > 0 ? `<span style="color: #94a3b8;">Interés: <strong style="color: #a78bfa;">+${formatCurrency(interestToAdd)} (${rate}%)</strong></span>` : ''}
+                <span style="color: #94a3b8;">Nuevo saldo: <strong style="color: #a78bfa;">${formatCurrency(consolidatedTotal)}</strong></span>
+                <span style="color: #94a3b8;">Nueva cuota periódica: <strong style="color: #38bdf8;">${count} × ~${formatCurrency(approxInstallment)}</strong></span>
+            </div>
+
+            <!-- Medidor de capacidad para la nueva cuota consolidada -->
+            ${LoanCapacityMeter(capacity)}
+
+            <div style="display: flex; gap: 10px; margin-top: 14px;">
+                <button type="button" data-app-fn="submitConsolidateLoans"
+                        style="flex: 2; padding: 12px; background: linear-gradient(135deg, #8b5cf6, #a855f7); color: #fff; border: none; border-radius: 8px; font-weight: 800; font-size: 0.92rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    ${icons.get('check', { size: 16 })} Confirmar y consolidar deuda (${formatCurrency(totalBalance)})
+                </button>
+                <button type="button" data-app-fn="toggleConsolidateForm"
+                        style="flex: 1; padding: 12px; background: transparent; color: #94a3b8; border: 1px solid #4338ca; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer;">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    `;
+}
+
 
 // ─── REFINANCE (refinanciamiento) FORM ────────────────────────────────────────
 
@@ -1308,13 +1460,17 @@ function RefinanceForm(loan, balance, emp = null) {
         ? (state.employees || []).find(e => e.id === state.loansLedger.selectedEmployeeId)
         : (state.employees || []).find(e => (e.loans || []).some(l => l.id === loan.id)));
 
-    const frequencyWeeks = isInstallments ? Number(draft.installmentFrequencyWeeks || 2) : 2;
+    const calendarWeeks = getCalendarPeriodWeeks(state);
+    const frequencyWeeks = isInstallments ? Number(draft.installmentFrequencyWeeks || 2) : calendarWeeks;
     const periodSalary = getEmployeePeriodSalary(resolvedEmp, frequencyWeeks, state);
     const installmentAmount = isInstallments ? approxInstallment : newBalance;
+    const existingDeductions = getEmployeeUpcomingDeductions(resolvedEmp, loan.id);
     const capacity = calculateRepaymentCapacity({
         installmentAmount,
+        existingDeductions,
         periodSalary,
-        frequencyWeeks
+        frequencyWeeks,
+        stateObj: state
     });
 
     return `
@@ -1495,7 +1651,8 @@ function NewLoanForm(emp = null) {
         ? (state.employees || []).find(e => e.id === state.loansLedger.selectedEmployeeId)
         : null);
 
-    const frequencyWeeks = isInstallments ? Number(draft.installmentFrequencyWeeks || 2) : 2;
+    const calendarWeeks = getCalendarPeriodWeeks(state);
+    const frequencyWeeks = isInstallments ? Number(draft.installmentFrequencyWeeks || 2) : calendarWeeks;
     const periodSalary = getEmployeePeriodSalary(resolvedEmp, frequencyWeeks, state);
 
     const principal = Number(draft.principal || 0);
@@ -1511,10 +1668,13 @@ function NewLoanForm(emp = null) {
         installmentAmount = totalDue;
     }
 
+    const existingDeductions = getEmployeeUpcomingDeductions(resolvedEmp);
     const capacity = calculateRepaymentCapacity({
         installmentAmount,
+        existingDeductions,
         periodSalary,
-        frequencyWeeks
+        frequencyWeeks,
+        stateObj: state
     });
 
     // Preview installment schedule live as the user types

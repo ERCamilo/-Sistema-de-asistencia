@@ -41,5 +41,8 @@ export {
     toggleLoansFilterMenu,
     resetLoansFilters,
     setLoansDisplayMode,
+    toggleConsolidateForm,
+    setConsolidateDraftField,
+    submitConsolidateLoans,
     registerLegacyGlobals
 } from './LoansController.js';

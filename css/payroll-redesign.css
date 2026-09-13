@@ -2550,6 +2550,10 @@
     margin-top: 4px;
 }
 
+.loan-consolidate-form {
+    box-shadow: 0 8px 24px -6px rgba(124, 58, 237, 0.25);
+}
+
 /* Payroll loan settlement -------------------------------------------------- */
 .payroll-loan-settlement {
     display: grid;

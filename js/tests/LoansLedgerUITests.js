@@ -887,7 +887,114 @@ testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
         testRunner.assert(meter !== null, "El medidor de capacidad debe estar dentro de RefinanceForm");
         testRunner.assert(meter.textContent.includes('$9,600.00'), "Muestra el sueldo del período ($9,600.00)");
         testRunner.assert(meter.textContent.includes('$2,750.00'), "Muestra la nueva cuota estimada ($2,750.00)");
+    },
+
+    "renderiza el botón Consolidar Préstamos cuando el empleado tiene 2 o más préstamos activos"() {
+        resetState();
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: false,
+            showConsolidateForm: false
+        };
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            loans: [
+                { id: 'l1', principal: 5000, status: 'active', payments: [] },
+                { id: 'l2', principal: 8000, status: 'active', payments: [] }
+            ]
+        }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const consolidateBtn = host.querySelector('[data-app-fn="toggleConsolidateForm"]');
+        testRunner.assert(consolidateBtn !== null, "Debe existir el botón para consolidar préstamos");
+        testRunner.assert(consolidateBtn.textContent.includes('Consolidar préstamos (2 activos)'), "Debe indicar los 2 activos");
+    },
+
+    "renderiza ConsolidateLoansForm con el total consolidado y su medidor de capacidad"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 } }; // 2 semanas
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // 9600 quincenal
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: false,
+            showConsolidateForm: true,
+            consolidateDraft: {
+                installmentCount: 4,
+                installmentFrequencyWeeks: 2,
+                interestRate: 0,
+                note: 'Unificación de cuentas'
+            }
+        };
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            positions: ['pos1'],
+            loans: [
+                { id: 'l1', principal: 4000, status: 'active', concept: 'Adelanto 1', payments: [] },
+                { id: 'l2', principal: 8000, status: 'active', concept: 'Adelanto 2', payments: [] }
+            ]
+        }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const form = host.querySelector('.loan-consolidate-form');
+        testRunner.assert(form !== null, "Debe renderizarse el formulario de consolidación");
+        testRunner.assert(form.textContent.includes('$12,000.00'), "Debe mostrar el total acumulado de $12,000.00");
+        testRunner.assert(form.textContent.includes('4 × ~$3,000.00'), "Debe calcular cuotas de ~3,000.00");
+
+        const meter = form.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "Debe incluir el medidor de capacidad");
+        testRunner.assert(meter.textContent.includes('$9,600.00'), "Debe mostrar el sueldo de 9,600.00");
+        testRunner.assert(meter.textContent.includes('31.25% del sueldo'), "Evalúa ~31% del sueldo");
+    },
+
+    "renderiza retenciones previas en cola en NewLoanForm cuando hay otros préstamos activos"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 } };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // 9600 quincenal
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: true,
+            showConsolidateForm: false,
+            newLoanDraft: {
+                principal: 2000,
+                installmentMode: 'lump',
+                installmentCount: 1,
+                installmentFrequencyWeeks: 2
+            }
+        };
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            positions: ['pos1'],
+            loans: [
+                { id: 'l1', principal: 3000, status: 'active', installmentMode: 'lump', payments: [] } // 3000 en cola
+            ]
+        }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "Debe renderizar el medidor");
+        testRunner.assert(meter.textContent.includes('Retenciones previas en cola:'), "Muestra retenciones previas");
+        testRunner.assert(meter.textContent.includes('$3,000.00'), "Muestra los 3000 previos");
+        testRunner.assert(meter.textContent.includes('$5,000.00'), "Muestra el total proyectado de 5000 (3000 + 2000)");
     }
 });
 
 console.log('🧪 LoansLedger UI tests cargados.');
+

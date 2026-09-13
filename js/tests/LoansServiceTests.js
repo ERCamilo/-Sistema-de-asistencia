@@ -37,8 +37,11 @@ import {
     getTotalHistoricalDue,
     getTotalHistoricalPaid,
     getClosedLoansCount,
+    getCalendarPeriodWeeks,
     getEmployeePeriodSalary,
+    getEmployeeUpcomingDeductions,
     calculateRepaymentCapacity,
+    consolidateLoans,
     LOAN_STATUS,
     INSTALLMENT_MODE
 } from '../modules/features/loans/LoansService.js';
@@ -756,4 +759,127 @@ testRunner.addSuite("LoansService — Repayment Capacity & Period Salary", {
 
 });
 
+// ─── Calendar Period, Global Deductions & Debt Consolidation ────────────────
+
+testRunner.addSuite("LoansService — Calendar Period, Global Deductions & Debt Consolidation", {
+
+    "getCalendarPeriodWeeks resuelve la duración configurada en días a semanas"() {
+        // 21 días (3 semanas)
+        testRunner.assertEquals(getCalendarPeriodWeeks({ settings: { payPeriod: { periodLength: 21 } } }), 3, "21 días son 3 semanas");
+        // 14 días (2 semanas)
+        testRunner.assertEquals(getCalendarPeriodWeeks({ settings: { payPeriod: { periodLength: 14 } } }), 2, "14 días son 2 semanas");
+        // 15 días (quincena civil: 15 / 7 = 2.14 semanas)
+        testRunner.assertEquals(getCalendarPeriodWeeks({ settings: { payPeriod: { periodLength: 15 } } }), 2.14, "15 días son 2.14 semanas");
+        // 7 días (1 semana)
+        testRunner.assertEquals(getCalendarPeriodWeeks({ settings: { payPeriod: { periodLength: 7 } } }), 1, "7 días son 1 semana");
+        // Fallback por defecto si no está configurado
+        testRunner.assertEquals(getCalendarPeriodWeeks({ settings: {} }), 2, "Fallback es 2 semanas");
+    },
+
+    "getEmployeePeriodSalary usa período de calendario cuando frequencyWeeks es nulo"() {
+        const state = {
+            settings: { regularHoursPerDay: 8, payPeriod: { periodLength: 21 } }, // 3 semanas
+            positions: [{ id: 'p1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5] }] // 100 * 8 * 5 = 4000/sem
+        };
+        const emp = { id: 'e1', positions: ['p1'] };
+
+        // 4000 * 3 = 12000
+        const salary = getEmployeePeriodSalary(emp, null, state);
+        testRunner.assertEquals(salary, 12000, "Debe calcular sobre las 3 semanas de calendario");
+    },
+
+    "getEmployeeUpcomingDeductions suma pagos únicos y cuotas activas excluyendo opcionalmente un préstamo"() {
+        const emp = {
+            id: 'e1',
+            loans: [
+                { id: 'l1', principal: 5000, status: LOAN_STATUS.ACTIVE, installmentMode: INSTALLMENT_MODE.LUMP, payments: [] },
+                { id: 'l2', principal: 6000, status: LOAN_STATUS.ACTIVE, installmentMode: INSTALLMENT_MODE.INSTALLMENTS, installments: [{ seq: 1, dueDate: '2026-09-20', scheduledAmount: 1500, paidAmount: 0 }], payments: [] },
+                { id: 'l3', principal: 2000, status: LOAN_STATUS.PAID, payments: [{ amount: 2000 }] }
+            ]
+        };
+
+        // l1 (5000) + l2 cuota próxima (1500) = 6500 (l3 está pagado)
+        const total = getEmployeeUpcomingDeductions(emp);
+        testRunner.assertEquals(total, 6500, "Suma deducciones en cola de préstamos activos");
+
+        // Excluyendo l1 (ej. en refinanciamiento de l1)
+        const withoutL1 = getEmployeeUpcomingDeductions(emp, 'l1');
+        testRunner.assertEquals(withoutL1, 1500, "Excluye el préstamo especificado");
+    },
+
+    "calculateRepaymentCapacity evalúa impacto acumulado con retenciones previas"() {
+        // Sueldo: 10,000. Retención previa en cola: 4,000 (40%). Nueva cuota: 2,000 (20%).
+        // Retención total: 6,000 (60%) -> pasa de moderate a danger!
+        const cap = calculateRepaymentCapacity({
+            installmentAmount: 2000,
+            existingDeductions: 4000,
+            periodSalary: 10000,
+            frequencyWeeks: 2
+        });
+
+        testRunner.assertEquals(cap.status, 'danger', "Impacto total supera el 50% y marca danger");
+        testRunner.assertEquals(cap.percentage, 60, "Retención total es 60%");
+        testRunner.assertEquals(cap.instPercentage, 20, "Cuota nueva es 20%");
+        testRunner.assertEquals(cap.existingPercentage, 40, "Retención previa es 40%");
+        testRunner.assert(cap.warningText.includes('4000.00 en cola'), "Aviso detalla el monto en cola");
+        testRunner.assert(cap.warningText.includes('2000.00 nuevo'), "Aviso detalla la nueva cuota");
+    },
+
+    "consolidateLoans unifica préstamos activos en un solo plan y salda los anteriores con auditoría"() {
+        const emp = {
+            id: 'e1',
+            loans: [
+                { id: 'l1', principal: 5000, status: LOAN_STATUS.ACTIVE, concept: 'Adelanto 1', payments: [] },
+                { id: 'l2', principal: 7000, status: LOAN_STATUS.ACTIVE, concept: 'Adelanto 2', payments: [{ amount: 1000 }] } // balance 6000
+            ]
+        };
+
+        // Balance total = 5000 + 6000 = 11000
+        const res = consolidateLoans(emp, {
+            installmentCount: 4,
+            installmentFrequencyWeeks: 2,
+            interestRate: 0,
+            startDate: '2026-09-15',
+            note: 'Reestructuración'
+        }, 'admin_user');
+
+        testRunner.assert(!!res.consolidatedLoan, "Retorna el préstamo consolidado");
+        testRunner.assertEquals(res.closedLoans.length, 2, "Cierra los 2 préstamos anteriores");
+
+        // Verificación de los préstamos cerrados
+        testRunner.assertEquals(emp.loans[0].status, LOAN_STATUS.PAID, "l1 queda saldado");
+        testRunner.assertEquals(emp.loans[1].status, LOAN_STATUS.PAID, "l2 queda saldado");
+        testRunner.assertEquals(emp.loans[0].closedBy, 'admin_user', "Registra closedBy");
+        testRunner.assert(emp.loans[0].consolidatedIntoLoanId === res.consolidatedLoan.id, "Trazabilidad cruzada de ID");
+
+        // Verificación del nuevo préstamo
+        const nuevo = res.consolidatedLoan;
+        testRunner.assertEquals(nuevo.principal, 11000, "Capital consolidado exacto = 11,000");
+        testRunner.assertEquals(nuevo.status, LOAN_STATUS.ACTIVE, "Nuevo préstamo está activo");
+        testRunner.assertEquals(nuevo.installments.length, 4, "Generó 4 cuotas");
+        testRunner.assertEquals(nuevo.installments[0].scheduledAmount, 2750, "Cada cuota es 2,750 (11000 / 4)");
+        testRunner.assert(nuevo.consolidatedFromLoanIds.includes('l1') && nuevo.consolidatedFromLoanIds.includes('l2'), "Registra orígenes");
+    },
+
+    "consolidateLoans rechaza consolidar si hay menos de 2 préstamos activos"() {
+        const emp = {
+            id: 'e1',
+            loans: [
+                { id: 'l1', principal: 5000, status: LOAN_STATUS.ACTIVE, payments: [] }
+            ]
+        };
+
+        let threw = false;
+        try {
+            consolidateLoans(emp, {});
+        } catch (e) {
+            threw = true;
+            testRunner.assert(e.message.includes('al menos 2 préstamos activos'), "Mensaje claro de precondición");
+        }
+        testRunner.assert(threw, "Lanza error si active < 2");
+    }
+
+});
+
 console.log('🧪 LoansService tests cargados.');
+

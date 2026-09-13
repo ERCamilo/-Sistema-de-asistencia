@@ -29,6 +29,8 @@ import {
     deleteLoan,
     refinanceLoan,
     voidRefinancing,
+    consolidateLoans,
+    getCalendarPeriodWeeks,
     migrateAdvancesToLoans,
     getBalance,
     LOAN_STATUS,
@@ -114,6 +116,12 @@ function ensureLedgerState() {
             }
             if (typeof state.loansLedger.displayMode === 'undefined') {
                 state.loansLedger.displayMode = 'grouped';
+            }
+            if (typeof state.loansLedger.showConsolidateForm === 'undefined') {
+                state.loansLedger.showConsolidateForm = false;
+            }
+            if (typeof state.loansLedger.consolidateDraft === 'undefined') {
+                state.loansLedger.consolidateDraft = null;
             }
         }
     });
@@ -773,6 +781,81 @@ export function voidRefinanceHandler(loanId, refinId) {
     });
 }
 
+// ─── Consolidación de deuda ──────────────────────────────────────────────────
+
+export function toggleConsolidateForm() {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showConsolidateForm = !state.loansLedger.showConsolidateForm;
+        if (state.loansLedger.showConsolidateForm) {
+            state.loansLedger.showAddForm = false;
+            state.loansLedger.showRefinanceFormForLoan = null;
+            state.loansLedger.showPaymentFormForLoan = null;
+            state.loansLedger.consolidateDraft = {
+                installmentCount: 4,
+                installmentFrequencyWeeks: Math.round(getCalendarPeriodWeeks(state)) || 2,
+                interestRate: 0,
+                note: '',
+                startDate: getDateKey(new Date())
+            };
+        } else {
+            state.loansLedger.consolidateDraft = null;
+        }
+    });
+    render();
+}
+
+export function setConsolidateDraftField(field, value) {
+    ensureLedgerState();
+    const draft = state.loansLedger.consolidateDraft;
+    if (!draft) return;
+    if (field === 'installmentCount' || field === 'installmentFrequencyWeeks' || field === 'interestRate') {
+        draft[field] = Number(value) || 0;
+    } else {
+        draft[field] = value;
+    }
+    render();
+}
+
+export function submitConsolidateLoans() {
+    ensureLedgerState();
+    const empId = state.loansLedger.selectedEmployeeId;
+    if (!empId) {
+        alertMsg('Selecciona un empleado primero');
+        return;
+    }
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp) {
+        alertMsg('Empleado no encontrado');
+        return;
+    }
+
+    const draft = state.loansLedger.consolidateDraft || {};
+    try {
+        const { consolidatedLoan, closedLoans } = consolidateLoans(emp, {
+            installmentCount: Number(draft.installmentCount || 4),
+            installmentFrequencyWeeks: Number(draft.installmentFrequencyWeeks || 2),
+            interestRate: Number(draft.interestRate || 0),
+            startDate: draft.startDate,
+            note: draft.note
+        });
+
+        stateManager.batchSetState(() => {
+            state.loansLedger.showConsolidateForm = false;
+            state.loansLedger.consolidateDraft = null;
+        });
+
+        saveApplicationData({
+            immediate: true,
+            announce: `Deuda consolidada: ${closedLoans.length} préstamos unificados en $${consolidatedLoan.principal.toFixed(2)}`
+        });
+        render();
+    } catch (err) {
+        alertMsg(`❌ ${err.message}`);
+    }
+}
+
+
 export function toggleInactiveHistory() {
     ensureLedgerState();
     stateManager.batchSetState(() => {
@@ -877,6 +960,9 @@ export function registerLegacyGlobals() {
     window.setRefinanceDraftField = setRefinanceDraftField;
     window.submitRefinance = submitRefinance;
     window.voidRefinanceHandler = voidRefinanceHandler;
+    window.toggleConsolidateForm = toggleConsolidateForm;
+    window.setConsolidateDraftField = setConsolidateDraftField;
+    window.submitConsolidateLoans = submitConsolidateLoans;
     window.setLoansFilterView = setLoansFilterView;
     window.setLoansSortBy = setLoansSortBy;
     window.setLoansSortOrder = setLoansSortOrder;
