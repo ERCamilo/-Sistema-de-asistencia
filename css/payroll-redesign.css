@@ -2483,12 +2483,12 @@
 .loan-capacity-meter__title {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 0.76rem;
-    font-weight: 700;
-    color: #e2e8f0;
+    gap: 7px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: #f1f5f9;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
 }
 
 .loan-capacity-meter__header-actions {
@@ -2501,11 +2501,12 @@
     padding: 3px 10px;
     border-radius: 9999px;
     border: 1px solid currentColor;
-    font-size: 0.7rem;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    background: rgba(15, 23, 42, 0.85);
-    font-family: 'IBM Plex Mono', monospace, sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    background: rgba(15, 23, 42, 0.9);
+    font-family: 'IBM Plex Mono', monospace;
+    font-variant-numeric: tabular-nums;
 }
 
 .loan-capacity-meter__style-toggle {
@@ -2586,15 +2587,17 @@
 
 .loan-capacity-gauge-val {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 1.35rem;
-    font-weight: 700;
+    font-size: 1.45rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
 }
 
 .loan-capacity-gauge-lbl {
-    font-size: 0.65rem;
+    font-size: 0.68rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     color: #94a3b8;
 }
 
@@ -2609,9 +2612,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 0.78rem;
-    padding-bottom: 4px;
-    border-bottom: 1px dashed rgba(255, 255, 255, 0.07);
+    font-size: 0.82rem;
+    padding-bottom: 5px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
     color: #94a3b8;
 }
 
@@ -2620,9 +2623,23 @@
     padding-top: 2px;
 }
 
-.loan-capacity-balance-row strong {
+.loan-capacity-balance-lbl {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.loan-capacity-balance-val {
     font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.loan-capacity-balance-pct {
+    font-size: 0.76rem;
     font-weight: 600;
+    opacity: 0.9;
 }
 
 /* Option C: Stacked Multilayer Layout */
@@ -2632,9 +2649,10 @@
     width: 100%;
     border-radius: 9999px;
     overflow: hidden;
-    background: #0f172a;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    margin-bottom: 10px;
+    background: #0b1320;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 12px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .loan-capacity-seg-prior {
@@ -2657,16 +2675,19 @@
 .loan-capacity-legends {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px 16px;
-    font-size: 0.76rem;
-    color: #94a3b8;
-    margin-bottom: 8px;
+    gap: 8px;
+    margin-bottom: 10px;
 }
 
 .loan-capacity-legend-item {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
+    padding: 6px 12px;
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    font-size: 0.78rem;
 }
 
 .loan-capacity-leg-dot {
@@ -2676,55 +2697,127 @@
     flex-shrink: 0;
 }
 
-.loan-capacity-legend-item strong {
-    font-family: 'IBM Plex Mono', monospace;
+.loan-capacity-legends {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    margin-top: 10px;
+}
+
+.loan-capacity-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 5px 12px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.loan-capacity-leg-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.loan-capacity-leg-label {
+    color: #94a3b8;
     font-weight: 600;
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.loan-capacity-leg-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+}
+
+.loan-capacity-leg-pct {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.76rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.92;
 }
 
 /* Assist bar */
 .loan-capacity-assist-bar {
-    background: rgba(15, 23, 42, 0.65);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 9px;
-    padding: 8px 12px;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(24, 35, 57, 0.85));
+    border: 1px solid rgba(6, 182, 212, 0.32);
+    border-radius: 10px;
+    padding: 10px 14px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 10px;
-    margin-top: 6px;
+    gap: 12px;
+    margin-top: 10px;
     flex-wrap: wrap;
+    box-shadow: 0 2px 8px -2px rgba(6, 182, 212, 0.15);
 }
 
 .loan-capacity-assist-text {
-    font-size: 0.74rem;
-    color: #cbd5e1;
-    line-height: 1.4;
+    font-size: 0.78rem;
+    color: #e2e8f0;
+    line-height: 1.5;
     flex: 1;
 }
 
+.loan-capacity-assist-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #38bdf8;
+    font-variant-numeric: tabular-nums;
+    padding: 1px 6px;
+    background: rgba(6, 182, 212, 0.12);
+    border: 1px solid rgba(6, 182, 212, 0.25);
+    border-radius: 4px;
+    letter-spacing: -0.01em;
+}
+
+.loan-capacity-assist-pct {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #34d399;
+    font-variant-numeric: tabular-nums;
+}
+
 .loan-capacity-suggest-btn {
-    font-size: 0.72rem;
+    font-size: 0.76rem;
     font-weight: 700;
     color: #081a24;
     background: #06b6d4;
-    padding: 5px 12px;
-    border-radius: 7px;
+    padding: 7px 16px;
+    border-radius: 8px;
     border: none;
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
-    transition: all 0.2s ease;
+    transition: all 0.18s ease;
+    box-shadow: 0 2px 8px -2px rgba(6, 182, 212, 0.45);
 }
 
 .loan-capacity-suggest-btn:hover {
-    filter: brightness(1.1);
+    background: #22d3ee;
     transform: translateY(-1px);
+    box-shadow: 0 4px 12px -2px rgba(6, 182, 212, 0.55);
 }
 
 .loan-capacity-meter__warning {
-    font-size: 0.74rem;
-    line-height: 1.4;
-    margin-top: 6px;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    margin-top: 10px;
+    font-weight: 500;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
 }
 /* ─── Loan Consolidation Form (Canonical Design Tokens) ───────────────── */
 .loan-consolidate-form {
@@ -2841,8 +2934,11 @@
 
 .loan-consolidate-form__loan-amount {
     font-family: 'IBM Plex Mono', monospace;
-    font-weight: 600;
-    color: var(--gold, #f59e0b);
+    font-weight: 700;
+    font-size: 0.92rem;
+    color: #fbbf24;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
 }
 
 .loan-consolidate-form__loans-total {
@@ -2861,10 +2957,12 @@
 }
 
 .loan-consolidate-form__loans-total strong {
-    color: var(--accent, #06b6d4);
-    font-size: 1.05rem;
+    color: #38bdf8;
+    font-size: 1.22rem;
     font-family: 'IBM Plex Mono', monospace;
     font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
 }
 
 /* Modo por defecto: 1 sola cuota */
@@ -2872,42 +2970,57 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
-    background: var(--panel-2, #1b273d);
-    border: 1px solid var(--border, #2a3a56);
-    border-radius: 8px;
-    font-size: 0.82rem;
+    gap: 16px;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(27, 39, 61, 0.8));
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    border-radius: 10px;
+    font-size: 0.84rem;
+    box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.3);
 }
 
 .loan-consolidate-form__single-info {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     color: var(--text, #f4f6fa);
     flex-wrap: wrap;
 }
 
 .loan-consolidate-form__single-badge {
-    background: var(--accent, #06b6d4);
-    color: var(--on-accent, #081a24);
+    background: rgba(6, 182, 212, 0.12);
+    color: #22d3ee;
+    border: 1px solid rgba(6, 182, 212, 0.35);
     font-size: 0.68rem;
-    font-weight: 800;
-    padding: 3px 8px;
-    border-radius: 4px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 9999px;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
     flex-shrink: 0;
 }
 
 .loan-consolidate-form__single-text {
     line-height: 1.4;
+    color: #e2e8f0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.84rem;
 }
 
 .loan-consolidate-form__amount-highlight {
-    color: var(--accent, #06b6d4);
+    color: #22d3ee;
     font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.08rem;
     font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: rgba(6, 182, 212, 0.12);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    padding: 1px 9px;
+    border-radius: 6px;
+    letter-spacing: -0.01em;
 }
 
 /* Toggle de opciones avanzadas */
@@ -2915,29 +3028,29 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: transparent;
-    border: 1px dashed var(--border, #2a3a56);
-    color: var(--text-dim, #a4b1c7);
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #cbd5e1;
     padding: 7px 14px;
     border-radius: 8px;
     font-size: 0.78rem;
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
-    transition: all 0.15s ease;
+    transition: all 0.18s ease;
 }
 
 .loan-consolidate-form__advanced-toggle-btn:hover {
-    border-color: var(--accent, #06b6d4);
-    color: var(--accent, #06b6d4);
-    background: rgba(6, 182, 212, 0.05);
+    border-color: rgba(6, 182, 212, 0.5);
+    color: #38bdf8;
+    background: rgba(6, 182, 212, 0.1);
+    box-shadow: 0 2px 8px -2px rgba(6, 182, 212, 0.25);
 }
 
 .loan-consolidate-form__advanced-toggle-btn.is-open {
-    background: var(--panel-2, #1b273d);
-    border-style: solid;
-    border-color: var(--accent, #06b6d4);
-    color: var(--accent, #06b6d4);
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.4);
+    color: #22d3ee;
 }
 
 /* Apartado de opciones avanzadas / diferimiento */
@@ -3004,6 +3117,12 @@
     transition: border-color 0.15s ease;
 }
 
+.loan-consolidate-form__field input[type="number"] {
+    font-family: 'IBM Plex Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
 .loan-consolidate-form__field input:focus,
 .loan-consolidate-form__field select:focus {
     outline: none;
@@ -3012,26 +3131,54 @@
 
 /* Fila de resumen de proyección */
 .loan-consolidate-form__projection-row {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: center;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 10px;
-    padding: 10px 14px;
-    background: var(--panel, #131d2e);
-    border: 1px solid var(--border, #2a3a56);
-    border-radius: 8px;
-    font-size: 0.8rem;
-    color: var(--text-dim, #a4b1c7);
+    padding: 12px 14px;
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9px;
 }
 
-.loan-consolidate-form__projection-row strong {
-    color: var(--text, #f4f6fa);
+.loan-consolidate-form__proj-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.loan-consolidate-form__proj-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #94a3b8;
+}
+
+.loan-consolidate-form__proj-val {
+    color: #f1f5f9;
     font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+}
+
+.loan-consolidate-form__proj-val--warn {
+    color: #fbbf24;
+}
+
+.loan-consolidate-form__proj-item--highlight {
+    border-left: 2px solid #06b6d4;
+    padding-left: 8px;
 }
 
 .loan-consolidate-form__quota-highlight {
-    color: var(--accent, #06b6d4) !important;
+    color: #38bdf8 !important;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.05rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
 }
 
 /* Botones de acción */

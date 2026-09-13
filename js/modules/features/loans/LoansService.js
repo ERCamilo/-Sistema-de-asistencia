@@ -1312,10 +1312,10 @@ export function calculateRepaymentCapacity({
     const configuredDays = Number(resolvedState.settings?.payPeriod?.periodLength);
 
     const periodNames = {
-        1: 'semanal (1 sem)',
-        2: 'quincenal (2 sem)',
+        1: 'semanal',
+        2: 'quincenal',
         3: '3 semanas',
-        4: 'mensual (4 sem)'
+        4: 'mensual'
     };
     const periodLabel = periodNames[weeks] || (configuredDays ? `período (${configuredDays} días)` : `${weeks} sem`);
 

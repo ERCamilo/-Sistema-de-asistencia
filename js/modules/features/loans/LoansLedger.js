@@ -1341,29 +1341,29 @@ function LoanCapacityMeter(capacity) {
 
                     <div class="loan-capacity-balance-table">
                         <div class="loan-capacity-balance-row">
-                            <span>Sueldo est. (${escapeHTML(periodLabel)}):</span>
-                            <strong style="color: #f1f5f9;">${isAvailable ? formatCurrency(periodSalary) : 'No configurado'}</strong>
+                            <span class="loan-capacity-balance-lbl">Sueldo est. (${escapeHTML(periodLabel)}):</span>
+                            <strong class="loan-capacity-balance-val" style="color: #f1f5f9;">${isAvailable ? formatCurrency(periodSalary) : 'No configurado'}</strong>
                         </div>
                         ${hasPrior ? `
                             <div class="loan-capacity-balance-row">
-                                <span>Retenciones previas en cola:</span>
-                                <strong style="color: #94a3b8;">-${formatCurrency(existingDeductions)} (${existingPercentage}%)</strong>
+                                <span class="loan-capacity-balance-lbl">Retenciones previas en cola:</span>
+                                <strong class="loan-capacity-balance-val" style="color: #94a3b8;">-${formatCurrency(existingDeductions)} <span class="loan-capacity-balance-pct">(${existingPercentage}%)</span></strong>
                             </div>
                         ` : ''}
                         <div class="loan-capacity-balance-row">
-                            <span>Nueva cuota propuesta:</span>
-                            <strong style="color: ${color};">-${formatCurrency(installmentAmount)}${instPercentage != null ? ` (${instPercentage}%)` : ''}</strong>
+                            <span class="loan-capacity-balance-lbl">Nueva cuota propuesta:</span>
+                            <strong class="loan-capacity-balance-val" style="color: ${color};">-${formatCurrency(installmentAmount)}${instPercentage != null ? ` <span class="loan-capacity-balance-pct">(${instPercentage}%)</span>` : ''}</strong>
                         </div>
                         ${hasPrior ? `
                             <div class="loan-capacity-balance-row" style="color: #cbd5e1;">
-                                <span style="font-weight: 600;">Retención total proyectada:</span>
-                                <strong style="color: ${color};">${formatCurrency(totalDeduction)} (${percentage}%)</strong>
+                                <span class="loan-capacity-balance-lbl" style="font-weight: 600;">Retención total proyectada:</span>
+                                <strong class="loan-capacity-balance-val" style="color: ${color};">${formatCurrency(totalDeduction)} <span class="loan-capacity-balance-pct">(${percentage}%)</span></strong>
                             </div>
                         ` : ''}
-                        <div class="loan-capacity-balance-row" style="padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.12);">
-                            <span style="font-weight: 700; color: #f8fafc;">Salario neto disponible:</span>
-                            <strong style="color: ${status === 'danger' ? '#ef4444' : (status === 'moderate' ? '#f59e0b' : '#10b981')}; font-size: 0.88rem;">
-                                ${isAvailable ? `${formatCurrency(netSalaryAvailable)} (${netPercentage}%)` : '--'}
+                        <div class="loan-capacity-balance-row" style="padding-top: 6px; margin-top: 2px; border-top: 1px solid rgba(255,255,255,0.12);">
+                            <span class="loan-capacity-balance-lbl" style="font-weight: 700; color: #f8fafc;">Salario neto disponible:</span>
+                            <strong class="loan-capacity-balance-val" style="color: ${status === 'danger' ? '#f87171' : (status === 'moderate' ? '#fbbf24' : '#34d399')}; font-size: 0.92rem;">
+                                ${isAvailable ? `${formatCurrency(netSalaryAvailable)} <span class="loan-capacity-balance-pct">(${netPercentage}%)</span>` : '--'}
                             </strong>
                         </div>
                     </div>
@@ -1416,31 +1416,34 @@ function LoanCapacityMeter(capacity) {
                 ${hasPrior ? `
                     <div class="loan-capacity-legend-item">
                         <span class="loan-capacity-leg-dot" style="background: #64748b;"></span>
-                        <span>Previas:</span>
-                        <strong style="color: #cbd5e1;">${formatCurrency(existingDeductions)} (${existingPercentage}%)</strong>
+                        <span class="loan-capacity-leg-label">Previas:</span>
+                        <strong class="loan-capacity-leg-val" style="color: #cbd5e1;">${formatCurrency(existingDeductions)}</strong>
+                        <span class="loan-capacity-leg-pct" style="color: #94a3b8;">(${existingPercentage}%)</span>
                     </div>
                 ` : ''}
                 <div class="loan-capacity-legend-item">
                     <span class="loan-capacity-leg-dot" style="background: ${color};"></span>
-                    <span>Cuota:</span>
-                    <strong style="color: ${color};">${formatCurrency(installmentAmount)}${instPercentage != null ? ` (${instPercentage}%)` : ''}</strong>
+                    <span class="loan-capacity-leg-label">Cuota:</span>
+                    <strong class="loan-capacity-leg-val" style="color: ${color};">${formatCurrency(installmentAmount)}</strong>
+                    ${instPercentage != null ? `<span class="loan-capacity-leg-pct" style="color: ${color};">(${instPercentage}%)</span>` : ''}
                 </div>
                 <div class="loan-capacity-legend-item">
                     <span class="loan-capacity-leg-dot" style="background: #10b981;"></span>
-                    <span>Neto libre:</span>
-                    <strong style="color: #10b981;">${isAvailable ? `${formatCurrency(netSalaryAvailable)} (${netPercentage}%)` : '--'}</strong>
+                    <span class="loan-capacity-leg-label">Neto libre:</span>
+                    <strong class="loan-capacity-leg-val" style="color: #34d399;">${isAvailable ? formatCurrency(netSalaryAvailable) : '--'}</strong>
+                    ${isAvailable ? `<span class="loan-capacity-leg-pct" style="color: #34d399;">(${netPercentage}%)</span>` : ''}
                 </div>
                 <div class="loan-capacity-legend-item">
-                    <span class="loan-capacity-leg-dot" style="background: #334155;"></span>
-                    <span>Total Nómina:</span>
-                    <strong>${isAvailable ? formatCurrency(periodSalary) : 'No configurado'}</strong>
+                    <span class="loan-capacity-leg-dot" style="background: #475569;"></span>
+                    <span class="loan-capacity-leg-label">Total Nómina:</span>
+                    <strong class="loan-capacity-leg-val" style="color: #f1f5f9;">${isAvailable ? formatCurrency(periodSalary) : 'No configurado'}</strong>
                 </div>
             </div>
 
             ${suggestedCount > 1 ? `
                 <div class="loan-capacity-assist-bar">
                     <span class="loan-capacity-assist-text">
-                        💡 <strong>Sugerencia de viabilidad:</strong> Aumentar a <strong>${suggestedCount} cuotas</strong> reduce el descuento a ${formatCurrency(suggestedInstallment)} (${suggestedTotalPct}% · Seguro).
+                        💡 <strong>Sugerencia de viabilidad:</strong> Aumentar a <strong>${suggestedCount} cuotas</strong> reduce el descuento a <strong class="loan-capacity-assist-val">${formatCurrency(suggestedInstallment)}</strong> <span class="loan-capacity-assist-pct">(${suggestedTotalPct}% · Seguro)</span>.
                     </span>
                     <button type="button"
                             class="loan-capacity-suggest-btn"
@@ -1477,6 +1480,7 @@ function ConsolidateLoansForm(emp, activeLoans) {
     const interestToAdd = r2(totalBalance * rate / 100);
     const consolidatedTotal = r2(totalBalance + interestToAdd);
     const approxInstallment = r2(consolidatedTotal / count);
+    const isAdvancedOpen = !!draft.showAdvanced || count > 1;
 
     const calendarWeeks = getCalendarPeriodWeeks(state);
     const frequencyWeeks = Number(draft.installmentFrequencyWeeks) || calendarWeeks;
@@ -1492,15 +1496,13 @@ function ConsolidateLoansForm(emp, activeLoans) {
         stateObj: state
     });
 
-    const isAdvancedOpen = !!draft.showAdvanced || count > 1;
-
     return `
         <div class="loan-consolidate-form">
             <div class="loan-consolidate-form__topbar">
                 <div class="loan-consolidate-form__headline">
                     <span class="loan-consolidate-form__icon">${icons.get('briefcase', { size: 18 })}</span>
                     <span class="loan-consolidate-form__title">
-                        Consolidación de Deuda (${activeLoans.length} préstamos)
+                        Consolidación de Deuda (${activeLoans.length} préstamo${activeLoans.length === 1 ? '' : 's'})
                     </span>
                 </div>
                 <button type="button" class="loan-consolidate-form__close-btn" data-app-fn="toggleConsolidateForm">
@@ -1536,7 +1538,8 @@ function ConsolidateLoansForm(emp, activeLoans) {
                     <div class="loan-consolidate-form__single-info">
                         <span class="loan-consolidate-form__single-badge">Modalidad por defecto</span>
                         <div class="loan-consolidate-form__single-text">
-                            Deducción en <strong>1 sola cuota</strong> al próximo cierre de nómina: <strong class="loan-consolidate-form__amount-highlight">${formatCurrency(consolidatedTotal)}</strong>
+                            <span>Deducción en <strong>1 sola cuota</strong> al próximo cierre de nómina:</span>
+                            <strong class="loan-consolidate-form__amount-highlight">${formatCurrency(consolidatedTotal)}</strong>
                         </div>
                     </div>
                     <button type="button"
@@ -1587,10 +1590,24 @@ function ConsolidateLoansForm(emp, activeLoans) {
 
                     <!-- Proyección del nuevo plan -->
                     <div class="loan-consolidate-form__projection-row">
-                        <span>Deuda base: <strong>${formatCurrency(totalBalance)}</strong></span>
-                        ${rate > 0 ? `<span>Interés: <strong>+${formatCurrency(interestToAdd)} (${rate}%)</strong></span>` : ''}
-                        <span>Nuevo saldo: <strong>${formatCurrency(consolidatedTotal)}</strong></span>
-                        <span>Nueva cuota periódica: <strong class="loan-consolidate-form__quota-highlight">${count} × ~${formatCurrency(approxInstallment)}</strong></span>
+                        <div class="loan-consolidate-form__proj-item">
+                            <span class="loan-consolidate-form__proj-label">Deuda base</span>
+                            <strong class="loan-consolidate-form__proj-val">${formatCurrency(totalBalance)}</strong>
+                        </div>
+                        ${rate > 0 ? `
+                            <div class="loan-consolidate-form__proj-item">
+                                <span class="loan-consolidate-form__proj-label">Interés</span>
+                                <strong class="loan-consolidate-form__proj-val loan-consolidate-form__proj-val--warn">+${formatCurrency(interestToAdd)} (${rate}%)</strong>
+                            </div>
+                        ` : ''}
+                        <div class="loan-consolidate-form__proj-item">
+                            <span class="loan-consolidate-form__proj-label">Nuevo saldo</span>
+                            <strong class="loan-consolidate-form__proj-val">${formatCurrency(consolidatedTotal)}</strong>
+                        </div>
+                        <div class="loan-consolidate-form__proj-item loan-consolidate-form__proj-item--highlight">
+                            <span class="loan-consolidate-form__proj-label">Nueva cuota periódica</span>
+                            <strong class="loan-consolidate-form__quota-highlight">${count} × ~${formatCurrency(approxInstallment)}</strong>
+                        </div>
                     </div>
                 </div>
             `}
