@@ -24,6 +24,7 @@ export const SETUP_TOTAL = SETUP.length;
 export const DAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 export const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const STORAGE_KEY = 'onboarding-pos';
+export const ONBOARDING_FLOW_VERSION = 2;
 export function defaultState() {
     return {
         phase: 'guide', step: 1, setupStep: 1, source: null,
@@ -58,6 +59,7 @@ export function cycleWeek(s, r, c) {
 export function canAdvance(s) {
     if (s.phase === 'guide') return true;
     if (s.phase === 'choice') return !!s.source;
+    if (s.phase === 'project') return s.projectName.trim().length > 0;
     if (s.phase === 'setup') {
         const su = s.setupStep;
         if (su === 1) return s.company.trim().length > 0;
@@ -75,14 +77,16 @@ export function navNext(s) {
     if (s.phase === 'guide') {
         if (s.step < STEPS.length) s.step++; else s.phase = 'choice';
     } else if (s.phase === 'choice') {
-        if (s.source === 'scratch') { s.phase = 'setup'; s.setupStep = 1; } else s.phase = 'ready';
+        if (s.source === 'scratch') { s.phase = 'setup'; s.setupStep = 1; } else s.phase = 'project';
+    } else if (s.phase === 'project') {
+        s.phase = 'ready';
     } else if (s.phase === 'setup') {
         if (s.setupStep < SETUP_TOTAL) s.setupStep++; else s.phase = 'ready';
     }
     return s;
 }
 export function navBack(s) {
-    if (s.phase === 'ready' || (s.phase === 'guide' && s.step === 1)) return s;
+    if (s.phase === 'ready' || s.phase === 'project' || (s.phase === 'guide' && s.step === 1)) return s;
     if (s.phase === 'guide') s.step = Math.max(1, s.step - 1);
     else if (s.phase === 'choice') { s.phase = 'guide'; s.step = STEPS.length; }
     else if (s.phase === 'setup') {
@@ -129,22 +133,67 @@ export function removeEmployee(s, code) {
 export function clearProgress(storage) {
     try { storage.removeItem(STORAGE_KEY); } catch (e) { /* storage no disponible */ }
 }
+function serializableSetupState(s) {
+    return {
+        version: ONBOARDING_FLOW_VERSION,
+        phase: s.phase,
+        step: s.step,
+        setupStep: s.setupStep,
+        source: s.source,
+        company: s.company,
+        projectName: s.projectName,
+        days: Array.isArray(s.days) ? [...s.days] : [],
+        hours: s.hours,
+        posName: s.posName,
+        posRate: s.posRate,
+        posColorIdx: s.posColorIdx,
+        employees: Array.isArray(s.employees) ? s.employees.map(emp => ({ ...emp })) : [],
+        newEmpName: s.newEmpName,
+        newEmpCode: s.newEmpCode
+    };
+}
+
 export function saveProgress(storage, s) {
     try {
         if (!storage) return;
         if (s.phase === 'ready') { clearProgress(storage); return; }
-        storage.setItem(STORAGE_KEY, JSON.stringify({ phase: s.phase, step: s.step, setupStep: s.setupStep }));
+        storage.setItem(STORAGE_KEY, JSON.stringify(serializableSetupState(s)));
     } catch (e) { /* cuota o storage no disponible */ }
 }
-/* Restauración defensiva: JSON inválido o valores fuera de rango conservan el estado recibido. */
+
+function restoreSetupFields(p, s) {
+    if (typeof p.source === 'string' || p.source === null) s.source = p.source;
+    for (const field of ['company', 'projectName', 'posName', 'posRate', 'newEmpName', 'newEmpCode']) {
+        if (typeof p[field] === 'string') s[field] = p[field];
+    }
+    if (Array.isArray(p.days) && p.days.length === 7) s.days = p.days.map(Boolean);
+    if (Number.isFinite(p.hours) && p.hours >= 1 && p.hours <= 16) s.hours = p.hours;
+    if (Number.isInteger(p.posColorIdx) && p.posColorIdx >= 0) s.posColorIdx = p.posColorIdx;
+    if (Array.isArray(p.employees)) {
+        s.employees = p.employees
+            .filter(emp => emp && typeof emp === 'object')
+            .map(emp => ({ code: String(emp.code ?? ''), name: String(emp.name ?? ''), pos: String(emp.pos ?? '') }));
+    }
+}
+
+/* Restauración defensiva y versionada. Un progreso de la antigua configuración
+ * de 6 pasos no se restaura por número: vuelve a elección para que el usuario
+ * atraviese el nuevo flujo Empresa → Proyecto sin saltarse contexto obligatorio. */
 export function restoreProgress(storage, s) {
     try {
         const p = JSON.parse(storage.getItem(STORAGE_KEY) || 'null');
         if (!p || typeof p !== 'object') return s;
         const okG = p.phase === 'guide' && Number.isFinite(p.step) && p.step >= 1 && p.step <= STEPS.length;
+        if (p.version !== ONBOARDING_FLOW_VERSION) {
+            if (okG) { s.phase = 'guide'; s.step = p.step; }
+            else if (p.phase === 'choice' || p.phase === 'setup' || p.phase === 'project') s.phase = 'choice';
+            return s;
+        }
+        restoreSetupFields(p, s);
         const okS = p.phase === 'setup' && Number.isFinite(p.setupStep) && p.setupStep >= 1 && p.setupStep <= SETUP_TOTAL;
         if (okG) { s.phase = 'guide'; s.step = p.step; }
         else if (p.phase === 'choice') s.phase = 'choice';
+        else if (p.phase === 'project' && s.projectName.trim()) s.phase = 'project';
         else if (okS) { s.phase = 'setup'; s.setupStep = p.setupStep; }
     } catch (e) { /* JSON corrupto */ }
     return s;

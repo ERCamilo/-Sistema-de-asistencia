@@ -375,3 +375,10 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
 - El nombre humano del proyecto es la información principal. IDs y metadatos técnicos se relegan a una sección de detalles técnicos o a texto secundario.
 - En onboarding desde cero, **Empresa** y **Proyecto** son conceptos separados. El orden canónico es: `Empresa → Proyecto → Días → Jornada → Posición → Personal → Respaldo`.
 - El proyecto debe quedar activado antes de crear posiciones o empleados para que los datos nuevos nazcan explícitamente dentro del proyecto seleccionado.
+
+### Onboarding: proyecto obligatorio y progreso versionado
+- El onboarding distingue **Empresa** de **Proyecto**. En el flujo desde cero, `Proyecto` es el paso 2 de configuración y no puede inferirse desde `companyName`.
+- El progreso persistido del onboarding lleva una versión de flujo. Un progreso de una versión anterior no puede restaurarse por número de paso cuando la estructura cambió; debe regresar a un punto seguro para evitar saltar pasos nuevos obligatorios.
+- Al reanudar una configuración vigente se restauran también los datos introducidos (origen, empresa, proyecto, jornada, posición y personal), no sólo el índice numérico del paso.
+- Después de restaurar desde **Backup**, **Google** o **Datos de prueba**, el usuario debe confirmar el proyecto activo antes de llegar a `Listo`. Si ya existe un proyecto activo se propone su nombre; el usuario puede corregirlo antes de continuar.
+- `onboardingCompleted` no se considera definitivo mientras quede pendiente la confirmación de proyecto; un reload no debe permitir omitir esa etapa.

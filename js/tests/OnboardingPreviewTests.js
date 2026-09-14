@@ -147,6 +147,49 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         overlay().querySelector('[data-act="next"]').click();
         testRunner.assert(!!overlay().querySelector('[data-act="day"]'), 'paso 3 de setup (días laborables)');
     },
+
+    'progreso antiguo de seis pasos no puede saltar el nuevo paso Proyecto'() {
+        cleanup();
+        localStorage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 5 }));
+        showOnboardingPreview();
+        let ov = overlay();
+        testRunner.assert(!!ov.querySelector('[data-od-id="od-choice"]'), 'progreso viejo vuelve a punto de partida');
+        ov.querySelector('[data-act="pick"][data-v="scratch"]').click();
+        ov.querySelector('[data-act="next"]').click();
+        const company = overlay().querySelector('input[data-field="company"]');
+        company.value = 'Constructora Migrada';
+        company.dispatchEvent(new Event('input', { bubbles: true }));
+        overlay().querySelector('[data-act="next"]').click();
+        ov = overlay();
+        testRunner.assert(!!ov.querySelector('input[data-field="projectName"]'), 'Proyecto aparece como configuración 2/7');
+        testRunner.assert(ov.querySelector('[data-od-id="od-topbar"]').textContent.includes('Configuración 2 / 7'), 'contador confirma paso Proyecto');
+    },
+    'fase Proyecto recuperada muestra confirmación explícita antes de Listo'() {
+        cleanup();
+        localStorage.setItem(KEY, JSON.stringify({
+            version: 2,
+            phase: 'project',
+            step: 1,
+            setupStep: 1,
+            source: 'backup',
+            company: '',
+            projectName: 'Obra Restaurada',
+            days: [true,true,true,true,true,true,false],
+            hours: 8,
+            posName: '',
+            posRate: '',
+            posColorIdx: 0,
+            employees: [],
+            newEmpName: '',
+            newEmpCode: ''
+        }));
+        showOnboardingPreview();
+        const ov = overlay();
+        testRunner.assert(!!ov.querySelector('[data-od-id="od-project"]'), 'pantalla dedicada de proyecto');
+        testRunner.assertEquals(ov.querySelector('input[data-field="projectName"]').value, 'Obra Restaurada', 'nombre recuperado visible');
+        testRunner.assert(ov.textContent.includes('Confirma el proyecto activo'), 'explica confirmación');
+        testRunner.assert(ov.querySelector('[data-od-id="od-topbar"]').textContent.includes('Proyecto'), 'topbar identifica la etapa');
+    },
     'syncInputMirrors actualiza texto espejo e inline hint sin desmontar el input activo'() {
         cleanup();
         launchOnboardingV2({ mode: 'live' });
@@ -199,7 +242,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
     },
     'escribir en input preserva el elemento activo y actualiza mirrors sin destruir DOM'() {
         cleanup();
-        localStorage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 1 }));
+        localStorage.setItem(KEY, JSON.stringify({ version: 2, phase: 'setup', setupStep: 1, source: 'scratch', company: '', projectName: '', days: [true,true,true,true,true,true,false], hours: 8, posName: '', posRate: '', posColorIdx: 0, employees: [], newEmpName: '', newEmpCode: '' }));
         showOnboardingPreview();
         const ov = overlay();
         const input = ov.querySelector('#f-company');
@@ -215,7 +258,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
     },
     'presionar Enter en nombre de empleado agrega a la lista y mantiene foco en el input'() {
         cleanup();
-        localStorage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 6 }));
+        localStorage.setItem(KEY, JSON.stringify({ version: 2, phase: 'setup', setupStep: 6, source: 'scratch', company: 'Contrutek', projectName: 'Obra Central', days: [true,true,true,true,true,true,false], hours: 8, posName: 'Ayudante', posRate: '', posColorIdx: 0, employees: [], newEmpName: '', newEmpCode: '' }));
         showOnboardingPreview();
         const ov = overlay();
         const nameInput = ov.querySelector('#f-empname');
@@ -231,7 +274,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
     },
     'presionar Enter en empresa avanza al siguiente paso si es válida'() {
         cleanup();
-        localStorage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 1 }));
+        localStorage.setItem(KEY, JSON.stringify({ version: 2, phase: 'setup', setupStep: 1, source: 'scratch', company: '', projectName: '', days: [true,true,true,true,true,true,false], hours: 8, posName: '', posRate: '', posColorIdx: 0, employees: [], newEmpName: '', newEmpCode: '' }));
         showOnboardingPreview();
         const ov = overlay();
         const compInput = ov.querySelector('#f-company');

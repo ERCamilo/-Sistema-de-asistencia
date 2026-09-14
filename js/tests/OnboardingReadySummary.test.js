@@ -11,9 +11,11 @@ describe('Onboarding ready summary', () => {
             hours: 8,
             posName: '',
             posRate: '',
-            readySummary: { company: 'Constructora Restaurada', employeeCount: 7, positionCount: 3 }
+            projectName: 'Torre Restaurada',
+            readySummary: { company: 'Constructora Restaurada', projectName: 'Torre Restaurada', employeeCount: 7, positionCount: 3 }
         });
         expect(html).toContain('Constructora Restaurada');
+        expect(html).toContain('Torre Restaurada');
         expect(html).toContain('7 empleados');
         expect(html).toContain('Posiciones');
         expect(html).toContain('>3<');

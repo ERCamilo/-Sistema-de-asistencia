@@ -2,7 +2,7 @@ import {
     defaultState, canAdvance, navNext, navBack, goGuideStep,
     pick, toggleDay, hPlus, hMinus, setPosColor, setField,
     addEmployee, removeEmployee, saveProgress, restoreProgress,
-    STEPS, SETUP_TOTAL
+    STEPS, SETUP_TOTAL, ONBOARDING_FLOW_VERSION
 } from '../modules/ui/onboarding/OnboardingCore.js';
 const KEY = 'onboarding-pos';
 // Completa los datos que validan los pasos de configuración 1, 4 y 5.
@@ -58,7 +58,11 @@ testRunner.addSuite('Onboarding v2 — núcleo (fase 1)', {
         for (const src of ['backup', 'google']) {
             const j = toChoice(pick(defaultState(), src));
             navNext(j);
-            testRunner.assertEquals(j.phase, 'ready', src + ' salta directo a listo');
+            testRunner.assertEquals(j.phase, 'project', src + ' pasa por confirmación de proyecto');
+            testRunner.assertEquals(canAdvance(j), false, 'proyecto exige nombre');
+            j.projectName = 'Obra Recuperada';
+            navNext(j);
+            testRunner.assertEquals(j.phase, 'ready', src + ' continúa a listo después de proyecto');
         }
     },
     'navBack: bordes de guía, elección, configuración y listo'() {
@@ -99,16 +103,22 @@ testRunner.addSuite('Onboarding v2 — núcleo (fase 1)', {
         s.phase = 'setup';
         s.setupStep = 4;
         saveProgress(storage, s);
-        testRunner.assertEquals(storage.getItem(KEY), '{"phase":"setup","step":1,"setupStep":4}', 'guarda fase/paso');
+        const saved = JSON.parse(storage.getItem(KEY));
+        testRunner.assertEquals(saved.version, ONBOARDING_FLOW_VERSION, 'guarda versión del flujo');
+        testRunner.assertEquals(saved.phase + ':' + saved.setupStep, 'setup:4', 'guarda fase/paso');
+        testRunner.assertEquals(saved.projectName, 'Obra Central', 'guarda proyecto para reanudar sin saltarlo');
         const restored = restoreProgress(storage, defaultState());
         testRunner.assertEquals(restored.phase + ':' + restored.setupStep, 'setup:4', 'restaura posición');
+        testRunner.assertEquals(restored.projectName, 'Obra Central', 'restaura proyecto');
         storage.setItem(KEY, '{no-es-json');
         const safe = restoreProgress(storage, defaultState());
         testRunner.assertEquals(safe.phase + ':' + safe.step, 'guide:1', 'JSON corrupto → estado por defecto');
-        storage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 99 }));
+        storage.setItem(KEY, JSON.stringify({ version: ONBOARDING_FLOW_VERSION, phase: 'setup', setupStep: 99 }));
         testRunner.assertEquals(restoreProgress(storage, defaultState()).phase, 'guide', 'fuera de rango → sin cambio');
+        storage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 5 }));
+        testRunner.assertEquals(restoreProgress(storage, defaultState()).phase, 'choice', 'progreso viejo de seis pasos vuelve a elección y no salta Proyecto');
         storage.setItem(KEY, JSON.stringify({ phase: 'choice' }));
-        testRunner.assertEquals(restoreProgress(storage, defaultState()).phase, 'choice', 'elección se restaura');
+        testRunner.assertEquals(restoreProgress(storage, defaultState()).phase, 'choice', 'elección vieja se restaura en un punto seguro');
         saveProgress(storage, driveToReady(defaultState()));
         testRunner.assertEquals(storage.getItem(KEY), null, 'llegar a listo limpia la clave');
     },

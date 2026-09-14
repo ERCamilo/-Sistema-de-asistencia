@@ -19,6 +19,7 @@ import { defaultState, saveProgress, restoreProgress, clearProgress, navNext, na
 import { renderOnboarding, handleAction } from './OnboardingView.js';
 import { executeChoiceAction, markCompleted, COMPLETED_KEY } from './OnboardingActions.js';
 import { applySetup } from './OnboardingApply.js';
+import { projectSetupService } from '../../features/projects/ProjectSetupService.js';
 
 let overlayEl = null;
 let st = null;
@@ -93,6 +94,58 @@ function setButtonsDisabled(disabled) {
     });
 }
 
+async function resolveRecoveredProjectContext() {
+    let state = await projectSetupService.getState();
+    if (!state.ready) {
+        const uid = typeof window !== 'undefined' ? (window.currentUser?.uid || null) : null;
+        state = await projectSetupService.activate({ uid });
+    }
+    return state;
+}
+
+async function prepareRecoveredProjectStep(result) {
+    st.readySummary = result?.summary || null;
+    const projectState = await resolveRecoveredProjectContext();
+    const suggestedName = String(projectState?.activeProject?.name || '').trim();
+    st.projectName = suggestedName || String(st.readySummary?.company || '').trim() || 'Mi obra';
+    st._projectError = null;
+    st.phase = 'project';
+    saveProgress(localStorage, st);
+}
+
+async function runProjectConfirm() {
+    if (running || !st || !overlayEl || st.phase !== 'project') return;
+    running = true;
+    st._projectError = null;
+    st._busy = true;
+    renderPreview();
+    showStatus(STATUS_OK);
+    setButtonsDisabled(true);
+    try {
+        const projectState = await resolveRecoveredProjectContext();
+        const desiredName = st.projectName.trim();
+        if (!desiredName) throw new Error('Escribe el nombre del proyecto.');
+        let finalState = projectState;
+        if (String(projectState?.activeProject?.name || '').trim() !== desiredName) {
+            finalState = await projectSetupService.renameActiveProject(desiredName);
+        }
+        st.readySummary = {
+            ...(st.readySummary || {}),
+            projectName: finalState?.activeProject?.name || desiredName
+        };
+        notifyCompleted();
+        st.phase = 'ready';
+        saveProgress(localStorage, st);
+    } catch (err) {
+        st._projectError = String((err && err.message) || err);
+    } finally {
+        running = false;
+        if (!overlayEl || !st) return;
+        st._busy = false;
+        renderPreview();
+    }
+}
+
 /* Ejecuta una opción de elección con sus deps REALES. Mientras corre: botones
  * deshabilitados + texto de estado; al completar se cierra el arnés; en error
  * se muestra la línea inline del choice (state._choiceError). */
@@ -114,12 +167,19 @@ async function runChoice(value) {
     if (!overlayEl || !st) return; // cerrado a mitad (Escape): nada más que tocar
     st._busy = false;
     if (result && result.completed) {
-        notifyCompleted();
-        st.readySummary = result.summary || null;
-        st.phase = 'ready';
-        saveProgress(localStorage, st);
-        renderPreview();
-        return;
+        // Backup/Google/demo marcan completado al terminar su acción. El host lo
+        // difiere hasta confirmar Proyecto para que un reload no pueda saltar
+        // esta nueva etapa obligatoria del onboarding.
+        restoreCompletedFlag();
+        try {
+            await prepareRecoveredProjectStep(result);
+            renderPreview();
+            return;
+        } catch (err) {
+            st._choiceError = String((err && err.message) || err);
+            renderPreview();
+            return;
+        }
     }
     st._choiceError = (result && result.error) || 'No se pudo completar la acción.';
     renderPreview();
@@ -188,6 +248,9 @@ function onOverlayClick(e) {
             return;
         }
     }
+
+    /* Confirmación de proyecto tras restaurar backup/Google/demo. */
+    if (act === 'next' && st.phase === 'project') { runProjectConfirm(); return; }
 
     /* Último paso del setup ("Finalizar"): commit real antes de pasar a 'listo'. */
     if (act === 'next' && st.phase === 'setup' && st.setupStep === SETUP_TOTAL) { runFinish(); return; }
@@ -260,6 +323,8 @@ function onOverlayKeydown(e) {
         } else if (canAdvance(st)) {
             if (st.phase === 'choice' && st.source && st.source !== 'scratch') {
                 runChoice(st.source);
+            } else if (st.phase === 'project') {
+                runProjectConfirm();
             } else if (st.phase === 'setup' && st.setupStep === SETUP_TOTAL) {
                 runFinish();
             } else {
