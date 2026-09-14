@@ -127,7 +127,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         testRunner.assertEquals(localStorage.getItem(DONE), 'true', 'flag marcado por skip');
         testRunner.assertEquals(localStorage.getItem(KEY), null, 'progreso a mitad limpiado por skip');
     },
-    'elección scratch avanza al paso 1 de setup y permite completar el flujo de 6 pasos'() {
+    'elección scratch avanza al paso 1 de setup y presenta empresa y proyecto por separado'() {
         cleanup();
         launchOnboardingV2({ mode: 'live' });
         for (let i = 0; i < 6; i++) overlay().querySelector('[data-act="next"]').click();
@@ -140,7 +140,12 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         companyInput.value = 'Mi Constructora';
         companyInput.dispatchEvent(new Event('input', { bubbles: true }));
         overlay().querySelector('[data-act="next"]').click();
-        testRunner.assert(!!overlay().querySelector('[data-act="day"]'), 'paso 2 de setup (días laborables)');
+        const projectInput = overlay().querySelector('input[data-field="projectName"]');
+        testRunner.assert(!!projectInput, 'paso 2 de setup (proyecto)');
+        projectInput.value = 'Torre Mirador';
+        projectInput.dispatchEvent(new Event('input', { bubbles: true }));
+        overlay().querySelector('[data-act="next"]').click();
+        testRunner.assert(!!overlay().querySelector('[data-act="day"]'), 'paso 3 de setup (días laborables)');
     },
     'syncInputMirrors actualiza texto espejo e inline hint sin desmontar el input activo'() {
         cleanup();
@@ -166,7 +171,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         input.value = 'Constructora Test';
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        testRunner.assert(!!overlay().querySelector('[data-act="day"]'), 'Enter avanzó a setup 2');
+        testRunner.assert(!!overlay().querySelector('input[data-field="projectName"]'), 'Enter avanzó al paso 2 de proyecto');
     },
     'SettingsTestsTab presenta la guía real (sin copia de vista previa)'() {
         const html = SettingsTestsTab({ state: { settings: {} } });
@@ -176,7 +181,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         testRunner.assert(html.includes('Guía de inicio'), 'título de guía real');
         testRunner.assert(html.indexOf('onboarding-preview-title') < html.indexOf('splitx-integration-title'), 'sección antes de SplitX');
     },
-    'elegir scratch y pulsar Continuar avanza a Configuración 1 / 6'() {
+    'elegir scratch y pulsar Continuar avanza a Configuración 1 / 7'() {
         cleanup();
         launchOnboardingV2({ mode: 'live' });
         for (let i = 0; i < 6; i++) overlay().querySelector('[data-act="next"]').click();
@@ -190,7 +195,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         nextBtn.click();
         testRunner.assert(!!overlay().querySelector('[data-od-id="od-setup"]'), 'entró al flujo de configuración desde cero');
         const topbar = overlay().querySelector('[data-od-id="od-topbar"]');
-        testRunner.assert(topbar.textContent.includes('Configuración 1 / 6'), 'primer paso de setup mostrado');
+        testRunner.assert(topbar.textContent.includes('Configuración 1 / 7'), 'primer paso de setup mostrado');
     },
     'escribir en input preserva el elemento activo y actualiza mirrors sin destruir DOM'() {
         cleanup();
@@ -210,7 +215,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
     },
     'presionar Enter en nombre de empleado agrega a la lista y mantiene foco en el input'() {
         cleanup();
-        localStorage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 5 }));
+        localStorage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 6 }));
         showOnboardingPreview();
         const ov = overlay();
         const nameInput = ov.querySelector('#f-empname');
@@ -236,7 +241,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         compInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
         
         const topbar = overlay().querySelector('[data-od-id="od-topbar"]');
-        testRunner.assert(topbar.textContent.includes('Configuración 2 / 6'), 'avanzó al paso 2 de configuración con Enter');
+        testRunner.assert(topbar.textContent.includes('Configuración 2 / 7'), 'avanzó al paso 2 de proyecto con Enter');
     }
 });
 

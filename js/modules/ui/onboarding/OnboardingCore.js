@@ -12,12 +12,13 @@ export const STEPS = [
     { kicker: 'Listo', title: 'Ya puedes empezar', body: 'Eso es todo lo que necesitas para operar. Puedes volver a esta guía desde Ajustes cuando quieras.', tips: ['Tus datos quedan guardados en el dispositivo', 'Invita a tus líderes para que marquen su cuadrilla', '¿Dudas? La guía sigue en Ajustes'] }
 ];
 export const SETUP = [
-    { kicker: 'Configuración · 1 de 6', title: '¿Cómo se llama la empresa o el proyecto?', body: 'Aparecerá en la cabecera, en los reportes y en la nómina que exportes.' },
-    { kicker: 'Configuración · 2 de 6', title: '¿Qué días se trabaja cada semana?', body: 'Define la semana laboral por defecto. Podrás marcar excepciones y feriados cualquier día.' },
-    { kicker: 'Configuración · 3 de 6', title: '¿Cuántas horas se trabajan al día?', body: 'Es el valor que se asigna al marcar presente. Siempre puedes ajustarlo por empleado.' },
-    { kicker: 'Configuración · 4 de 6', title: 'Crea la primera posición', body: 'Las posiciones agrupan al personal y fijan la tarifa. Después puedes añadir todas las que necesites.' },
-    { kicker: 'Configuración · 5 de 6', title: 'Agrega a tu primer empleado', body: 'Con uno basta para empezar a marcar asistencia. Puedes añadir más ahora o desde Personal.' },
-    { kicker: 'Configuración · 6 de 6', title: 'Guarda tus datos en la nube', body: 'Vincula tu cuenta de Google para respaldar la información y recuperarla en otro dispositivo.' }
+    { kicker: 'Configuración · 1 de 7', title: '¿Cómo se llama la empresa?', body: 'Aparecerá en la cabecera, en los reportes y en la nómina que exportes.' },
+    { kicker: 'Configuración · 2 de 7', title: '¿Cómo se llama este proyecto?', body: 'Define la obra o proyecto de trabajo. SA usará este nombre para identificar el contexto activo y al conectarse con Mini.' },
+    { kicker: 'Configuración · 3 de 7', title: '¿Qué días se trabaja cada semana?', body: 'Define la semana laboral por defecto. Podrás marcar excepciones y feriados cualquier día.' },
+    { kicker: 'Configuración · 4 de 7', title: '¿Cuántas horas se trabajan al día?', body: 'Es el valor que se asigna al marcar presente. Siempre puedes ajustarlo por empleado.' },
+    { kicker: 'Configuración · 5 de 7', title: 'Crea la primera posición', body: 'Las posiciones agrupan al personal y fijan la tarifa. Después puedes añadir todas las que necesites.' },
+    { kicker: 'Configuración · 6 de 7', title: 'Agrega a tu primer empleado', body: 'Con uno basta para empezar a marcar asistencia. Puedes añadir más ahora o desde Personal.' },
+    { kicker: 'Configuración · 7 de 7', title: 'Guarda tus datos en la nube', body: 'Vincula tu cuenta de Google para respaldar la información y recuperarla en otro dispositivo.' }
 ];
 export const SETUP_TOTAL = SETUP.length;
 export const DAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -26,7 +27,7 @@ const STORAGE_KEY = 'onboarding-pos';
 export function defaultState() {
     return {
         phase: 'guide', step: 1, setupStep: 1, source: null,
-        company: '', days: [true, true, true, true, true, true, false], hours: 8,
+        company: '', projectName: '', days: [true, true, true, true, true, true, false], hours: 8,
         posName: '', posRate: '', posColorIdx: 0, employees: [], newEmpName: '', newEmpCode: '', googleConnected: false,
         demoStates: ['p', 'p', 'p'],
         weekData: [
@@ -60,10 +61,11 @@ export function canAdvance(s) {
     if (s.phase === 'setup') {
         const su = s.setupStep;
         if (su === 1) return s.company.trim().length > 0;
-        if (su === 2) return s.days.filter(Boolean).length > 0;
-        if (su === 3) return s.hours > 0;
-        if (su === 4) return s.posName.trim().length > 0;
-        if (su === 5) return s.employees.length > 0;
+        if (su === 2) return s.projectName.trim().length > 0;
+        if (su === 3) return s.days.filter(Boolean).length > 0;
+        if (su === 4) return s.hours > 0;
+        if (su === 5) return s.posName.trim().length > 0;
+        if (su === 6) return s.employees.length > 0;
         return true;
     }
     return false;

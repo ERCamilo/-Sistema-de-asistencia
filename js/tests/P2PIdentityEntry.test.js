@@ -58,13 +58,13 @@ describe('Block B — no new pairing without an official project (fail-closed)',
   test('gate message is concise and points to project configuration', () => {
     const gate = getNewPairingProjectGate({ ready: false, activeProject: null });
     expect(gate.title).toMatch(/proyecto/i);
-    expect(gate.message).toMatch(/nombre oficial del proyecto/i);
+    expect(gate.message).toMatch(/nombre del proyecto/i);
     expect(gate.message).toMatch(/Configura el proyecto/i);
   });
 
   test('ensureSaSelfMatchesProject throws when blocked and renames to project name when allowed', async () => {
     await expect(ensureSaSelfMatchesProject({ getSelf: async () => ({ displayName: 'x' }) }, { ready: false, activeProject: null }))
-      .rejects.toThrow(/nombre oficial del proyecto/i);
+      .rejects.toThrow(/nombre del proyecto/i);
 
     const renamed = [];
     const identityStore = {
@@ -90,7 +90,7 @@ describe('Block B — no new pairing without an official project (fail-closed)',
     expect(ui).toContain('ensureSaSelfMatchesProject(identityStore, projectState)');
     expect(ui).toContain('makePairDescriptor(self)');
     expect(ui).toContain('Configura un proyecto para vincular');
-    expect(ui).toContain('Nombre oficial del proyecto');
+    expect(ui).toContain('Nombre del proyecto');
     expect(ui).toContain("window.openProjectSetupModal?.()");
     // Fail-closed copy for the blocked pairing screen keeps a configure entrypoint.
     expect((ui.match(/data-configure-project/g) || []).length).toBeGreaterThanOrEqual(2);

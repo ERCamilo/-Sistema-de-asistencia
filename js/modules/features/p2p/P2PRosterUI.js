@@ -257,7 +257,7 @@ export function getNewPairingProjectGate(projectState) {
     return {
       code: 'project-not-ready',
       title: 'Configura un proyecto para vincular',
-      message: 'SA se presenta con el nombre oficial del proyecto activo. Configura el proyecto para continuar.'
+      message: 'SA se presenta con el nombre del proyecto activo. Configura el proyecto para continuar.'
     };
   }
   return null;
@@ -276,7 +276,7 @@ export async function ensureSaSelfMatchesProject(identityStore, projectState) {
 }
 
 function renderPairingBlockedByProject() {
-  setBodyHtml(`<div class="sa-p2p-step">${backButton()}<div><h3>Configura un proyecto para vincular</h3><p>SA se presenta con el nombre oficial del proyecto activo. Configura el proyecto para continuar.</p></div><div class="sa-p2p-actions">${button('Configurar proyecto', 'data-configure-project', 'primary', 'project')}</div></div>`);
+  setBodyHtml(`<div class="sa-p2p-step">${backButton()}<div><h3>Configura un proyecto para vincular</h3><p>SA se presenta con el nombre del proyecto activo. Configura el proyecto para continuar.</p></div><div class="sa-p2p-actions">${button('Configurar proyecto', 'data-configure-project', 'primary', 'project')}</div></div>`);
   body().querySelector('[data-back]').addEventListener('click', renderHome);
   body().querySelector('[data-configure-project]').addEventListener('click', () => window.openProjectSetupModal?.());
 }
@@ -432,11 +432,11 @@ async function renderHome() {
     <section class="sa-p2p-devices" aria-labelledby="sa-p2p-devices-title">
       <div class="sa-p2p-devices-head">
         <div><h3 id="sa-p2p-devices-title">Minis vinculados</h3><div class="sa-p2p-subtitle">${peers.length} dispositivo${peers.length === 1 ? '' : 's'} guardado${peers.length === 1 ? '' : 's'} en este SA</div></div>
-        <div class="sa-p2p-self">Este SA: <strong>${esc(selfPresentation)}</strong><small>Nombre oficial del proyecto</small></div>
+        <div class="sa-p2p-self">Este SA: <strong>${esc(selfPresentation)}</strong><small>Nombre del proyecto</small></div>
       </div>
       <div class="sa-p2p-peer-list">${peerRows}</div>
     </section>
-    ${pairingGate ? '<div class="sa-p2p-status is-warning">SA se presenta con el nombre oficial del proyecto activo. Configura el proyecto para vincular un Mini.</div>' : ''}
+    ${pairingGate ? '<div class="sa-p2p-status is-warning">SA se presenta con el nombre del proyecto activo. Configura el proyecto para vincular un Mini.</div>' : ''}
     <div>${button('Vincular Mini', 'data-new-pair aria-label="Vincular un nuevo Mini por QR o código"', 'primary', 'link')}</div>
     <p class="sa-p2p-footnote">Vincular sólo crea una relación segura entre dispositivos. Ningún dato se importa o modifica automáticamente.</p>`);
   body().querySelector('[data-new-pair]').classList.add('sa-p2p-link-cta');

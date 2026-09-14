@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0912.221034'
+const CACHE_VERSION = '2026.0913.220050'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -32,6 +32,7 @@ const APP_SHELL = [
     './css/onboarding-v2.css',
     './css/mini-attendance-onboarding.css',
     './css/p2p-transfer.css',
+    './css/project-management.css',
     './css/maintenance.css',
     './css/sidebar-shell.css',
     './css/personnel.css',

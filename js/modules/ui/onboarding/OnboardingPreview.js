@@ -180,7 +180,7 @@ function onOverlayClick(e) {
     if (act === 'next' && st.phase === 'ready') { closeOnboardingPreview(); return; }
 
     /* En fase 'choice': al presionar Continuar (act === 'next'):
-     * Si eligió 'scratch': navNext pasa al paso 1 de setup (Configuración 1 / 6).
+     * Si eligió 'scratch': navNext pasa al paso 1 de setup (Configuración 1 / 7).
      * Si eligió demo / backup / google: ejecuta la acción async real y pasa a listo. */
     if (act === 'next' && st.phase === 'choice') {
         if (st.source && st.source !== 'scratch') {
@@ -215,7 +215,7 @@ function syncInputMirrors(inputEl, s) {
         if (mirror) mirror.textContent = '$' + Math.round((parseFloat(val) || 0) * s.hours).toLocaleString('es-DO');
     }
 
-    const hintMap = { 1: 'Escribe un nombre para continuar', 2: 'Selecciona al menos un día', 3: '', 4: 'Ponle nombre a la posición', 5: 'Agrega al menos un empleado', 6: '' };
+    const hintMap = { 1: 'Escribe el nombre de la empresa', 2: 'Escribe el nombre del proyecto', 3: 'Selecciona al menos un día', 4: '', 5: 'Ponle nombre a la posición', 6: 'Agrega al menos un empleado', 7: '' };
     const hint = s.phase === 'setup' && !canAdvance(s) ? (hintMap[s.setupStep] || '')
         : (s.phase === 'choice' && !canAdvance(s) ? 'Elige una opción para continuar' : '');
     const hintEl = overlayEl.querySelector('[data-od-hint]');
@@ -251,7 +251,7 @@ function onOverlayKeydown(e) {
     const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
     if (e.key === 'Enter' && isInput) {
         e.preventDefault();
-        if (st.phase === 'setup' && st.setupStep === 5 && st.newEmpName.trim()) {
+        if (st.phase === 'setup' && st.setupStep === 6 && st.newEmpName.trim()) {
             handleAction('addEmp', null, st);
             saveProgress(localStorage, st);
             renderPreview();

@@ -367,3 +367,11 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
 
 ### Iconos de aplicación dentro de indicadores circulares
 - Cuando un logo de aplicación se use dentro de un control circular de estado/conexión, el asset debe conservar su proporción pero quedar enmascarado visualmente al círculo (`object-fit: cover` + máscara circular), con margen interno respecto al aro. No debe verse como un cuadrado flotando dentro del botón circular.
+
+## Configuración de proyectos y onboarding
+- La interfaz se denomina **Configuración de proyectos**. Evitar `Oficial` en títulos, subtítulos y descripciones visibles; la canonicidad es una propiedad interna, no una carga conceptual para el usuario.
+- Configuración, listado y creación de proyectos usan el mismo sistema visual canónico: `--panel`, `--panel-2`, `--hover`, `--border`, `--accent`, `--good`, `--warn`, `--bad`, targets táctiles de al menos `44x44px` y SVG accesibles en lugar de emoji.
+- Los estados `Activo`, `Cerrado`, `Archivado`, `En uso` e `Inicial` usan superficies sólidas y texto de alto contraste. No usar badges o botones huecos/outline como lenguaje principal de estado.
+- El nombre humano del proyecto es la información principal. IDs y metadatos técnicos se relegan a una sección de detalles técnicos o a texto secundario.
+- En onboarding desde cero, **Empresa** y **Proyecto** son conceptos separados. El orden canónico es: `Empresa → Proyecto → Días → Jornada → Posición → Personal → Respaldo`.
+- El proyecto debe quedar activado antes de crear posiciones o empleados para que los datos nuevos nazcan explícitamente dentro del proyecto seleccionado.

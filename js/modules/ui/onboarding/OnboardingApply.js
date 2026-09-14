@@ -1,13 +1,15 @@
 /**
  * OnboardingApply.js — commit ATÓMICO del setup del onboarding v2 al estado real
  * de la app. Se invoca UNA vez en la transición configuración→listo ("Finalizar")
- * y aplica, en orden: ajustes → posición → empleados → guardado completo → flag.
+ * y aplica, en orden: proyecto → ajustes → posición → empleados → guardado completo → flag.
  *
  * Contrato: applySetup(v2state, deps?) → Promise<{applied:boolean, error?}>.
  * Si cualquier escritura falla, NO se guarda y NO se marca la finalización.
  *
  * Deps inyectables (defaults perezosos resueltos en call time; nunca importa
  * app.js — mismo patrón que OnboardingActions):
+ *   configureProject(data)       — activa la infraestructura de Proyectos, resuelve el
+ *                                    proyecto inicial y aplica el nombre elegido.
  *   updateSettings(patch)         — patch plano sobre los ajustes reales.
  *                                    Default: Object.assign dentro de un batch de stateManager.
  *   createPosition(data) → record — crea la posición REAL con la misma forma que
@@ -30,6 +32,7 @@ import { saveApplicationData } from '../../services/PersistenceService.js';
 import { generateUUID } from '../../utils/Helpers.js';
 import { COLOR_PALETTE } from '../../utils/Constants.js';
 import { markCompleted } from './OnboardingActions.js';
+import { projectSetupService } from '../../features/projects/ProjectSetupService.js';
 
 /* Días v2 (idx 0=L … 6=D) → números de día JS (1=Lun … 6=Sáb, 0=Dom). */
 function mapWorkingDays(days) {
@@ -51,6 +54,11 @@ export function uniqueNumber(number, employees) {
 
 function resolveDeps(deps = {}) {
     return {
+        configureProject: deps.configureProject || (async ({ name } = {}) => {
+            const uid = typeof window !== 'undefined' ? (window.currentUser?.uid || null) : (globalThis.currentUser?.uid || null);
+            await projectSetupService.activate({ uid });
+            return projectSetupService.renameActiveProject(name);
+        }),
         updateSettings: deps.updateSettings || (patch => {
             /* Un solo batch para TODAS las escrituras del commit: mismo mecanismo
              * multi-clave del resto de los módulos (un único render al final). */
@@ -72,7 +80,8 @@ function resolveDeps(deps = {}) {
                     icon: null,
                     active: true,
                     updatedAt: Date.now(),
-                    _isDirty: true
+                    _isDirty: true,
+                    ...(data.projectId ? { projectId: String(data.projectId) } : {})
                 };
                 state.positions.push(record);
             });
@@ -92,7 +101,8 @@ function resolveDeps(deps = {}) {
                     positionSalaries: {}, positionSalaryModes: {},
                     active: true, hireDate, phone: '', email: '', notes: '',
                     statusHistory: [{ date: hireDate, active: true, timestamp: nowNew }],
-                    updatedAt: nowNew, positionsUpdatedAt: nowNew, _isDirty: true
+                    updatedAt: nowNew, positionsUpdatedAt: nowNew, _isDirty: true,
+                    ...(data.projectId ? { projectId: String(data.projectId) } : {})
                 };
                 state.employees.push(record);
             });
@@ -108,6 +118,9 @@ const errText = e => (e && e.message ? String(e.message) : String(e));
 export async function applySetup(s, deps) {
     const d = resolveDeps(deps);
     try {
+        const projectState = await d.configureProject({ name: s.projectName.trim() });
+        const projectId = projectState?.activeProjectId || projectState?.activeProject?.id || null;
+        if (!projectId) throw new Error('No se pudo configurar un proyecto activo para el espacio de trabajo.');
         d.updateSettings({
             companyName: s.company.trim(),
             regularHoursPerDay: Number(s.hours) || 8
@@ -117,10 +130,11 @@ export async function applySetup(s, deps) {
             color: COLOR_PALETTE[s.posColorIdx] || COLOR_PALETTE[0],
             workingDays: mapWorkingDays(s.days),
             hourlyRate: parseFloat(s.posRate) || 0,
-            salaryInputMode: 'hourly'
+            salaryInputMode: 'hourly',
+            projectId
         });
         for (const emp of s.employees) {
-            d.createEmployee({ number: emp.code, name: emp.name, positions: [position.id] });
+            d.createEmployee({ number: emp.code, name: emp.name, positions: [position.id], projectId });
         }
         await d.saveAll();
     } catch (err) {

@@ -12,8 +12,9 @@ function fakeStorage() {
 
 /* Deps con contadores y registro de orden; ninguna toca estado global real. */
 function stubDeps(over = {}) {
-    const calls = { events: [], settings: null, positionData: null, employeesData: [] };
+    const calls = { events: [], settings: null, projectName: null, positionData: null, employeesData: [] };
     const deps = {
+        configureProject: async ({ name }) => { calls.projectName = name; calls.events.push('project'); return { activeProjectId: 'PRJ-ONBOARD' }; },
         updateSettings: patch => { calls.settings = patch; calls.events.push('settings'); },
         createPosition: data => { calls.positionData = data; calls.events.push('position'); return { id: 'pos-1', ...data }; },
         createEmployee: data => { calls.employeesData.push(data); calls.events.push('emp'); return { id: 'emp-' + data.number, ...data }; },
@@ -28,6 +29,7 @@ function stubDeps(over = {}) {
 function v2state(over = {}) {
     return {
         company: '  Constructora Horizon  ',
+        projectName: '  Torre Mirador  ',
         days: [true, true, true, true, true, true, false],
         hours: 8,
         posName: ' Ayudante ',
@@ -47,9 +49,11 @@ testRunner.addSuite('Onboarding v2 — aplicar setup al estado real', {
         const deps = stubDeps();
         return applySetup(v2state(), deps).then(res => {
             testRunner.assertEquals(res.applied, true, 'resultado aplicado');
+            testRunner.assertEquals(deps.__calls.projectName, 'Torre Mirador', 'nombre de proyecto recortado');
             testRunner.assertEquals(deps.__calls.settings.companyName, 'Constructora Horizon', 'nombre de empresa recortado');
             testRunner.assertEquals(deps.__calls.settings.regularHoursPerDay, 8, 'horas por día en ajustes');
             const p = deps.__calls.positionData;
+            testRunner.assertEquals(p.projectId, 'PRJ-ONBOARD', 'posición nace en el proyecto configurado');
             testRunner.assertEquals(p.name, 'Ayudante', 'nombre de posición recortado');
             testRunner.assert(JSON.stringify(p.workingDays) === JSON.stringify([1, 2, 3, 4, 5, 6]), 'días L-S mapeados a 1-6 (por defecto)');
             testRunner.assertEquals(p.color, COLOR_PALETTE[2], 'color según índice elegido');
@@ -80,6 +84,7 @@ testRunner.addSuite('Onboarding v2 — aplicar setup al estado real', {
             testRunner.assertEquals(data.length, 3, 'tres empleados creados');
             testRunner.assert(data.every((e, i) => e.number === String(i + 1).padStart(3, '0')), 'códigos v2 pasan como número');
             testRunner.assert(data.every(e => JSON.stringify(e.positions) === JSON.stringify(['pos-1'])), 'ligados a la posición creada');
+            testRunner.assert(data.every(e => e.projectId === 'PRJ-ONBOARD'), 'empleados nacen en el proyecto configurado');
             testRunner.assert(data.every((e, i) => e.name === v2state().employees[i].name), 'nombres intactos');
         });
     },
@@ -89,6 +94,8 @@ testRunner.addSuite('Onboarding v2 — aplicar setup al estado real', {
             const ev = deps.__calls.events;
             testRunner.assertEquals(ev.filter(x => x === 'save').length, 1, 'un único saveAll');
             testRunner.assertEquals(ev[ev.length - 1], 'save', 'saveAll es el último paso');
+            testRunner.assertEquals(ev[0], 'project', 'el proyecto se configura antes de crear datos');
+            testRunner.assert(ev.indexOf('project') < ev.indexOf('settings') && ev.indexOf('settings') < ev.indexOf('position'), 'orden proyecto → ajustes → posición');
             testRunner.assert(ev.indexOf('position') < ev.indexOf('save') && ev.lastIndexOf('emp') < ev.indexOf('save'), 'creaciones antes del guardado');
         });
     },
@@ -96,6 +103,18 @@ testRunner.addSuite('Onboarding v2 — aplicar setup al estado real', {
         const deps = stubDeps();
         return applySetup(v2state(), deps).then(() => {
             testRunner.assertEquals(deps.storage.getItem('onboardingCompleted'), 'true', 'flag marcada en el storage inyectado');
+        });
+    },
+
+    'fallo al configurar proyecto: no crea datos ni marca onboarding'() {
+        const deps = stubDeps({ configureProject: async () => { throw new Error('proyecto no disponible'); } });
+        return applySetup(v2state(), deps).then(res => {
+            testRunner.assertEquals(res.applied, false, 'setup detenido');
+            testRunner.assert(String(res.error).includes('proyecto no disponible'), 'error del proyecto propagado');
+            testRunner.assertEquals(deps.__calls.settings, null, 'ajustes no tocados');
+            testRunner.assertEquals(deps.__calls.positionData, null, 'posición no creada');
+            testRunner.assert(!deps.__calls.events.includes('save'), 'sin guardado final');
+            testRunner.assertEquals(deps.storage.getItem('onboardingCompleted'), null, 'sin flag de completado');
         });
     },
     'fallo a mitad de creaciones: error, sin saveAll y sin flag'() {

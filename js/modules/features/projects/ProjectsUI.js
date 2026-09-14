@@ -13,6 +13,11 @@ import {
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 
 const MODAL_ID = 'project-setup-modal';
+const ICONS = Object.freeze({
+    project: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V7l8-4 8 4v13"/><path d="M8 20v-5h8v5M8 9h.01M12 9h.01M16 9h.01"/></svg>',
+    close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>'
+});
 
 function esc(value) {
     return String(value ?? '').replace(/[&<>'"]/g, ch => ({
@@ -22,28 +27,25 @@ function esc(value) {
 
 function modal() { return document.getElementById(MODAL_ID); }
 function body() { return modal()?.querySelector('[data-project-setup-body]'); }
-
-function notify(message, type = 'info') {
-    window.showNotification?.(message, type);
-}
-
-function emitChanged(detail = {}) {
-    window.dispatchEvent(new CustomEvent('projects:setup-changed', { detail }));
-}
+function notify(message, type = 'info') { window.showNotification?.(message, type); }
+function emitChanged(detail = {}) { window.dispatchEvent(new CustomEvent('projects:setup-changed', { detail })); }
 
 function shell() {
     if (modal()) return;
     const el = document.createElement('div');
     el.id = MODAL_ID;
-    el.style.cssText = 'position:fixed;inset:0;z-index:10060;background:rgba(15,23,42,.62);display:flex;align-items:center;justify-content:center;padding:16px;';
+    el.className = 'project-shell-overlay';
     el.innerHTML = `
-        <section role="dialog" aria-modal="true" aria-labelledby="project-setup-title" style="width:min(620px,100%);max-height:92vh;overflow:auto;background:var(--card-bg,#fff);color:var(--text-color,#111827);border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.3);">
-            <header style="display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid rgba(148,163,184,.28);position:sticky;top:0;background:inherit;z-index:2">
-                <div style="font-size:24px">🏗️</div>
-                <div style="flex:1"><strong id="project-setup-title" style="font-size:18px">Proyecto de trabajo</strong><div style="font-size:12px;opacity:.68">Configuración oficial de Proyectos</div></div>
-                <button type="button" data-project-setup-close aria-label="Cerrar" style="border:0;background:transparent;color:inherit;font-size:28px;cursor:pointer">×</button>
+        <section class="project-shell" role="dialog" aria-modal="true" aria-labelledby="project-setup-title">
+            <header class="project-shell-header">
+                <div class="project-shell-identity">${ICONS.project}</div>
+                <div class="project-shell-heading">
+                    <h2 id="project-setup-title" class="project-shell-title">Configuración de proyectos</h2>
+                    <div class="project-shell-subtitle">Administra el proyecto de trabajo activo y tus demás obras.</div>
+                </div>
+                <button type="button" class="project-icon-btn" data-project-setup-close aria-label="Cerrar">${ICONS.close}</button>
             </header>
-            <div data-project-setup-body style="padding:18px 20px"></div>
+            <div class="project-shell-body" data-project-setup-body></div>
         </section>`;
     el.querySelector('[data-project-setup-close]').addEventListener('click', closeProjectSetupModal);
     el.addEventListener('click', event => { if (event.target === el) closeProjectSetupModal(); });
@@ -51,7 +53,7 @@ function shell() {
 }
 
 function primary(label, attrs = '') {
-    return `<button type="button" ${attrs} style="width:100%;border:0;border-radius:12px;padding:12px 14px;font-weight:800;cursor:pointer;background:#2563eb;color:#fff">${label}</button>`;
+    return `<button type="button" class="project-action is-primary" ${attrs}>${label}</button>`;
 }
 
 async function renderState() {
@@ -59,59 +61,51 @@ async function renderState() {
     const state = await projectSetupService.getState();
     if (!state.enabled) {
         body().innerHTML = `
-            <div style="border:1px solid rgba(245,158,11,.38);background:rgba(245,158,11,.08);border-radius:14px;padding:14px;line-height:1.5">
+            <div class="project-notice is-warning">
                 <strong>Proyectos está desactivado</strong>
-                <p style="font-size:13px;margin:7px 0 0">Al activarlo, SA creará o recuperará el proyecto inicial oficial y asociará de forma aditiva los datos actuales a ese proyecto. La migración existente intenta crear un respaldo previo cuando hay sesión disponible y es reanudable/idempotente.</p>
+                <p>Al activarlo, SA creará o recuperará el proyecto inicial y asociará de forma aditiva los datos actuales a ese proyecto. La migración intenta crear un respaldo previo cuando hay sesión disponible y puede reanudarse sin duplicar el proceso.</p>
             </div>
-            <p style="font-size:12px;opacity:.7;line-height:1.5">No se creará un identificador a partir del nombre de la empresa y no se habilitará todavía la administración multiproyecto completa.</p>
-            ${primary('Activar Proyectos y preparar el proyecto actual', 'data-project-activate')}
-            <div data-project-setup-status style="font-size:12px;margin-top:10px"></div>`;
+            <p class="project-help">No se creará un identificador a partir del nombre de la empresa. Después podrás crear otras obras y cambiar entre ellas.</p>
+            <div class="project-actions is-stacked" style="margin-top:14px">${primary('Activar Proyectos y preparar el proyecto actual', 'data-project-activate')}</div>
+            <div class="project-status-line" data-project-setup-status aria-live="polite"></div>`;
         body().querySelector('[data-project-activate]').addEventListener('click', activateProjects);
         return;
     }
 
     if (!state.ready || !state.activeProject) {
         body().innerHTML = `
-            <div style="border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.07);border-radius:14px;padding:14px">
-                <strong style="color:#dc2626">No se pudo resolver un proyecto activo</strong>
-                <p style="font-size:13px;margin:7px 0 0">La aplicación permanecerá fail-closed para transferencias hasta recuperar un contexto válido.</p>
+            <div class="project-notice is-danger">
+                <strong>No se pudo resolver un proyecto activo</strong>
+                <p>La aplicación permanecerá bloqueada para transferencias hasta recuperar un contexto de proyecto válido.</p>
             </div>
-            <div style="margin-top:14px">${primary('Reintentar inicialización', 'data-project-retry')}</div>
-            <div data-project-setup-status style="font-size:12px;margin-top:10px"></div>`;
+            <div class="project-actions is-stacked" style="margin-top:14px">${primary('Reintentar inicialización', 'data-project-retry')}</div>
+            <div class="project-status-line" data-project-setup-status aria-live="polite"></div>`;
         body().querySelector('[data-project-retry]').addEventListener('click', activateProjects);
         return;
     }
 
     const project = state.activeProject;
-    const projectCount = state.projects.length;
     body().innerHTML = `
-        <div style="border:1px solid rgba(22,163,74,.35);background:rgba(22,163,74,.07);border-radius:14px;padding:14px">
-            <div style="font-size:11px;opacity:.65;text-transform:uppercase;letter-spacing:.08em">Proyecto activo</div>
-            <div style="font-size:20px;font-weight:800;margin-top:4px">${esc(project.name)}</div>
-            <div style="font-size:11px;opacity:.62;margin-top:5px;font-family:monospace;word-break:break-all">${esc(project.id)}</div>
-            ${state.defaultProjectId === project.id ? '<div style="font-size:11px;margin-top:7px;color:#15803d">Proyecto inicial / predeterminado</div>' : ''}
+        <div class="project-active-card">
+            <div class="project-kicker">Proyecto activo</div>
+            <div class="project-active-name">${esc(project.name)}</div>
+            ${state.defaultProjectId === project.id ? '<div class="project-meta">Proyecto inicial / predeterminado</div>' : ''}
+            <details class="project-tech-details"><summary>Detalles técnicos</summary><code>${esc(project.id)}</code></details>
         </div>
-        <label style="display:block;font-size:12px;font-weight:700;margin:16px 0 6px">Nombre del proyecto</label>
-        <input data-project-name maxlength="80" value="${esc(project.name)}" style="width:100%;box-sizing:border-box;border:1px solid rgba(148,163,184,.55);border-radius:10px;padding:11px;background:var(--bg-primary,#fff);color:inherit">
-        <div style="margin-top:10px">${primary('Guardar nombre', 'data-project-rename')}</div>
-        <div data-project-setup-status style="font-size:12px;margin-top:10px"></div>
-        <div data-project-list-section style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(148,163,184,.25)">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;flex-wrap:wrap">
-                <strong style="font-size:14px;display:flex;align-items:center;gap:6px">
-                    <span>📂</span>
-                    <span>Proyectos del sistema</span>
-                </strong>
-                <div style="display:flex;align-items:center;gap:8px">
-                    <button type="button" data-project-create-open style="border:0;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;background:#2563eb;color:#fff;cursor:pointer;display:inline-flex;align-items:center;gap:4px">
-                        <span>➕</span>
-                        <span>Nuevo proyecto</span>
-                    </button>
-                    <span style="font-size:11px;opacity:.65;text-transform:uppercase;letter-spacing:.05em">Oficial</span>
-                </div>
+        <div class="project-field">
+            <label for="project-active-name-input">Nombre del proyecto</label>
+            <input id="project-active-name-input" data-project-name maxlength="80" value="${esc(project.name)}" autocomplete="off">
+        </div>
+        <div class="project-actions is-stacked" style="margin-top:10px">${primary('Guardar nombre', 'data-project-rename')}</div>
+        <div class="project-status-line" data-project-setup-status aria-live="polite"></div>
+        <section class="project-section" data-project-list-section>
+            <div class="project-section-head">
+                <h3 class="project-section-title">Tus proyectos</h3>
+                <button type="button" class="project-action is-secondary" data-project-create-open>${ICONS.plus}<span>Nuevo proyecto</span></button>
             </div>
             <div data-project-create-slot style="display:none;margin-bottom:14px"></div>
             <div data-project-list-container></div>
-        </div>`;
+        </section>`;
     body().querySelector('[data-project-rename]').addEventListener('click', renameProject);
     const listContainer = body()?.querySelector('[data-project-list-container]');
     const createSlot = body()?.querySelector('[data-project-create-slot]');
@@ -129,25 +123,22 @@ async function renderState() {
                 const status = body()?.querySelector('[data-project-setup-status]');
                 if (typeof isSettingsDraftDirty === 'function' && isSettingsDraftDirty()) {
                     const msg = 'Hay cambios sin guardar en la configuración. Guarda o cancela los cambios manualmente antes de cambiar de proyecto.';
-                    if (status) status.innerHTML = `<strong style="color:#d97706">Atención:</strong> ${esc(msg)}`;
+                    if (status) { status.textContent = msg; status.className = 'project-status-line is-error'; }
                     notify(msg, 'warning');
                     return;
                 }
-                if (button) {
-                    button.disabled = true;
-                    button.textContent = 'Cambiando…';
-                }
-                if (status) status.textContent = 'Cambiando de proyecto…';
+                if (button) { button.disabled = true; button.textContent = 'Cambiando…'; }
+                if (status) { status.textContent = 'Cambiando de proyecto…'; status.className = 'project-status-line'; }
                 try {
                     const result = await projectSetupService.switchActiveProject(targetId);
                     if (result?.stale) return;
                     emitChanged({ projectId: result.activeProjectId, switched: true });
-                    notify(`✅ Proyecto activo: ${result.activeProject?.name || result.activeProjectId}`, 'success');
+                    notify(`Proyecto activo: ${result.activeProject?.name || result.activeProjectId}`, 'success');
                     window.render?.();
                     await renderState();
                 } catch (error) {
-                    if (status) status.innerHTML = `<strong style="color:#dc2626">Error:</strong> ${esc(error.message || error)}`;
-                    notify('❌ ' + (error.message || error), 'error');
+                    if (status) { status.textContent = `Error: ${error.message || error}`; status.className = 'project-status-line is-error'; }
+                    notify(String(error.message || error), 'error');
                 } finally {
                     if (button) button.disabled = false;
                 }
@@ -158,52 +149,43 @@ async function renderState() {
     let isCreateOpen = false;
     const closeCreate = () => {
         isCreateOpen = false;
-        if (createSlot) {
-            createSlot.style.display = 'none';
-            createSlot.innerHTML = '';
-        }
+        if (createSlot) { createSlot.style.display = 'none'; createSlot.innerHTML = ''; }
     };
-
     const openCreate = () => {
         isCreateOpen = true;
-        if (createSlot) {
-            createSlot.style.display = 'block';
-            mountProjectCreateForm(createSlot, {
-                setupService: projectSetupService,
-                onSuccess: async (createdProject, nextState) => {
-                    closeCreate();
-                    const freshState = nextState || await projectSetupService.getState();
-                    listHandle?.update({
-                        projects: freshState.projects,
-                        activeProjectId: freshState.activeProjectId,
-                        defaultProjectId: freshState.defaultProjectId
-                    });
-                    emitChanged({ projectId: freshState.activeProjectId, createdProject: createdProject.id });
-                },
-                onCancel: closeCreate
-            });
-        }
+        if (!createSlot) return;
+        createSlot.style.display = 'block';
+        mountProjectCreateForm(createSlot, {
+            setupService: projectSetupService,
+            onSuccess: async (createdProject, nextState) => {
+                closeCreate();
+                const freshState = nextState || await projectSetupService.getState();
+                listHandle?.update({
+                    projects: freshState.projects,
+                    activeProjectId: freshState.activeProjectId,
+                    defaultProjectId: freshState.defaultProjectId
+                });
+                emitChanged({ projectId: freshState.activeProjectId, createdProject: createdProject.id });
+            },
+            onCancel: closeCreate
+        });
     };
-
-    createBtn?.addEventListener('click', () => {
-        if (isCreateOpen) closeCreate();
-        else openCreate();
-    });
+    createBtn?.addEventListener('click', () => { if (isCreateOpen) closeCreate(); else openCreate(); });
 }
 
 async function activateProjects() {
     const status = body()?.querySelector('[data-project-setup-status]');
     const button = body()?.querySelector('[data-project-activate], [data-project-retry]');
     if (button) { button.disabled = true; button.textContent = 'Preparando proyecto…'; }
-    if (status) status.textContent = 'Inicializando infraestructura y verificando el contexto…';
+    if (status) { status.textContent = 'Inicializando infraestructura y verificando el contexto…'; status.className = 'project-status-line'; }
     try {
         const state = await projectSetupService.activate({ uid: window.currentUser?.uid || null });
         emitChanged({ projectId: state.activeProjectId, enabled: true });
-        notify(`✅ Proyecto activo: ${state.activeProject?.name || state.activeProjectId}`, 'success');
+        notify(`Proyecto activo: ${state.activeProject?.name || state.activeProjectId}`, 'success');
         window.render?.();
         await renderState();
     } catch (error) {
-        if (status) status.innerHTML = `<strong style="color:#dc2626">Error:</strong> ${esc(error.message || error)}`;
+        if (status) { status.textContent = `Error: ${error.message || error}`; status.className = 'project-status-line is-error'; }
         if (button) { button.disabled = false; button.textContent = 'Reintentar'; }
     }
 }
@@ -214,25 +196,18 @@ async function renameProject() {
     try {
         const state = await projectSetupService.renameActiveProject(input?.value || '');
         emitChanged({ projectId: state.activeProjectId, renamed: true });
-        notify(`✅ Proyecto actualizado: ${state.activeProject?.name}`, 'success');
+        notify(`Proyecto actualizado: ${state.activeProject?.name}`, 'success');
         window.render?.();
         await renderState();
     } catch (error) {
-        if (status) status.innerHTML = `<strong style="color:#dc2626">Error:</strong> ${esc(error.message || error)}`;
+        if (status) { status.textContent = `Error: ${error.message || error}`; status.className = 'project-status-line is-error'; }
     }
 }
 
-export function closeProjectSetupModal() {
-    modal()?.remove();
-}
-
+export function closeProjectSetupModal() { modal()?.remove(); }
 export async function openProjectSetupModal() {
-    try {
-        shell();
-        await renderState();
-    } catch (error) {
-        notify('❌ ' + (error.message || error), 'error');
-    }
+    try { shell(); await renderState(); }
+    catch (error) { notify(String(error.message || error), 'error'); }
 }
 
 export function registerProjectSetupGlobals() {
@@ -250,27 +225,5 @@ export function registerProjectSetupGlobals() {
 }
 
 export const switchActiveProject = (id) => projectSetupService.switchActiveProject(id);
-
-export {
-    openProjectListModal,
-    closeProjectListModal,
-    mountProjectList,
-    renderProjectListHTML,
-    openProjectCreateModal,
-    closeProjectCreateModal,
-    mountProjectCreateForm
-};
-
-export default {
-    openProjectSetupModal,
-    closeProjectSetupModal,
-    openProjectListModal,
-    closeProjectListModal,
-    mountProjectList,
-    renderProjectListHTML,
-    openProjectCreateModal,
-    closeProjectCreateModal,
-    mountProjectCreateForm,
-    switchActiveProject,
-    registerProjectSetupGlobals
-};
+export { openProjectListModal, closeProjectListModal, mountProjectList, renderProjectListHTML, openProjectCreateModal, closeProjectCreateModal, mountProjectCreateForm };
+export default { openProjectSetupModal, closeProjectSetupModal, openProjectListModal, closeProjectListModal, mountProjectList, renderProjectListHTML, openProjectCreateModal, closeProjectCreateModal, mountProjectCreateForm, switchActiveProject, registerProjectSetupGlobals };

@@ -114,7 +114,7 @@ test('linked peer identity UX uses recent activity ordering and project-name sel
   expect(ui).toContain('Última conexión:');
   expect(ui).toContain('peer.lastSeenAt || peer.linkedAt');
   expect(ui).toContain('resolveSaSelfPresentationName(projectState, self)');
-  expect(ui).toContain('Nombre oficial del proyecto');
+  expect(ui).toContain('Nombre del proyecto');
   expect(ui).toContain('ensureSaSelfMatchesProject(identityStore, projectState)');
   expect(ui).not.toContain('data-rename-self');
   expect(ui).not.toContain('renderSelfNameEditor');
