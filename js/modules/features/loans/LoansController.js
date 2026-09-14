@@ -29,6 +29,8 @@ import {
     deleteLoan,
     refinanceLoan,
     voidRefinancing,
+    consolidateLoans,
+    getCalendarPeriodWeeks,
     migrateAdvancesToLoans,
     getBalance,
     LOAN_STATUS,
@@ -115,6 +117,15 @@ function ensureLedgerState() {
             if (typeof state.loansLedger.displayMode === 'undefined') {
                 state.loansLedger.displayMode = 'grouped';
             }
+            if (typeof state.loansLedger.showConsolidateForm === 'undefined') {
+                state.loansLedger.showConsolidateForm = false;
+            }
+            if (typeof state.loansLedger.consolidateDraft === 'undefined') {
+                state.loansLedger.consolidateDraft = null;
+            }
+            if (typeof state.loansLedger.showSettingsModal === 'undefined') {
+                state.loansLedger.showSettingsModal = false;
+            }
         }
     });
 }
@@ -187,6 +198,7 @@ export function clearLoansEmployee() {
         state.loansLedger.selectedEmployeeId = null;
         state.loansLedger.showAddForm = false;
         state.loansLedger.showPaymentFormForLoan = null;
+        state.loansLedger.showSettingsModal = false;
     });
 }
 
@@ -398,9 +410,9 @@ export function setLoanDraftField(field, value) {
     } else {
         draft[field] = value;
     }
-    // Re-render the mode transition in both directions. Other fields only
-    // need a live refresh while the installment preview is visible.
-    if (field === 'installmentMode' || draft.installmentMode === INSTALLMENT_MODE.INSTALLMENTS) {
+    // Re-render when mode, principal, or interest changes, or while installments
+    // are enabled, so the capacity meter and previews update live.
+    if (field === 'installmentMode' || field === 'principal' || field === 'interestRate' || draft.installmentMode === INSTALLMENT_MODE.INSTALLMENTS) {
         render();
     }
 }
@@ -773,6 +785,91 @@ export function voidRefinanceHandler(loanId, refinId) {
     });
 }
 
+// ─── Consolidación de deuda ──────────────────────────────────────────────────
+
+export function toggleConsolidateForm() {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showConsolidateForm = !state.loansLedger.showConsolidateForm;
+        if (state.loansLedger.showConsolidateForm) {
+            state.loansLedger.showAddForm = false;
+            state.loansLedger.showRefinanceFormForLoan = null;
+            state.loansLedger.showPaymentFormForLoan = null;
+            state.loansLedger.consolidateDraft = {
+                installmentCount: 1,
+                installmentFrequencyWeeks: Math.round(getCalendarPeriodWeeks(state)) || 2,
+                interestRate: 0,
+                note: '',
+                startDate: getDateKey(new Date()),
+                showAdvanced: false
+            };
+        } else {
+            state.loansLedger.consolidateDraft = null;
+        }
+    });
+    render();
+}
+
+export function toggleConsolidateAdvancedOptions() {
+    ensureLedgerState();
+    const draft = state.loansLedger?.consolidateDraft;
+    if (draft) {
+        draft.showAdvanced = !draft.showAdvanced;
+        render();
+    }
+}
+
+export function setConsolidateDraftField(field, value) {
+    ensureLedgerState();
+    const draft = state.loansLedger.consolidateDraft;
+    if (!draft) return;
+    if (field === 'installmentCount' || field === 'installmentFrequencyWeeks' || field === 'interestRate') {
+        draft[field] = Number(value) || 0;
+    } else {
+        draft[field] = value;
+    }
+    render();
+}
+
+export function submitConsolidateLoans() {
+    ensureLedgerState();
+    const empId = state.loansLedger.selectedEmployeeId;
+    if (!empId) {
+        alertMsg('Selecciona un empleado primero');
+        return;
+    }
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp) {
+        alertMsg('Empleado no encontrado');
+        return;
+    }
+
+    const draft = state.loansLedger.consolidateDraft || {};
+    try {
+        const { consolidatedLoan, closedLoans } = consolidateLoans(emp, {
+            installmentCount: Number(draft.installmentCount || 1),
+            installmentFrequencyWeeks: Number(draft.installmentFrequencyWeeks || 2),
+            interestRate: Number(draft.interestRate || 0),
+            startDate: draft.startDate,
+            note: draft.note
+        });
+
+        stateManager.batchSetState(() => {
+            state.loansLedger.showConsolidateForm = false;
+            state.loansLedger.consolidateDraft = null;
+        });
+
+        saveApplicationData({
+            immediate: true,
+            announce: `Deuda consolidada: ${closedLoans.length} préstamos unificados en $${consolidatedLoan.principal.toFixed(2)}`
+        });
+        render();
+    } catch (err) {
+        alertMsg(`❌ ${err.message}`);
+    }
+}
+
+
 export function toggleInactiveHistory() {
     ensureLedgerState();
     stateManager.batchSetState(() => {
@@ -845,6 +942,212 @@ export function resolveDupDeleteLoan(loanId) {
 }
 
 /**
+ * Alterna el estilo visual del indicador de capacidad de pago
+ * entre 'gauge' (Opción B: circular analítico) y 'stacked' (Opción C: barra multicapa).
+ */
+export function toggleLoansCapacityStyle() {
+    const current = (state.settings && state.settings.loansCapacityStyle) || 'gauge';
+    const next = current === 'gauge' ? 'stacked' : 'gauge';
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansCapacityStyle = next;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    if (typeof window !== 'undefined' && window.showNotification) {
+        window.showNotification(
+            next === 'gauge' ? 'Vista de capacidad: Gauge Analítico (Circular)' : 'Vista de capacidad: Barra Multicapa Asistida',
+            'info'
+        );
+    }
+    render();
+}
+
+/**
+ * Asigna explícitamente el estilo visual de capacidad.
+ */
+export function setLoansCapacityStyle(style) {
+    const validStyle = style === 'stacked' ? 'stacked' : 'gauge';
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansCapacityStyle = validStyle;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    render();
+}
+
+/**
+ * Alterna la densidad de métricas rápidas del empleado
+ * entre 'full' (4 tarjetas: completa) y 'compact' (2 tarjetas: minimalista).
+ */
+export function toggleLoansKpiDensity() {
+    const current = (state.settings && state.settings.loansKpiDensity) || 'full';
+    const next = current === 'full' ? 'compact' : 'full';
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiDensity = next;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    if (typeof window !== 'undefined' && window.showNotification) {
+        window.showNotification(
+            next === 'compact' ? 'Métricas: Vista Minimalista (2 tarjetas clave)' : 'Métricas: Vista Completa (4 tarjetas)',
+            'info'
+        );
+    }
+    render();
+}
+
+/**
+ * Asigna explícitamente la densidad de métricas rápidas del empleado.
+ */
+export function setLoansKpiDensity(density) {
+    const validDensity = density === 'compact' ? 'compact' : 'full';
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiDensity = validDensity;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    render();
+}
+
+/**
+ * Aplica la cantidad de cuotas sugerida por el asistente de viabilidad
+ * al borrador del formulario activo (alta, refinanciamiento o consolidación).
+ */
+export function applySuggestedInstallmentCount(count) {
+    const num = parseInt(count, 10);
+    if (!num || num <= 0) return;
+
+    const ledger = state.loansLedger || {};
+    if (ledger.showConsolidateForm) {
+        stateManager.batchSetState(() => {
+            if (state.loansLedger?.consolidateDraft) {
+                state.loansLedger.consolidateDraft.showAdvanced = true;
+            }
+        });
+        setConsolidateDraftField('installmentCount', num);
+    } else if (ledger.refinancingLoanId) {
+        setRefinanceDraftField('mode', 'installments');
+        setRefinanceDraftField('installmentCount', num);
+    } else {
+        setLoanDraftField('installmentMode', 'installments');
+        setLoanDraftField('installmentCount', num);
+    }
+}
+
+/**
+ * Abre el modal unificado de preferencias de la sección de préstamos.
+ */
+export function openLoansSettingsModal() {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showSettingsModal = true;
+    });
+    render();
+}
+
+/**
+ * Cierra el modal unificado de preferencias de préstamos.
+ */
+export function closeLoansSettingsModal() {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showSettingsModal = false;
+    });
+    render();
+}
+
+/**
+ * Activa o desactiva una tarjeta de resumen (KPI) en la vista de préstamos.
+ * La tarjeta se añade al final de las activas o se retira.
+ * Se asegura que al menos una tarjeta permanezca visible.
+ */
+export function toggleLoansKpiCard(cardId) {
+    if (!cardId) return;
+    const current = (state.settings && Array.isArray(state.settings.loansKpiCards) && state.settings.loansKpiCards.length > 0)
+        ? [...state.settings.loansKpiCards]
+        : ((state.settings && state.settings.loansKpiDensity === 'compact') ? ['balance', 'nextDeduction'] : ['balance', 'paid', 'nextDeduction', 'history']);
+
+    const idx = current.indexOf(cardId);
+    if (idx >= 0) {
+        if (current.length <= 1) {
+            if (typeof window !== 'undefined' && window.showNotification) {
+                window.showNotification('Debe mantenerse al menos una tarjeta de resumen visible.', 'warning');
+            }
+            return;
+        }
+        current.splice(idx, 1);
+    } else {
+        current.push(cardId);
+    }
+
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiCards = current;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    render();
+}
+
+/**
+ * Cambia la posición / orden de visualización de una tarjeta activa (arriba o abajo).
+ */
+export function moveLoansKpiCard(cardId, direction) {
+    if (!cardId) return;
+    const current = (state.settings && Array.isArray(state.settings.loansKpiCards) && state.settings.loansKpiCards.length > 0)
+        ? [...state.settings.loansKpiCards]
+        : ((state.settings && state.settings.loansKpiDensity === 'compact') ? ['balance', 'nextDeduction'] : ['balance', 'paid', 'nextDeduction', 'history']);
+
+    const idx = current.indexOf(cardId);
+    if (idx < 0) return;
+
+    const offset = (direction === 'up' || direction === -1) ? -1 : 1;
+    const targetIdx = idx + offset;
+    if (targetIdx < 0 || targetIdx >= current.length) return;
+
+    const tmp = current[idx];
+    current[idx] = current[targetIdx];
+    current[targetIdx] = tmp;
+
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiCards = current;
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    render();
+}
+
+/**
+ * Restablece las tarjetas de resumen y el estilo de capacidad a valores de fábrica.
+ */
+export function resetLoansKpiCards() {
+    stateManager.batchSetState(s => {
+        if (!s.settings) s.settings = {};
+        s.settings.loansKpiCards = ['balance', 'paid', 'nextDeduction', 'history'];
+        s.settings.loansCapacityStyle = 'gauge';
+        s.settings.loansKpiDensity = 'full';
+        s.settings.updatedAt = Date.now();
+        s.settings._isDirty = true;
+    });
+    saveApplicationData();
+    if (typeof window !== 'undefined' && window.showNotification) {
+        window.showNotification('Preferencias de préstamos restablecidas a valores de fábrica.', 'info');
+    }
+    render();
+}
+
+/**
  * Register handlers on window.* for the data-app-fn dispatcher used by the
  * Ledger UI. Called once at app boot from app.js.
  */
@@ -877,6 +1180,10 @@ export function registerLegacyGlobals() {
     window.setRefinanceDraftField = setRefinanceDraftField;
     window.submitRefinance = submitRefinance;
     window.voidRefinanceHandler = voidRefinanceHandler;
+    window.toggleConsolidateForm = toggleConsolidateForm;
+    window.toggleConsolidateAdvancedOptions = toggleConsolidateAdvancedOptions;
+    window.setConsolidateDraftField = setConsolidateDraftField;
+    window.submitConsolidateLoans = submitConsolidateLoans;
     window.setLoansFilterView = setLoansFilterView;
     window.setLoansSortBy = setLoansSortBy;
     window.setLoansSortOrder = setLoansSortOrder;
@@ -885,6 +1192,16 @@ export function registerLegacyGlobals() {
     window.toggleLoansFilterMenu = toggleLoansFilterMenu;
     window.resetLoansFilters = resetLoansFilters;
     window.setLoansDisplayMode = setLoansDisplayMode;
+    window.toggleLoansCapacityStyle = toggleLoansCapacityStyle;
+    window.setLoansCapacityStyle = setLoansCapacityStyle;
+    window.toggleLoansKpiDensity = toggleLoansKpiDensity;
+    window.setLoansKpiDensity = setLoansKpiDensity;
+    window.applySuggestedInstallmentCount = applySuggestedInstallmentCount;
+    window.openLoansSettingsModal = openLoansSettingsModal;
+    window.closeLoansSettingsModal = closeLoansSettingsModal;
+    window.toggleLoansKpiCard = toggleLoansKpiCard;
+    window.moveLoansKpiCard = moveLoansKpiCard;
+    window.resetLoansKpiCards = resetLoansKpiCards;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;

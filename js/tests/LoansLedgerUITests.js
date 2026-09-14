@@ -14,7 +14,7 @@
  */
 
 import { state } from '../modules/core/AppState.js';
-import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
+import { LoansLedger, LoansSettingsModal } from '../modules/features/loans/LoansLedger.js';
 import {
     openLoansEmployeePicker,
     closeLoansEmployeePicker,
@@ -27,7 +27,19 @@ import {
     toggleLoansFilterMenu,
     resetLoansFilters,
     selectLoansEmployee,
-    setLoansDisplayMode
+    setLoansDisplayMode,
+    toggleLoansCapacityStyle,
+    setLoansCapacityStyle,
+    toggleLoansKpiDensity,
+    setLoansKpiDensity,
+    applySuggestedInstallmentCount,
+    openLoansSettingsModal,
+    closeLoansSettingsModal,
+    toggleLoansKpiCard,
+    moveLoansKpiCard,
+    resetLoansKpiCards,
+    toggleConsolidateForm,
+    toggleConsolidateAdvancedOptions
 } from '../modules/features/loans/LoansController.js';
 import { LOAN_STATUS, sortEmployeeLoans, filterEmployeeLoans, getIndividualLoanRecords } from '../modules/features/loans/LoansService.js';
 
@@ -773,4 +785,571 @@ testRunner.addSuite("LoansLedger UI — Modo de Vistas (Agrupado vs Por Préstam
     }
 });
 
+testRunner.addSuite("LoansLedger UI — Loan Capacity Meter", {
+
+    "renderiza el medidor de capacidad en NewLoanForm con sueldo quincenal y estado seguro"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8 };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // $9,600 quincenal
+        state.employees = [{
+            id: 'e1',
+            name: 'Ada Lovelace',
+            number: '001',
+            active: true,
+            positions: ['pos1'],
+            loans: []
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showAddForm: true,
+            newLoanDraft: {
+                principal: 2000,
+                interestRate: 0,
+                installmentMode: 'installments',
+                installmentCount: 2,
+                installmentFrequencyWeeks: 2 // cuota de $1,000 quincenal vs $9,600 sueldo (~10.42%)
+            }
+        };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "El medidor de capacidad debe renderizarse en NewLoanForm");
+        testRunner.assert(meter.classList.contains('loan-capacity-meter--safe'), "Debe tener estado safe");
+        testRunner.assert(meter.textContent.includes('Capacidad de retención en nómina'), "Muestra el título de capacidad");
+        testRunner.assert(meter.textContent.includes('$9,600.00'), "Muestra el sueldo estimado del período ($9,600.00)");
+        testRunner.assert(meter.textContent.includes('$1,000.00'), "Muestra la cuota propuesta ($1,000.00)");
+    },
+
+    "renderiza alerta de riesgo alto cuando la cuota supera el 50% del sueldo"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8 };
+        state.positions = [{ id: 'pos1', hourlyRate: 50, workingDays: [1, 2, 3, 4, 5, 6] }]; // $4,800 quincenal
+        state.employees = [{
+            id: 'e1',
+            name: 'Ada Lovelace',
+            number: '001',
+            active: true,
+            positions: ['pos1'],
+            loans: []
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showAddForm: true,
+            newLoanDraft: {
+                principal: 6000,
+                interestRate: 0,
+                installmentMode: 'installments',
+                installmentCount: 2,
+                installmentFrequencyWeeks: 2 // cuota de $3,000 quincenal vs $4,800 sueldo (62.5%)
+            }
+        };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "El medidor de capacidad debe renderizarse");
+        testRunner.assert(meter.classList.contains('loan-capacity-meter--danger'), "Debe tener estado danger");
+        testRunner.assert(meter.textContent.includes('62.5% del sueldo'), "Indica el porcentaje de absorción (62.5%)");
+        testRunner.assert(meter.textContent.includes('Alto riesgo'), "Muestra la advertencia de alto riesgo");
+    },
+
+    "renderiza el medidor de capacidad dentro del formulario de Refinanciamiento"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8 };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // $9,600 quincenal
+        state.employees = [{
+            id: 'e1',
+            name: 'Ada Lovelace',
+            number: '001',
+            active: true,
+            positions: ['pos1'],
+            loans: [{
+                id: 'loan-1',
+                principal: 5000,
+                interestRate: 0,
+                status: 'active',
+                payments: []
+            }]
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showRefinanceFormForLoan: 'loan-1',
+            refinanceDraft: {
+                basis: 'balance',
+                mode: 'installments',
+                interestRate: 10, // saldo 5000 + 500 = 5500
+                installmentCount: 2, // 2750 por cuota vs 9600 (~28.65% -> safe)
+                installmentFrequencyWeeks: 2,
+                note: 'Refinanciamiento salud'
+            }
+        };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const refinForm = host.querySelector('.loan-operation-form--refinance');
+        testRunner.assert(refinForm !== null, "El formulario de refinanciamiento debe estar abierto");
+        const meter = refinForm.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "El medidor de capacidad debe estar dentro de RefinanceForm");
+        testRunner.assert(meter.textContent.includes('$9,600.00'), "Muestra el sueldo del período ($9,600.00)");
+        testRunner.assert(meter.textContent.includes('$2,750.00'), "Muestra la nueva cuota estimada ($2,750.00)");
+    },
+
+    "renderiza el botón Consolidar Préstamos cuando el empleado tiene 2 o más préstamos activos"() {
+        resetState();
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: false,
+            showConsolidateForm: false
+        };
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            loans: [
+                { id: 'l1', principal: 5000, status: 'active', payments: [] },
+                { id: 'l2', principal: 8000, status: 'active', payments: [] }
+            ]
+        }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const consolidateBtn = host.querySelector('[data-app-fn="toggleConsolidateForm"]');
+        testRunner.assert(consolidateBtn !== null, "Debe existir el botón para consolidar préstamos");
+        testRunner.assert(consolidateBtn.textContent.includes('Consolidar préstamos (2 activos)'), "Debe indicar los 2 activos");
+    },
+
+    "renderiza ConsolidateLoansForm con el total consolidado y su medidor de capacidad"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 } }; // 2 semanas
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // 9600 quincenal
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: false,
+            showConsolidateForm: true,
+            consolidateDraft: {
+                installmentCount: 4,
+                installmentFrequencyWeeks: 2,
+                interestRate: 0,
+                note: 'Unificación de cuentas'
+            }
+        };
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            positions: ['pos1'],
+            loans: [
+                { id: 'l1', principal: 4000, status: 'active', concept: 'Adelanto 1', payments: [] },
+                { id: 'l2', principal: 8000, status: 'active', concept: 'Adelanto 2', payments: [] }
+            ]
+        }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const form = host.querySelector('.loan-consolidate-form');
+        testRunner.assert(form !== null, "Debe renderizarse el formulario de consolidación");
+        testRunner.assert(form.textContent.includes('$12,000.00'), "Debe mostrar el total acumulado de $12,000.00");
+        testRunner.assert(form.textContent.includes('4 × ~$3,000.00'), "Debe calcular cuotas de ~3,000.00");
+
+        const meter = form.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "Debe incluir el medidor de capacidad");
+        testRunner.assert(meter.textContent.includes('$9,600.00'), "Debe mostrar el sueldo de 9,600.00");
+        testRunner.assert(meter.textContent.includes('31.25% del sueldo'), "Evalúa ~31% del sueldo");
+    },
+
+    "renderiza retenciones previas en cola en NewLoanForm cuando hay otros préstamos activos"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 } };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // 9600 quincenal
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: true,
+            showConsolidateForm: false,
+            newLoanDraft: {
+                principal: 2000,
+                installmentMode: 'lump',
+                installmentCount: 1,
+                installmentFrequencyWeeks: 2
+            }
+        };
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            positions: ['pos1'],
+            loans: [
+                { id: 'l1', principal: 3000, status: 'active', installmentMode: 'lump', payments: [] } // 3000 en cola
+            ]
+        }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "Debe renderizar el medidor");
+        testRunner.assert(meter.textContent.includes('Retenciones previas en cola:'), "Muestra retenciones previas");
+        testRunner.assert(meter.textContent.includes('$3,000.00'), "Muestra los 3000 previos");
+        testRunner.assert(meter.textContent.includes('$5,000.00'), "Muestra el total proyectado de 5000 (3000 + 2000)");
+    },
+
+    "alterna entre estilo gauge y stacked con toggleLoansCapacityStyle"() {
+        resetState();
+        state.settings = { loansCapacityStyle: 'gauge' };
+        toggleLoansCapacityStyle();
+        testRunner.assertEquals(state.settings.loansCapacityStyle, 'stacked', 'Pasa de gauge a stacked');
+
+        toggleLoansCapacityStyle();
+        testRunner.assertEquals(state.settings.loansCapacityStyle, 'gauge', 'Pasa de stacked a gauge');
+
+        setLoansCapacityStyle('stacked');
+        testRunner.assertEquals(state.settings.loansCapacityStyle, 'stacked', 'setLoansCapacityStyle asigna stacked');
+    },
+
+    "renderiza Opción B (Gauge) con layout analítico y balance de corte"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 }, loansCapacityStyle: 'gauge' };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // 9600 quincenal
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: true,
+            newLoanDraft: { principal: 2000, installmentMode: 'lump', installmentCount: 1, installmentFrequencyWeeks: 2 }
+        };
+        state.employees = [{ id: 'emp1', name: 'Charles', number: '026', active: true, positions: ['pos1'], loans: [] }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter--gauge');
+        testRunner.assert(meter !== null, "Debe renderizar la clase de gauge");
+        testRunner.assert(meter.querySelector('.loan-capacity-gauge-svg') !== null, "Debe tener el SVG del velocímetro");
+        testRunner.assert(meter.textContent.includes('Salario neto disponible:'), "Muestra la balanza de neto disponible");
+        testRunner.assert(meter.querySelector('.loan-capacity-meter__badge') !== null, "Incluye el badge de estado");
+    },
+
+    "renderiza Opción C (Stacked) con barra segmentada, leyendas y sugerencia de cuotas"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 }, loansCapacityStyle: 'stacked' };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }]; // 9600 quincenal
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: true,
+            newLoanDraft: { principal: 7000, installmentMode: 'lump', installmentCount: 1, installmentFrequencyWeeks: 2 }
+        };
+        state.employees = [{ id: 'emp1', name: 'Charles', number: '026', active: true, positions: ['pos1'], loans: [] }];
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const meter = host.querySelector('.loan-capacity-meter--stacked');
+        testRunner.assert(meter !== null, "Debe renderizar la clase de barra multicapa");
+        testRunner.assert(meter.querySelector('.loan-capacity-stacked-bar') !== null, "Debe tener la barra segmentada");
+        testRunner.assert(meter.querySelector('.loan-capacity-legends') !== null, "Debe incluir leyendas de colores");
+        
+        const assistBar = meter.querySelector('.loan-capacity-assist-bar');
+        testRunner.assert(assistBar !== null, "Debe incluir barra de sugerencia inteligente para cuota alta");
+        testRunner.assert(assistBar.textContent.includes('Sugerencia de viabilidad:'), "Muestra texto de asistencia");
+    },
+
+    "applySuggestedInstallmentCount aplica la sugerencia al borrador de cuotas"() {
+        resetState();
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showAddForm: true,
+            newLoanDraft: { principal: 7000, installmentMode: 'lump', installmentCount: 1, installmentFrequencyWeeks: 2 }
+        };
+        applySuggestedInstallmentCount(4);
+        testRunner.assertEquals(state.loansLedger.newLoanDraft.installmentCount, 4, "Actualiza installmentCount a 4");
+        testRunner.assertEquals(state.loansLedger.newLoanDraft.installmentMode, 'installments', "Cambia el modo a installments");
+    },
+
+    "ConsolidateLoansForm por defecto usa 1 cuota, muestra barra colapsada y preserva LoanCapacityMeter"() {
+        resetState();
+        state.settings = { regularHoursPerDay: 8, payPeriod: { periodLength: 14 } };
+        state.positions = [{ id: 'pos1', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5, 6] }];
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            positions: ['pos1'],
+            loans: [
+                { id: 'l1', principal: 4000, status: 'active', concept: 'Adelanto 1', payments: [] },
+                { id: 'l2', principal: 8000, status: 'active', concept: 'Adelanto 2', payments: [] }
+            ]
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1',
+            showConsolidateForm: false
+        };
+
+        toggleConsolidateForm();
+        testRunner.assertEquals(state.loansLedger.showConsolidateForm, true, "Formulario de consolidación abierto");
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.installmentCount, 1, "Por defecto cuotas = 1");
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.showAdvanced, false, "Por defecto opciones avanzadas colapsadas");
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const form = host.querySelector('.loan-consolidate-form');
+        testRunner.assert(form !== null, "Debe renderizarse .loan-consolidate-form");
+        testRunner.assert(form.querySelector('.loan-consolidate-form__single-bar') !== null, "Debe renderizar la barra de 1 sola cuota");
+        testRunner.assert(form.textContent.includes('Deducción en 1 sola cuota'), "Informa modalidad de 1 cuota");
+        testRunner.assert(form.textContent.includes('$12,000.00'), "Muestra el total de $12,000.00");
+        testRunner.assert(form.querySelector('.loan-consolidate-form__advanced-panel') === null, "Panel avanzado no visible en estado colapsado");
+
+        // Verificación de LoanCapacityMeter preservado
+        const meter = form.querySelector('.loan-capacity-meter');
+        testRunner.assert(meter !== null, "LoanCapacityMeter debe estar incorporado intacto");
+        testRunner.assert(meter.textContent.includes('Capacidad de retención en nómina'), "Título del medidor presente");
+
+        // Alternar opciones avanzadas
+        toggleConsolidateAdvancedOptions();
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.showAdvanced, true, "showAdvanced pasa a true");
+
+        const htmlExpanded = LoansLedger();
+        const hostExpanded = document.createElement('div');
+        hostExpanded.innerHTML = htmlExpanded;
+        const formExpanded = hostExpanded.querySelector('.loan-consolidate-form');
+
+        testRunner.assert(formExpanded.querySelector('.loan-consolidate-form__advanced-panel') !== null, "Panel de opciones avanzadas visible");
+        testRunner.assert(formExpanded.textContent.includes('Número de cuotas'), "Muestra input de número de cuotas");
+        testRunner.assert(formExpanded.textContent.includes('Frecuencia'), "Muestra selector de frecuencia");
+        testRunner.assert(formExpanded.textContent.includes('Tasa adicional (%)'), "Muestra input de tasa");
+        testRunner.assert(formExpanded.querySelector('.loan-consolidate-form__projection-row') !== null, "Fila de proyección presente");
+
+        // applySuggestedInstallmentCount auto-expande opciones avanzadas
+        toggleConsolidateAdvancedOptions(); // colapsar de nuevo
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.showAdvanced, false, "Colapsado de nuevo");
+        applySuggestedInstallmentCount(4);
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.installmentCount, 4, "Cuotas actualizadas a 4");
+        testRunner.assertEquals(state.loansLedger.consolidateDraft.showAdvanced, true, "Auto-expandido a true");
+    },
+
+    "alterna entre densidad de KPIs full y compact con toggleLoansKpiDensity"() {
+        resetState();
+        state.settings = { loansKpiDensity: 'full' };
+        toggleLoansKpiDensity();
+        testRunner.assertEquals(state.settings.loansKpiDensity, 'compact', 'Pasa de full a compact');
+
+        toggleLoansKpiDensity();
+        testRunner.assertEquals(state.settings.loansKpiDensity, 'full', 'Pasa de compact a full');
+
+        setLoansKpiDensity('compact');
+        testRunner.assertEquals(state.settings.loansKpiDensity, 'compact', 'setLoansKpiDensity asigna compact');
+    },
+
+    "renderiza métricas del empleado según loansKpiDensity (completa vs minimalista)"() {
+        resetState();
+        state.settings = { loansKpiDensity: 'full' };
+        state.employees = [{
+            id: 'emp1',
+            name: 'Charles Petrus',
+            number: '026',
+            active: true,
+            loans: [
+                { id: 'l1', principal: 5000, status: 'active', concept: 'Préstamo 1', payments: [] }
+            ]
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'emp1'
+        };
+
+        // Modo completo (por defecto)
+        const htmlFull = LoansLedger();
+        const hostFull = document.createElement('div');
+        hostFull.innerHTML = htmlFull;
+
+        const toggleBtnFull = hostFull.querySelector('.loans-unified-gear-btn');
+        testRunner.assert(toggleBtnFull !== null, "Debe tener botón de engranaje unificado");
+        testRunner.assert(toggleBtnFull.textContent.includes('Personalizar'), "Indica botón de personalizar");
+        testRunner.assert(hostFull.textContent.includes('Saldo pendiente'), "Muestra Saldo pendiente");
+        testRunner.assert(hostFull.textContent.includes('Total abonado'), "Muestra Total abonado");
+        testRunner.assert(hostFull.textContent.includes('Próximo descuento'), "Muestra Próximo descuento");
+        testRunner.assert(hostFull.textContent.includes('Historial de préstamos'), "Muestra Historial de préstamos");
+
+        // Cambiar a modo minimalista (compact)
+        toggleLoansKpiDensity();
+        testRunner.assertEquals(state.settings.loansKpiDensity, 'compact', "Estado actualizado a compact");
+
+        const htmlCompact = LoansLedger();
+        const hostCompact = document.createElement('div');
+        hostCompact.innerHTML = htmlCompact;
+
+        testRunner.assert(hostCompact.textContent.includes('Saldo pendiente'), "Muestra Saldo pendiente en modo minimalista");
+        testRunner.assert(hostCompact.textContent.includes('Próximo descuento'), "Muestra Próximo descuento en modo minimalista");
+        testRunner.assert(!hostCompact.querySelector('.loans-employee-kpis').textContent.includes('Total abonado'), "Oculta Total abonado en modo minimalista");
+        testRunner.assert(!hostCompact.querySelector('.loans-employee-kpis').textContent.includes('Historial de préstamos'), "Oculta Historial de préstamos en modo minimalista");
+    },
+
+    "abre y cierra LoansSettingsModal mostrando secciones y catálogo de tarjetas"() {
+        resetState();
+        state.loansLedger = { selectedEmployeeId: 'e1', showSettingsModal: false };
+        state.settings = { loansCapacityStyle: 'gauge' };
+
+        // Inicialmente el modal no está en el DOM
+        let html = LoansLedger();
+        let host = document.createElement('div');
+        host.innerHTML = html;
+        testRunner.assert(host.querySelector('.loans-settings-modal') === null, "Modal no debe mostrarse inicialmente");
+
+        // Abrir modal
+        openLoansSettingsModal();
+        testRunner.assert(state.loansLedger.showSettingsModal === true, "showSettingsModal pasa a true");
+
+        html = LoansLedger();
+        host = document.createElement('div');
+        host.innerHTML = html;
+        testRunner.assert(host.querySelector('.loans-settings-modal') !== null, "Modal debe renderizarse al estar abierto");
+        testRunner.assert(host.textContent.includes('Preferencias de Préstamos'), "Muestra título del modal");
+        testRunner.assert(host.textContent.includes('Tarjetas de Resumen'), "Muestra sección de tarjetas");
+        testRunner.assert(host.textContent.includes('Medidor de Capacidad de Pago'), "Muestra sección de medidor");
+
+        // Cerrar modal
+        closeLoansSettingsModal();
+        testRunner.assert(state.loansLedger.showSettingsModal === false, "showSettingsModal pasa a false");
+    },
+
+    "gestiona tarjetas personalizadas con toggleLoansKpiCard, moveLoansKpiCard y resetLoansKpiCards"() {
+        resetState();
+        state.settings = {
+            loansKpiCards: ['balance', 'paid', 'nextDeduction', 'history']
+        };
+
+        // 1. Añadir nueva tarjeta ('salaryPressure')
+        toggleLoansKpiCard('salaryPressure');
+        testRunner.assert(state.settings.loansKpiCards.includes('salaryPressure'), "Añade salaryPressure a la lista");
+        testRunner.assertEquals(state.settings.loansKpiCards.length, 5, "Ahora tiene 5 tarjetas activas");
+
+        // 2. Mover tarjeta hacia arriba (▲)
+        // 'salaryPressure' está al final (índice 4). Al subirla pasa al índice 3.
+        moveLoansKpiCard('salaryPressure', 'up');
+        testRunner.assertEquals(state.settings.loansKpiCards[3], 'salaryPressure', "salaryPressure sube a la posición 3");
+
+        // 3. Moverla hacia abajo (▼)
+        moveLoansKpiCard('salaryPressure', 'down');
+        testRunner.assertEquals(state.settings.loansKpiCards[4], 'salaryPressure', "salaryPressure baja de vuelta al índice 4");
+
+        // 4. Desactivar tarjeta
+        toggleLoansKpiCard('salaryPressure');
+        testRunner.assert(!state.settings.loansKpiCards.includes('salaryPressure'), "salaryPressure se retira de la lista");
+        testRunner.assertEquals(state.settings.loansKpiCards.length, 4, "Vuelve a tener 4 tarjetas");
+
+        // 5. Restablecer valores de fábrica
+        resetLoansKpiCards();
+        testRunner.assertEquals(state.settings.loansKpiCards.length, 4, "Restablece 4 tarjetas por defecto");
+        testRunner.assertEquals(state.settings.loansCapacityStyle, 'gauge', "Restablece estilo gauge");
+    },
+
+    "renderiza tarjetas personalizadas en la posición y cantidad elegidas por el usuario"() {
+        resetState();
+        state.employees = [{
+            id: 'emp1',
+            name: 'Carlos Petrus',
+            number: '050',
+            active: true,
+            loans: [
+                { id: 'l1', principal: 10000, status: 'active', concept: 'Préstamo Equipamiento', payments: [] }
+            ]
+        }];
+        state.loansLedger = { selectedEmployeeId: 'emp1' };
+
+        // El usuario elige exactamente 3 tarjetas y pone 'accruedInterest' en primer lugar
+        state.settings = {
+            loansKpiCards: ['accruedInterest', 'balance', 'salaryPressure']
+        };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        const cards = host.querySelectorAll('.loans-employee-kpis .loan-kpi-card');
+        testRunner.assertEquals(cards.length, 3, "Debe renderizar exactamente 3 tarjetas");
+
+        // La primera tarjeta debe ser 'Intereses acumulados'
+        testRunner.assert(cards[0].textContent.includes('Intereses acumulados'), "La 1ra tarjeta es Intereses acumulados");
+        // La segunda tarjeta debe ser 'Saldo pendiente'
+        testRunner.assert(cards[1].textContent.includes('Saldo pendiente'), "La 2da tarjeta es Saldo pendiente");
+        // La tercera tarjeta debe ser 'Presión salarial'
+        testRunner.assert(cards[2].textContent.includes('Presión salarial'), "La 3ra tarjeta es Presión salarial");
+    },
+
+    "los botones dentro de LoansSettingsModal propagan clics al dispatcher de document"() {
+        resetState();
+        state.settings = {
+            loansKpiCards: ['balance', 'paid', 'nextDeduction', 'history']
+        };
+        state.loansLedger = { selectedEmployeeId: 'e1', showSettingsModal: true };
+
+        const host = document.createElement('div');
+        host.innerHTML = LoansSettingsModal();
+        document.body.appendChild(host);
+
+        // Dispatched click listener matching app.js
+        let dispatchedFn = null;
+        let dispatchedArg = null;
+        let dispatchedArg2 = null;
+        const listener = e => {
+            const target = e.target.closest('[data-app-fn]');
+            if (target) {
+                dispatchedFn = target.dataset.appFn;
+                dispatchedArg = target.dataset.arg;
+                dispatchedArg2 = target.dataset.arg2;
+            }
+        };
+        document.addEventListener('click', listener);
+
+        try {
+            // Click en botón bajar (▼) de 'balance'
+            const downBtn = host.querySelector('[data-app-fn="moveLoansKpiCard"][data-arg="balance"][data-arg2="down"]');
+            testRunner.assert(downBtn !== null, "Botón para bajar balance debe existir");
+            downBtn.click();
+            testRunner.assertEquals(dispatchedFn, 'moveLoansKpiCard', "El clic en botón bajar burbujea a document");
+            testRunner.assertEquals(dispatchedArg, 'balance', "Pasa arg correcto");
+            testRunner.assertEquals(dispatchedArg2, 'down', "Pasa arg2 correcto");
+
+            // Click en botón de ocultar
+            dispatchedFn = null;
+            const hideBtn = host.querySelector('[data-app-fn="toggleLoansKpiCard"][data-arg="balance"]');
+            testRunner.assert(hideBtn !== null, "Botón ocultar debe existir");
+            hideBtn.click();
+            testRunner.assertEquals(dispatchedFn, 'toggleLoansKpiCard', "El clic en ocultar burbujea a document");
+            testRunner.assertEquals(dispatchedArg, 'balance', "Pasa arg correcto");
+
+            // Click en botón de estilo stacked
+            dispatchedFn = null;
+            const styleBtn = host.querySelector('[data-app-fn="setLoansCapacityStyle"][data-arg="stacked"]');
+            testRunner.assert(styleBtn !== null, "Opción stacked debe existir");
+            styleBtn.click();
+            testRunner.assertEquals(dispatchedFn, 'setLoansCapacityStyle', "El clic en estilo de capacidad burbujea a document");
+            testRunner.assertEquals(dispatchedArg, 'stacked', "Pasa arg correcto");
+
+            // Click en backdrop con data-app-close-on-self
+            const backdrop = host.querySelector('.loans-settings-modal-backdrop');
+            testRunner.assertEquals(backdrop.dataset.appCloseOnSelf, 'closeLoansSettingsModal', "Backdrop usa data-app-close-on-self para cerrar");
+        } finally {
+            document.removeEventListener('click', listener);
+            document.body.removeChild(host);
+        }
+    }
+});
+
 console.log('🧪 LoansLedger UI tests cargados.');
+
