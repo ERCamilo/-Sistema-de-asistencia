@@ -1146,5 +1146,3 @@ describe('F3.4 P2P Presence v1 — Cross-Review Regressions (Probe Correlation &
     expect(manager.isPeerOnline('mini-peer-1')).toBe(false);
   });
 });
-
-
