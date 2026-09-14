@@ -293,7 +293,32 @@ Al escribir en un input (ej. nombre de empresa o cargo), debajo se renderiza una
 * **Sólo eventos terminales**: el pulso/toast de éxito se dispara únicamente en `Mini vinculado`, `Roster recibido y validado por Mini`, `Asistencia transferida y guardada` (éxito total, no parcial) e `Importación completada`. Nunca en estados intermedios/autenticación (`Conectando`, `Autenticando`, `Transfiriendo`, `Recibiendo`), errores, cancelaciones ni parciales.
 * **Siempre visual in-app**: cada evento terminal muestra estado `is-success` con tokens canónicos (`--good` / `--mini-good` / `--p2p-good`), pulso `is-success-pulse` (`p2pSuccessPulse` / `miniSuccessPulse`, `520ms cubic-bezier(.2,.8,.2,1)`) y toast in-app (`window.showNotification`, tipo `success`). El icono es SVG del IconSet; prohibido emoji/símbolos Unicode como iconografía y prohibido `alert`/`confirm` nativos.
 * **Mejora progresiva**: `navigator.vibrate` sólo si existe como función; chime WebAudio corto y de bajo volumen sólo si `AudioContext` está disponible y permitido (nunca lanza, nunca pide permiso); `Notification` de sistema sólo cuando `permission === 'granted'` y `document.hidden === true`, y NUNCA se llama a `requestPermission`.
-* **Movimiento reducido y anti-repetición**: con `prefers-reduced-motion: reduce` no hay animación de pulso ni vibración; el estado/toast sigue visible de forma instantánea. Cada clave terminal usa dedupe con cooldown (`≈4s`) para que re-renders o doble resolución no disparen el feedback dos veces. No se altera el protocolo P2P ni los writers canónicos.
+### 5.11 Presencia P2P v1 (F3.4)
+* **Compromiso de honestidad visual**: El estado verde (`Conectado`) significa estrictamente que un par vinculado respondió recientemente en un canal P2P de confianza autenticado (`isChannelAuthenticated`). Nunca representa mera disponibilidad de red, Wi-Fi o internet local.
+* **Compuerta de red (`navigator.onLine`)**: `navigator.onLine === false` es la compuerta primaria. Si el navegador está offline, se suspenden inmediatamente los sondeos y reintentos, y los estados online se expiran a offline de inmediato sin fingir alcanzabilidad. El evento `online` dispara una verificación acotada inmediata; el evento `offline` detiene y descarta reintentos. `navigator.onLine === true` NO constituye prueba de disponibilidad del par.
+* **Tramas de presencia autenticadas**: Válidas únicamente sobre canales WebRTC autenticados de sesión de confianza existente. Tramas no autenticadas, previas al handshake o de fuentes no confiables jamás establecen presencia ni disparan respuesta.
+  * Ping: `{ type: 'presence-ping/v1', probeId: <string acotado>, sentAt: <unix ms seguro> }`
+  * Pong: `{ type: 'presence-pong/v1', probeId: <mismo probeId>, sentAt: <sentAt eco> }`
+  * Validación estricta: claves exactas, tipos seguros, probeId acotado (máximo 128 bytes, sin caracteres de control), sentAt entero seguro. La presencia es sólo metadato local de transporte; nunca escribe en repositorios de asistencia ni de personal/roster.
+* **Tiempos y ciclo de vida**:
+  * Heartbeat nominal: ~25 segundos mientras la aplicación esté activa y exista sesión de confianza.
+  * TTL de estado online: 60 segundos tras el último pong autenticado.
+  * Backoff de reconexión/sondeo: escalones de 5s → 15s → 30s → 60s (máximo); se reinicia a 0 tras un pong autenticado exitoso.
+  * Temporizadores y listeners desduplicados por par.
+  * Expiración tras suspensión: ante eventos de reanudación (`visibilitychange`, `focus`, `pageshow`), la UI expira honestamente los estados que hayan superado el TTL durante la suspensión del navegador.
+* **Estados en el Header de SA**:
+  * Aro de estado agregado: gris discontinuo (`unlinked`) cuando no hay pares vinculados; gris continuo (`disconnected`) cuando hay pares vinculados pero ninguno online dentro del TTL; verde continuo (`connected`) cuando al menos un par vinculado está online dentro del TTL; verde con pulso sutil (`transferring`) durante una transferencia activa.
+  * Movimiento reducido: la animación de pulso respeta estrictamente `prefers-reduced-motion: reduce`, manteniendo el aro verde fijo sin animaciones.
+  * Insignia numérica verde: visible ÚNICAMENTE cuando la cantidad de pares online es mayor a 1 (`onlineCount > 1`).
+  * Insignia numérica roja: visible ÚNICAMENTE cuando hay revisiones pendientes accionables (`pending > 0`).
+  * Independencia absoluta de insignias: los conteos verde (dispositivos online) y rojo (revisiones pendientes) tienen propósitos diferentes y jamás se combinan ni fusionan en una sola insignia.
+* **Listado de dispositivos (Transferencias SA)**:
+  * Sustituye selectores desplegables por tarjetas/filas compactas por cada Mini/dispositivo vinculado.
+  * Jerarquía de fila: alias o nombre humano como título principal; etiqueta de tipo de dispositivo (`Mini`); etiqueta de estado sólido (`Conectado`, `Sin conexión`, `Conectando`, `Transfiriendo`); última conexión visible en offline; badge rojo con revisiones pendientes del par; acción de fila para seleccionar/trabajar con ese par.
+  * Ordenamiento canónico de pares: (1) online con revisiones pendientes, (2) online sin pendientes, (3) offline vistos recientemente, (4) offline antiguos.
+  * Prohibido mostrar identificadores técnicos como etiquetas primarias o registros pasivos de eventos como portada.
+
+---
 
 ## 6. Clases Utilitarias (Hover & Interactions)
 
@@ -348,9 +373,10 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
 ## Indicador de conexión entre aplicaciones
 - La portada de Transferencias no muestra un historial/log pasivo de eventos. Sólo se muestran pendientes que requieren una acción inmediata; el historial técnico permanece interno y una futura vista de Actividad debe ser accionable, no un listado decorativo.
 - El acceso P2P del header representa siempre la **otra aplicación**, no una flecha genérica: SA muestra el icono oficial de Mini y Mini muestra el icono oficial de SA.
-- El control es circular, táctil (mínimo 44×44 px) y utiliza un aro de estado: **no vinculado** = aro gris discontinuo; **vinculado sin conexión activa** = aro gris continuo; **conexión autenticada activa** = aro verde.
+- El control es circular, táctil (mínimo 44×44 px) y utiliza un aro de estado: **no vinculado** = aro gris discontinuo; **vinculado sin conexión activa** = aro gris continuo; **conexión autenticada activa** = aro verde (>=1 par online dentro de TTL); **transferencia activa** = aro verde con pulso contenido (respetando movimiento reducido).
 - El icono se mantiene monocromático o atenuado mientras no exista conexión activa y recupera su color al conectarse.
 - Un pequeño punto refuerza el estado del aro. Un badge rojo numerado se reserva exclusivamente para **datos nuevos o trabajo pendiente de revisión**; no debe usarse para decoración ni para conteos históricos.
+- Un badge verde numerado separado se muestra exclusivamente cuando hay más de 1 par conectado en línea (`onlineCount > 1`). Los badges rojo y verde jamás se combinan.
 - El badge se oculta cuando su valor es 0 y debe usar números compactos (`99+` como máximo visual). El nombre accesible del botón comunica app remota, estado, pendientes y acción disponible.
 - Los IDs técnicos nunca sustituyen al icono, alias o nombre humano en el header.
 

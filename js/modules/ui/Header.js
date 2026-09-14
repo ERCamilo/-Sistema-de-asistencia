@@ -117,6 +117,7 @@ export const Header = ({
                             <span class="header-p2p-ring" aria-hidden="true">
                                 <img class="header-p2p-app-icon" src="./mini-app-icon.svg" alt="" decoding="async">
                                 <span class="header-p2p-state-dot"></span>
+                                <span class="header-p2p-online-badge" data-p2p-online-badge hidden></span>
                                 <span class="header-p2p-notification-badge" data-p2p-header-badge hidden></span>
                             </span>
                         </button>

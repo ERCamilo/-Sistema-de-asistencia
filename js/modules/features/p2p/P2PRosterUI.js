@@ -4,6 +4,7 @@ import { getEntityScope } from '../projects/ProjectContext.js';
 import { p2pPeerAliasStore } from './P2PPeerAliasStore.js';
 import { p2pActivityStore, P2P_ACTIVITY_KINDS, P2P_ACTIVITY_STATUSES, P2P_ACTIVITY_MAX_RECENT, getActivityKindLabel, getActivityStatusLabel } from './P2PActivityStore.js';
 import { P2P_SUCCESS_EVENTS, signalP2PSuccess } from './P2PSuccessFeedback.js';
+import { getP2PPresenceManager, sortPeersByPresenceAndActivity } from './P2PPresenceManager.js';
 import {
   buildSaMiniRosterPayload,
   resolveSaMiniRosterScope,
@@ -84,15 +85,32 @@ export function getPendingP2PActivityCount() {
   catch (_) { return 0; }
 }
 
-export async function getPendingP2PReviewCount() {
+export async function getPendingP2PReviewCount(peerId = null) {
   try {
     const provider = window.getSaP2PPendingReviewCount;
     if (typeof provider !== 'function') return 0;
-    const value = await provider();
+    const value = await provider(peerId);
     return Number.isSafeInteger(value) && value > 0 ? value : 0;
   } catch (_) {
     return 0;
   }
+}
+
+export async function getActionablePendingReviewCountsByPeer() {
+  const counts = new Map();
+  try {
+    const provider = window.getSaP2PActionablePendingReviewGroups;
+    if (typeof provider === 'function') {
+      const groups = await provider();
+      if (Array.isArray(groups)) {
+        for (const g of groups) {
+          const pId = g?.deviceId || g?.current?.metadata?.sourcePeerId;
+          if (pId) counts.set(String(pId), (counts.get(String(pId)) || 0) + 1);
+        }
+      }
+    }
+  } catch (_) {}
+  return counts;
 }
 
 function saP2PHeaderIndicatorEl() {
@@ -113,15 +131,62 @@ export async function refreshSaP2PHeaderIndicator() {
   let peers = [];
   try { peers = (await store().listPeers()).filter(peer => peer?.peerApp === 'mini'); }
   catch (_) { peers = []; }
-  const stateName = peers.length === 0 ? 'unlinked' : (isSaP2PChannelLive() ? 'connected' : 'disconnected');
-  const pending = await getPendingP2PReviewCount();
-  const badge = button.querySelector?.('[data-p2p-header-badge]');
-  button.setAttribute('data-p2p-state', stateName);
-  if (badge) {
-    if (pending > 0) { badge.hidden = false; badge.textContent = pending > 99 ? '99+' : String(pending); }
-    else { badge.hidden = true; badge.textContent = ''; }
+
+  const presenceMgr = typeof window !== 'undefined' ? (window.p2pPresenceManager || getP2PPresenceManager()) : getP2PPresenceManager();
+  const onlinePeers = presenceMgr ? presenceMgr.getOnlinePeers(peers) : [];
+  const onlineCount = onlinePeers.length;
+  const isTransferring = (presenceMgr && typeof presenceMgr.isAnyTransferring === 'function') ? presenceMgr.isAnyTransferring() : false;
+
+  let stateName = 'unlinked';
+  if (peers.length > 0) {
+    if (isTransferring) {
+      stateName = 'transferring';
+    } else if (onlineCount > 0 || isSaP2PChannelLive()) {
+      stateName = 'connected';
+    } else {
+      stateName = 'disconnected';
+    }
   }
-  const stateLabel = stateName === 'connected' ? 'conectado' : stateName === 'disconnected' ? 'vinculado, sin conexión activa' : 'no vinculado';
+
+  const pending = await getPendingP2PReviewCount();
+
+  button.setAttribute('data-p2p-state', stateName);
+
+  // Red badge: actionable pending review count > 0 ONLY (never combine with green)
+  const redBadge = button.querySelector?.('[data-p2p-header-badge]');
+  if (redBadge) {
+    if (pending > 0) {
+      redBadge.hidden = false;
+      redBadge.textContent = pending > 99 ? '99+' : String(pending);
+      redBadge.setAttribute('aria-label', `${pending} revisiones pendientes`);
+    } else {
+      redBadge.hidden = true;
+      redBadge.textContent = '';
+    }
+  }
+
+  // Green badge: online peer count ONLY when onlineCount > 1
+  const greenBadge = button.querySelector?.('[data-p2p-online-badge]');
+  if (greenBadge) {
+    if (onlineCount > 1) {
+      greenBadge.hidden = false;
+      greenBadge.textContent = onlineCount > 99 ? '99+' : String(onlineCount);
+      greenBadge.setAttribute('aria-label', `${onlineCount} dispositivos conectados`);
+    } else {
+      greenBadge.hidden = true;
+      greenBadge.textContent = '';
+    }
+  }
+
+  let stateLabel = 'no vinculado';
+  if (stateName === 'transferring') {
+    stateLabel = 'transfiriendo';
+  } else if (stateName === 'connected') {
+    stateLabel = onlineCount > 1 ? `${onlineCount} dispositivos conectados` : 'conectado';
+  } else if (stateName === 'disconnected') {
+    stateLabel = 'vinculado, sin conexión activa';
+  }
+
   const pendingLabel = pending > 0 ? `. ${pending} pendiente${pending === 1 ? '' : 's'}` : '';
   button.setAttribute('aria-label', `Mini ${stateLabel}${pendingLabel}. Abrir Transferencias`);
   button.setAttribute('title', `Mini ${stateLabel}${pendingLabel}`);
@@ -283,6 +348,10 @@ function renderPairingBlockedByProject() {
 
 function cleanupSession() {
   if (activeMorphCleanup) activeMorphCleanup();
+  if (activePeer?.peerId) {
+    const presenceMgr = typeof window !== 'undefined' ? (window.p2pPresenceManager || getP2PPresenceManager()) : getP2PPresenceManager();
+    presenceMgr?.setPeerTransferring?.(activePeer.peerId, false);
+  }
   try { activeSession?.close?.(); } catch (_) {}
   activeSession = null;
   activeChannel = null;
@@ -380,7 +449,22 @@ async function renderHome() {
   shell();
   cleanupSession();
   const self = await store().getSelf();
-  const peers = sortPeersByRecentActivity((await store().listPeers()).filter(p => p.peerApp === 'mini'));
+
+  const presenceMgr = typeof window !== 'undefined' ? (window.p2pPresenceManager || getP2PPresenceManager()) : getP2PPresenceManager();
+  presenceMgr?.sweepStalePeers?.();
+
+  const rawPeers = (await store().listPeers()).filter(p => p.peerApp === 'mini');
+  const pendingCounts = await getActionablePendingReviewCountsByPeer();
+
+  const presenceMap = new Map();
+  for (const p of rawPeers) {
+    const isOnline = presenceMgr ? presenceMgr.isPeerOnline(p.peerId) : false;
+    const state = presenceMgr ? presenceMgr.getPeerState(p.peerId) : 'linked-offline';
+    presenceMap.set(p.peerId, { isOnline, state });
+  }
+
+  const peers = sortPeersByPresenceAndActivity(rawPeers, presenceMap, pendingCounts);
+
   let projectState;
   try { projectState = await getProjectSetupState(); }
   catch (error) { projectState = { enabled: true, ready: false, activeProject: null, error }; }
@@ -400,14 +484,52 @@ async function renderHome() {
   const peerRows = peers.length ? peers.map(peer => {
     const alias = aliasStore.getAlias(peer.peerId);
     const original = peerOriginalName(peer);
+    const pres = presenceMap.get(peer.peerId) || { isOnline: false, state: 'linked-offline' };
+    const isOnline = pres.isOnline;
+    const peerState = pres.state;
+    const pendingCount = pendingCounts.get(peer.peerId) || 0;
     const lastSeen = formatPeerDate(peer.lastSeenAt || peer.linkedAt);
     const originalLine = alias ? ` · Original: ${esc(original)}` : '';
+
+    const typeLabel = peer.peerApp === 'mini' ? 'Mini' : (peer.peerApp ? esc(peer.peerApp) : '');
+    const typeBadge = typeLabel ? `<span class="sa-p2p-peer-type">${typeLabel}</span>` : '';
+
+    let stateLabel = 'Sin conexión';
+    let stateClass = 'is-offline';
+    if (peerState === 'transferring') {
+      stateLabel = 'Transfiriendo';
+      stateClass = 'is-transferring';
+    } else if (isOnline) {
+      stateLabel = 'Conectado';
+      stateClass = 'is-online';
+    } else if (peerState === 'connecting') {
+      stateLabel = 'Conectando';
+      stateClass = 'is-connecting';
+    }
+    const stateBadge = `<span class="sa-p2p-peer-status ${stateClass}">${stateLabel}</span>`;
+
+    const pendingBadge = pendingCount > 0
+      ? `<span class="sa-p2p-peer-pending-badge" aria-label="${pendingCount} revisiones pendientes">${pendingCount} pendiente${pendingCount === 1 ? '' : 's'}</span>`
+      : '';
+
+    const metaLine = isOnline
+      ? `${originalLine ? originalLine.replace(/^ · /, '') : 'Disponible para transferencias'}`
+      : `Última conexión: ${esc(lastSeen)}${originalLine}`;
+
     return `
-      <div class="sa-p2p-peer-row">
-        <div class="sa-p2p-peer-avatar">${p2pIcon('mini', 17)}</div>
-        <div class="sa-p2p-peer-copy">
-          <strong>${esc(peerName(peer))}</strong>
-          <div class="sa-p2p-peer-meta">Última conexión: ${esc(lastSeen)}${originalLine}</div>
+      <div class="sa-p2p-peer-row sa-p2p-peer-card ${isOnline ? 'is-online' : ''}" data-peer-id="${esc(peer.peerId)}" data-peer-state="${esc(peerState)}">
+        <div class="sa-p2p-peer-avatar ${isOnline ? 'is-online' : ''}">
+          ${p2pIcon('mini', 17)}
+          <span class="sa-p2p-peer-dot ${isOnline ? 'is-online' : ''}" aria-hidden="true"></span>
+        </div>
+        <div class="sa-p2p-peer-copy" data-select-peer="${esc(peer.peerId)}" role="button" tabindex="0" aria-label="Seleccionar ${esc(peerName(peer))}">
+          <div class="sa-p2p-peer-header-line">
+            <strong class="sa-p2p-peer-name">${esc(peerName(peer))}</strong>
+            ${typeBadge}
+            ${stateBadge}
+            ${pendingBadge}
+          </div>
+          <div class="sa-p2p-peer-meta">${metaLine}</div>
         </div>
         <div class="sa-p2p-device-actions">
           <button type="button" class="sa-p2p-icon-btn" data-rename-peer="${esc(peer.peerId)}" aria-label="Cambiar nombre de ${esc(peerName(peer))}" title="Cambiar nombre">${p2pIcon('edit', 16)}</button>
@@ -442,6 +564,21 @@ async function renderHome() {
   body().querySelector('[data-new-pair]').classList.add('sa-p2p-link-cta');
   body().querySelector('[data-configure-project]')?.addEventListener('click', () => window.openProjectSetupModal?.());
   body().querySelector('[data-new-pair]').addEventListener('click', startNewPairing);
+  body().querySelectorAll('[data-select-peer]').forEach(el => {
+    el.addEventListener('click', () => {
+      const peerId = el.dataset.selectPeer;
+      const sendBtn = el.closest('.sa-p2p-peer-row')?.querySelector(`[data-send-peer="${peerId}"]`);
+      if (sendBtn && !sendBtn.disabled) {
+        connectTrustedAndSend(peerId);
+      }
+    });
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        el.click();
+      }
+    });
+  });
   body().querySelectorAll('[data-rename-peer]').forEach(btn => btn.addEventListener('click', () => renderPeerAliasEditor(btn.dataset.renamePeer)));
   body().querySelectorAll('[data-send-peer]').forEach(btn => btn.addEventListener('click', () => connectTrustedAndSend(btn.dataset.sendPeer)));
   body().querySelectorAll('[data-unlink-peer]').forEach(btn => btn.addEventListener('click', async () => {
@@ -450,6 +587,7 @@ async function renderHome() {
     if (!await askUnlinkConfirmation(peerName(peer || { displayName: 'este Mini', peerApp: 'mini' }))) return;
     await store().removePeer(peerId);
     aliasStore.removeAlias(peerId);
+    presenceMgr?.refreshPeers?.();
     renderHome();
   }));
 }
@@ -586,6 +724,7 @@ function renderPairError(error) {
 async function connectTrustedAndSend(peerId) {
   cleanupSession();
   let activityId = null;
+  const presenceMgr = typeof window !== 'undefined' ? (window.p2pPresenceManager || getP2PPresenceManager()) : getP2PPresenceManager();
   try {
     const projectState = await getProjectSetupState();
     if (!projectState.ready) { notify('Configura un proyecto activo antes de enviar el roster.', 'warning'); await window.openProjectSetupModal?.(); return; }
@@ -594,6 +733,7 @@ async function connectTrustedAndSend(peerId) {
     const peer = await identityStore.getPeer(peerId);
     if (!peer || peer.peerApp !== 'mini') throw new Error('Mini vinculado no encontrado.');
     activePeer = peer;
+    presenceMgr?.setPeerTransferring?.(peerId, true);
     const humanPeer = peerName(peer);
     const humanProject = String(projectState.activeProject?.name || '').trim();
     const auditProjectId = String(projectState.activeProjectId || projectState.activeProject?.id || '');
@@ -603,6 +743,7 @@ async function connectTrustedAndSend(peerId) {
     setBodyHtml(`<div class="sa-p2p-step">${backButton()}<div><h3>Enviar roster a ${esc(humanPeer)}</h3><p>Proyecto: <strong>${esc(humanProject || projectState.activeProjectId)}</strong>. Al autenticar, el roster se envía automáticamente una sola vez.</p></div><label class="sa-p2p-checkbox"><input type="checkbox" data-salary> <span>Incluir sueldo en esta transferencia</span></label><div class="sa-p2p-status" data-connect-status>Buscando el Mini vinculado…</div></div>`);
     body().querySelector('[data-back]').addEventListener('click', () => {
       safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: 'Transferencia cancelada por el usuario.' });
+      presenceMgr?.setPeerTransferring?.(peerId, false);
       cleanupSession();
       renderHome();
     });
@@ -622,10 +763,12 @@ async function connectTrustedAndSend(peerId) {
       onState: (status, error) => { const box=body()?.querySelector('[data-connect-status]'); if(box && error) box.textContent='Error: '+error.message; },
       onChannel: channel => {
         activeChannel = channel;
+        presenceMgr?.registerChannel?.(peer.peerId, channel, activeSession);
         window.SaMiniP2PPairing.attachTrusted(channel, {
           self, peer, store: identityStore,
           onAuthenticated: () => { scheduleSaP2PHeaderRefresh(); triggerAutoSend(channel); },
           onError: error => {
+            presenceMgr?.setPeerTransferring?.(peer.peerId, false);
             const box=body()?.querySelector('[data-connect-status]');
             if (box) box.textContent='Autenticación falló: '+error.message;
             safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: String(error?.message || 'Autenticación falló').slice(0, 280) });
@@ -634,6 +777,7 @@ async function connectTrustedAndSend(peerId) {
       }
     });
   } catch (error) {
+    presenceMgr?.setPeerTransferring?.(peerId, false);
     try {
       if (activityId) safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: String(error?.message || error || 'Error de conexión').slice(0, 280) });
     } catch (_) {}
@@ -679,6 +823,7 @@ async function sendRosterOnChannel(channel, peer, includeSalary, activityContext
   const humanProject = String(activityContext.projectName || '').trim();
   const auditProjectId = String(activityContext.saProjectId || '');
   const activityId = String(activityContext.activityId || makeActivityId('roster'));
+  const presenceMgr = typeof window !== 'undefined' ? (window.p2pPresenceManager || getP2PPresenceManager()) : getP2PPresenceManager();
   safeRecordActivity({ id: activityId, kind: P2P_ACTIVITY_KINDS.ROSTER, status: P2P_ACTIVITY_STATUSES.PENDING, peerName: humanPeer, projectName: humanProject, summary: 'Enviando roster…', peerId: String(peer?.peerId || ''), saProjectId: auditProjectId });
   try {
     const { payload, text } = await buildRosterText(includeSalary);
@@ -704,6 +849,8 @@ async function sendRosterOnChannel(channel, peer, includeSalary, activityContext
   } catch (error) {
     safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: String(error?.message || error || 'Error').slice(0, 280) });
     if (status) { status.classList.add('is-error'); status.innerHTML = `<strong>Error:</strong> ${esc(error.message || error)}`; }
+  } finally {
+    presenceMgr?.setPeerTransferring?.(peer.peerId, false);
   }
 }
 
@@ -722,6 +869,9 @@ export function registerP2PRosterGlobals() {
     eventBus.on('render:complete', () => scheduleSaP2PHeaderRefresh());
     headerIndicatorListenerAttached = true;
   }
+  const presenceMgr = getP2PPresenceManager();
+  presenceMgr.start();
+  presenceMgr.on('change', () => scheduleSaP2PHeaderRefresh());
   scheduleSaP2PHeaderRefresh();
   if (!projectSetupListenerAttached) {
     window.addEventListener('projects:setup-changed', () => {

@@ -391,12 +391,27 @@ globalThis.IndexedDBService = IndexedDBService;
 globalThis.indexedDBService = indexedDBService;
 
 const p2pHeaderReviewInbox = new AttendanceSubmissionInboxStore({ db: indexedDBService });
-globalThis.getSaP2PPendingReviewCount = async () => {
+globalThis.getSaP2PPendingReviewCount = async (peerId = null) => {
     try {
         const groups = await p2pHeaderReviewInbox.listVersionGroups();
-        return groups.filter(group => group?.current?.status === 'pending').length;
+        const pendingGroups = groups.filter(group => group?.current?.status === 'pending');
+        if (peerId) {
+            return pendingGroups.filter(g =>
+                String(g?.deviceId || '') === String(peerId) ||
+                String(g?.current?.metadata?.sourcePeerId || '') === String(peerId)
+            ).length;
+        }
+        return pendingGroups.length;
     } catch (_) {
         return 0;
+    }
+};
+globalThis.getSaP2PActionablePendingReviewGroups = async () => {
+    try {
+        const groups = await p2pHeaderReviewInbox.listVersionGroups();
+        return groups.filter(group => group?.current?.status === 'pending');
+    } catch (_) {
+        return [];
     }
 };
 globalThis.Employee = Employee;
