@@ -408,3 +408,18 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
 - Al reanudar una configuración vigente se restauran también los datos introducidos (origen, empresa, proyecto, jornada, posición y personal), no sólo el índice numérico del paso.
 - Después de restaurar desde **Backup**, **Google** o **Datos de prueba**, el usuario debe confirmar el proyecto activo antes de llegar a `Listo`. Si ya existe un proyecto activo se propone su nombre; el usuario puede corregirlo antes de continuar.
 - `onboardingCompleted` no se considera definitivo mientras quede pendiente la confirmación de proyecto; un reload no debe permitir omitir esa etapa.
+
+## Transporte P2P de Respaldos (F3.P2P-3 Backup Transport v1)
+- **Transporte dedicado y seguro**: Respaldos nativos transportados directamente sobre el DataChannel WebRTC autenticado (`kind: "backup"`, schemas `sa-backup/v1` y `mini-backup/v1`), con integridad SHA-256 chunk a chunk (12 KiB) y tope duro de 25 MiB.
+- **Identidad visual y badges sólidos**: Las entradas de respaldo usan superficies sólidas sin estilo outline ni transparente: `SA ↔ SA` con relleno `--accent` y alto contraste; `Mini → SA` con superficie neutral `--panel-2` y borde `--border`.
+- **Targets táctiles canónicos**: Todo botón o icono de acción (`Revisar y restaurar`, `Descargar archivo`, `Descartar`, `Enviar respaldo`, `Esperar respaldo`, `Vincular SA para respaldo`) garantiza tamaño mínimo de `44×44px`.
+- **Sin interrupciones nativas**: Cero uso de `alert()` o `confirm()` del navegador; desvinculación y decisiones usan `showConfirm` con diseño modal canónico.
+- **Acciones estrictamente tipadas y exactitud same-app**:
+  - *Same-app exactness*: `allowSameApp=true` permite ÚNICAMENTE `remote.appType === local.appType` (nunca la app opuesta). El emparejamiento por defecto conserva aislamiento estricto SA ↔ Mini.
+  - *Guardia de propósito*: Los registros same-app exigen simultáneamente `allowSameApp: true` Y `purpose: 'backup'` (sin bypass por propósito). La autenticación trusted same-app exige misma app + propósito backup. El transporte cross-app sobre vínculos SA ↔ Mini usa `allowSameApp: false`.
+  - *Staging cap total*: Máximo 3 backups pendientes en TOTAL en el SA receptor (no 3 por app). Se deduplica por `transferId` y `sha256` ANTES de comprobar la capacidad.
+  - *Delegación canónica de restauración*: `P2PBackupBridge.reviewAndRestoreSaBackup` NO duplica `LegacyMigrator`, diagnósticos, `RestoreUI` ni `applyBackupData`. Delega a la ruta canónica `window.loadBackupFromFile` usando un `File`/`Blob` creado desde los bytes en staging con hooks; la entrada staged se elimina ÚNICAMENTE en el `onSuccess` canónico.
+  - *Receptor dedicado en UI*: Se añade flujo explícito "Esperar respaldo" tanto para peers vinculados con capacidad de respaldo como para peers SA recién emparejados, invocando `p2pBackupBridge.createBackupReceiver` y haciendo stage solo tras transferencia verificada.
+  - *Aislamiento absoluto*: Peers same-app de respaldo NUNCA ingresan a listeners ni listas de roster ni asistencia.
+  - *Cross-app*: Peers Mini vinculados pueden enviar y recibir respaldos por una superficie dedicada de respaldo; al recibir Mini en SA sólo se permite descarga intacta (`backup-mini-YYYY-MM-DD-hash.json`). En la conexión de respaldo trusted se evalúa `allowSameApp = (peer.peerApp === self.appType)`, siendo siempre falso para Mini.
+  - *Archivos genéricos*: La capacidad de archivos/documentos arbitrarios permanece deshabilitada y fuera de alcance.

@@ -174,3 +174,10 @@ button.sa-p2p-capability:hover { background:var(--p2p-hover); }
 .sa-p2p-activity-details { flex:none;min-height:44px;padding:0 10px;border:1px solid var(--p2p-border);border-radius:8px;background:transparent;color:var(--p2p-dim);font-size:11px;font-weight:600;cursor:pointer; }
 .sa-p2p-activity-popup { margin-top:8px;padding:8px;border:1px solid var(--p2p-border);border-radius:8px;background:var(--p2p-panel);font-size:11px;color:var(--p2p-dim); }
 @media (prefers-reduced-motion: reduce) { .sa-p2p-badge,.sa-p2p-activity-status { transition:none !important;animation:none !important; } }
+
+/* F3.P2P-3 Backup Transport v1 — Staged backups & backup peer devices */
+.sa-p2p-staged-backups, .sa-p2p-backup-devices { display:grid;gap:10px; }
+.sa-p2p-badge-solid { font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;display:inline-flex;align-items:center;letter-spacing:.04em;text-transform:uppercase;line-height:1.2; }
+.sa-p2p-badge-solid.is-accent { background:var(--p2p-accent);color:var(--p2p-on-accent);border:1px solid var(--p2p-accent); }
+.sa-p2p-badge-solid.is-neutral { background:var(--p2p-panel-2);color:var(--p2p-dim);border:1px solid var(--p2p-border); }
+.sa-p2p-badge-solid.is-good { background:var(--p2p-good);color:#06281c;border:1px solid var(--p2p-good); }

@@ -10,6 +10,7 @@ import {
   resolveSaMiniRosterScope,
   selectSaMiniRosterEmployees
 } from '../export/SaMiniRosterExport.js';
+import { p2pBackupBridge } from './P2PBackupBridge.js';
 
 const MINI_PAIR_BASE_URL = 'https://miniasist.erlin.do/';
 const MODAL_ID = 'sa-p2p-roster-modal';
@@ -86,14 +87,18 @@ export function getPendingP2PActivityCount() {
 }
 
 export async function getPendingP2PReviewCount(peerId = null) {
+  let count = 0;
   try {
     const provider = window.getSaP2PPendingReviewCount;
-    if (typeof provider !== 'function') return 0;
-    const value = await provider(peerId);
-    return Number.isSafeInteger(value) && value > 0 ? value : 0;
+    if (typeof provider === 'function') {
+      const value = await provider(peerId);
+      count = Number.isSafeInteger(value) && value > 0 ? value : 0;
+    }
   } catch (_) {
-    return 0;
+    count = 0;
   }
+  const stagedBackupsCount = p2pBackupBridge?.getStagedCount ? p2pBackupBridge.getStagedCount() : 0;
+  return count + stagedBackupsCount;
 }
 
 export async function getActionablePendingReviewCountsByPeer() {
@@ -375,6 +380,8 @@ const P2P_ICONS = {
   unlink: '<path d="m18 13 3-3-3-3"/><path d="M21 10h-8"/><path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5"/>',
   send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  backup: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   back: '<path d="M15 18l-6-6 6-6"/>'
 };
@@ -430,6 +437,25 @@ function askUnlinkConfirmation(name) {
   });
 }
 
+function askUnlinkBackupConfirmation(name) {
+  return new Promise(resolve => {
+    if (typeof window.showConfirm !== 'function') {
+      notify('No se pudo abrir la confirmación para desvincular.', 'error');
+      resolve(false);
+      return;
+    }
+    window.showConfirm({
+      title: 'Desvincular SA de respaldo',
+      message: `${name} tendrá que volver a vincularse para transferir respaldos.`,
+      confirmText: 'Desvincular',
+      cancelText: 'Cancelar',
+      type: 'danger',
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false)
+    });
+  });
+}
+
 async function buildRosterText(includeSalary = false) {
   const scope = await getEntityScope();
   const saProjectId = resolveSaMiniRosterScope(scope);
@@ -454,6 +480,7 @@ async function renderHome() {
   presenceMgr?.sweepStalePeers?.();
 
   const rawPeers = (await store().listPeers()).filter(p => p.peerApp === 'mini');
+  const backupPeers = (await store().listPeers()).filter(p => p.peerApp === 'sa');
   const pendingCounts = await getActionablePendingReviewCountsByPeer();
 
   const presenceMap = new Map();
@@ -480,6 +507,88 @@ async function renderHome() {
       <span class="sa-p2p-capability-icon">${p2pIcon('project', 17)}</span>
       <span class="sa-p2p-capability-copy"><strong>Proyecto</strong><small>${projectState.ready ? esc(projectState.activeProject?.name || 'Activo') : 'Configurar'}</small></span>
     </button>`;
+
+  const stagedBackups = p2pBackupBridge.listStaged();
+  const stagedBackupsSection = stagedBackups.length ? `
+    <section class="sa-p2p-staged-backups" aria-labelledby="sa-p2p-staged-title">
+      <div class="sa-p2p-devices-head">
+        <div>
+          <h3 id="sa-p2p-staged-title">Respaldos recibidos (pendientes de revisión)</h3>
+          <div class="sa-p2p-subtitle">${stagedBackups.length} respaldo${stagedBackups.length === 1 ? '' : 's'} pendiente${stagedBackups.length === 1 ? '' : 's'} de revisión</div>
+        </div>
+      </div>
+      <div class="sa-p2p-peer-list">
+        ${stagedBackups.map(b => {
+          const isSa = b.sourceApp === 'sa';
+          const badge = isSa
+            ? '<span class="sa-p2p-badge-solid is-accent">SA ↔ SA</span>'
+            : '<span class="sa-p2p-badge-solid is-neutral">Mini → SA</span>';
+          const sizeKb = (b.size / 1024).toFixed(1);
+          const sizeMb = (b.size / (1024 * 1024)).toFixed(2);
+          const sizeLabel = b.size >= 1024 * 1024 ? `${sizeMb} MB` : `${sizeKb} KB`;
+          const shaShort = b.sha256 ? b.sha256.slice(0, 8) : '';
+          const actionBtn = isSa
+            ? button('Revisar y restaurar', `data-review-backup="${esc(b.transferId)}"`, 'primary', 'backup')
+            : button('Descargar archivo', `data-download-backup="${esc(b.transferId)}"`, 'primary', 'download');
+
+          return `
+            <div class="sa-p2p-peer-row sa-p2p-staged-row" data-transfer-id="${esc(b.transferId)}">
+              <div class="sa-p2p-peer-avatar">
+                ${p2pIcon('backup', 17)}
+              </div>
+              <div class="sa-p2p-peer-copy">
+                <div class="sa-p2p-peer-header-line">
+                  <strong class="sa-p2p-peer-name">${esc(b.peerName || (isSa ? 'SA' : 'Mini'))}</strong>
+                  ${badge}
+                </div>
+                <div class="sa-p2p-peer-meta">Tamaño: ${sizeLabel} · SHA: ${shaShort}… · Recibido: ${esc(formatPeerDate(b.receivedAt))}</div>
+              </div>
+              <div class="sa-p2p-device-actions">
+                ${actionBtn}
+                <button type="button" class="sa-p2p-icon-btn" data-discard-backup="${esc(b.transferId)}" aria-label="Descartar respaldo" title="Descartar">${p2pIcon('close', 16)}</button>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    </section>` : '';
+
+  const backupPeersSection = `
+    <section class="sa-p2p-backup-devices" aria-labelledby="sa-p2p-backup-devices-title">
+      <div class="sa-p2p-devices-head">
+        <div>
+          <h3 id="sa-p2p-backup-devices-title">Respaldos entre SA (SA ↔ SA)</h3>
+          <div class="sa-p2p-subtitle">${backupPeers.length} SA${backupPeers.length === 1 ? '' : 's'} vinculado${backupPeers.length === 1 ? '' : 's'} para transferir respaldos</div>
+        </div>
+      </div>
+      <div class="sa-p2p-peer-list">
+        ${backupPeers.length ? backupPeers.map(peer => {
+          const original = peerOriginalName(peer);
+          const alias = aliasStore.getAlias(peer.peerId);
+          const originalLine = alias ? ` · Original: ${esc(original)}` : '';
+          return `
+            <div class="sa-p2p-peer-row sa-p2p-backup-peer-card" data-backup-peer-id="${esc(peer.peerId)}">
+              <div class="sa-p2p-peer-avatar">
+                ${p2pIcon('backup', 17)}
+              </div>
+              <div class="sa-p2p-peer-copy">
+                <div class="sa-p2p-peer-header-line">
+                  <strong class="sa-p2p-peer-name">${esc(peerName(peer))}</strong>
+                  <span class="sa-p2p-badge-solid is-accent">SA ↔ SA</span>
+                </div>
+                <div class="sa-p2p-peer-meta">Vinculado para respaldo${originalLine}</div>
+              </div>
+              <div class="sa-p2p-device-actions">
+                ${button('Enviar respaldo', `data-send-backup-peer="${esc(peer.peerId)}"`, 'primary', 'backup')}
+                ${button('Esperar respaldo', `data-wait-backup-peer="${esc(peer.peerId)}"`, 'secondary', 'download')}
+                <button type="button" class="sa-p2p-icon-btn" data-unlink-backup-peer="${esc(peer.peerId)}" aria-label="Desvincular ${esc(peerName(peer))}" title="Desvincular">${p2pIcon('unlink', 16)}</button>
+              </div>
+            </div>`;
+        }).join('') : '<div class="sa-p2p-empty">No hay otros SA vinculados para respaldo. Usa el botón a continuación para vincular uno.</div>'}
+      </div>
+      <div>
+        ${button('Vincular SA para respaldo', 'data-new-backup-pair aria-label="Vincular otro SA para transferir respaldos"', 'secondary', 'link')}
+      </div>
+    </section>`;
 
   const peerRows = peers.length ? peers.map(peer => {
     const alias = aliasStore.getAlias(peer.peerId);
@@ -534,6 +643,7 @@ async function renderHome() {
         <div class="sa-p2p-device-actions">
           <button type="button" class="sa-p2p-icon-btn" data-rename-peer="${esc(peer.peerId)}" aria-label="Cambiar nombre de ${esc(peerName(peer))}" title="Cambiar nombre">${p2pIcon('edit', 16)}</button>
           ${button('Enviar roster', `data-send-peer="${esc(peer.peerId)}" ${projectState.ready ? '' : 'disabled aria-disabled="true" title="Configura un proyecto antes de enviar"'}`, 'primary', 'send')}
+          <button type="button" class="sa-p2p-icon-btn" data-backup-peer="${esc(peer.peerId)}" aria-label="Respaldos con ${esc(peerName(peer))}" title="Respaldos">${p2pIcon('backup', 16)}</button>
           <button type="button" class="sa-p2p-icon-btn" data-unlink-peer="${esc(peer.peerId)}" aria-label="Desvincular ${esc(peerName(peer))}" title="Desvincular">${p2pIcon('unlink', 16)}</button>
         </div>
       </div>`;
@@ -551,6 +661,7 @@ async function renderHome() {
         ${capability('files', 'Archivos', 'Próximamente', 'is-disabled')}
       </div>
     </section>
+    ${stagedBackupsSection}
     <section class="sa-p2p-devices" aria-labelledby="sa-p2p-devices-title">
       <div class="sa-p2p-devices-head">
         <div><h3 id="sa-p2p-devices-title">Minis vinculados</h3><div class="sa-p2p-subtitle">${peers.length} dispositivo${peers.length === 1 ? '' : 's'} guardado${peers.length === 1 ? '' : 's'} en este SA</div></div>
@@ -560,10 +671,70 @@ async function renderHome() {
     </section>
     ${pairingGate ? '<div class="sa-p2p-status is-warning">SA se presenta con el nombre del proyecto activo. Configura el proyecto para vincular un Mini.</div>' : ''}
     <div>${button('Vincular Mini', 'data-new-pair aria-label="Vincular un nuevo Mini por QR o código"', 'primary', 'link')}</div>
+    ${backupPeersSection}
     <p class="sa-p2p-footnote">Vincular sólo crea una relación segura entre dispositivos. Ningún dato se importa o modifica automáticamente.</p>`);
   body().querySelector('[data-new-pair]').classList.add('sa-p2p-link-cta');
   body().querySelector('[data-configure-project]')?.addEventListener('click', () => window.openProjectSetupModal?.());
   body().querySelector('[data-new-pair]').addEventListener('click', startNewPairing);
+  body().querySelector('[data-new-backup-pair]')?.addEventListener('click', startBackupPairing);
+
+  body().querySelectorAll('[data-review-backup]').forEach(btn => btn.addEventListener('click', async () => {
+    const transferId = btn.dataset.reviewBackup;
+    try {
+      await p2pBackupBridge.reviewAndRestoreSaBackup(transferId, {
+        onSuccess: () => {
+          notify('Respaldo restaurado con éxito.', 'success');
+          scheduleSaP2PHeaderRefresh();
+          renderHome();
+        },
+        onError: err => {
+          notify(err.message || err, 'error');
+        }
+      });
+    } catch (err) {
+      notify(err.message || err, 'error');
+    }
+  }));
+
+  body().querySelectorAll('[data-download-backup]').forEach(btn => btn.addEventListener('click', () => {
+    const transferId = btn.dataset.downloadBackup;
+    try {
+      p2pBackupBridge.downloadCrossAppBackup(transferId);
+      notify('Archivo de respaldo descargado correctamente.', 'info');
+      renderHome();
+    } catch (err) {
+      notify(err.message || err, 'error');
+    }
+  }));
+
+  body().querySelectorAll('[data-discard-backup]').forEach(btn => btn.addEventListener('click', () => {
+    const transferId = btn.dataset.discardBackup;
+    p2pBackupBridge.removeStaged(transferId);
+    scheduleSaP2PHeaderRefresh();
+    renderHome();
+  }));
+
+  body().querySelectorAll('[data-send-backup-peer]').forEach(btn => btn.addEventListener('click', () => {
+    connectTrustedAndSendBackup(btn.dataset.sendBackupPeer);
+  }));
+
+  body().querySelectorAll('[data-wait-backup-peer]').forEach(btn => btn.addEventListener('click', () => {
+    connectTrustedAndReceiveBackup(btn.dataset.waitBackupPeer);
+  }));
+
+  body().querySelectorAll('[data-backup-peer]').forEach(btn => btn.addEventListener('click', () => {
+    openPeerBackupSurface(btn.dataset.backupPeer);
+  }));
+
+  body().querySelectorAll('[data-unlink-backup-peer]').forEach(btn => btn.addEventListener('click', async () => {
+    const peerId = btn.dataset.unlinkBackupPeer;
+    const peer = backupPeers.find(item => String(item.peerId) === String(peerId));
+    if (!await askUnlinkBackupConfirmation(peerName(peer || { displayName: 'este SA', peerApp: 'sa' }))) return;
+    await store().removePeer(peerId);
+    aliasStore.removeAlias(peerId);
+    renderHome();
+  }));
+
   body().querySelectorAll('[data-select-peer]').forEach(el => {
     el.addEventListener('click', () => {
       const peerId = el.dataset.selectPeer;
@@ -851,6 +1022,486 @@ async function sendRosterOnChannel(channel, peer, includeSalary, activityContext
     if (status) { status.classList.add('is-error'); status.innerHTML = `<strong>Error:</strong> ${esc(error.message || error)}`; }
   } finally {
     presenceMgr?.setPeerTransferring?.(peer.peerId, false);
+  }
+}
+
+async function startBackupPairing() {
+  cleanupSession();
+  try {
+    const identityStore = store();
+    const self = await identityStore.getSelf();
+    const descriptor = await window.SaMiniP2P.makePairDescriptor(self);
+
+    setBodyHtml(`
+      <div class="sa-p2p-step">
+        ${backButton()}
+        <div>
+          <h3>Vincular otro SA para respaldo</h3>
+          <p>Para conectar dos instancias de SA entre sí, un SA comparte este código y el otro lo ingresa.</p>
+        </div>
+        <div class="sa-p2p-pair-grid">
+          <div class="sa-p2p-code-panel">
+            <span class="sa-p2p-section-label">Opción 1 · Código generado por este SA</span>
+            <div><span class="sa-p2p-section-label">Código de 6 dígitos</span><strong class="sa-p2p-pair-code">${esc(descriptor.code.slice(0,3)+' '+descriptor.code.slice(3))}</strong></div>
+            <div><span class="sa-p2p-section-label">Clave</span><strong class="sa-p2p-pair-key">${esc(descriptor.key)}</strong></div>
+            <p class="sa-p2p-footnote">Expira en 5 minutos. El otro SA debe ingresar este código y clave.</p>
+          </div>
+          <div class="sa-p2p-code-panel">
+            <span class="sa-p2p-section-label">Opción 2 · Ingresar código del otro SA</span>
+            <div class="sa-p2p-field">
+              <label for="sa-backup-peer-code">Código de 6 dígitos</label>
+              <input id="sa-backup-peer-code" data-backup-code placeholder="Ej: 123 456" maxlength="7">
+            </div>
+            <div class="sa-p2p-field">
+              <label for="sa-backup-peer-key">Clave del otro SA</label>
+              <input id="sa-backup-peer-key" data-backup-key placeholder="Ej: k-a1b2c3d4" maxlength="32">
+            </div>
+            <div>
+              ${button('Conectar con código del otro SA', 'data-backup-join', 'secondary', 'link')}
+            </div>
+          </div>
+        </div>
+        <div class="sa-p2p-status" data-pair-status>Esperando al otro SA…</div>
+      </div>`);
+
+    body().querySelector('[data-back]').addEventListener('click', renderHome);
+
+    const signaling = new window.SaMiniP2P.SignalingClient({
+      room: descriptor.room,
+      peerId: self.deviceId,
+      proof: descriptor.proof,
+      expiresAt: descriptor.expiresAt
+    });
+
+    activeSession = await window.SaMiniP2P.createRtcSession({
+      signaling,
+      initiator: true,
+      onState: (status, error) => {
+        const box = body()?.querySelector('[data-pair-status]');
+        if (box && error) box.textContent = 'Error: ' + error.message;
+      },
+      onChannel: channel => {
+        activeChannel = channel;
+        window.SaMiniP2PPairing.attachPairing(channel, {
+          self,
+          descriptor,
+          initiator: true,
+          store: identityStore,
+          allowSameApp: true,
+          onCandidate: ({ remote, sas, accept, reject }) => renderPairConfirmation(remote, sas, accept, reject),
+          onLinked: peer => renderBackupPairLinked(peer, channel),
+          onRejected: () => renderPairError('El otro SA rechazó el vínculo.'),
+          onError: renderPairError
+        });
+      }
+    });
+
+    body().querySelector('[data-backup-join]')?.addEventListener('click', async () => {
+      const codeInput = body().querySelector('[data-backup-code]');
+      const keyInput = body().querySelector('[data-backup-key]');
+      const rawCode = (codeInput?.value || '').replace(/\s+/g, '');
+      const rawKey = (keyInput?.value || '').trim();
+      if (!rawCode || rawCode.length !== 6 || !rawKey) {
+        notify('Ingresa el código de 6 dígitos y la clave del otro SA.', 'warning');
+        return;
+      }
+      try {
+        cleanupSession();
+        const box = body()?.querySelector('[data-pair-status]');
+        if (box) box.textContent = 'Conectando con el otro SA…';
+        const joinDescriptor = await window.SaMiniP2P.pairDescriptorFromManual(rawCode, rawKey);
+        const joinSignaling = new window.SaMiniP2P.SignalingClient({
+          room: joinDescriptor.room,
+          peerId: self.deviceId,
+          proof: joinDescriptor.proof,
+          expiresAt: joinDescriptor.expiresAt
+        });
+
+        activeSession = await window.SaMiniP2P.createRtcSession({
+          signaling: joinSignaling,
+          initiator: false,
+          onState: (status, error) => {
+            const b = body()?.querySelector('[data-pair-status]');
+            if (b && error) b.textContent = 'Error: ' + error.message;
+          },
+          onChannel: channel => {
+            activeChannel = channel;
+            window.SaMiniP2PPairing.attachPairing(channel, {
+              self,
+              descriptor: joinDescriptor,
+              initiator: false,
+              store: identityStore,
+              allowSameApp: true,
+              onCandidate: ({ remote, sas, accept, reject }) => renderPairConfirmation(remote, sas, accept, reject),
+              onLinked: peer => renderBackupPairLinked(peer, channel),
+              onRejected: () => renderPairError('El otro SA rechazó el vínculo.'),
+              onError: renderPairError
+            });
+          }
+        });
+      } catch (err) {
+        renderPairError(err);
+      }
+    });
+  } catch (error) {
+    renderPairError(error);
+  }
+}
+
+async function renderBackupPairLinked(peer, channel) {
+  activePeer = peer;
+  scheduleSaP2PHeaderRefresh();
+  const linkedHeader = `
+    <div class="sa-p2p-result-title">
+      <span class="sa-p2p-result-icon">${p2pIcon('link', 18)}</span>
+      <div>
+        <h3>SA vinculado para respaldo</h3>
+        <p><strong>${esc(peerName(peer))}</strong> quedó reconocido para transferir respaldos (SA ↔ SA).</p>
+      </div>
+    </div>`;
+
+  setBodyHtml(`
+    <div class="sa-p2p-step">
+      ${linkedHeader}
+      <div class="sa-p2p-status">
+        Vínculo dedicado para respaldo establecido de forma segura.
+      </div>
+      <div class="sa-p2p-actions">
+        ${button('Enviar respaldo ahora', 'data-send-backup-now', 'primary', 'backup')}
+        ${button('Esperar respaldo', 'data-wait-backup-now', 'secondary', 'download')}
+        ${button('Terminar', 'data-done', 'secondary')}
+      </div>
+      <div class="sa-p2p-status" data-send-backup-status hidden></div>
+    </div>`);
+
+  let receiverActive = false;
+  const startReceiver = () => {
+    if (receiverActive) return;
+    receiverActive = true;
+    const status = body().querySelector('[data-send-backup-status]');
+    if (status) {
+      status.hidden = false;
+      status.classList.remove('is-error', 'is-success');
+      status.textContent = `Esperando transferencia de respaldo de ${esc(peerName(peer))}…`;
+    }
+    p2pBackupBridge.createBackupReceiver({
+      channel,
+      peer,
+      onProgress: pct => {
+        const s = body().querySelector('[data-send-backup-status]');
+        if (s) {
+          s.hidden = false;
+          s.textContent = `Recibiendo respaldo… ${Math.round(pct * 100)}%`;
+        }
+      },
+      onStaged: (staged) => {
+        scheduleSaP2PHeaderRefresh();
+        const s = body().querySelector('[data-send-backup-status]');
+        if (s) {
+          s.hidden = false;
+          s.classList.remove('is-error');
+          s.classList.add('is-success');
+          const sizeMb = (staged.size / (1024 * 1024)).toFixed(2);
+          s.innerHTML = `<strong>${p2pIcon('backup', 15)} Respaldo recibido y verificado</strong><br><span>Tamaño: ${sizeMb} MB · SHA-256 verificado. Quedó guardado en pendientes de revisión.</span>`;
+        }
+        notify('Respaldo recibido y validado exitosamente.', 'success');
+      },
+      onRejected: ({ reason }) => {
+        const s = body().querySelector('[data-send-backup-status]');
+        if (s) {
+          s.hidden = false;
+          s.classList.add('is-error');
+          s.innerHTML = `<strong>Respaldo rechazado:</strong> ${esc(reason)}`;
+        }
+        notify(`Respaldo rechazado: ${reason}`, 'warning');
+      },
+      onError: err => {
+        const s = body().querySelector('[data-send-backup-status]');
+        if (s) {
+          s.hidden = false;
+          s.classList.add('is-error');
+          s.innerHTML = `<strong>Error de recepción:</strong> ${esc(err.message || err)}`;
+        }
+        notify(err.message || err, 'error');
+      }
+    });
+  };
+
+  body().querySelector('[data-wait-backup-now]')?.addEventListener('click', startReceiver);
+
+  body().querySelector('[data-send-backup-now]').addEventListener('click', async () => {
+    const status = body().querySelector('[data-send-backup-status]');
+    if (status) {
+      status.hidden = false;
+      status.textContent = 'Generando respaldo de SA…';
+    }
+    try {
+      let backupData;
+      if (typeof window.generateNativeSaBackupData === 'function') {
+        backupData = await window.generateNativeSaBackupData();
+      } else {
+        throw new Error('Generador nativo de backup no disponible.');
+      }
+      const jsonText = JSON.stringify(backupData, null, 2);
+      const bytes = new TextEncoder().encode(jsonText);
+      if (status) status.textContent = `Enviando respaldo (${(bytes.byteLength / (1024 * 1024)).toFixed(2)} MB)…`;
+
+      await p2pBackupBridge.sendBackupOnChannel(channel, {
+        bytes,
+        schema: 'sa-backup/v1',
+        onProgress: pct => {
+          if (status) status.textContent = `Enviando respaldo… ${Math.round(pct * 100)}%`;
+        }
+      });
+
+      if (status) {
+        status.classList.add('is-success');
+        status.innerHTML = `<strong>${p2pIcon('link', 15)} Respaldo enviado y validado</strong><br><span>El otro SA recibió y verificó la integridad del respaldo.</span>`;
+      }
+      notify('Respaldo enviado exitosamente.', 'success');
+    } catch (err) {
+      if (status) {
+        status.classList.add('is-error');
+        status.innerHTML = `<strong>Error:</strong> ${esc(err.message || err)}`;
+      }
+      notify(err.message || err, 'error');
+    }
+  });
+
+  body().querySelector('[data-done]').addEventListener('click', renderHome);
+  signalPairLinkedFeedback();
+}
+
+async function connectTrustedAndSendBackup(peerId) {
+  cleanupSession();
+  try {
+    const identityStore = store();
+    const self = await identityStore.getSelf();
+    const peer = await identityStore.getPeer(peerId);
+    if (!peer || (peer.peerApp !== 'sa' && peer.peerApp !== 'mini')) throw new Error('Dispositivo vinculado no encontrado.');
+    activePeer = peer;
+    const humanPeer = peerName(peer);
+    setBodyHtml(`
+      <div class="sa-p2p-step">
+        ${backButton()}
+        <div>
+          <h3>Enviar respaldo a ${esc(humanPeer)}</h3>
+          <p>Se enviará el respaldo nativo completo directamente por el canal autenticado.</p>
+        </div>
+        <div class="sa-p2p-status" data-backup-connect-status>Conectando con ${esc(humanPeer)}…</div>
+      </div>`);
+
+    body().querySelector('[data-back]').addEventListener('click', () => {
+      cleanupSession();
+      renderHome();
+    });
+
+    const route = await window.SaMiniP2P.deriveTrustedRoute(peer.linkToken);
+    const signaling = new window.SaMiniP2P.SignalingClient({ room: route.room, peerId: self.deviceId, proof: route.proof });
+    const isSame = peer.peerApp === self.appType;
+
+    let sendStarted = false;
+    activeSession = await window.SaMiniP2P.createRtcSession({
+      signaling,
+      initiator: true,
+      onState: (status, error) => {
+        const box = body()?.querySelector('[data-backup-connect-status]');
+        if (box && error) box.textContent = 'Error: ' + error.message;
+      },
+      onChannel: channel => {
+        activeChannel = channel;
+        window.SaMiniP2PPairing.attachTrusted(channel, {
+          self,
+          peer,
+          store: identityStore,
+          allowSameApp: isSame,
+          onAuthenticated: async () => {
+            scheduleSaP2PHeaderRefresh();
+            if (sendStarted) return;
+            sendStarted = true;
+            const status = body()?.querySelector('[data-backup-connect-status]');
+            if (status) status.textContent = `${humanPeer} autenticado. Generando respaldo…`;
+            try {
+              let backupData;
+              if (typeof window.generateNativeSaBackupData === 'function') {
+                backupData = await window.generateNativeSaBackupData();
+              } else {
+                throw new Error('Generador nativo de backup no disponible.');
+              }
+              const jsonText = JSON.stringify(backupData, null, 2);
+              const bytes = new TextEncoder().encode(jsonText);
+              if (status) status.textContent = `Enviando respaldo (${(bytes.byteLength / (1024 * 1024)).toFixed(2)} MB)…`;
+
+              await p2pBackupBridge.sendBackupOnChannel(channel, {
+                bytes,
+                schema: 'sa-backup/v1',
+                onProgress: pct => {
+                  if (status) status.textContent = `Enviando respaldo… ${Math.round(pct * 100)}%`;
+                }
+              });
+
+              if (status) {
+                status.classList.add('is-success');
+                status.innerHTML = `<strong>${p2pIcon('link', 15)} Respaldo enviado y validado por ${esc(humanPeer)}</strong><br><span>El receptor recibió y verificó la integridad del respaldo (SHA-256).</span>`;
+              }
+              notify('Respaldo enviado y validado exitosamente.', 'success');
+            } catch (sendErr) {
+              if (status) {
+                status.classList.add('is-error');
+                status.innerHTML = `<strong>Error:</strong> ${esc(sendErr.message || sendErr)}`;
+              }
+              notify(sendErr.message || sendErr, 'error');
+            }
+          },
+          onError: error => {
+            const box = body()?.querySelector('[data-backup-connect-status]');
+            if (box) box.textContent = 'Autenticación falló: ' + error.message;
+          }
+        });
+      }
+    });
+  } catch (error) {
+    notify(error.message || error, 'error');
+    renderHome();
+  }
+}
+
+async function connectTrustedAndReceiveBackup(peerId) {
+  cleanupSession();
+  try {
+    const identityStore = store();
+    const self = await identityStore.getSelf();
+    const peer = await identityStore.getPeer(peerId);
+    if (!peer || (peer.peerApp !== 'sa' && peer.peerApp !== 'mini')) throw new Error('Dispositivo vinculado no encontrado.');
+    activePeer = peer;
+    const humanPeer = peerName(peer);
+    setBodyHtml(`
+      <div class="sa-p2p-step">
+        ${backButton()}
+        <div>
+          <h3>Esperar respaldo de ${esc(humanPeer)}</h3>
+          <p>Esperando conexión y transferencia de respaldo por el canal cifrado.</p>
+        </div>
+        <div class="sa-p2p-status" data-backup-receive-status>Conectando con ${esc(humanPeer)}…</div>
+      </div>`);
+
+    body().querySelector('[data-back]').addEventListener('click', () => {
+      cleanupSession();
+      renderHome();
+    });
+
+    const route = await window.SaMiniP2P.deriveTrustedRoute(peer.linkToken);
+    const signaling = new window.SaMiniP2P.SignalingClient({ room: route.room, peerId: self.deviceId, proof: route.proof });
+    const isSame = peer.peerApp === self.appType;
+
+    let receiverAttached = false;
+    activeSession = await window.SaMiniP2P.createRtcSession({
+      signaling,
+      initiator: false,
+      onState: (status, error) => {
+        const box = body()?.querySelector('[data-backup-receive-status]');
+        if (box && error) box.textContent = 'Error: ' + error.message;
+      },
+      onChannel: channel => {
+        activeChannel = channel;
+        window.SaMiniP2PPairing.attachTrusted(channel, {
+          self,
+          peer,
+          store: identityStore,
+          allowSameApp: isSame,
+          onAuthenticated: () => {
+            scheduleSaP2PHeaderRefresh();
+            if (receiverAttached) return;
+            receiverAttached = true;
+            const status = body()?.querySelector('[data-backup-receive-status]');
+            if (status) status.textContent = `${humanPeer} autenticado. Esperando envío de respaldo…`;
+            p2pBackupBridge.createBackupReceiver({
+              channel,
+              peer,
+              onProgress: pct => {
+                const box = body()?.querySelector('[data-backup-receive-status]');
+                if (box) box.textContent = `Recibiendo respaldo… ${Math.round(pct * 100)}%`;
+              },
+              onStaged: (staged) => {
+                scheduleSaP2PHeaderRefresh();
+                const box = body()?.querySelector('[data-backup-receive-status]');
+                if (box) {
+                  box.classList.remove('is-error');
+                  box.classList.add('is-success');
+                  const sizeMb = (staged.size / (1024 * 1024)).toFixed(2);
+                  box.innerHTML = `<strong>${p2pIcon('backup', 15)} Respaldo recibido y validado</strong><br><span>Tamaño: ${sizeMb} MB · SHA-256 verificado. Quedó guardado en pendientes de revisión.</span>`;
+                }
+                notify('Respaldo recibido y validado exitosamente.', 'success');
+              },
+              onRejected: ({ reason }) => {
+                const box = body()?.querySelector('[data-backup-receive-status]');
+                if (box) {
+                  box.classList.add('is-error');
+                  box.innerHTML = `<strong>Respaldo rechazado:</strong> ${esc(reason)}`;
+                }
+                notify(`Respaldo rechazado: ${reason}`, 'warning');
+              },
+              onError: err => {
+                const box = body()?.querySelector('[data-backup-receive-status]');
+                if (box) {
+                  box.classList.add('is-error');
+                  box.innerHTML = `<strong>Error de recepción:</strong> ${esc(err.message || err)}`;
+                }
+                notify(err.message || err, 'error');
+              }
+            });
+          },
+          onError: error => {
+            const box = body()?.querySelector('[data-backup-receive-status]');
+            if (box) box.textContent = 'Autenticación falló: ' + error.message;
+          }
+        });
+      }
+    });
+  } catch (error) {
+    notify(error.message || error, 'error');
+    renderHome();
+  }
+}
+
+async function openPeerBackupSurface(peerId) {
+  cleanupSession();
+  try {
+    const identityStore = store();
+    const peer = await identityStore.getPeer(peerId);
+    if (!peer) throw new Error('Dispositivo vinculado no encontrado.');
+    activePeer = peer;
+    const humanPeer = peerName(peer);
+    const isMini = peer.peerApp === 'mini';
+
+    const infoNote = isMini
+      ? '<div class="sa-p2p-status">Transferencia de respaldos con Mini. Los respaldos que envíe este Mini se guardarán de forma segura para descarga local (Mini conserva su propia restauración nativa).</div>'
+      : '<div class="sa-p2p-status">Transferencia de respaldos con SA. Los respaldos de SA recibidos pueden revisarse y restaurarse tras confirmación explícita.</div>';
+
+    setBodyHtml(`
+      <div class="sa-p2p-step">
+        ${backButton()}
+        <div>
+          <h3>Respaldos con ${esc(humanPeer)}</h3>
+          <p>Transferencia punto a punto de respaldos por el canal cifrado.</p>
+        </div>
+        ${infoNote}
+        <div class="sa-p2p-actions">
+          ${button('Enviar respaldo', 'data-action-send-backup', 'primary', 'backup')}
+          ${button('Esperar respaldo', 'data-action-wait-backup', 'secondary', 'download')}
+        </div>
+      </div>`);
+
+    body().querySelector('[data-back]').addEventListener('click', renderHome);
+    body().querySelector('[data-action-send-backup]').addEventListener('click', () => {
+      connectTrustedAndSendBackup(peer.peerId);
+    });
+    body().querySelector('[data-action-wait-backup]').addEventListener('click', () => {
+      connectTrustedAndReceiveBackup(peer.peerId);
+    });
+  } catch (error) {
+    notify(error.message || error, 'error');
+    renderHome();
   }
 }
 

@@ -10,8 +10,12 @@
   const CONTROL_PROTOCOL = 'sa-mini-p2p-control/v1';
   const ROSTER_KIND = 'roster';
   const ROSTER_SCHEMA = 'sa-roster/v1';
+  const BACKUP_KIND = 'backup';
+  const SA_BACKUP_SCHEMA = 'sa-backup/v1';
+  const MINI_BACKUP_SCHEMA = 'mini-backup/v1';
   const LINK_TOKEN_BYTES = 32;
   const MAX_ROSTER_BYTES = 5 * 1024 * 1024;
+  const MAX_BACKUP_BYTES = 25 * 1024 * 1024;
   const CHUNK_SIZE = 12 * 1024;
   const MAX_SIGNAL_BYTES = 64 * 1024;
   const MAX_SDP_BYTES = 32 * 1024;
@@ -240,7 +244,7 @@
     return Uint8Array.from(binary, c => c.charCodeAt(0));
   }
 
-  async function decodePairDescriptor(value) {
+  async function decodePairDescriptor(value, { allowSameApp = false, receiverApp = 'sa' } = {}) {
     let parsed;
     try { parsed = JSON.parse(new TextDecoder().decode(decodeBase64Url(value))); }
     catch (_) { throw new Error('QR de emparejamiento no compatible.'); }
@@ -248,7 +252,18 @@
     if (parsed.v !== 1 || !Number.isSafeInteger(parsed.expiresAt)) throw new Error('QR de emparejamiento no compatible.');
     const descriptor = await pairDescriptorFromManual(parsed.code, parsed.key, parsed.expiresAt);
     if (parsed.issuerId !== null) boundedString(parsed.issuerId, 128, 'Emisor del QR inválido.');
-    if (parsed.issuerApp !== null && parsed.issuerApp !== 'sa') throw new Error('Emisor del QR inválido.');
+    if (parsed.issuerApp !== null) {
+      if (!['sa', 'mini'].includes(parsed.issuerApp)) throw new Error('Emisor del QR inválido.');
+      if (allowSameApp) {
+        if (parsed.issuerApp !== receiverApp) {
+          throw new Error('Emparejamiento same-app sólo permite la misma aplicación.');
+        }
+      } else {
+        if (parsed.issuerApp === receiverApp) {
+          throw new Error('Emparejamiento same-app requiere habilitación explícita.');
+        }
+      }
+    }
     if (parsed.issuerName !== null) boundedString(parsed.issuerName, 80, 'Nombre del emisor inválido.');
     descriptor.issuerId = parsed.issuerId;
     descriptor.issuerApp = parsed.issuerApp;
@@ -361,7 +376,7 @@
     });
   }
 
-  function makeIdentityStore(appType, defaultName) {
+  function makeIdentityStore(appType = 'sa', defaultName) {
     if (!['sa', 'mini'].includes(appType)) throw new Error('appType P2P inválido.');
     return {
       async getSelf() {
@@ -385,18 +400,30 @@
       },
       listPeers: () => idbAll(PEER_STORE),
       getPeer: peerId => idbGet(PEER_STORE, peerId),
-      savePeer(peer) {
+      savePeer(peer, { allowSameApp = false } = {}) {
         if (!peer || !peer.peerId || !peer.linkToken) throw new Error('Peer P2P inválido.');
         const peerId = boundedString(String(peer.peerId).trim(), 128, 'Peer P2P inválido.');
         if (/[\s\u0000-\u001f\u007f]/.test(peerId)) throw new Error('Peer P2P inválido.');
-        const expectedApp = appType === 'sa' ? 'mini' : 'sa';
-        if (peer.peerApp !== expectedApp) throw new Error('La app remota P2P no es compatible.');
+        const expectedOppositeApp = appType === 'sa' ? 'mini' : 'sa';
+        if (allowSameApp) {
+          if (peer.peerApp !== appType || peer.purpose !== 'backup') {
+            throw new Error('La app remota no es compatible: los registros same-app requieren allowSameApp explícito y propósito de backup.');
+          }
+        } else {
+          if (peer.peerApp === appType) {
+            throw new Error('La app remota no es compatible: los registros same-app requieren allowSameApp explícito y propósito de backup.');
+          }
+          if (peer.peerApp !== expectedOppositeApp) {
+            throw new Error('La app remota P2P no es compatible.');
+          }
+        }
         const linkToken = validateLinkToken(peer.linkToken);
         return idbPut(PEER_STORE, {
           peerId,
-          peerApp: expectedApp,
-          displayName: String(peer.displayName || expectedApp || 'Dispositivo').slice(0, 80),
+          peerApp: peer.peerApp,
+          displayName: String(peer.displayName || peer.peerApp || 'Dispositivo').slice(0, 80),
           linkToken,
+          ...(peer.purpose ? { purpose: peer.purpose } : {}),
           linkedAt: peer.linkedAt || new Date().toISOString(),
           lastSeenAt: peer.lastSeenAt || new Date().toISOString()
         });
@@ -600,8 +627,19 @@
   function validateTransferStart(message) {
     exactKeys(message, ['protocol', 'type', 'transferId', 'kind', 'schema', 'size', 'chunkSize', 'totalChunks', 'sha256'], 'Inicio de transferencia inválido.');
     if (message.protocol !== TRANSFER_PROTOCOL || message.type !== 'start') throw new Error('Inicio de transferencia inválido.');
-    if (message.kind !== ROSTER_KIND || message.schema !== ROSTER_SCHEMA) throw new Error('Sólo se admite roster sa-roster/v1.');
-    if (!Number.isSafeInteger(message.size) || message.size < 0 || message.size > MAX_ROSTER_BYTES) throw new Error('Tamaño de transferencia inválido.');
+    if (message.kind === ROSTER_KIND) {
+      if (message.schema !== ROSTER_SCHEMA) throw new Error('Sólo se admite roster sa-roster/v1.');
+      if (!Number.isSafeInteger(message.size) || message.size < 0 || message.size > MAX_ROSTER_BYTES) throw new Error('Tamaño de transferencia inválido.');
+    } else if (message.kind === BACKUP_KIND) {
+      if (message.schema !== SA_BACKUP_SCHEMA && message.schema !== MINI_BACKUP_SCHEMA) {
+        throw new Error('Sólo se admiten esquemas sa-backup/v1 y mini-backup/v1.');
+      }
+      if (!Number.isSafeInteger(message.size) || message.size < 0 || message.size > MAX_BACKUP_BYTES) {
+        throw new Error('Tamaño de transferencia inválido.');
+      }
+    } else {
+      throw new Error('Clase de transferencia no admitida.');
+    }
     if (message.chunkSize !== CHUNK_SIZE) throw new Error('Tamaño de chunk no compatible.');
     if (!Number.isSafeInteger(message.totalChunks) || message.totalChunks !== expectedTotalChunks(message.size)) throw new Error('Cantidad de chunks inválida.');
     return {
@@ -632,12 +670,32 @@
     catch (error) { revokeChannel(channel, error); throw error; }
   }
 
-  async function sendPayload(channel, { kind, schema, text, onProgress }) {
+  async function sendPayload(channel, { kind = ROSTER_KIND, schema = ROSTER_SCHEMA, text, bytes: rawBytes, onProgress }) {
     if (!isChannelAuthenticated(channel)) throw new Error('Canal P2P no autenticado.');
-    if (kind !== ROSTER_KIND || schema !== ROSTER_SCHEMA) throw new Error('Sólo se admite roster sa-roster/v1.');
-    if (typeof text !== 'string') throw new Error('El roster debe ser texto UTF-8.');
-    const bytes = new TextEncoder().encode(text);
-    if (bytes.byteLength > MAX_ROSTER_BYTES) throw new Error('El roster excede el límite permitido.');
+    if (kind !== ROSTER_KIND && kind !== BACKUP_KIND) throw new Error('Sólo se admite transferencia roster o backup.');
+    let bytes;
+    if (kind === ROSTER_KIND) {
+      if (schema !== ROSTER_SCHEMA) throw new Error('Sólo se admite roster sa-roster/v1.');
+      if (typeof text !== 'string') throw new Error('El roster debe ser texto UTF-8.');
+      bytes = new TextEncoder().encode(text);
+      if (bytes.byteLength > MAX_ROSTER_BYTES) throw new Error('El roster excede el límite permitido.');
+    } else if (kind === BACKUP_KIND) {
+      if (schema !== SA_BACKUP_SCHEMA && schema !== MINI_BACKUP_SCHEMA) {
+        throw new Error('Sólo se admiten esquemas sa-backup/v1 y mini-backup/v1.');
+      }
+      if (rawBytes instanceof Uint8Array) {
+        bytes = rawBytes;
+      } else if (rawBytes instanceof ArrayBuffer) {
+        bytes = new Uint8Array(rawBytes);
+      } else if (ArrayBuffer.isView(rawBytes)) {
+        bytes = new Uint8Array(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength);
+      } else if (typeof text === 'string') {
+        bytes = new TextEncoder().encode(text);
+      } else {
+        throw new Error('El backup requiere bytes o texto.');
+      }
+      if (bytes.byteLength > MAX_BACKUP_BYTES) throw new Error('El backup excede el límite permitido.');
+    }
     const transferId = crypto.randomUUID ? crypto.randomUUID() : randomToken(16);
     const digest = await sha256Hex(bytes);
     const totalChunks = expectedTotalChunks(bytes.byteLength);
@@ -655,7 +713,7 @@
       onProgress?.((index + 1) / totalChunks);
     }
     await sendAuthenticated(channel, JSON.stringify({ protocol: TRANSFER_PROTOCOL, type: 'end', transferId }));
-    return { transferId, size: bytes.byteLength, sha256: digest, kind: ROSTER_KIND, schema: ROSTER_SCHEMA, totalChunks };
+    return { transferId, size: bytes.byteLength, sha256: digest, kind, schema, totalChunks };
   }
 
   function createTransferReceiver({ channel, onComplete, onProgress, onError } = {}) {
@@ -701,13 +759,15 @@
              const digest = await sha256Hex(bytes);
              if (digest !== current.meta.sha256) throw new Error('SHA-256 no coincide.');
               let text;
-              try {
-                text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-              } catch (_) {
-                throw new Error('El roster no contiene UTF-8 válido.');
+              if (current.meta.kind === ROSTER_KIND) {
+                try {
+                  text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+                } catch (_) {
+                  throw new Error('El roster no contiene UTF-8 válido.');
+                }
               }
               assertAuthenticated();
-              const result = { ...current.meta, bytes, text };
+              const result = { ...current.meta, bytes, ...(text !== undefined ? { text } : {}) };
               current = null;
               await onComplete?.(result);
               return true;
@@ -726,7 +786,8 @@
          if (current.chunks[index]) throw new Error('Chunk duplicado.');
          const payloadLength = expectedChunkPayloadLength(current.meta.size, current.meta.totalChunks, index);
          if (raw.byteLength !== 4 + payloadLength) throw new Error('Longitud de chunk inválida.');
-         if (current.receivedBytes + payloadLength > current.meta.size || current.receivedBytes + payloadLength > MAX_ROSTER_BYTES) throw new Error('Tamaño agregado inválido.');
+         const maxAllowed = current.meta.kind === BACKUP_KIND ? MAX_BACKUP_BYTES : MAX_ROSTER_BYTES;
+         if (current.receivedBytes + payloadLength > current.meta.size || current.receivedBytes + payloadLength > maxAllowed) throw new Error('Tamaño agregado inválido.');
          current.chunks[index] = raw.slice(4);
          current.received += 1;
          current.receivedBytes += payloadLength;
@@ -806,6 +867,32 @@
         validated: false
       };
     }
+    if (type === 'backup-staged') {
+      exactKeys(data, ['transferId', 'sha256', 'kind', 'schema', 'validated'], 'ACK de backup inválido.');
+      if (data.kind !== BACKUP_KIND || (data.schema !== SA_BACKUP_SCHEMA && data.schema !== MINI_BACKUP_SCHEMA) || data.validated !== true) {
+        throw new Error('ACK de backup inválido.');
+      }
+      return {
+        transferId: validateTransferId(data.transferId),
+        sha256: validateSha256(data.sha256),
+        kind: BACKUP_KIND,
+        schema: data.schema,
+        validated: true
+      };
+    }
+    if (type === 'backup-rejected') {
+      exactKeys(data, ['transferId', 'reason', 'kind', 'schema', 'validated'], 'Rechazo de backup inválido.');
+      if (data.kind !== BACKUP_KIND || (data.schema !== SA_BACKUP_SCHEMA && data.schema !== MINI_BACKUP_SCHEMA) || data.validated !== false) {
+        throw new Error('Rechazo de backup inválido.');
+      }
+      return {
+        transferId: validateTransferId(data.transferId),
+        reason: boundedString(data.reason, 256, 'Rechazo de backup inválido.'),
+        kind: BACKUP_KIND,
+        schema: data.schema,
+        validated: false
+      };
+    }
     throw new Error('Tipo de control P2P desconocido.');
   }
 
@@ -868,6 +955,34 @@
     return rejection;
   }
 
+  function validateBackupStageAck(data, expectedTransfer) {
+    const ack = validateControlData('backup-staged', data);
+    if (!expectedTransfer || ack.transferId !== expectedTransfer.transferId || ack.sha256 !== String(expectedTransfer.sha256 || '').toLowerCase()) {
+      throw new Error('El ACK de backup no coincide con la transferencia.');
+    }
+    if (expectedTransfer.kind && ack.kind !== expectedTransfer.kind) {
+      throw new Error('El ACK de backup no coincide con la transferencia.');
+    }
+    if (expectedTransfer.schema && ack.schema !== expectedTransfer.schema) {
+      throw new Error('El ACK de backup no coincide con la transferencia.');
+    }
+    return ack;
+  }
+
+  function validateBackupRejected(data, expectedTransfer) {
+    const rejection = validateControlData('backup-rejected', data);
+    if (!expectedTransfer || rejection.transferId !== expectedTransfer.transferId) {
+      throw new Error('El rechazo de backup no coincide con la transferencia.');
+    }
+    if (expectedTransfer.kind && rejection.kind !== expectedTransfer.kind) {
+      throw new Error('El rechazo de backup no coincide con la transferencia.');
+    }
+    if (expectedTransfer.schema && rejection.schema !== expectedTransfer.schema) {
+      throw new Error('El rechazo de backup no coincide con la transferencia.');
+    }
+    return rejection;
+  }
+
   async function makeSas(nonceA, nonceB, context) {
     const parts = [String(nonceA), String(nonceB)].sort();
     const hex = await sha256Hex(parts.join(':') + ':' + String(context || ''));
@@ -877,8 +992,9 @@
 
   const api = {
     DB_NAME, SIGNALING_URL, TRANSFER_PROTOCOL, CONTROL_PROTOCOL, ROSTER_KIND, ROSTER_SCHEMA,
+    BACKUP_KIND, SA_BACKUP_SCHEMA, MINI_BACKUP_SCHEMA,
     LINK_TOKEN_BYTES,
-    MAX_ROSTER_BYTES, CHUNK_SIZE, MAX_SIGNAL_BYTES, MAX_SDP_BYTES, MAX_ICE_CANDIDATE_BYTES,
+    MAX_ROSTER_BYTES, MAX_BACKUP_BYTES, CHUNK_SIZE, MAX_SIGNAL_BYTES, MAX_SDP_BYTES, MAX_ICE_CANDIDATE_BYTES,
     PAIR_SESSION_TTL_MS, ICE_SERVERS,
     randomToken, randomCode, randomPairKey, sha256Hex, hmacHex,
     validateLinkToken, validateDeviceId, pairSessionExpiry, assertPairSessionActive,
@@ -888,6 +1004,7 @@
     validateSignalData, validateSignalFrameObject, validateTransferStart, validateTransferEnd,
     validateControlFrame, sendControl, parseControl, makePairSessionId, makePairLinkMac,
     validateRosterStageAck, validateRosterRejected,
+    validateBackupStageAck, validateBackupRejected,
     markChannelAuthenticated, markChannelUnauthenticated, revokeChannel, isChannelAuthenticated,
     bindChannelSession, makeSas
   };

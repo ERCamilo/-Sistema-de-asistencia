@@ -6041,20 +6041,16 @@ async function maybeAttachProjectBackup(exportData) {
     exportData.data.projectBackup = manifest;
 }
 
-window.exportData = async function () {
+window.exportData = async function (options = {}) {
     try {
-        // 💵 M3: incluir la caja chica en el backup. Se lee de PettyCashStore
-        // (IndexedDB, la verdad durable) y NO de state.pettyCash, que puede
-        // no estar cargado si nunca se abrió la pestaña en esta sesión.
-        // sanitize garantiza que solo van datos (sin form/fotos/estado UI).
+        // M3: incluir caja chica de PettyCashStore (verdad durable)
         let pettyCashBackup = null;
         try {
             pettyCashBackup = sanitizePettyCashForSnapshot(await PettyCashStore.loadLocal());
         } catch (e) {
-            console.warn('⚠️ exportData: no se pudo leer caja chica (se exporta sin ella):', e);
+            console.warn('⚠️ exportData: no se pudo leer caja chica:', e);
         }
 
-        // Crear objeto con todos los datos
         const exportData = {
             version: '1.0.0',
             exportDate: new Date().toISOString(),
@@ -6071,34 +6067,40 @@ window.exportData = async function () {
             }
         };
 
-        // F1.9 S1: superficie project-aware aditiva, solo ON.
-        // OFF queda byte-idéntica (helper retorna sin claves ni lecturas).
+        // F1.9 S1: superficie project-aware aditiva, solo ON
         try {
             await maybeAttachProjectBackup(exportData);
         } catch (e) {
-            console.warn('⚠️ exportData: no se pudo adjuntar manifiesto de proyecto (se exporta sin él):', e);
+            console.warn('⚠️ exportData: no se pudo adjuntar manifiesto:', e);
         }
 
-        // Generar nombre de archivo
+        if (options && options.returnData) return exportData;
+
         const dateStr = new Date().toISOString().split('T')[0];
         const filename = `backup-${state.settings.companyName.replace(/\s+/g, '-')}-${dateStr}.json`;
-
-        // Crear blob
         const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
 
-        // Mostrar menú de exportar
         showExportMenu({
             filename: filename,
             blob: blob,
             title: `Backup - ${state.settings.companyName}`,
             text: `Respaldo de datos del ${new Date().toLocaleDateString('es-DO')}`
         });
-
     } catch (error) {
         console.error('Error exportando datos:', error);
         showNotification('❌ Error al exportar datos', 'error');
+        if (options && options.returnData) throw error;
     }
 };
+
+/**
+ * 📦 Generador nativo del contenido completo de backup de SA
+ * Reutiliza la ruta canónica de window.exportData en modo return-data (F3.P2P-3)
+ */
+export async function generateNativeSaBackupData() {
+    return await window.exportData({ returnData: true });
+}
+window.generateNativeSaBackupData = generateNativeSaBackupData;
 
 /**
  * 📸 Creador de Snapshots accesible globalmente para RestoreUI
