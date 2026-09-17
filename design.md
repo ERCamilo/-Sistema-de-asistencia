@@ -271,7 +271,9 @@ Al escribir en un input (ej. nombre de empresa o cargo), debajo se renderiza una
 
 
 ### 5.8 Vinculación y Transferencias P2P
-* La portada de un flujo de vinculación no debe dedicar tarjetas grandes a capacidades/funciones. Usar una **franja compacta de capacidades** en una fila o grid corto (`Personal`, `Proyecto`, `Asistencia`, `Archivos`) y reservar el espacio principal para dispositivos y acciones reales.
+* La portada de un flujo de vinculación no debe dedicar tarjetas grandes a capacidades/funciones. Usar una **franja compacta de capacidades** en una fila o grid corto (`Personal`, `Asistencia`, `Backup`, `Archivos`) que representa exactamente las superficies de transporte de la versión 1. El contexto de `Proyecto` se extrae de las capacidades de transporte y se ubica como barra/bloque de contexto de proyecto activo visible fuera de la franja, preservando las compuertas de vinculación y envío.
+* La capacidad de `Backup` es activa (`is-ready`) y abre/navega a los flujos existentes de respaldo (staged, pares de respaldo o restauración canónica) sin duplicar implementaciones.
+* La capacidad de `Archivos` es visible pero deshabilitada (`is-disabled`, `aria-disabled="true"`), atenuada, sin selector de archivos (`input[type="file"]`), sin acción ejecutable y falla cerrado por diseño ante cualquier payload genérico.
 * Los dispositivos vinculados se muestran como filas/tarjetas compactas: icono vectorial, alias/nombre, última conexión y acciones secundarias con SVG. La acción principal puede conservar texto (`Enviar roster`, `Vincular Mini`).
 * Estados futuros/deshabilitados no compiten visualmente con funciones disponibles; se presentan atenuados dentro de la misma franja de capacidades.
 * En móvil, las capacidades pueden pasar de 4 columnas a 2; los targets táctiles siguen siendo de al menos `44x44px`.
@@ -279,6 +281,7 @@ Al escribir en un input (ej. nombre de empresa o cargo), debajo se renderiza una
 * No usar `confirm()` nativo ni emojis/símbolos Unicode como iconografía de acciones. Usar confirmación in-app y SVG accesibles.
 * **Gutter interior obligatorio**: salvo topbar/progress/footer deliberadamente full-bleed, el contenido interactivo de un modal debe conservar al menos `16–20px` de separación respecto al borde del shell (`12–14px` en móviles muy estrechos). Tabs, campos, tarjetas y botones no deben verse pegados al contorno exterior.
 * Los selectores de modo (`Pegar texto`, `Conectados`) viven dentro de ese gutter y respetan el orden definido por el flujo; no se colocan contra el borde del modal.
+* **Preservación estricta de fallbacks manuales**: la introducción del transporte P2P no altera ni sustituye los canales manuales preexistentes (exportación de roster a portapapeles/WhatsApp, pegado manual en el importador de asistencia y exportación/importación nativa de respaldos JSON en Ajustes).
 
 ### 5.9 Insignia numérica de notificación / conteo (Count Badge)
 * **Forma compacta**: círculo/píldora (`border-radius: 999px`), `min-width: 20px`, `height: 20px`, `padding: 0 6px`, número centrado con `display: inline-flex; align-items: center; justify-content: center`.
@@ -423,3 +426,14 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
   - *Aislamiento absoluto*: Peers same-app de respaldo NUNCA ingresan a listeners ni listas de roster ni asistencia.
   - *Cross-app*: Peers Mini vinculados pueden enviar y recibir respaldos por una superficie dedicada de respaldo; al recibir Mini en SA sólo se permite descarga intacta (`backup-mini-YYYY-MM-DD-hash.json`). En la conexión de respaldo trusted se evalúa `allowSameApp = (peer.peerApp === self.appType)`, siendo siempre falso para Mini.
   - *Archivos genéricos*: La capacidad de archivos/documentos arbitrarios permanece deshabilitada y fuera de alcance.
+
+## Endurecimiento de Transporte v1, Superficies y UI (F3.P2P-4 UI Hardening)
+- **Superficies exactas v1**: La portada de transferencias refleja exactamente las cuatro capacidades de transporte v1:
+  1. `Personal` (`is-ready`): Transporte de roster SA → Mini (`sa-roster/v1`).
+  2. `Asistencia` (`is-ready`): Recepción de asistencia Mini → SA (`attendance-submission/v1`).
+  3. `Backup` (`is-ready`): Respaldo nativo de SA (`sa-backup/v1`) y Mini (`mini-backup/v1`). Al accionarse, enfoca/desplaza a los respaldos recibidos o pares de respaldo existentes, reutilizando la ruta canónica `window.loadBackupFromFile` / `applyBackupData` sin crear flujos paralelos.
+  4. `Archivos` (`is-disabled`): Superficie de documentos y archivos genéricos fuera de alcance; se renderiza como elemento atenuado y no interactivo sin selector de archivos (`input[type="file"]`), sin acción ejecutable y con rechazo fail-closed de cualquier tipo no contemplado (`files`, `documents`, `photo`, `pdf`, `bin`, etc.).
+- **Contexto de proyecto desacoplado de capacidades**: El proyecto activo no es un medio de transporte; se presenta en un bloque contextual dedicado (`.sa-p2p-project-bar`) con botón accesible (>=44px) para configurar o cambiar el proyecto activo, manteniendo las compuertas de seguridad que bloquean el envío de roster y el emparejamiento cuando no hay proyecto activo.
+- **Aislamiento y reglas same-app/cross-app**: Pares same-app de respaldo (SA ↔ SA) requieren opt-in explícito (`allowSameApp: true`) y propósito `backup`, permaneciendo estrictamente excluidos de listas de roster y listeners de asistencia. Los respaldos provenientes de Mini en SA ofrecen exclusivamente descarga local y rechazan cualquier intento de restauración en la aplicación incorrecta.
+- **Integridad y accesibilidad visual**: Todos los elementos interactivos garantizan targets táctiles >=44px (`min-height: 44px; min-width: 44px;`), superficies semánticas sólidas sin estados seleccionados de contorno hueco, iconografía vectorial pura SVG (sin emojis) y exclusión total de logs técnicos pasivos en la portada de transferencias.
+- **E2E Físico diferido**: La verificación física final de radiofrecuencia entre hardware real queda formalmente diferida a pruebas de campo y no se asume como aprobada.

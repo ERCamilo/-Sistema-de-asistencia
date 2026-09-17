@@ -471,7 +471,7 @@ async function buildRosterText(includeSalary = false) {
   return { payload, text: JSON.stringify(payload, null, 2) };
 }
 
-async function renderHome() {
+export async function renderHome() {
   shell();
   cleanupSession();
   const self = await store().getSelf();
@@ -496,17 +496,28 @@ async function renderHome() {
   try { projectState = await getProjectSetupState(); }
   catch (error) { projectState = { enabled: true, ready: false, activeProject: null, error }; }
 
-  const capability = (iconName, title, detail, stateClass = '') => `
-    <div class="sa-p2p-capability ${stateClass}">
+  const capability = (iconName, title, detail, stateClass, extraAttrs = '') => `
+    <div class="sa-p2p-capability ${stateClass}" ${extraAttrs}>
       <span class="sa-p2p-capability-icon">${p2pIcon(iconName, 17)}</span>
       <span class="sa-p2p-capability-copy"><strong>${title}</strong><small>${detail}</small></span>
     </div>`;
 
-  const projectCapability = `
-    <button type="button" data-configure-project class="sa-p2p-capability ${projectState.ready ? 'is-ready' : 'is-warning'}" aria-label="${projectState.ready ? 'Proyecto activo: ' + esc(projectState.activeProject?.name || projectState.activeProjectId) : 'Configurar proyecto activo'}">
-      <span class="sa-p2p-capability-icon">${p2pIcon('project', 17)}</span>
-      <span class="sa-p2p-capability-copy"><strong>Proyecto</strong><small>${projectState.ready ? esc(projectState.activeProject?.name || 'Activo') : 'Configurar'}</small></span>
+  const backupCapability = `
+    <button type="button" data-capability-backup class="sa-p2p-capability is-ready" aria-label="Respaldos P2P">
+      <span class="sa-p2p-capability-icon">${p2pIcon('backup', 17)}</span>
+      <span class="sa-p2p-capability-copy"><strong>Backup</strong><small>SA ↔ SA / Mini</small></span>
     </button>`;
+
+  const projectContextBar = `
+    <div class="sa-p2p-project-bar">
+      <div class="sa-p2p-project-info">
+        <span class="sa-p2p-project-icon">${p2pIcon('project', 17)}</span>
+        <span><strong>Proyecto</strong>: <span class="sa-p2p-project-name">${projectState.ready ? esc(projectState.activeProject?.name || 'Activo') : 'Sin configurar'}</span></span>
+      </div>
+      <button type="button" class="sa-p2p-project-btn" data-configure-project aria-label="${projectState.ready ? 'Proyecto activo: ' + esc(projectState.activeProject?.name || projectState.activeProjectId) : 'Configurar proyecto activo'}">
+        ${projectState.ready ? 'Cambiar' : 'Configurar'}
+      </button>
+    </div>`;
 
   const stagedBackups = p2pBackupBridge.listStaged();
   const stagedBackupsSection = stagedBackups.length ? `
@@ -652,13 +663,14 @@ async function renderHome() {
   const selfPresentation = resolveSaSelfPresentationName(projectState, self);
   const pairingGate = getNewPairingProjectGate(projectState);
   setBodyHtml(`
+    ${projectContextBar}
     <section class="sa-p2p-capabilities-wrap" aria-labelledby="sa-p2p-capabilities-title">
       <h3 id="sa-p2p-capabilities-title" class="sa-p2p-section-label">Capacidades</h3>
       <div class="sa-p2p-capabilities">
         ${capability('users', 'Personal', 'SA → Mini', 'is-ready')}
-        ${projectCapability}
         ${capability('attendance', 'Asistencia', 'Mini → SA', 'is-ready')}
-        ${capability('files', 'Archivos', 'Próximamente', 'is-disabled')}
+        ${backupCapability}
+        ${capability('files', 'Archivos', 'Próximamente', 'is-disabled', 'aria-disabled="true"')}
       </div>
     </section>
     ${stagedBackupsSection}
@@ -675,6 +687,18 @@ async function renderHome() {
     <p class="sa-p2p-footnote">Vincular sólo crea una relación segura entre dispositivos. Ningún dato se importa o modifica automáticamente.</p>`);
   body().querySelector('[data-new-pair]').classList.add('sa-p2p-link-cta');
   body().querySelector('[data-configure-project]')?.addEventListener('click', () => window.openProjectSetupModal?.());
+  body().querySelector('[data-capability-backup]')?.addEventListener('click', () => {
+    const staged = body().querySelector('.sa-p2p-staged-backups');
+    const backupDevices = body().querySelector('.sa-p2p-backup-devices');
+    const target = staged || backupDevices;
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const focusEl = target.querySelector('button:not([disabled]), [tabindex="0"]');
+      focusEl?.focus();
+    } else if (typeof window.syncCenterOpenBackups === 'function') {
+      window.syncCenterOpenBackups();
+    }
+  });
   body().querySelector('[data-new-pair]').addEventListener('click', startNewPairing);
   body().querySelector('[data-new-backup-pair]')?.addEventListener('click', startBackupPairing);
 
