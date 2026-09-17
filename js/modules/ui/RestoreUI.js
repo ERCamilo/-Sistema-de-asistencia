@@ -309,7 +309,7 @@ export const RestoreUI = {
                 lines.push(`<div style="font-size: 0.75rem; color: #cbd5e1; margin-bottom: 6px;">IDs en backup: ${backupIds.map(esc).join(', ')}</div>`);
             }
             if (foreignIds.length > 0) {
-                lines.push(`<div style="margin-top: 6px;">⚠️ IDs foráneos (no existen en este dispositivo): <b>${foreignIds.map(esc).join(', ')}</b>. No se adoptará ni creará ningún proyecto; el restore conserva la semántica actual.</div>`);
+                lines.push(`<div style="margin-top: 6px;">⚠️ IDs foráneos (no existen en este dispositivo): <b>${foreignIds.map(esc).join(', ')}</b>. Se restaurarán con sus identificadores exactos tras confirmación.</div>`);
             }
             if (missingConfigs.length > 0) {
                 lines.push(`<div style="margin-top: 6px;">⚠️ Sin configuración de nómina en el backup para: <b>${missingConfigs.map(esc).join(', ')}</b>.</div>`);
@@ -324,10 +324,10 @@ export const RestoreUI = {
                 lines.push(`<div style="margin-top: 6px;">🧾 ${receiptLoss.unrecoverableReceiptCount} comprobante(s) solo-local(es) no recuperables desde este backup.</div>`);
             }
             if (pointerInfo && (!pointerInfo.defaultMatch || !pointerInfo.activeMatch)) {
-                lines.push('<div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">ℹ️ El proyecto predeterminado/activo local difiere del que trae el backup (informativo; no se cambia nada automáticamente).</div>');
+                lines.push('<div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">ℹ️ El proyecto predeterminado/activo local difiere del que trae el backup (se actualizará tras confirmación).</div>');
             }
             if (lines.length === 1) {
-                lines.push('<div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">Sin riesgos detectados. El restore conserva la semántica actual y requiere tu confirmación.</div>');
+                lines.push('<div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">Sin riesgos detectados. La estructura de proyectos se restaurará tras tu confirmación.</div>');
             }
         }
 

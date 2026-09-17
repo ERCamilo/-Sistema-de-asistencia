@@ -21,6 +21,7 @@ const mockService = {
     getReceipt: jest.fn().mockResolvedValue(null),
     deleteReceipt: jest.fn().mockResolvedValue(true),
     listPendingReceipts: jest.fn().mockResolvedValue([]),
+    listReceiptJobs: jest.fn().mockResolvedValue([]),
     // Employee photo cache (v16)
     saveEmployeePhoto: jest.fn().mockResolvedValue(null),
     getEmployeePhoto: jest.fn().mockResolvedValue(null),

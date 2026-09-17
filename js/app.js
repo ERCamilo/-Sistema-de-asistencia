@@ -52,6 +52,12 @@ import { _payrollClosureRepositoryInternals } from './modules/features/payroll/P
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
 import { sanitizeExportConfig } from './modules/services/ExportConfigSanitizer.js';
 import { buildProjectBackupManifest, diagnoseProjectBackup } from './modules/services/ProjectBackupManifest.js';
+import {
+    planProjectRestore,
+    captureRestoreRollbackSnapshot,
+    applyProjectRestore,
+    executeRestoreRollback
+} from './modules/services/ProjectBackupRestore.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
@@ -6117,51 +6123,86 @@ window.createFirebaseSnapshot = async function (type = 'auto', reason = null) {
 };
 
 /**
+ * 🛠️ Manejador de error y notificación en restauración de backup local
+ */
+function _handleRestoreError(error, rollbackError, throwOnError) {
+    console.error("Error aplicando backup:", error);
+    if (rollbackError) console.error("Error durante rollback de backup:", rollbackError);
+    logError(error, 'aplicar el backup local');
+    if (rollbackError) {
+        logError(rollbackError, 'rollback de backup local');
+        showNotification('❌ Error crítico: fallo restore y rollback incompleto: ' + (rollbackError.message || translateError(rollbackError, { fallbackContext: 'rollback de backup local' })), 'error');
+    } else {
+        showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');
+    }
+    if (throwOnError) {
+        const compositeErr = new Error(`applyBackupData failed: ${error.message}${rollbackError ? `; Rollback failed: ${rollbackError.message}` : ''}`);
+        compositeErr.originalError = error;
+        compositeErr.rollbackError = rollbackError;
+        throw compositeErr;
+    }
+    return false;
+}
+
+/**
  * 🛠️ Aplica los datos de un backup al estado actual y guarda localmente
  */
-async function applyBackupData(importedData) {
+async function applyBackupData(importedData, options = {}) {
+    let rollbackSnapshot = null;
+    const {
+        state: targetState = state,
+        saveCore = null,
+        idb = indexedDBService,
+        storage = typeof localStorage !== 'undefined' ? localStorage : null,
+        _faultInjection = null,
+        throwOnError = false
+    } = options;
+
     try {
-        const data = importedData.data;
-        // H-05 A5: ingress legacy backup/snapshot — sanear exportConfig transitorio antes de aplicar
-        if (data && typeof data === 'object') sanitizeExportConfig(data);
-        if (importedData && typeof importedData === 'object') sanitizeExportConfig(importedData);
-        // Also sanitize .state if snapshot shape { state: {...} }
-        if (data && data.state && typeof data.state === 'object') sanitizeExportConfig(data.state);
+        const data = importedData?.data;
+        if (!data || typeof data !== 'object') throw new Error('Formato de datos de respaldo inválido');
 
-        // Sobrescribir estado (Atomicity local)
-        state.settings = data.settings || state.settings;
-        state.positions = data.positions || [];
-        state.employees = data.employees || [];
-        state.leaders = data.leaders || [];
-        state.attendance = data.attendance || {};
-        state.tempAssignments = data.tempAssignments || [];
-        state.dayHoursConfig = data.dayHoursConfig || {};
+        sanitizeExportConfig(data);
+        sanitizeExportConfig(importedData);
+        sanitizeExportConfig(data.state);
 
-        // Sincronizar timestamps locales
+        rollbackSnapshot = await captureRestoreRollbackSnapshot(targetState, { idb, storage });
+        const projectRestorePlan = planProjectRestore(importedData);
+        if (_faultInjection === 'before_core_save') throw new Error('Fault injection: before_core_save');
+
+        targetState.settings = data.settings || targetState.settings;
+        targetState.positions = data.positions || [];
+        targetState.employees = data.employees || [];
+        targetState.leaders = data.leaders || [];
+        targetState.attendance = data.attendance || {};
+        targetState.tempAssignments = data.tempAssignments || [];
+        targetState.dayHoursConfig = data.dayHoursConfig || {};
+
         const now = Date.now();
-        if (!state.settings.updatedAt) state.settings.updatedAt = now;
-        state.employees.forEach(e => { if (!e.updatedAt) e.updatedAt = now; });
-        state.positions.forEach(p => { if (!p.updatedAt) p.updatedAt = now; });
-        Object.values(state.attendance).forEach(a => { if (!a.updatedAt) a.updatedAt = now; });
+        targetState.settings.updatedAt = targetState.settings.updatedAt || now;
+        targetState.employees.forEach(e => { e.updatedAt = e.updatedAt || now; });
+        targetState.positions.forEach(p => { p.updatedAt = p.updatedAt || now; });
+        Object.values(targetState.attendance).forEach(a => { a.updatedAt = a.updatedAt || now; });
 
-        // 🧹 Sanitización preventiva antes de guardar
-        if (typeof sanitizePositions === 'function') {
-            sanitizePositions(state);
+        if (typeof sanitizePositions === 'function') sanitizePositions(targetState);
+
+        // Los caches/indexes globales pertenecen al singleton real de producción.
+        // Una seam de test con targetState aislado no debe contaminar ese singleton.
+        if (targetState === state) {
+            invalidateAllStats();
+            buildAttendanceIndex();
         }
 
-        // Reemplazo total del dataset (+ normalización + sanitización ya aplicadas) →
-        // coherencia explícita antes de persistir/render. invalidateAllStats() subsume
-        // la invalidación que pediría sanitizePositions (limpia TODO el statsCache).
-        invalidateAllStats();
-        buildAttendanceIndex();
+        const coreSaved = typeof saveCore === 'function'
+            ? await saveCore({ clearFirst: true })
+            : await saveToIndexedDB({ clearFirst: true });
+        if (coreSaved !== true) throw new Error('Error al guardar datos principales en IndexedDB');
+        if (_faultInjection === 'after_core_save') throw new Error('Fault injection: after_core_save');
 
-        // Guardar en IndexedDB
-        await saveToIndexedDB({ clearFirst: true });
+        if (projectRestorePlan) {
+            await applyProjectRestore(projectRestorePlan, { idb, storage, _faultInjection });
+        }
 
-        // 💵 M3: restaurar la caja chica si el backup la trae (formato nuevo).
-        // Backups viejos sin pettyCash: los stores locales quedan intactos
-        // (clearFirst ya no los toca) — no se destruye lo que el archivo no
-        // puede restaurar.
         let pettyCashRestoreWarning = null;
         if (data.pettyCash && typeof data.pettyCash === 'object') {
             try {
@@ -6183,16 +6224,25 @@ async function applyBackupData(importedData) {
             pettyCashRestoreWarning ? `⚠️ Datos principales restaurados. ${pettyCashRestoreWarning}` : '✅ Datos restaurados localmente',
             pettyCashRestoreWarning ? 'warning' : 'success'
         );
-        render(); // Refrescar UI
+        if (typeof render === 'function') render();
+        else if (typeof window !== 'undefined' && typeof window.render === 'function') window.render();
 
         return true;
     } catch (error) {
-        console.error("Error aplicando backup:", error);
-        logError(error, 'aplicar el backup local');
-        showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');
-        return false;
+        let rollbackError = null;
+        if (rollbackSnapshot) {
+            try {
+                const effectiveSave = typeof saveCore === 'function' ? saveCore : saveToIndexedDB;
+                await executeRestoreRollback(rollbackSnapshot, targetState, { idb, storage, saveCore: effectiveSave });
+            } catch (rErr) {
+                rollbackError = rErr;
+            }
+        }
+        return _handleRestoreError(error, rollbackError, throwOnError);
     }
 }
+
+window.applyBackupData = applyBackupData;
 
 /**
  * 📁 Punto de entrada principal para importación de archivos
@@ -6209,7 +6259,7 @@ window.importData = function (event) {
  * `hooks` (opcional): { onSuccess, onError } para integraciones como el
  * onboarding v2. Los callers existentes (1 argumento) no cambian de conducta.
  */
-window.loadBackupFromFile = function (file, hooks = {}) {
+function loadBackupFromFile(file, hooks = {}) {
     if (!file) return;
     const onSuccess = typeof hooks.onSuccess === 'function' ? hooks.onSuccess : null;
     const onError = typeof hooks.onError === 'function' ? hooks.onError : null;
@@ -6293,7 +6343,11 @@ window.loadBackupFromFile = function (file, hooks = {}) {
             RestoreUI.showComparisonModal(importedData, state, {
                 // Opción 1: Restaurar Local (Offline)
                 onLocalRestore: async () => {
-                    await applyBackupData(importedData);
+                    const ok = await applyBackupData(importedData);
+                    if (!ok) {
+                        if (onError) onError(new Error('Error al aplicar backup local'));
+                        return;
+                    }
                     if (onSuccess) onSuccess();
                     setTimeout(() => location.reload(), 1200);
                 },
@@ -6302,7 +6356,11 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                 onDisconnectRestore: async () => {
                     await FirebaseService.logout();
                     window.currentUser = null;
-                    await applyBackupData(importedData);
+                    const ok = await applyBackupData(importedData);
+                    if (!ok) {
+                        if (onError) onError(new Error('Error al aplicar backup local'));
+                        return;
+                    }
                     if (onSuccess) onSuccess();
                     showNotification('🚶 Sesión cerrada y backup restaurado localmente', 'info');
                     setTimeout(() => location.reload(), 1200);
@@ -6312,7 +6370,10 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                 onReplaceCloudRestore: async () => {
                     // 1. Aplicar localmente primero
                     const ok = await applyBackupData(importedData);
-                    if (!ok) return;
+                    if (!ok) {
+                        if (onError) onError(new Error('Error al aplicar backup local'));
+                        return;
+                    }
                     // Datos ya restaurados en el dispositivo aunque la nube falle después.
                     if (onSuccess) onSuccess();
 
@@ -6356,7 +6417,9 @@ window.loadBackupFromFile = function (file, hooks = {}) {
         }
     };
     reader.readAsText(file);
-};
+}
+
+window.loadBackupFromFile = loadBackupFromFile;
 
 window.deleteAllData = function () {
     // Usar el nuevo sistema robusto de DataService (Borrado Local)
@@ -7387,7 +7450,7 @@ function _initOutgoingConflictGuard() {
 // 🚀 INICIALIZACIÓN DE LA APLICACIÓN
 // ============================================
 
-(async function initializeApp() {
+async function initializeApp() {
     // Banner de versión solo en debug mode (window.debug.enable() para activar)
     debug.log('🚀 ========================================');
     debug.log('🚀 SISTEMA DE CONTROL DE ASISTENCIA');
@@ -8346,7 +8409,12 @@ function _initOutgoingConflictGuard() {
             }
         });
     }
-})();
+}
+
+// Iniciar aplicación en runtime/navegador (evitar efectos colaterales en entorno de tests Jest/Node)
+if (typeof process === 'undefined' || process.env?.NODE_ENV !== 'test') {
+    initializeApp();
+}
 
 /**
  * 🚀 Inicializa el botón flotante 'Ir Arriba' con efecto Glassmorphism
@@ -8362,3 +8430,5 @@ function initBackToTop() {
     btn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
     document.body.appendChild(btn);
 }
+
+export { applyBackupData, loadBackupFromFile };

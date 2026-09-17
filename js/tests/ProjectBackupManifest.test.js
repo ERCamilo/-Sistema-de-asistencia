@@ -303,23 +303,22 @@ describe('F1.9 S1 diagnose: legacy, foreign A→B, gaps, no rewrite', () => {
     });
 });
 
-describe('F1.9 S1 applyBackupData semantics preserved (default-preserve, no widened clearFirst)', () => {
-    test('applyBackupData keeps existing roster/petty semantics and ignores project surface', () => {
+describe('F1.9 S2 applyBackupData contract (canonical project restore, atomicity rollback, no widened clearFirst)', () => {
+    test('applyBackupData preserves core roster and petty semantics, delegates project restore, and never widens clearFirst', () => {
         const src = read('../app.js');
         const start = src.indexOf('async function applyBackupData');
-        // Isolate to the function body only (up to its closing + next doc block),
-        // so later loadBackupFromFile preservation code does not false-positive.
         const tail = src.slice(start, start + 8000);
-        const endRel = tail.search(/\n\}\n\n\/\*\*\n \* 📁/);
+        const endRel = tail.search(/\n\}\n\n(?:window\.applyBackupData\s*=\s*applyBackupData;\n\n)?\/\*\*\n \* 📁/);
         const block = endRel > 0 ? tail.slice(0, endRel) : tail.slice(0, 4500);
-        expect(block).toMatch(/state\.settings\s*=\s*data\.settings/);
-        expect(block).toMatch(/state\.employees\s*=\s*data\.employees/);
+        expect(block).toMatch(/(?:targetState|state)\.settings\s*=\s*data\.settings/);
+        expect(block).toMatch(/(?:targetState|state)\.employees\s*=\s*data\.employees/);
         expect(block).toMatch(/saveToIndexedDB\(\{\s*clearFirst:\s*true\s*\}\)/);
         expect(block).toMatch(/PettyCashStore\.applyRemote/);
         expect(block).toMatch(/preparePettyCashBackupForRestore/);
-        // S1 must not restore projects/configs/closures or widen clearFirst
-        expect(block).not.toMatch(/data\.projects/);
-        expect(block).not.toMatch(/projectPayrollConfigs/);
+        expect(block).toMatch(/captureRestoreRollbackSnapshot/);
+        expect(block).toMatch(/planProjectRestore/);
+        expect(block).toMatch(/applyProjectRestore/);
+        expect(block).toMatch(/executeRestoreRollback/);
         expect(block).not.toMatch(/payrollClosures/);
     });
 });
