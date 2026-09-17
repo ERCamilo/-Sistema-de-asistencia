@@ -322,7 +322,9 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         testRunner.assert(body.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(body), 'debe reconstruir el índice TOTAL (sin argumento)');
         // Orden: coherencia DESPUÉS de sanitizePositions y ANTES de saveToIndexedDB.
-        const sanitizeIdx = body.indexOf('sanitizePositions(state)');
+        // applyBackupData puede operar sobre el singleton `state` o sobre un `targetState`
+        // inyectado en tests; el contrato exige la misma secuencia en ambos casos.
+        const sanitizeIdx = body.search(/sanitizePositions\((?:targetState|state)\)/);
         const coherenceIdx = body.search(/invalidateAllStats\(\)/);
         const persistIdx = body.indexOf('saveToIndexedDB');
         testRunner.assert(sanitizeIdx !== -1 && persistIdx !== -1, 'deben existir sanitizePositions y saveToIndexedDB');
