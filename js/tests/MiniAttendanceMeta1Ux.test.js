@@ -227,7 +227,7 @@ describe('Meta1 UX — sticky centered work date in consolidation topbar', () =>
         expect(host.querySelector('[data-mini-topbar-day]').textContent).toBe('Día 1 de 2');
         expect(center.getAttribute('aria-label')).toContain('06/09/2026');
         // Day X/N without competing generic step signals.
-        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Revisar asistencia · Día 1 de 2');
+        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Comparar con SA · Día 1 de 2');
         expect(host.querySelector('.mini-import-topbar-step').textContent).toBe('Día 1 de 2');
         expect(host.querySelector('.mini-import-topbar-subtitle').textContent).not.toContain('Paso 3');
         const progress = host.querySelector('.mini-import-progress-bar');
@@ -236,7 +236,7 @@ describe('Meta1 UX — sticky centered work date in consolidation topbar', () =>
         expect(progress.getAttribute('aria-valuemax')).toBe('2');
 
         // Advancing keeps the sticky header centered on the new date.
-        host.querySelector('[data-mini-action="complete-mini-day"]').click();
+        host.querySelector('[data-mini-action="next-consolidation-day"]').click();
         await wait();
         expect(host.querySelector('[data-mini-topbar-date]').textContent).toBe('07/09/2026');
         expect(host.querySelector('[data-mini-topbar-day]').textContent).toBe('Día 2 de 2');
@@ -254,9 +254,14 @@ describe('Meta1 UX — consolidation footer zones and button hierarchy', () => {
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const { positions, employees, attendance, applyPlan } = baseFixtures();
         const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const id2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
         await inbox.importSubmission(buildSubmission({
-            id, workDate: '2026-09-11', deviceId: 'mini-a',
+            id, workDate: '2026-09-11', deviceId: 'mini-a', sourceId: 'mini-a',
             rows: [{ miniLocalId: 'm1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }]
+        }), { expectedSaProjectId: SA_PROJECT });
+        await inbox.importSubmission(buildSubmission({
+            id: id2, workDate: '2026-09-11', deviceId: 'mini-b', sourceId: 'mini-b',
+            rows: [{ miniLocalId: 'm2', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }]
         }), { expectedSaProjectId: SA_PROJECT });
 
         const modal = makeModal({ db, employees, positions, attendance, applyPlan });
@@ -264,6 +269,7 @@ describe('Meta1 UX — consolidation footer zones and button hierarchy', () => {
         await modal.setImportMode('connected');
         await modal.openConnectedInbox();
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
+        host.querySelector(`[data-mini-draft-checkbox="${id2}"]`).click();
         await modal.consolidateSelectedDrafts();
 
         const footer = host.querySelector('[data-mini-batch-actions]');

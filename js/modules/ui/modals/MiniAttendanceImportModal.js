@@ -1099,6 +1099,7 @@ export class MiniAttendanceImportModal {
         if (miniStage) {
             const rememberedCount = await this.applyRememberedConnectedIdentities();
             if (rememberedCount > 0) await this.persistMiniProgress();
+            if (await this.advanceSingleMiniIfReady()) return;
         }
         const dates = this.multiDayResolver.workDates || [];
         const firstPending = miniStage ? dates.findIndex(date => this.multiDayResolver.getDayState(date)?.status !== 'mini_day_completed') : 0;
@@ -1406,8 +1407,9 @@ export class MiniAttendanceImportModal {
         this.consolidationDayIndex = 0;
         this.clearResolvedRowsExpansion();
         this.reviewStatusPromise = this.markDraftsReviewed(drafts);
-        this.render();
         await this.persistMiniProgress();
+        if (await this.advanceSingleMiniIfReady()) return;
+        this.render();
     }
 
     async handleFetchConnected({ targetMiniIds = null } = {}) {
@@ -1908,6 +1910,26 @@ export class MiniAttendanceImportModal {
         }
     }
 
+    async advanceSingleMiniIfReady() {
+        if (!this.multiDayResolver || this.multiDayResolver.stage !== 'mini') return false;
+        if (this.getConnectedMiniSourceCount() !== 1) return false;
+        const dates = this.multiDayResolver.workDates || [];
+        if (!dates.length) return false;
+        const canAdvance = dates.every(date => {
+            const status = this.multiDayResolver.getDayState(date)?.status;
+            return status === 'mini_day_ready' || status === 'mini_day_completed';
+        });
+        if (!canAdvance) return false;
+        for (const date of dates) {
+            if (this.multiDayResolver.getDayState(date)?.status === 'mini_day_ready') {
+                this.multiDayResolver.completeMiniDay(date);
+            }
+        }
+        await this.persistMiniProgress();
+        await this.createMiniConsolidatedDraft();
+        return true;
+    }
+
     async resolveConnectedIdentity(item, employeeId) {
         if (!this.multiDayResolver || !item?.id || !employeeId) return;
         const descriptor = this.getConnectedIdentityDescriptor(item);
@@ -1925,7 +1947,10 @@ export class MiniAttendanceImportModal {
             this.multiDayResolver.resolveItemIdentity(itemId, employeeId);
         }
         await this.rememberConnectedIdentity(item, employeeId);
-        if (this.multiDayResolver.stage === 'mini') await this.persistMiniProgress();
+        if (this.multiDayResolver.stage === 'mini') {
+            await this.persistMiniProgress();
+            if (await this.advanceSingleMiniIfReady()) return;
+        }
         this.render();
     }
 
@@ -3601,8 +3626,13 @@ export class MiniAttendanceImportModal {
         const proceed = async () => {
             this.multiDayResolver.excludeItem(item.id);
             this.resetApplyState();
-            if (this.multiDayResolver.stage === 'mini') await this.persistMiniProgress();
-            window.showNotification?.(`${label} fue ignorada en esta importación.`, 'info');
+            if (this.multiDayResolver.stage === 'mini') {
+                await this.persistMiniProgress();
+                window.showNotification?.(`${label} fue ignorada en esta importación.`, 'info');
+                if (await this.advanceSingleMiniIfReady()) return;
+            } else {
+                window.showNotification?.(`${label} fue ignorada en esta importación.`, 'info');
+            }
             this.render();
         };
         if (typeof this.confirmIgnore === 'function') {

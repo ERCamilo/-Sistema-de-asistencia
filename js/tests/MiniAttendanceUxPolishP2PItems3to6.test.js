@@ -184,19 +184,13 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         modal.render();
         host.querySelector(`[data-mini-draft-checkbox="${draftId}"]`).click();
         await modal.consolidateSelectedDrafts();
+        expect(modal.connectedView).toBe('sa-comparison');
         const miniBannerStrong = host.querySelector('[data-mini-proposal-seam] strong').textContent;
         const miniBannerCopy = host.querySelector('[data-mini-proposal-seam] p').textContent;
-        expect(miniBannerStrong).toContain('Revisar asistencia');
-        expect(miniBannerCopy).toContain('una sola fuente Mini');
-        expect(miniBannerCopy).toContain('nada se aplica');
-        expect(miniBannerCopy).not.toContain('comparan');
-        expect(miniBannerCopy).not.toContain('se escribe');
+        expect(miniBannerStrong).toContain('Comparar con SA');
+        expect(miniBannerCopy).toContain('consolidado Mini revisado');
+        expect(miniBannerCopy).toContain('Nada se aplica');
 
-        host.querySelector('[data-mini-action="complete-mini-day"]').click();
-        await wait();
-        host.querySelector('[data-mini-action="create-mini-consolidated"]').click();
-        await wait();
-        expect(modal.connectedView).toBe('sa-comparison');
         const saBannerStrong = host.querySelector('[data-mini-proposal-seam] strong').textContent;
         expect(saBannerStrong).toContain('Comparar con SA');
         const applyBtn = host.querySelector('[data-mini-action="apply-ready-days"]');
@@ -237,7 +231,7 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(banner.textContent).not.toContain('Total:');
 
         // Consolidation nav keeps only the back action; stage prose lives once in the banner.
-        const nav = host.querySelector('.mini-import-connected-view-consolidation .mini-import-connected-nav');
+        const nav = host.querySelector('.mini-import-connected-view-sa-comparison .mini-import-connected-nav');
         expect(nav).not.toBeNull();
         expect(nav.querySelector('[data-mini-action="back-connected-inbox"]')).not.toBeNull();
         expect(nav.querySelector('p')).toBeNull();
@@ -249,7 +243,7 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(footerHint.textContent).not.toContain('Propuestas generadas');
     });
 
-    test('(6) progress is contextual: Revisar/Comparar Día X de N for a single Mini without competing generic step signals', async () => {
+    test('(6) progress skips single-Mini review when there are no exceptions and goes directly to Comparar', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const { positions, employees, attendance, applyPlan } = baseFixtures();
@@ -277,37 +271,27 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(host.querySelector('.mini-import-progress-bar')).not.toBeNull();
         expect(host.querySelector('.mini-attendance-import').getAttribute('aria-live')).toBe('polite');
 
-        // A single Mini uses Revisar wording with day position.
-        const miniSubtitle = host.querySelector('.mini-import-topbar-subtitle').textContent;
-        const miniStep = host.querySelector('.mini-import-topbar-step').textContent;
-        const miniChip = host.querySelector('.mini-import-topbar-chip').textContent;
-        expect(miniSubtitle).toBe('Revisar asistencia · Día 1 de 2');
-        expect(miniStep).toBe('Día 1 de 2');
-        expect(miniChip).toBe('REVISAR');
-        expect(miniSubtitle).not.toContain('Paso 3');
-        expect(miniStep).not.toContain('3/4');
-        const miniProgress = host.querySelector('.mini-import-progress-bar');
-        expect(miniProgress.getAttribute('role')).toBe('progressbar');
-        expect(miniProgress.getAttribute('aria-valuenow')).toBe('1');
-        expect(miniProgress.getAttribute('aria-valuemax')).toBe('2');
-        expect(miniProgress.getAttribute('aria-label')).toBe('Revisar asistencia · Día 1 de 2');
-        expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 1 de 2');
-
-        host.querySelector('[data-mini-action="complete-mini-day"]').click();
-        await wait();
-        expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 2 de 2');
-        host.querySelector('[data-mini-action="complete-mini-day"]').click();
-        await wait();
-        host.querySelector('[data-mini-action="create-mini-consolidated"]').click();
-        await wait();
+        // A single Mini without exceptions skips review and opens SA comparison directly.
+        expect(modal.connectedView).toBe('sa-comparison');
         const saSubtitle = host.querySelector('.mini-import-topbar-subtitle').textContent;
         const saStep = host.querySelector('.mini-import-topbar-step').textContent;
         const saChip = host.querySelector('.mini-import-topbar-chip').textContent;
-        expect(saSubtitle).toContain('Comparar con SA · Día 1 de 2');
+        expect(saSubtitle).toBe('Comparar con SA · Día 1 de 2');
         expect(saStep).toBe('Día 1 de 2');
         expect(saChip).toBe('COMPARAR');
         expect(saSubtitle).not.toContain('Paso 4');
         expect(saStep).not.toContain('4/4');
+        const progress = host.querySelector('.mini-import-progress-bar');
+        expect(progress.getAttribute('role')).toBe('progressbar');
+        expect(progress.getAttribute('aria-valuenow')).toBe('1');
+        expect(progress.getAttribute('aria-valuemax')).toBe('2');
+        expect(progress.getAttribute('aria-label')).toBe('Comparar con SA · Día 1 de 2');
+        expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 1 de 2');
+
+        host.querySelector('[data-mini-action="next-consolidation-day"]').click();
+        await wait();
+        expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 2 de 2');
+        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Comparar con SA · Día 2 de 2');
     });
 
     test('preserves numeric employee ordering and canonical safety (no SA writes before explicit Aplicar)', async () => {

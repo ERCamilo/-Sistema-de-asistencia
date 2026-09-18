@@ -155,8 +155,7 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         const modal = makeModal({ db, employees, positions, attendance, applyPlan });
         modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click(); await modal.consolidateSelectedDrafts();
-        host.querySelector('[data-mini-action="complete-mini-day"]').click(); await wait();
-        host.querySelector('[data-mini-action="create-mini-consolidated"]').click(); await wait();
+        expect(modal.connectedView).toBe('sa-comparison');
 
         const checkbox = host.querySelector('[data-mini-merge-overtime]');
         expect(checkbox).not.toBeNull();
@@ -215,7 +214,7 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         await inbox.importSubmission(buildSubmission({ id: a, workDate: '2026-09-06', deviceId: 'mini-a', rows: [
             { miniLocalId: 'a1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }
         ] }), { expectedSaProjectId: SA_PROJECT });
-        await inbox.importSubmission(buildSubmission({ id: b, workDate: '2026-09-07', deviceId: 'mini-a', rows: [
+        await inbox.importSubmission(buildSubmission({ id: b, workDate: '2026-09-07', deviceId: 'mini-b', rows: [
             { miniLocalId: 'a2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-002' }
         ] }), { expectedSaProjectId: SA_PROJECT });
 
@@ -258,11 +257,9 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         expect(miniBadges.some(text => text.startsWith('Identidades no resueltas:'))).toBe(false);
         expect(miniBadges.some(text => text.startsWith('Días revisados:'))).toBe(false);
 
+        expect(modal.connectedView).toBe('sa-comparison');
         let footerLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(button => button.textContent.trim());
-        expect(footerLabels).toEqual(['Anterior', 'Siguiente', 'Pendiente', 'Confirmar día', 'Descartar', 'Crear consolidado']);
-
-        host.querySelector('[data-mini-action="complete-mini-day"]').click(); await wait();
-        host.querySelector('[data-mini-action="create-mini-consolidated"]').click(); await wait();
+        expect(footerLabels).toEqual(['Anterior', 'Siguiente', 'Aplicar listos', 'Finalizar']);
 
         const saBadges = [...host.querySelectorAll('.mini-consolidation-summary-badges .mini-badge')].map(el => el.textContent);
         expect(saBadges).toContain('Días listos: 1');
@@ -303,9 +300,10 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         ignore.click(); await wait();
 
         expect(confirmIgnore).toHaveBeenCalledTimes(1);
+        expect(modal.connectedView).toBe('sa-comparison');
         expect(modal.multiDayResolver.getDayState('2026-09-12').items).toHaveLength(0);
-        expect(modal.multiDayResolver.items[0].excluded).toBe(true);
-        expect(modal.activeConsolidationRecord.items[0].excluded).toBe(true);
+        expect(modal.multiDayResolver.items).toHaveLength(0);
+        expect(modal.activeConsolidationRecord.items).toHaveLength(0);
     });
 
     test('shows a ranked employee suggestion by number/name and links it only after user confirmation', async () => {
@@ -380,10 +378,11 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         host.querySelector('[data-mini-action="resolve-identity"]').click();
         await wait();
 
+        expect(modal.connectedView).toBe('sa-comparison');
         expect(modal.multiDayResolver.items.filter(item => !item.excluded)).toHaveLength(2);
         expect(modal.multiDayResolver.items.every(item => item.saEmployeeId === 'EMP-002')).toBe(true);
-        expect(modal.multiDayResolver.getDayState('2026-09-13').status).toBe('mini_day_ready');
-        expect(modal.multiDayResolver.getDayState('2026-09-14').status).toBe('mini_day_ready');
+        expect(modal.multiDayResolver.getDayState('2026-09-13').status).toBe('ready');
+        expect(modal.multiDayResolver.getDayState('2026-09-14').status).toBe('ready');
         expect(aliasStore.record).toHaveBeenCalledTimes(1);
         expect(aliasStore.record.mock.calls[0][0]).toMatchObject({
             scope: { ownerUid: 'owner-sa', siteId: SA_PROJECT, sourceId: 'source:mini-source-a|device:mini-a' },
@@ -419,10 +418,11 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
             rawNumber: '600',
             rawName: 'Kk'
         }));
+        expect(futureModal.connectedView).toBe('sa-comparison');
         expect(futureModal.multiDayResolver.items[0].saEmployeeId).toBe('EMP-002');
-        expect(futureModal.multiDayResolver.getDayState('2026-09-15').status).toBe('mini_day_ready');
+        expect(futureModal.multiDayResolver.getDayState('2026-09-15').status).toBe('ready');
         expect(futureHost.querySelector('[data-mini-unresolved-identity]')).toBeNull();
-        expect(futureHost.querySelector('[data-mini-day-date="2026-09-15"]').textContent).toBe('Listo para confirmar');
+        expect(futureHost.querySelector('[data-mini-day-date="2026-09-15"]').textContent).toBe('Listo para aplicar');
     });
 
     test('multi-position choice is deferred to SA comparison after Mini review', async () => {
@@ -436,10 +436,7 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         const modal = makeModal({ db, employees, positions, attendance, applyPlan });
         modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click(); await modal.consolidateSelectedDrafts();
-        expect(host.querySelector('[data-mini-day-date="2026-09-09"]').textContent).toBe('Listo para confirmar');
-        expect(host.querySelector('[data-mini-select-position="EMP-003"]')).toBeNull();
-        host.querySelector('[data-mini-action="complete-mini-day"]').click(); await wait();
-        host.querySelector('[data-mini-action="create-mini-consolidated"]').click(); await wait();
+        expect(modal.connectedView).toBe('sa-comparison');
         expect(host.querySelector('[data-mini-day-date="2026-09-09"]').textContent).toBe('Cambio por revisar');
         const select = host.querySelector('[data-mini-select-position="EMP-003"]');
         const assign = host.querySelector('[data-mini-action="resolve-position"][data-mini-employee-id="EMP-003"]');
