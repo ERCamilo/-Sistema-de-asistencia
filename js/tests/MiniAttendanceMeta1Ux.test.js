@@ -277,51 +277,46 @@ describe('Meta1 UX — consolidation footer zones and button hierarchy', () => {
         const nav = host.querySelector('[data-mini-footer-nav]');
         const decision = host.querySelector('[data-mini-footer-decision]');
         const global = host.querySelector('[data-mini-footer-global]');
-        expect(nav).not.toBeNull();
+        expect(nav).toBeNull();
         expect(decision).not.toBeNull();
         expect(global).not.toBeNull();
-        // Zones are in order: navigation, decision, global.
-        expect(footer.contains(nav)).toBe(true);
         expect(footer.contains(decision)).toBe(true);
         expect(footer.contains(global)).toBe(true);
-        const order = [...footer.querySelectorAll('[data-mini-footer-nav], [data-mini-footer-decision], [data-mini-footer-global]')];
-        expect(order).toEqual([nav, decision, global]);
-        expect(nav.getAttribute('role')).toBe('group');
+        const order = [...footer.querySelectorAll('[data-mini-footer-decision], [data-mini-footer-global]')];
+        expect(order).toEqual([decision, global]);
         expect(decision.getAttribute('role')).toBe('group');
         expect(global.getAttribute('role')).toBe('group');
 
-        // Button order preserved within zones.
+        // Contextual footer: one day has no disabled pager and "Crear" stays hidden
+        // until the day is explicitly confirmed.
         const labels = [...footer.querySelectorAll('button')].map(b => b.textContent.trim().replace(/\d+$/, '').trim());
-        expect(labels).toEqual(['Anterior', 'Siguiente', 'Pendiente', 'Confirmar día', 'Descartar', 'Crear consolidado']);
+        expect(labels).toEqual(['Pendiente', 'Confirmar día', 'Descartar']);
+        expect(host.querySelector('[data-mini-action="create-mini-consolidated"]')).toBeNull();
 
-        // Primary vs secondary/danger visually distinct.
         expect(host.querySelector('[data-mini-action="complete-mini-day"]').classList.contains('mini-import-action-primary')).toBe(true);
-        expect(host.querySelector('[data-mini-action="create-mini-consolidated"]').classList.contains('mini-import-action-primary')).toBe(true);
-        expect(host.querySelector('[data-mini-action="previous-consolidation-day"]').classList.contains('mini-import-action-secondary')).toBe(true);
         expect(host.querySelector('[data-mini-action="leave-mini-day-pending"]').classList.contains('mini-import-action-secondary')).toBe(true);
         const discard = host.querySelector('[data-mini-action="discard-active-consolidation"]');
         expect(discard.classList.contains('mini-import-action-danger')).toBe(true);
         expect(discard.classList.contains('mini-import-action-primary')).toBe(false);
 
-        // No native dialogs in footer actions.
         const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => {});
         const confirmSpy = jest.spyOn(window, 'confirm').mockImplementation(() => true);
-        host.querySelector('[data-mini-action="next-consolidation-day"]').click();
+        host.querySelector('[data-mini-action="complete-mini-day"]').click();
+        await wait();
         expect(alertSpy).not.toHaveBeenCalled();
         expect(confirmSpy).not.toHaveBeenCalled();
+        expect(host.querySelector('[data-mini-action="create-mini-consolidated"]')).not.toBeNull();
         alertSpy.mockRestore();
         confirmSpy.mockRestore();
 
-        // SA stage keeps nav + global separation.
-        host.querySelector('[data-mini-action="complete-mini-day"]').click();
-        await wait();
+        // SA stage stays contextual too: a one-day import has no pager.
         host.querySelector('[data-mini-action="create-mini-consolidated"]').click();
         await wait();
         expect(modal.connectedView).toBe('sa-comparison');
-        expect(host.querySelector('[data-mini-footer-nav]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-footer-nav]')).toBeNull();
         expect(host.querySelector('[data-mini-footer-global]')).not.toBeNull();
         const saLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(b => b.textContent.trim());
-        expect(saLabels).toEqual(['Anterior', 'Siguiente', 'Aplicar listos', 'Finalizar']);
+        expect(saLabels).toEqual(['Aplicar listos', 'Finalizar']);
     });
 });
 

@@ -337,11 +337,8 @@ describe('MiniAttendanceImportModal — exception-first day review + SA bulk', (
         await modal.openConnectedInbox();
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
         await modal.consolidateSelectedDrafts();
-        host.querySelector('[data-mini-action="complete-mini-day"]').click();
-        await wait();
-        host.querySelector('[data-mini-action="create-mini-consolidated"]').click();
-        await wait();
 
+        // One valid Mini advances directly to SA comparison; there is no redundant day-confirm step.
         expect(modal.connectedView).toBe('sa-comparison');
         const bulkBar = host.querySelector('[data-mini-sa-bulk-actions]');
         expect(bulkBar).not.toBeNull();

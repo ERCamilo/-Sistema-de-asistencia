@@ -259,13 +259,13 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
 
         expect(modal.connectedView).toBe('sa-comparison');
         let footerLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(button => button.textContent.trim());
-        expect(footerLabels).toEqual(['Anterior', 'Siguiente', 'Aplicar listos', 'Finalizar']);
+        expect(footerLabels).toEqual(['Aplicar listos', 'Finalizar']);
 
         const saBadges = [...host.querySelectorAll('.mini-consolidation-summary-badges .mini-badge')].map(el => el.textContent);
         expect(saBadges).toContain('Días listos: 1');
         expect(saBadges.some(text => text.startsWith('Días aplicados:'))).toBe(false);
         footerLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(button => button.textContent.trim());
-        expect(footerLabels).toEqual(['Anterior', 'Siguiente', 'Aplicar listos', 'Finalizar']);
+        expect(footerLabels).toEqual(['Aplicar listos', 'Finalizar']);
     });
 
     test('single Mini is presented as review, offers ignore before SA and orders link candidates numerically', async () => {
@@ -332,15 +332,29 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
         await modal.consolidateSelectedDrafts();
 
-        const topSuggestion = host.querySelector('[data-mini-identity-suggestion="EMP-600"]');
+        const trigger = host.querySelector('[data-mini-employee-trigger]');
+        expect(trigger).not.toBeNull();
+        expect(trigger.classList.contains('is-guided')).toBe(true);
+        trigger.click();
+
+        const recommendedSection = host.querySelector('[data-mini-recommended-section]');
+        expect(recommendedSection).not.toBeNull();
+        expect(recommendedSection.textContent).toContain('Recomendados');
+        const topSuggestion = host.querySelector('[data-mini-employee-option="EMP-600"]');
         expect(topSuggestion).not.toBeNull();
+        expect(topSuggestion.dataset.miniRecommended).toBe('true');
         expect(topSuggestion.textContent).toContain('#600 · Kevin King');
-        expect(topSuggestion.textContent).toContain('Coincidencia alta');
         expect(topSuggestion.textContent).toContain('Número exacto');
         expect(topSuggestion.textContent).toContain('Nombre exacto');
         expect(modal.multiDayResolver.items[0].saEmployeeId).toBeNull();
 
-        topSuggestion.querySelector('[data-mini-action="use-identity-suggestion"]').click();
+        topSuggestion.click();
+        const link = host.querySelector('[data-mini-action="resolve-identity"]');
+        expect(link.disabled).toBe(false);
+        expect(link.classList.contains('is-guided-action')).toBe(true);
+        expect(trigger.classList.contains('is-guided')).toBe(false);
+        expect(trigger.textContent).toContain('#600 · Kevin King');
+        link.click();
         await wait();
 
         expect(modal.multiDayResolver.items[0].saEmployeeId).toBe('EMP-600');

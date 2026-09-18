@@ -1773,72 +1773,166 @@ export class MiniAttendanceImportModal {
             className: 'mini-identity-resolve-row',
             dataset: { miniUnresolvedIdentity: item.id }
         });
-        const suggestions = this.getConnectedIdentitySuggestions(item);
-        if (suggestions.length > 0) {
-            const suggestionsEl = element('div', null, {
-                className: 'mini-identity-suggestions',
-                dataset: { miniIdentitySuggestions: item.id }
-            });
-            suggestionsEl.append(element('span', 'Sugerencias de SA', { className: 'mini-control-label' }));
-            suggestions.forEach((candidate, index) => {
-                const confidenceLabel = candidate.confidence === 'high'
-                    ? 'Coincidencia alta'
-                    : candidate.confidence === 'medium'
-                        ? 'Posible coincidencia'
-                        : 'Revisar coincidencia';
-                const card = element('div', null, {
-                    className: `mini-identity-suggestion is-${candidate.confidence}`,
-                    dataset: {
-                        miniIdentitySuggestion: candidate.employee.id,
-                        miniSuggestionRank: String(index + 1)
-                    }
-                });
-                const copy = element('div', null, { className: 'mini-identity-suggestion-copy' });
-                copy.append(
-                    element('strong',
-                        `${candidate.employee.number ? '#' + candidate.employee.number + ' · ' : ''}${candidate.employee.name}`),
-                    element('span', confidenceLabel, { className: 'mini-identity-suggestion-confidence' }),
-                    element('span', candidate.reasons.join(' · '), { className: 'mini-identity-suggestion-reasons' })
-                );
-                const useSuggestion = actionButton('Vincular', 'use-identity-suggestion');
-                useSuggestion.classList.add('mini-import-action-primary');
-                useSuggestion.dataset.miniEmployeeId = candidate.employee.id;
-                useSuggestion.addEventListener('click', async () => {
-                    await this.resolveConnectedIdentity(item, candidate.employee.id);
-                });
-                card.append(copy, useSuggestion);
-                suggestionsEl.append(card);
-            });
-            resolveIdentityEl.append(suggestionsEl);
-        }
+        resolveIdentityEl.append(element('span', 'Vincular a empleado SA:', {
+            className: 'mini-control-label'
+        }));
 
-        resolveIdentityEl.append(element('span',
-            suggestions.length > 0 ? 'Elegir otro empleado:' : 'Vincular a empleado SA:',
-            { className: 'mini-control-label' }
-        ));
+        const candidates = this.multiDayResolver.getIdentityCandidates();
+        const suggestions = this.getConnectedIdentitySuggestions(item);
+        const suggestionIds = new Set(suggestions.map(candidate => candidate.employee.id));
         const empSelect = element('select', null, {
-            className: 'mini-import-select',
-            dataset: { miniSelectEmployee: item.id }
+            className: 'mini-employee-select-state',
+            dataset: { miniSelectEmployee: item.id },
+            hidden: true,
+            'aria-hidden': 'true',
+            tabIndex: -1
         });
         empSelect.append(element('option', '-- Seleccionar empleado --', {
-            value: '', disabled: true, selected: true
+            value: '', selected: true
         }));
-        this.multiDayResolver.getIdentityCandidates().forEach(emp => {
+        candidates.forEach(emp => {
             empSelect.append(element('option',
                 `${emp.number ? '#' + emp.number + ' ' : ''}${emp.name}`,
                 { value: emp.id }
             ));
         });
+
+        const picker = element('div', null, {
+            className: 'mini-employee-combobox',
+            dataset: { miniEmployeeCombobox: item.id }
+        });
+        const trigger = element('button', '-- Seleccionar empleado --', {
+            type: 'button',
+            className: 'mini-employee-combobox-trigger is-guided',
+            dataset: { miniEmployeeTrigger: item.id },
+            'aria-haspopup': 'listbox',
+            'aria-expanded': 'false'
+        });
+        const panel = element('div', null, {
+            className: 'mini-employee-combobox-panel',
+            dataset: { miniEmployeePanel: item.id },
+            hidden: true
+        });
+        const search = element('input', null, {
+            type: 'search',
+            className: 'mini-employee-search',
+            placeholder: 'Buscar por número o nombre…',
+            autocomplete: 'off',
+            'aria-label': 'Buscar empleado'
+        });
+        panel.append(search);
+
+        const optionNodes = [];
+        const appendEmployeeOption = (container, employee, {
+            recommended = false,
+            reasons = []
+        } = {}) => {
+            const label = `${employee.number ? '#' + employee.number + ' · ' : ''}${employee.name}`;
+            const option = element('button', null, {
+                type: 'button',
+                className: `mini-employee-option${recommended ? ' is-recommended' : ''}`,
+                dataset: {
+                    miniEmployeeOption: employee.id,
+                    miniRecommended: recommended ? 'true' : 'false',
+                    searchText: `${employee.number || ''} ${employee.name || ''}`.toLocaleLowerCase('es')
+                },
+                role: 'option',
+                'aria-selected': 'false'
+            });
+            const copy = element('span', null, { className: 'mini-employee-option-copy' });
+            copy.append(element('strong', label));
+            if (recommended && reasons.length > 0) {
+                copy.append(element('small', reasons.join(' · ')));
+            }
+            option.append(copy);
+            option.addEventListener('click', () => {
+                empSelect.value = employee.id;
+                empSelect.dispatchEvent(new Event('change'));
+                panel.hidden = true;
+                trigger.setAttribute('aria-expanded', 'false');
+                trigger.focus();
+            });
+            container.append(option);
+            optionNodes.push(option);
+        };
+
+        if (suggestions.length > 0) {
+            const recommendedSection = element('div', null, {
+                className: 'mini-employee-option-section is-recommended',
+                dataset: { miniRecommendedSection: '' }
+            });
+            recommendedSection.append(element('span', 'Recomendados', {
+                className: 'mini-employee-option-heading'
+            }));
+            suggestions.forEach(candidate => {
+                appendEmployeeOption(recommendedSection, candidate.employee, {
+                    recommended: true,
+                    reasons: candidate.reasons
+                });
+            });
+            panel.append(recommendedSection);
+        }
+
+        const allSection = element('div', null, {
+            className: 'mini-employee-option-section',
+            dataset: { miniAllEmployeesSection: '' }
+        });
+        allSection.append(element('span', 'Todos los empleados', {
+            className: 'mini-employee-option-heading'
+        }));
+        candidates
+            .filter(employee => !suggestionIds.has(employee.id))
+            .forEach(employee => appendEmployeeOption(allSection, employee));
+        panel.append(allSection);
+
         const linkBtn = actionButton('Vincular', 'resolve-identity', true);
         linkBtn.dataset.miniItemId = item.id;
-        empSelect.addEventListener('change', () => {
-            linkBtn.disabled = !empSelect.value;
+        linkBtn.classList.add('mini-link-identity-action');
+
+        const updateSelection = () => {
+            const employee = candidates.find(candidate => candidate.id === empSelect.value) || null;
+            linkBtn.disabled = !employee;
+            trigger.textContent = employee
+                ? `${employee.number ? '#' + employee.number + ' · ' : ''}${employee.name}`
+                : '-- Seleccionar empleado --';
+            trigger.classList.toggle('is-guided', !employee);
+            linkBtn.classList.toggle('is-guided-action', Boolean(employee));
+            optionNodes.forEach(option => {
+                option.setAttribute('aria-selected',
+                    option.dataset.miniEmployeeOption === empSelect.value ? 'true' : 'false');
+            });
+        };
+        empSelect.addEventListener('change', updateSelection);
+        trigger.addEventListener('click', () => {
+            panel.hidden = !panel.hidden;
+            trigger.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+            if (!panel.hidden) {
+                search.value = '';
+                optionNodes.forEach(option => { option.hidden = false; });
+                search.focus();
+            }
+        });
+        search.addEventListener('input', () => {
+            const query = search.value.trim().toLocaleLowerCase('es');
+            optionNodes.forEach(option => {
+                option.hidden = Boolean(query) && !option.dataset.searchText.includes(query);
+            });
+        });
+        picker.addEventListener('focusout', () => {
+            window.setTimeout(() => {
+                if (!picker.contains(document.activeElement)) {
+                    panel.hidden = true;
+                    trigger.setAttribute('aria-expanded', 'false');
+                }
+            }, 0);
         });
         linkBtn.addEventListener('click', async () => {
             if (!empSelect.value) return;
             await this.resolveConnectedIdentity(item, empSelect.value);
         });
-        resolveIdentityEl.append(empSelect, linkBtn);
+
+        picker.append(trigger, panel, empSelect);
+        resolveIdentityEl.append(picker, linkBtn);
         return resolveIdentityEl;
     }
 
@@ -3060,68 +3154,87 @@ export class MiniAttendanceImportModal {
             const dates = this.multiDayResolver.workDates || [];
             const currentDate = dates[this.consolidationDayIndex] || null;
             const currentState = currentDate ? this.multiDayResolver.getDayState(currentDate) : null;
-            const navWrap = element('div', null, {
-                className: 'mini-consolidation-footer-nav',
-                dataset: { miniFooterNav: '' }
-            });
-            navWrap.setAttribute('role', 'group');
-            navWrap.setAttribute('aria-label', 'Navegación por días');
-            const pager = element('div', null, { className: 'mini-consolidation-day-pager' });
-            const prev = actionButton('Anterior', 'previous-consolidation-day', this.consolidationDayIndex <= 0);
-            prev.classList.add('mini-import-action-secondary');
-            prev.addEventListener('click', () => { this.consolidationDayIndex = Math.max(0, this.consolidationDayIndex - 1); this.render(); });
-            const next = actionButton('Siguiente', 'next-consolidation-day', this.consolidationDayIndex >= dates.length - 1);
-            next.classList.add('mini-import-action-secondary');
-            next.addEventListener('click', () => { this.consolidationDayIndex = Math.min(dates.length - 1, this.consolidationDayIndex + 1); this.render(); });
-            pager.append(prev, next);
-            navWrap.append(pager);
-            batchSection.append(navWrap);
+            if (dates.length > 1) {
+                const navWrap = element('div', null, {
+                    className: 'mini-consolidation-footer-nav',
+                    dataset: { miniFooterNav: '' }
+                });
+                navWrap.setAttribute('role', 'group');
+                navWrap.setAttribute('aria-label', 'Navegación por días');
+                const pager = element('div', null, { className: 'mini-consolidation-day-pager' });
+                if (this.consolidationDayIndex > 0) {
+                    const prev = actionButton('Anterior', 'previous-consolidation-day');
+                    prev.classList.add('mini-import-action-secondary');
+                    prev.addEventListener('click', () => {
+                        this.consolidationDayIndex = Math.max(0, this.consolidationDayIndex - 1);
+                        this.render();
+                    });
+                    pager.append(prev);
+                }
+                if (this.consolidationDayIndex < dates.length - 1) {
+                    const next = actionButton('Siguiente', 'next-consolidation-day');
+                    next.classList.add('mini-import-action-secondary');
+                    next.addEventListener('click', () => {
+                        this.consolidationDayIndex = Math.min(dates.length - 1, this.consolidationDayIndex + 1);
+                        this.render();
+                    });
+                    pager.append(next);
+                }
+                if (pager.childElementCount > 0) {
+                    navWrap.append(pager);
+                    batchSection.append(navWrap);
+                }
+            }
 
             if (isMiniStage) {
-                const decisionWrap = element('div', null, {
-                    className: 'mini-consolidation-footer-decision',
-                    dataset: { miniFooterDecision: '' }
-                });
-                decisionWrap.setAttribute('role', 'group');
-                decisionWrap.setAttribute('aria-label', 'Decisión del día actual');
                 const reviewActions = element('div', null, { className: 'mini-day-review-actions' });
-                const leavePendingBtn = actionButton(
-                    'Pendiente',
-                    'leave-mini-day-pending',
-                    currentState?.status === 'mini_day_completed'
-                );
-                leavePendingBtn.title = 'Guardar el progreso y continuar sin completar este día';
-                leavePendingBtn.setAttribute('aria-label', 'Dejar este día pendiente y continuar');
-                leavePendingBtn.classList.add('mini-import-action-secondary');
-                leavePendingBtn.addEventListener('click', () => { void this.leaveMiniDayPendingAndContinue(); });
-                const confirmDayBtn = actionButton(
-                    'Confirmar día',
-                    'complete-mini-day',
-                    currentState?.status !== 'mini_day_ready'
-                );
-                confirmDayBtn.title = 'Marcar este día como completamente revisado';
-                confirmDayBtn.classList.add('mini-import-action-primary');
-                confirmDayBtn.dataset.miniDate = currentDate || '';
-                confirmDayBtn.addEventListener('click', () => { if (currentDate) void this.completeMiniDay(currentDate); });
-                reviewActions.append(leavePendingBtn, confirmDayBtn);
-                decisionWrap.append(reviewActions);
-                batchSection.append(decisionWrap);
+                if (currentState?.status === 'mini_day_ready') {
+                    const leavePendingBtn = actionButton('Pendiente', 'leave-mini-day-pending');
+                    leavePendingBtn.title = 'Guardar el progreso y continuar sin completar este día';
+                    leavePendingBtn.setAttribute('aria-label', 'Dejar este día pendiente y continuar');
+                    leavePendingBtn.classList.add('mini-import-action-secondary');
+                    leavePendingBtn.addEventListener('click', () => { void this.leaveMiniDayPendingAndContinue(); });
+                    const confirmDayBtn = actionButton('Confirmar día', 'complete-mini-day');
+                    confirmDayBtn.title = 'Marcar este día como completamente revisado';
+                    confirmDayBtn.classList.add('mini-import-action-primary');
+                    confirmDayBtn.dataset.miniDate = currentDate || '';
+                    confirmDayBtn.addEventListener('click', () => {
+                        if (currentDate) void this.completeMiniDay(currentDate);
+                    });
+                    reviewActions.append(leavePendingBtn, confirmDayBtn);
+                } else if (currentState?.status === 'stage_a_blocked') {
+                    const leavePendingBtn = actionButton('Pendiente', 'leave-mini-day-pending');
+                    leavePendingBtn.title = 'Guardar el progreso y continuar sin completar este día';
+                    leavePendingBtn.setAttribute('aria-label', 'Dejar este día pendiente y continuar');
+                    leavePendingBtn.classList.add('mini-import-action-secondary');
+                    leavePendingBtn.addEventListener('click', () => { void this.leaveMiniDayPendingAndContinue(); });
+                    reviewActions.append(leavePendingBtn);
+                }
+                if (reviewActions.childElementCount > 0) {
+                    const decisionWrap = element('div', null, {
+                        className: 'mini-consolidation-footer-decision',
+                        dataset: { miniFooterDecision: '' }
+                    });
+                    decisionWrap.setAttribute('role', 'group');
+                    decisionWrap.setAttribute('aria-label', 'Decisión del día actual');
+                    decisionWrap.append(reviewActions);
+                    batchSection.append(decisionWrap);
+                }
 
-                const createBtn = actionButton(
-                    'Crear consolidado',
-                    'create-mini-consolidated',
-                    !this.multiDayResolver.isMiniStageComplete()
-                );
-                createBtn.classList.add('mini-import-action-primary');
-                createBtn.addEventListener('click', () => { void this.createMiniConsolidatedDraft(); });
+                const flowActions = element('div', null, {
+                    className: 'mini-consolidation-flow-actions is-global'
+                });
                 const discardBtn = actionButton('Descartar', 'discard-active-consolidation');
                 discardBtn.classList.add('mini-import-action-danger');
                 discardBtn.setAttribute('aria-label', 'Descartar consolidación actual');
                 discardBtn.addEventListener('click', () => { void this.discardActiveConsolidation(); });
-                const flowActions = element('div', null, {
-                    className: 'mini-consolidation-flow-actions is-global'
-                });
-                flowActions.append(discardBtn, createBtn);
+                flowActions.append(discardBtn);
+                if (this.multiDayResolver.isMiniStageComplete()) {
+                    const createBtn = actionButton('Crear consolidado', 'create-mini-consolidated');
+                    createBtn.classList.add('mini-import-action-primary');
+                    createBtn.addEventListener('click', () => { void this.createMiniConsolidatedDraft(); });
+                    flowActions.append(createBtn);
+                }
                 const globalWrap = element('div', null, {
                     className: 'mini-consolidation-footer-global',
                     dataset: { miniFooterGlobal: '' }
@@ -3131,7 +3244,7 @@ export class MiniAttendanceImportModal {
                 globalWrap.append(flowActions);
                 batchSection.append(globalWrap);
                 if (!this.multiDayResolver.isMiniStageComplete()) {
-                    batchSection.append(element('span', 'Consolida cada día antes de crear el consolidado revisado.', {
+                    batchSection.append(element('span', 'Resuelve las incidencias del día o déjalo pendiente para continuar.', {
                         className: 'mini-import-complete-hint'
                     }));
                 }

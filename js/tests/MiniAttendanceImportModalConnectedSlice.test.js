@@ -222,9 +222,10 @@ describe('MiniAttendanceImportModal — Conectados vs Pegar texto slice', () => 
         host.querySelector(`[data-mini-draft-checkbox="${SUB_UUID_1}"]`).click();
         host.querySelector(`[data-mini-draft-checkbox="${SUB_UUID_2}"]`).click();
 
-        // Click consolidate button
+        // Consolidate both Minis and wait for async alias/review preparation.
         const consolidateBtn = host.querySelector('[data-mini-action="consolidate-drafts"]');
-        consolidateBtn.click();
+        expect(consolidateBtn).not.toBeNull();
+        await modal.consolidateSelectedDrafts();
 
         // Verify consolidation skeleton rendered
         const skeleton = host.querySelector('[data-mini-consolidation-skeleton]');
@@ -893,7 +894,9 @@ describe('MiniAttendanceImportModal — connected wizard and proxy-safe reconcil
         expect(host.querySelector('[data-mini-action="back-connected-request"]')).not.toBeNull();
 
         host.querySelector(`[data-mini-draft-checkbox="${SUB_UUID_1}"]`).click();
-        host.querySelector('[data-mini-action="consolidate-drafts"]').click();
+        await modal.consolidateSelectedDrafts();
+        // One valid Mini skips the redundant Mini-review stage and goes directly to SA comparison.
+        expect(modal.connectedView).toBe('sa-comparison');
         expect(host.querySelector('[data-mini-consolidation-skeleton]')).not.toBeNull();
         expect(host.querySelector('[data-mini-saved-drafts]')).toBeNull();
         expect(host.querySelector('[data-mini-action="back-connected-inbox"]')).not.toBeNull();

@@ -3221,3 +3221,181 @@
 @media (prefers-reduced-motion: reduce) {
     .mini-sa-compare-side { transition: none; }
 }
+
+/* F3 review UX: employee combobox with recommendations and guided next action. */
+.mini-identity-resolve-row {
+    position: relative;
+}
+.mini-employee-select-state[hidden] {
+    display: none !important;
+}
+.mini-employee-combobox {
+    position: relative;
+    flex: 1 1 260px;
+    min-width: 0;
+}
+.mini-employee-combobox-trigger {
+    width: 100%;
+    min-height: 46px;
+    padding: 10px 42px 10px 14px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--mini-panel-2);
+    color: var(--mini-text);
+    text-align: left;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+    position: relative;
+}
+.mini-employee-combobox-trigger::after {
+    content: '⌄';
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-55%);
+    color: var(--mini-text-dim);
+    font-size: 18px;
+}
+.mini-employee-combobox-trigger.is-guided {
+    outline: 2px solid var(--mini-good);
+    outline-offset: 2px;
+}
+.mini-employee-combobox-trigger:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 2px;
+}
+.mini-employee-combobox-panel {
+    position: absolute;
+    z-index: 80;
+    inset-inline: 0;
+    top: calc(100% + 6px);
+    max-height: min(420px, 60vh);
+    overflow: auto;
+    padding: 8px;
+    border-radius: 14px;
+    background: var(--mini-panel);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, .38);
+}
+.mini-employee-combobox-panel[hidden] {
+    display: none !important;
+}
+.mini-employee-search {
+    width: 100%;
+    min-height: 44px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--mini-panel-2);
+    color: var(--mini-text);
+    font: inherit;
+}
+.mini-employee-search:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 1px;
+}
+.mini-employee-option-section {
+    display: grid;
+    gap: 4px;
+    padding: 4px 0;
+}
+.mini-employee-option-section + .mini-employee-option-section {
+    margin-top: 7px;
+    padding-top: 10px;
+    border-top: 1px solid var(--mini-border);
+}
+.mini-employee-option-section.is-recommended {
+    margin: 0 -2px;
+    padding: 6px;
+    border-radius: 10px;
+    background: color-mix(in oklch, var(--mini-good) 11%, var(--mini-panel));
+}
+.mini-employee-option-heading {
+    padding: 5px 8px;
+    color: var(--mini-text-dim);
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+.mini-employee-option {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--mini-text);
+    text-align: left;
+    cursor: pointer;
+}
+.mini-employee-option:hover,
+.mini-employee-option:focus-visible,
+.mini-employee-option[aria-selected="true"] {
+    background: var(--mini-panel-2);
+}
+.mini-employee-option.is-recommended {
+    background: color-mix(in oklch, var(--mini-good) 17%, var(--mini-panel-2));
+}
+.mini-employee-option.is-recommended:hover,
+.mini-employee-option.is-recommended:focus-visible,
+.mini-employee-option.is-recommended[aria-selected="true"] {
+    background: color-mix(in oklch, var(--mini-good) 27%, var(--mini-panel-2));
+}
+.mini-employee-option-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+.mini-employee-option-copy strong {
+    overflow-wrap: anywhere;
+}
+.mini-employee-option-copy small {
+    color: var(--mini-text-dim);
+    font-size: 10.5px;
+}
+.mini-link-identity-action {
+    min-width: 112px;
+    transition: background .16s ease, color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+.mini-link-identity-action.is-guided-action:not(:disabled) {
+    background: var(--mini-good);
+    color: var(--mini-bg);
+    box-shadow: 0 0 0 2px color-mix(in oklch, var(--mini-good) 78%, white 22%);
+    font-weight: 800;
+}
+.mini-link-identity-action.is-guided-action:not(:disabled):active {
+    transform: scale(.98);
+}
+
+/* Contextual footer: one visible action uses the available width without ghost slots. */
+.mini-consolidation-day-pager,
+.mini-day-review-actions,
+.mini-consolidation-flow-actions,
+.mini-consolidation-footer-nav .mini-consolidation-day-pager,
+.mini-consolidation-footer-decision .mini-day-review-actions,
+.mini-consolidation-footer-global .mini-consolidation-flow-actions {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+@media (max-width: 620px) {
+    .mini-identity-resolve-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .mini-identity-resolve-row > .mini-control-label {
+        grid-column: 1 / -1;
+    }
+    .mini-employee-combobox {
+        width: 100%;
+    }
+    .mini-link-identity-action {
+        min-width: 96px;
+    }
+    .mini-employee-combobox-panel {
+        max-height: min(360px, 55vh);
+    }
+}
