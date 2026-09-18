@@ -2688,6 +2688,20 @@ export class MiniAttendanceImportModal {
                         }
                     }
 
+                    if (isSaStage && dayState?.status !== 'applied' && this.multiDayResolver) {
+                        const ignoreActions = element('div', null, {
+                            className: 'mini-import-unit-actions',
+                            dataset: { miniIgnoreAttendance: item.id }
+                        });
+                        const ignoreBtn = actionButton('Ignorar esta asistencia', 'ignore-consolidated-attendance');
+                        ignoreBtn.classList.add('mini-import-action-secondary');
+                        ignoreBtn.dataset.miniItemId = item.id;
+                        ignoreBtn.dataset.miniDate = group.workDate;
+                        ignoreBtn.addEventListener('click', () => this.requestIgnoreConsolidatedItem(item));
+                        ignoreActions.append(ignoreBtn);
+                        rowEl.append(ignoreActions);
+                    }
+
                     itemsList.append(rowEl);
                 });
                 groupEl.append(itemsList);
@@ -3370,6 +3384,37 @@ export class MiniAttendanceImportModal {
         if (window.showConfirm) {
             window.showConfirm({
                 title: 'Empleado no registrado',
+                message,
+                confirmText: 'Ignorar y continuar',
+                cancelText: 'Volver',
+                type: 'warning',
+                onConfirm: proceed
+            });
+            return;
+        }
+        if (window.confirm?.(message)) proceed();
+    }
+
+    requestIgnoreConsolidatedItem(item) {
+        if (!this.multiDayResolver || !item?.id) return;
+        const label = [item.displayNumber ? `#${item.displayNumber}` : '', item.displayName || 'esta asistencia']
+            .filter(Boolean).join(' · ');
+        const message = `${label} se excluirá únicamente de esta importación y no modificará la asistencia de SA. ¿Deseas continuar?`;
+        const proceed = () => {
+            this.multiDayResolver.excludeItem(item.id);
+            this.resetApplyState();
+            window.showNotification?.(`${label} fue ignorada en esta importación.`, 'info');
+            this.render();
+        };
+        if (typeof this.confirmIgnore === 'function') {
+            Promise.resolve(this.confirmIgnore({ item, message })).then(confirmed => {
+                if (confirmed) proceed();
+            });
+            return;
+        }
+        if (window.showConfirm) {
+            window.showConfirm({
+                title: 'Ignorar asistencia',
                 message,
                 confirmText: 'Ignorar y continuar',
                 cancelText: 'Volver',

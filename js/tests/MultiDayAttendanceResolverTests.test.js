@@ -337,6 +337,38 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         expect(mockState.attendance['EMP-001-2026-09-06'].hoursWorked).toBe(8);
     });
 
+    test('hotfix: excluding a consolidated attendance removes it from the SA apply plan without mutating attendance', async () => {
+        const date = '2026-09-06';
+        const sub = sampleSubmission({
+            submissionId: 'sub-ignore-hotfix',
+            workDate: date,
+            rows: [
+                { miniLocalId: 'm-ignore', number: '001', name: 'Ana Pérez', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }
+            ]
+        });
+        const resolver = createMultiDayAttendanceResolver({
+            submissions: [sub], employees: mockEmployees, attendance: mockState.attendance,
+            positions: mockPositions, saProjectId: PROJECT_ID, entityScope: PROJECT_SCOPE,
+            stage: 'sa', applyPlan: mockApplyPlan
+        });
+
+        let dayState = resolver.getDayState(date);
+        expect(dayState.status).toBe('ready');
+        expect(dayState.applyPlan.writes).toHaveLength(1);
+        const itemId = dayState.items[0].id;
+
+        resolver.excludeItem(itemId);
+        dayState = resolver.getDayState(date);
+        expect(dayState.status).toBe('ready');
+        expect(dayState.items).toHaveLength(0);
+        expect(dayState.applyPlan.writes).toHaveLength(0);
+        expect(resolver.getConsolidatedView('day').summary.totalItems).toBe(0);
+
+        const result = await resolver.applyDay(date);
+        expect(result.appliedCount).toBe(0);
+        expect(mockState.attendance[`EMP-001-${date}`]).toBeUndefined();
+    });
+
     test('multi-position employee remains blocked until an explicit target position is selected', () => {
         const sub = sampleSubmission({
             submissionId: 'sub-multipos',

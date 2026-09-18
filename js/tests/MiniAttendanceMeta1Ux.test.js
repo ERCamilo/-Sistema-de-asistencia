@@ -1,6 +1,7 @@
 import { AttendanceSubmissionInboxStore } from '../modules/services/AttendanceSubmissionInboxStore.js';
 import { MiniAttendanceConsolidationStore } from '../modules/services/MiniAttendanceConsolidationStore.js';
 import { MiniAttendanceImportModal } from '../modules/ui/modals/MiniAttendanceImportModal.js';
+import { createMultiDayAttendanceResolver } from '../modules/features/attendance/MultiDayAttendanceResolver.js';
 
 class MemoryDB {
     constructor() { this.stores = new Map(); }
@@ -136,6 +137,54 @@ describe('Meta1 UX — technical Detalles popup (no inline <details>)', () => {
         expect(rowPopup.textContent).toContain('tech-device-uuid-aaa');
         // Popup lives inside the modal content (in-modal overlay).
         expect(rowPopup.closest('.mini-attendance-import')).not.toBeNull();
+    });
+});
+
+describe('Hotfix UX — ignorar asistencia en comparación Mini→SA', () => {
+    let host;
+    beforeEach(() => { host = document.createElement('div'); document.body.replaceChildren(host); });
+    afterEach(() => document.body.replaceChildren());
+
+    test('shows an explicit ignore action for a new Mini attendance and excludes it after confirmation', async () => {
+        const db = new MemoryDB();
+        const { positions, employees, attendance, applyPlan } = baseFixtures();
+        const confirmIgnore = jest.fn(async () => true);
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT, entityScope: SA_SCOPE,
+            inboxStore: new AttendanceSubmissionInboxStore({ db }),
+            consolidationStore: new MiniAttendanceConsolidationStore({ db, now: () => 1000 }),
+            employees, positions, attendance, applyPlan, importMode: 'connected', confirmIgnore
+        });
+        const consolidation = {
+            saProjectId: SA_PROJECT, workDates: ['2026-09-06'], devices: [], contributingSubmissions: [],
+            summary: { totalItems: 1, resolvedCount: 1, hoursConflictCount: 0, unresolvedIdentityCount: 0, submissionsCount: 1 },
+            items: [{
+                id: 'ignore-hotfix-row', saProjectId: SA_PROJECT, saEmployeeId: 'EMP-001', workDate: '2026-09-06',
+                status: 'resolved', sourceStatus: 'present', rosterStatus: 'active', displayNumber: '001', displayName: 'Ana Pérez',
+                normalHours: 8, overtimeHours: 0, totalHours: 8, sources: []
+            }]
+        };
+        modal.mount(host);
+        modal.consolidatedResult = consolidation;
+        modal.multiDayResolver = createMultiDayAttendanceResolver({
+            consolidation, employees, attendance, positions, saProjectId: SA_PROJECT, entityScope: SA_SCOPE,
+            stage: 'sa', applyPlan
+        });
+        modal.connectedView = 'sa-comparison';
+        modal.consolidationDayIndex = 0;
+        modal.render();
+
+        const ignore = host.querySelector('[data-mini-action="ignore-consolidated-attendance"]');
+        expect(ignore).not.toBeNull();
+        expect(ignore.textContent).toBe('Ignorar esta asistencia');
+        expect(modal.multiDayResolver.getDayState('2026-09-06').applyPlan.writes).toHaveLength(1);
+
+        ignore.click();
+        await wait();
+        expect(confirmIgnore).toHaveBeenCalledTimes(1);
+        expect(modal.multiDayResolver.getDayState('2026-09-06').items).toHaveLength(0);
+        expect(modal.multiDayResolver.getDayState('2026-09-06').applyPlan.writes).toHaveLength(0);
+        expect(host.querySelector('[data-mini-consolidation-item="ignore-hotfix-row"]')).toBeNull();
     });
 });
 
