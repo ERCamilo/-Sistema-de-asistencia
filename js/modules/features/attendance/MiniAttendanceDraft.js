@@ -82,6 +82,68 @@ function bestNameSuggestions(name, employees) {
         .map(candidate => candidate.employee);
 }
 
+export function rankMiniAttendanceEmployeeSuggestions({
+    rawNumber,
+    rawName,
+    employees = [],
+    limit = 3
+} = {}) {
+    const sourceRawNumber = String(rawNumber ?? '').trim();
+    const sourceNumber = normalizeNumber(rawNumber);
+    const sourceName = normalizeName(rawName);
+    const ranked = employees
+        .filter(isMiniAttendanceEmployeeEligible)
+        .map((employee, index) => {
+            const employeeRawNumber = String(employee?.number ?? '').trim();
+            const employeeNumber = normalizeNumber(employee?.number);
+            const employeeName = normalizeName(employee?.name);
+            const rawNumberExact = Boolean(sourceRawNumber) && sourceRawNumber === employeeRawNumber;
+            const numericNumberMatch = Boolean(sourceNumber) && sourceNumber === employeeNumber;
+            const nameScore = nameSuggestionScore(sourceName, employeeName);
+            const nameExact = Boolean(sourceName) && sourceName === employeeName;
+
+            let score = 0;
+            if (rawNumberExact) score += 50;
+            else if (numericNumberMatch) score += 35;
+            if (nameExact) score += 45;
+            else if (nameScore >= 0.88) score += 35;
+            else if (nameScore >= 0.80) score += 28;
+            else if (nameScore >= 0.72) score += 18;
+
+            const reasons = [];
+            if (rawNumberExact) reasons.push('Número exacto');
+            else if (numericNumberMatch) reasons.push('Número equivalente');
+            if (nameExact) reasons.push('Nombre exacto');
+            else if (nameScore >= 0.88) reasons.push('Nombre muy parecido');
+            else if (nameScore >= 0.72) reasons.push('Nombre parecido');
+            else if (numericNumberMatch && sourceName && employeeName) reasons.push('Nombre diferente');
+
+            return {
+                employee,
+                index,
+                score,
+                rawNumberExact,
+                numericNumberMatch,
+                nameScore,
+                nameExact,
+                reasons,
+                confidence: score >= 80 ? 'high' : score >= 55 ? 'medium' : 'low'
+            };
+        })
+        .filter(candidate =>
+            candidate.score >= 50 ||
+            (candidate.nameScore >= 0.72 && candidate.score >= 18)
+        )
+        .sort((left, right) =>
+            right.score - left.score ||
+            right.nameScore - left.nameScore ||
+            left.index - right.index
+        )
+        .slice(0, Math.max(1, Number(limit) || 3));
+
+    return ranked;
+}
+
 function uniqueEmployees(...groups) {
     const seen = new Set();
     return groups.flat().filter(employee => {

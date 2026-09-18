@@ -173,7 +173,7 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(inboxHint).not.toContain('conciliación');
         expect(inboxHint).not.toContain('se escribe');
 
-        // Mini stage = Consolidar, SA stage = Comparar, writes = Aplicar, whole flow = Importación.
+        // Single-Mini stage = Revisar, multi-Mini stage = Consolidar; SA = Comparar; writes = Aplicar.
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const draftId = '22222222-2222-4222-8222-222222222222';
         await inbox.importSubmission(buildSubmission({
@@ -186,8 +186,8 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         await modal.consolidateSelectedDrafts();
         const miniBannerStrong = host.querySelector('[data-mini-proposal-seam] strong').textContent;
         const miniBannerCopy = host.querySelector('[data-mini-proposal-seam] p').textContent;
-        expect(miniBannerStrong).toContain('Consolidar Minis');
-        expect(miniBannerCopy).toContain('consolidan');
+        expect(miniBannerStrong).toContain('Revisar asistencia');
+        expect(miniBannerCopy).toContain('una sola fuente Mini');
         expect(miniBannerCopy).toContain('nada se aplica');
         expect(miniBannerCopy).not.toContain('comparan');
         expect(miniBannerCopy).not.toContain('se escribe');
@@ -249,7 +249,7 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(footerHint.textContent).not.toContain('Propuestas generadas');
     });
 
-    test('(6) progress is contextual: Consolidar/Comparar Día X de N without competing generic step signals', async () => {
+    test('(6) progress is contextual: Revisar/Comparar Día X de N for a single Mini without competing generic step signals', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const { positions, employees, attendance, applyPlan } = baseFixtures();
@@ -277,20 +277,20 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(host.querySelector('.mini-import-progress-bar')).not.toBeNull();
         expect(host.querySelector('.mini-attendance-import').getAttribute('aria-live')).toBe('polite');
 
-        // Mini stage prioritizes Consolidar wording with day position.
+        // A single Mini uses Revisar wording with day position.
         const miniSubtitle = host.querySelector('.mini-import-topbar-subtitle').textContent;
         const miniStep = host.querySelector('.mini-import-topbar-step').textContent;
         const miniChip = host.querySelector('.mini-import-topbar-chip').textContent;
-        expect(miniSubtitle).toBe('Consolidar Minis · Día 1 de 2');
+        expect(miniSubtitle).toBe('Revisar asistencia · Día 1 de 2');
         expect(miniStep).toBe('Día 1 de 2');
-        expect(miniChip).toBe('CONSOLIDAR');
+        expect(miniChip).toBe('REVISAR');
         expect(miniSubtitle).not.toContain('Paso 3');
         expect(miniStep).not.toContain('3/4');
         const miniProgress = host.querySelector('.mini-import-progress-bar');
         expect(miniProgress.getAttribute('role')).toBe('progressbar');
         expect(miniProgress.getAttribute('aria-valuenow')).toBe('1');
         expect(miniProgress.getAttribute('aria-valuemax')).toBe('2');
-        expect(miniProgress.getAttribute('aria-label')).toBe('Consolidar Minis · Día 1 de 2');
+        expect(miniProgress.getAttribute('aria-label')).toBe('Revisar asistencia · Día 1 de 2');
         expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 1 de 2');
 
         host.querySelector('[data-mini-action="complete-mini-day"]').click();

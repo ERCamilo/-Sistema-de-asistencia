@@ -441,9 +441,29 @@ export class MultiDayAttendanceResolver {
     }
 
     getIdentityCandidates() {
-        return this.employees.filter(employee =>
-            isMiniAttendanceEmployeeEligible(employee) && this._employeeInResolverScope(employee)
-        );
+        const numberValue = value => {
+            const text = String(value ?? '').trim();
+            if (!text) return Number.POSITIVE_INFINITY;
+            const numeric = Number(text);
+            return Number.isFinite(numeric) ? numeric : Number.POSITIVE_INFINITY;
+        };
+        return this.employees
+            .filter(employee =>
+                isMiniAttendanceEmployeeEligible(employee) && this._employeeInResolverScope(employee)
+            )
+            .slice()
+            .sort((left, right) => {
+                const leftNumber = numberValue(left?.number);
+                const rightNumber = numberValue(right?.number);
+                if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+                const numberOrder = String(left?.number ?? '').localeCompare(
+                    String(right?.number ?? ''), 'es', { numeric: true, sensitivity: 'base' }
+                );
+                if (numberOrder !== 0) return numberOrder;
+                return String(left?.name ?? '').localeCompare(
+                    String(right?.name ?? ''), 'es', { sensitivity: 'base' }
+                );
+            });
     }
 
     /**

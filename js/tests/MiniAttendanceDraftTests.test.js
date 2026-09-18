@@ -1,7 +1,8 @@
 import { parseMiniAttendanceReport } from '../modules/features/attendance/MiniAttendanceParser.js';
 import { confirmMiniAttendanceDraftDate, createMiniAttendanceDraft, editMiniAttendanceDraftRow,
-    excludeMiniAttendanceDraftRow, reactivateMiniAttendanceDraftEmployee,
-    reviewMiniAttendanceDraftRow, setMiniAttendanceAllocationMode, suggestMiniAttendanceDate
+    excludeMiniAttendanceDraftRow, rankMiniAttendanceEmployeeSuggestions,
+    reactivateMiniAttendanceDraftEmployee, reviewMiniAttendanceDraftRow,
+    setMiniAttendanceAllocationMode, suggestMiniAttendanceDate
 } from '../modules/features/attendance/MiniAttendanceDraft.js';
 
 const employees = [
@@ -34,6 +35,48 @@ function rememberedAlias(overrides = {}) {
         ...overrides
     };
 }
+
+describe('MiniAttendanceDraft identity suggestions', () => {
+    test('ranks exact/equivalent number and normalized name without auto-linking', () => {
+        const candidates = [
+            { id: 'e600', number: '600', name: 'Kevin King', active: true },
+            { id: 'e601', number: '601', name: 'Kevan Kin', active: true },
+            { id: 'e700', number: '700', name: 'Otra Persona', active: true }
+        ];
+        const ranked = rankMiniAttendanceEmployeeSuggestions({
+            rawNumber: '0600',
+            rawName: 'Kevín King',
+            employees: candidates,
+            limit: 3
+        });
+
+        expect(ranked[0].employee.id).toBe('e600');
+        expect(ranked[0].numericNumberMatch).toBe(true);
+        expect(ranked[0].nameExact).toBe(true);
+        expect(ranked[0].reasons).toEqual(expect.arrayContaining([
+            'Número equivalente', 'Nombre exacto'
+        ]));
+        expect(ranked.every(candidate => candidate.employee.id !== 'e700')).toBe(true);
+    });
+
+    test('keeps a same-number different-name candidate as review instead of treating it as confirmed', () => {
+        const ranked = rankMiniAttendanceEmployeeSuggestions({
+            rawNumber: '600',
+            rawName: 'Kk',
+            employees: [
+                { id: 'e600', number: '600', name: 'Kevin King', active: true },
+                { id: 'e812', number: '812', name: 'Karla King', active: true }
+            ]
+        });
+
+        expect(ranked[0]).toMatchObject({
+            employee: { id: 'e600' },
+            rawNumberExact: true,
+            confidence: 'low'
+        });
+        expect(ranked[0].reasons).toContain('Nombre diferente');
+    });
+});
 
 describe('MiniAttendanceDraft date setup', () => {
     test('infers the nearest matching year for a report from another day', () => {

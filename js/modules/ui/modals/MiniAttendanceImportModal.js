@@ -8,6 +8,9 @@ import {
     editMiniAttendanceDraftRow,
     excludeMiniAttendanceDraftRow,
     isMiniAttendanceEmployeeEligible,
+    normalizeMiniAttendanceName,
+    normalizeMiniAttendanceNumber,
+    rankMiniAttendanceEmployeeSuggestions,
     reactivateMiniAttendanceDraftEmployee,
     reviewMiniAttendanceConflict,
     reviewMiniAttendanceDraftRow,
@@ -1093,6 +1096,10 @@ export class MiniAttendanceImportModal {
             stage: miniStage ? 'mini' : 'sa',
             completedMiniDates: record.completedDays || []
         });
+        if (miniStage) {
+            const rememberedCount = await this.applyRememberedConnectedIdentities();
+            if (rememberedCount > 0) await this.persistMiniProgress();
+        }
         const dates = this.multiDayResolver.workDates || [];
         const firstPending = miniStage ? dates.findIndex(date => this.multiDayResolver.getDayState(date)?.status !== 'mini_day_completed') : 0;
         this.consolidationDayIndex = firstPending >= 0 ? firstPending : Math.max(0, dates.length - 1);
@@ -1392,12 +1399,13 @@ export class MiniAttendanceImportModal {
             applyPlan: this.applyPlan,
             stage: 'mini'
         });
+        if (typeof this.aliasStore?.lookup === 'function') {
+            await this.applyRememberedConnectedIdentities();
+        }
         this.connectedView = 'consolidation';
         this.consolidationDayIndex = 0;
         this.clearResolvedRowsExpansion();
         this.reviewStatusPromise = this.markDraftsReviewed(drafts);
-        // Render the Mini↔Mini step immediately; persistence then completes in the
-        // same action without blocking the modal transition.
         this.render();
         await this.persistMiniProgress();
     }
@@ -1696,6 +1704,231 @@ export class MiniAttendanceImportModal {
         return section;
     }
 
+    getConnectedSourceKey(source) {
+        if (!source) return '';
+        const peerId = String(source.sourcePeerId || '').trim();
+        if (peerId) return `peer:${peerId}`;
+        const sourceId = String(source.sourceId || '').trim();
+        const deviceId = String(source.deviceId || source.rawDeviceId || '').trim();
+        if (sourceId && deviceId) return `source:${sourceId}|device:${deviceId}`;
+        if (sourceId) return `source:${sourceId}`;
+        if (deviceId) return `device:${deviceId}`;
+        return '';
+    }
+
+    getConnectedMiniSourceCount() {
+        const contributions = this.multiDayResolver?.contributingSubmissions ||
+            this.consolidatedResult?.contributingSubmissions || [];
+        const contributionIds = contributions
+            .map(source => this.getConnectedSourceKey(source))
+            .filter(Boolean);
+        if (contributionIds.length > 0) return new Set(contributionIds).size;
+        const devices = this.multiDayResolver?.devices || this.consolidatedResult?.devices || [];
+        return new Set((devices || []).map(value => String(value || '').trim()).filter(Boolean)).size;
+    }
+
+    getConnectedIdentitySource(item) {
+        if (!Array.isArray(item?.sources)) return null;
+        return item.sources.find(source => source && source.missingRoster !== true) ||
+            item.sources.find(Boolean) || null;
+    }
+
+    getConnectedIdentityDescriptor(item) {
+        const source = this.getConnectedIdentitySource(item);
+        const sourceId = this.getConnectedSourceKey(source);
+        if (!this.saProjectId || !sourceId) return null;
+        const rawNumber = source?.number ?? item?.displayNumber ?? '';
+        const rawName = source?.name ?? item?.displayName ?? '';
+        const number = normalizeMiniAttendanceNumber(rawNumber);
+        const name = normalizeMiniAttendanceName(rawName);
+        if (!number || !name) return null;
+        const scope = {
+            ownerUid: String(this.actorUid || 'local-device'),
+            siteId: String(this.saProjectId),
+            sourceId
+        };
+        return {
+            scope,
+            rawNumber,
+            rawName,
+            key: JSON.stringify([scope.ownerUid, scope.siteId, scope.sourceId, number, name])
+        };
+    }
+
+    getConnectedIdentitySuggestions(item, limit = 3) {
+        const source = this.getConnectedIdentitySource(item);
+        if (!source || !this.multiDayResolver) return [];
+        return rankMiniAttendanceEmployeeSuggestions({
+            rawNumber: source.number ?? item?.displayNumber ?? '',
+            rawName: source.name ?? item?.displayName ?? '',
+            employees: this.multiDayResolver.getIdentityCandidates(),
+            limit
+        });
+    }
+
+    buildConnectedIdentityControls(item) {
+        const resolveIdentityEl = element('div', null, {
+            className: 'mini-identity-resolve-row',
+            dataset: { miniUnresolvedIdentity: item.id }
+        });
+        const suggestions = this.getConnectedIdentitySuggestions(item);
+        if (suggestions.length > 0) {
+            const suggestionsEl = element('div', null, {
+                className: 'mini-identity-suggestions',
+                dataset: { miniIdentitySuggestions: item.id }
+            });
+            suggestionsEl.append(element('span', 'Sugerencias de SA', { className: 'mini-control-label' }));
+            suggestions.forEach((candidate, index) => {
+                const confidenceLabel = candidate.confidence === 'high'
+                    ? 'Coincidencia alta'
+                    : candidate.confidence === 'medium'
+                        ? 'Posible coincidencia'
+                        : 'Revisar coincidencia';
+                const card = element('div', null, {
+                    className: `mini-identity-suggestion is-${candidate.confidence}`,
+                    dataset: {
+                        miniIdentitySuggestion: candidate.employee.id,
+                        miniSuggestionRank: String(index + 1)
+                    }
+                });
+                const copy = element('div', null, { className: 'mini-identity-suggestion-copy' });
+                copy.append(
+                    element('strong',
+                        `${candidate.employee.number ? '#' + candidate.employee.number + ' · ' : ''}${candidate.employee.name}`),
+                    element('span', confidenceLabel, { className: 'mini-identity-suggestion-confidence' }),
+                    element('span', candidate.reasons.join(' · '), { className: 'mini-identity-suggestion-reasons' })
+                );
+                const useSuggestion = actionButton('Vincular', 'use-identity-suggestion');
+                useSuggestion.classList.add('mini-import-action-primary');
+                useSuggestion.dataset.miniEmployeeId = candidate.employee.id;
+                useSuggestion.addEventListener('click', async () => {
+                    await this.resolveConnectedIdentity(item, candidate.employee.id);
+                });
+                card.append(copy, useSuggestion);
+                suggestionsEl.append(card);
+            });
+            resolveIdentityEl.append(suggestionsEl);
+        }
+
+        resolveIdentityEl.append(element('span',
+            suggestions.length > 0 ? 'Elegir otro empleado:' : 'Vincular a empleado SA:',
+            { className: 'mini-control-label' }
+        ));
+        const empSelect = element('select', null, {
+            className: 'mini-import-select',
+            dataset: { miniSelectEmployee: item.id }
+        });
+        empSelect.append(element('option', '-- Seleccionar empleado --', {
+            value: '', disabled: true, selected: true
+        }));
+        this.multiDayResolver.getIdentityCandidates().forEach(emp => {
+            empSelect.append(element('option',
+                `${emp.number ? '#' + emp.number + ' ' : ''}${emp.name}`,
+                { value: emp.id }
+            ));
+        });
+        const linkBtn = actionButton('Vincular', 'resolve-identity', true);
+        linkBtn.dataset.miniItemId = item.id;
+        empSelect.addEventListener('change', () => {
+            linkBtn.disabled = !empSelect.value;
+        });
+        linkBtn.addEventListener('click', async () => {
+            if (!empSelect.value) return;
+            await this.resolveConnectedIdentity(item, empSelect.value);
+        });
+        resolveIdentityEl.append(empSelect, linkBtn);
+        return resolveIdentityEl;
+    }
+
+    async applyRememberedConnectedIdentities() {
+        if (!this.multiDayResolver || typeof this.aliasStore?.lookup !== 'function') return 0;
+        const pendingIds = this.multiDayResolver.items
+            .filter(item => !item.excluded && (!item.saEmployeeId || item.status === 'identity_conflict'))
+            .map(item => item.id);
+        const handledKeys = new Set();
+        let resolvedCount = 0;
+        for (const itemId of pendingIds) {
+            const item = this.multiDayResolver.items.find(candidate => candidate.id === itemId);
+            if (!item || item.excluded || item.saEmployeeId) continue;
+            const descriptor = this.getConnectedIdentityDescriptor(item);
+            if (!descriptor || handledKeys.has(descriptor.key)) continue;
+            handledKeys.add(descriptor.key);
+            try {
+                const remembered = await this.aliasStore.lookup({
+                    scope: descriptor.scope,
+                    rawNumber: descriptor.rawNumber,
+                    rawName: descriptor.rawName,
+                    employees: this.multiDayResolver.getIdentityCandidates()
+                });
+                const targetEmployeeId = remembered?.status === 'remembered'
+                    ? remembered.employee?.id
+                    : null;
+                if (!targetEmployeeId) continue;
+                const matchingIds = this.multiDayResolver.items
+                    .filter(candidate => {
+                        if (candidate.excluded || candidate.saEmployeeId) return false;
+                        return this.getConnectedIdentityDescriptor(candidate)?.key === descriptor.key;
+                    })
+                    .map(candidate => candidate.id);
+                for (const matchingId of matchingIds) {
+                    const current = this.multiDayResolver.items.find(candidate => candidate.id === matchingId);
+                    if (!current || current.excluded || current.saEmployeeId) continue;
+                    this.multiDayResolver.resolveItemIdentity(matchingId, targetEmployeeId);
+                    resolvedCount += 1;
+                }
+            } catch (error) {
+                console.warn('No se pudo reutilizar una vinculación Mini→SA recordada:', error);
+            }
+        }
+        return resolvedCount;
+    }
+
+    async rememberConnectedIdentity(item, employeeId) {
+        if (typeof this.aliasStore?.record !== 'function') return false;
+        const descriptor = this.getConnectedIdentityDescriptor(item);
+        const employee = this.employees.find(candidate => candidate.id === employeeId);
+        if (!descriptor || !isMiniAttendanceEmployeeEligible(employee)) return false;
+        try {
+            await this.aliasStore.record({
+                scope: descriptor.scope,
+                rawNumber: descriptor.rawNumber,
+                rawName: descriptor.rawName,
+                targetEmployeeId: employeeId,
+                targetNumberSnapshot: employee.number ?? null,
+                targetNameSnapshot: employee.name ?? null
+            }, { allowReplace: true, actorUid: this.actorUid });
+            return true;
+        } catch (error) {
+            console.warn('La identidad se vinculó, pero no se pudo recordar para futuras importaciones:', error);
+            window.showNotification?.(
+                'La vinculación se aplicó a esta revisión, pero no se pudo guardar para próximas importaciones.',
+                'warning'
+            );
+            return false;
+        }
+    }
+
+    async resolveConnectedIdentity(item, employeeId) {
+        if (!this.multiDayResolver || !item?.id || !employeeId) return;
+        const descriptor = this.getConnectedIdentityDescriptor(item);
+        const matchingIds = descriptor
+            ? this.multiDayResolver.items
+                .filter(candidate => {
+                    if (candidate.excluded || candidate.saEmployeeId) return false;
+                    return this.getConnectedIdentityDescriptor(candidate)?.key === descriptor.key;
+                })
+                .map(candidate => candidate.id)
+            : [item.id];
+        for (const itemId of matchingIds) {
+            const current = this.multiDayResolver.items.find(candidate => candidate.id === itemId);
+            if (!current || current.excluded || current.saEmployeeId) continue;
+            this.multiDayResolver.resolveItemIdentity(itemId, employeeId);
+        }
+        await this.rememberConnectedIdentity(item, employeeId);
+        if (this.multiDayResolver.stage === 'mini') await this.persistMiniProgress();
+        this.render();
+    }
+
     renderConnected() {
         const section = element('div', null, {
             className: `mini-import-paste mini-import-connected mini-import-connected-view-${this.connectedView}`,
@@ -1723,7 +1956,10 @@ export class MiniAttendanceImportModal {
         let topbarProgress = null;
         if (this.connectedView === 'consolidation' || this.connectedView === 'sa-comparison') {
             const isMiniStage = this.multiDayResolver?.stage === 'mini' || this.connectedView === 'consolidation';
-            const stageLabel = isMiniStage ? 'Consolidar Minis' : 'Comparar con SA';
+            const singleMiniReview = isMiniStage && this.getConnectedMiniSourceCount() === 1;
+            const stageLabel = isMiniStage
+                ? (singleMiniReview ? 'Revisar asistencia' : 'Consolidar Minis')
+                : 'Comparar con SA';
             const dates = this.multiDayResolver?.workDates || this.consolidatedResult?.workDates || [];
             const totalDays = Array.isArray(dates) ? dates.length : 0;
             if (totalDays > 0) {
@@ -1732,7 +1968,7 @@ export class MiniAttendanceImportModal {
                 const currentWorkDateIso = Array.isArray(dates) ? (dates[this.consolidationDayIndex] || dates[currentDay - 1] || '') : '';
                 const centerWorkDate = currentWorkDateIso ? (displayDate(currentWorkDateIso) || currentWorkDateIso) : '';
                 subtitle = `${stageLabel} · ${dayText}`;
-                chip = isMiniStage ? 'CONSOLIDAR' : 'COMPARAR';
+                chip = isMiniStage ? (singleMiniReview ? 'REVISAR' : 'CONSOLIDAR') : 'COMPARAR';
                 topbarStep = currentDay;
                 topbarTotal = totalDays;
                 topbarProgress = {
@@ -1747,7 +1983,7 @@ export class MiniAttendanceImportModal {
                 };
             } else {
                 subtitle = stageLabel;
-                chip = isMiniStage ? 'CONSOLIDAR' : 'COMPARAR';
+                chip = isMiniStage ? (singleMiniReview ? 'REVISAR' : 'CONSOLIDAR') : 'COMPARAR';
                 topbarProgress = {
                     stepText: stageLabel,
                     stepAriaLabel: subtitle,
@@ -2340,9 +2576,12 @@ export class MiniAttendanceImportModal {
 
         const isMiniStage = this.multiDayResolver?.stage === 'mini';
         const isSaStage = this.multiDayResolver?.stage === 'sa';
-        const summary = this.consolidatedResult.summary || this.multiDayResolver?.getMiniProgressSnapshot?.().summary || {
-            totalItems: 0, resolvedCount: 0, hoursConflictCount: 0, unresolvedIdentityCount: 0
-        };
+        const singleMiniReview = isMiniStage && this.getConnectedMiniSourceCount() === 1;
+        const summary = isMiniStage && this.multiDayResolver
+            ? this.multiDayResolver.getMiniProgressSnapshot().summary
+            : (this.consolidatedResult?.summary || {
+                totalItems: 0, resolvedCount: 0, hoursConflictCount: 0, unresolvedIdentityCount: 0
+            });
         const badges = element('div', null, {
             className: 'mini-consolidation-summary-badges',
             dataset: { miniExecutiveStatus: '' },
@@ -2355,7 +2594,7 @@ export class MiniAttendanceImportModal {
         };
         appendPositiveBadge(summary.totalItems, 'Total', 'mini-badge-total');
         appendPositiveBadge(summary.resolvedCount, 'Resueltos', 'mini-badge-resolved');
-        appendPositiveBadge(summary.hoursConflictCount, 'Conflictos entre Minis', 'mini-badge-conflict');
+        appendPositiveBadge(summary.hoursConflictCount, singleMiniReview ? 'Conflictos de asistencia' : 'Conflictos entre Minis', 'mini-badge-conflict');
         appendPositiveBadge(summary.unresolvedIdentityCount, 'Identidades no resueltas', 'mini-badge-unresolved');
 
         if (this.multiDayResolver) {
@@ -2399,17 +2638,21 @@ export class MiniAttendanceImportModal {
 
                 const dayState = this.multiDayResolver ? this.multiDayResolver.getDayState(group.workDate) : null;
                 if (dayState) {
+                    const hasIdentityBlocker = Array.isArray(dayState.stageABlockers) &&
+                        dayState.stageABlockers.includes('missing_sa_employee_id');
                     const statusText = dayState.status === 'mini_day_completed'
-                        ? 'Día consolidado'
+                        ? (singleMiniReview ? 'Día revisado' : 'Día consolidado')
                         : dayState.status === 'mini_day_ready'
-                            ? 'Listo para completar'
+                            ? (singleMiniReview ? 'Listo para confirmar' : 'Listo para completar')
                             : dayState.status === 'applied'
                                 ? 'Aplicado'
                                 : dayState.status === 'ready'
                                     ? 'Listo para aplicar'
                                     : dayState.status === 'stage_b_conflict'
                                         ? 'Cambio por revisar'
-                                        : 'Conflicto entre Minis';
+                                        : singleMiniReview
+                                            ? (hasIdentityBlocker ? 'Identidad no resuelta' : 'Revisión pendiente')
+                                            : 'Conflicto entre Minis';
                     headerEl.append(element('span', statusText, {
                         className: `mini-day-status is-${dayState.status}`,
                         dataset: { miniDayStatus: dayState.status, miniDayDate: group.workDate }
@@ -2505,32 +2748,7 @@ export class MiniAttendanceImportModal {
                     if (this.multiDayResolver) {
                         // 1. Unresolved Identity
                         if (item.status === 'identity_conflict' || !item.saEmployeeId) {
-                            const resolveIdentityEl = element('div', null, {
-                                className: 'mini-identity-resolve-row',
-                                dataset: { miniUnresolvedIdentity: item.id }
-                            });
-                            resolveIdentityEl.append(element('span', 'Vincular a empleado SA:', { className: 'mini-control-label' }));
-                            const empSelect = element('select', null, {
-                                className: 'mini-import-select',
-                                dataset: { miniSelectEmployee: item.id }
-                            });
-                            empSelect.append(element('option', '-- Seleccionar empleado --', { value: '', disabled: true, selected: true }));
-                            this.multiDayResolver.getIdentityCandidates().forEach(emp => {
-                                empSelect.append(element('option', `${emp.number ? '#' + emp.number + ' ' : ''}${emp.name}`, { value: emp.id }));
-                            });
-                            const linkBtn = actionButton('Vincular', 'resolve-identity', true);
-                            linkBtn.dataset.miniItemId = item.id;
-                            empSelect.addEventListener('change', () => {
-                                linkBtn.disabled = !empSelect.value;
-                            });
-                            linkBtn.addEventListener('click', async () => {
-                                if (!empSelect.value) return;
-                                this.multiDayResolver.resolveItemIdentity(item.id, empSelect.value);
-                                if (isMiniStage) await this.persistMiniProgress();
-                                this.render();
-                            });
-                            resolveIdentityEl.append(empSelect, linkBtn);
-                            rowEl.append(resolveIdentityEl);
+                            rowEl.append(this.buildConnectedIdentityControls(item));
                         }
 
                         // 2. Hours conflict between Minis. Keep the chosen source visible
@@ -2688,7 +2906,7 @@ export class MiniAttendanceImportModal {
                         }
                     }
 
-                    if (isSaStage && dayState?.status !== 'applied' && this.multiDayResolver) {
+                    if ((isMiniStage || isSaStage) && dayState?.status !== 'applied' && dayState?.status !== 'mini_day_completed' && this.multiDayResolver) {
                         const ignoreActions = element('div', null, {
                             className: 'mini-import-unit-actions',
                             dataset: { miniIgnoreAttendance: item.id }
@@ -2755,31 +2973,7 @@ export class MiniAttendanceImportModal {
                     if (periodTechnical) rowEl.append(periodTechnical);
 
                     if (this.multiDayResolver) {
-                        const resolveIdentityEl = element('div', null, {
-                            className: 'mini-identity-resolve-row',
-                            dataset: { miniUnresolvedIdentity: item.id }
-                        });
-                        resolveIdentityEl.append(element('span', 'Vincular a empleado SA:', { className: 'mini-control-label' }));
-                        const empSelect = element('select', null, {
-                            className: 'mini-import-select',
-                            dataset: { miniSelectEmployee: item.id }
-                        });
-                        empSelect.append(element('option', '-- Seleccionar empleado --', { value: '', disabled: true, selected: true }));
-                        this.multiDayResolver.getIdentityCandidates().forEach(emp => {
-                            empSelect.append(element('option', `${emp.number ? '#' + emp.number + ' ' : ''}${emp.name}`, { value: emp.id }));
-                        });
-                        const linkBtn = actionButton('Vincular', 'resolve-identity', true);
-                        linkBtn.dataset.miniItemId = item.id;
-                        empSelect.addEventListener('change', () => {
-                            linkBtn.disabled = !empSelect.value;
-                        });
-                        linkBtn.addEventListener('click', () => {
-                            if (!empSelect.value) return;
-                            this.multiDayResolver.resolveItemIdentity(item.id, empSelect.value);
-                            this.render();
-                        });
-                        resolveIdentityEl.append(empSelect, linkBtn);
-                        rowEl.append(resolveIdentityEl);
+                        rowEl.append(this.buildConnectedIdentityControls(item));
                     }
 
                     itemsList.append(rowEl);
@@ -2794,9 +2988,13 @@ export class MiniAttendanceImportModal {
             dataset: { miniProposalSeam: '' }
         });
         proposalNotice.append(
-            element('strong', isMiniStage ? 'Consolidar Minis:' : 'Comparar con SA:'),
+            element('strong', isMiniStage
+                ? (singleMiniReview ? 'Revisar asistencia:' : 'Consolidar Minis:')
+                : 'Comparar con SA:'),
             element('p', isMiniStage
-                ? 'En este paso solo se consolidan los Minis. SA no participa todavía y nada se aplica.'
+                ? (singleMiniReview
+                    ? 'Hay una sola fuente Mini. Aquí se revisan identidades o incidencias; SA no participa todavía y nada se aplica.'
+                    : 'En este paso solo se consolidan los Minis. SA no participa todavía y nada se aplica.')
                 : 'Esta etapa usa únicamente el consolidado Mini revisado para compararlo con SA. Nada se aplica sin confirmación.')
         );
 
@@ -3400,15 +3598,16 @@ export class MiniAttendanceImportModal {
         const label = [item.displayNumber ? `#${item.displayNumber}` : '', item.displayName || 'esta asistencia']
             .filter(Boolean).join(' · ');
         const message = `${label} se excluirá únicamente de esta importación y no modificará la asistencia de SA. ¿Deseas continuar?`;
-        const proceed = () => {
+        const proceed = async () => {
             this.multiDayResolver.excludeItem(item.id);
             this.resetApplyState();
+            if (this.multiDayResolver.stage === 'mini') await this.persistMiniProgress();
             window.showNotification?.(`${label} fue ignorada en esta importación.`, 'info');
             this.render();
         };
         if (typeof this.confirmIgnore === 'function') {
             Promise.resolve(this.confirmIgnore({ item, message })).then(confirmed => {
-                if (confirmed) proceed();
+                if (confirmed) void proceed();
             });
             return;
         }
@@ -3419,11 +3618,11 @@ export class MiniAttendanceImportModal {
                 confirmText: 'Ignorar y continuar',
                 cancelText: 'Volver',
                 type: 'warning',
-                onConfirm: proceed
+                onConfirm: () => { void proceed(); }
             });
             return;
         }
-        if (window.confirm?.(message)) proceed();
+        if (window.confirm?.(message)) void proceed();
     }
 
     async handleReactivateAndApply(item, container) {

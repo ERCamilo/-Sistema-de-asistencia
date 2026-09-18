@@ -255,6 +255,40 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         expect(() => resolver.resolveItemIdentity('unknown-id', 'EMP-INACTIVE')).toThrow();
     });
 
+    test('identity candidates are ordered by employee number, then name', () => {
+        const date = '2026-09-06';
+        const sub = sampleSubmission({
+            submissionId: 'sub-order',
+            workDate: date,
+            rows: [{ miniLocalId: 'm-order', number: '999', name: 'Sin vínculo', normalHours: 8, overtimeHours: 0, status: 'present' }]
+        });
+        const unorderedEmployees = [
+            { id: 'E100', number: '100', name: 'Cien', active: true, positions: ['pos-1'], projectId: PROJECT_ID },
+            { id: 'EA', number: 'A1', name: 'Alfa', active: true, positions: ['pos-1'], projectId: PROJECT_ID },
+            { id: 'E10', number: '10', name: 'Diez', active: true, positions: ['pos-1'], projectId: PROJECT_ID },
+            { id: 'E2B', number: '2', name: 'Beto', active: true, positions: ['pos-1'], projectId: PROJECT_ID },
+            { id: 'E2A', number: '2', name: 'Ana', active: true, positions: ['pos-1'], projectId: PROJECT_ID }
+        ];
+        const resolver = createMultiDayAttendanceResolver({
+            submissions: [sub],
+            employees: unorderedEmployees,
+            attendance: {},
+            positions: mockPositions,
+            saProjectId: PROJECT_ID,
+            entityScope: PROJECT_SCOPE,
+            stage: 'mini',
+            applyPlan: mockApplyPlan
+        });
+
+        expect(resolver.getIdentityCandidates().map(employee => `${employee.number}:${employee.name}`)).toEqual([
+            '2:Ana',
+            '2:Beto',
+            '10:Diez',
+            '100:Cien',
+            'A1:Alfa'
+        ]);
+    });
+
     test('4. Simple existing-value conflict defaults to keep current and can be explicitly switched to Mini; identical current value is no-op', async () => {
         // Existing record in SA for EMP-001 has 9h (differs from imported 8h)
         mockState.attendance['EMP-001-2026-09-06'] = {

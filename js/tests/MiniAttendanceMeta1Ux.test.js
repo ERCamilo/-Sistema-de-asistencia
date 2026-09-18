@@ -227,7 +227,7 @@ describe('Meta1 UX — sticky centered work date in consolidation topbar', () =>
         expect(host.querySelector('[data-mini-topbar-day]').textContent).toBe('Día 1 de 2');
         expect(center.getAttribute('aria-label')).toContain('06/09/2026');
         // Day X/N without competing generic step signals.
-        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Consolidar Minis · Día 1 de 2');
+        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Revisar asistencia · Día 1 de 2');
         expect(host.querySelector('.mini-import-topbar-step').textContent).toBe('Día 1 de 2');
         expect(host.querySelector('.mini-import-topbar-subtitle').textContent).not.toContain('Paso 3');
         const progress = host.querySelector('.mini-import-progress-bar');
