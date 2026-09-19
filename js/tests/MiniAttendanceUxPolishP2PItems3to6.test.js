@@ -230,8 +230,9 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(banner.textContent).not.toContain('Bloqueadas:');
         expect(banner.textContent).not.toContain('Total:');
 
-        // Consolidation nav keeps only the back action; stage prose lives once in the banner.
-        const nav = host.querySelector('.mini-import-connected-view-sa-comparison .mini-import-connected-nav');
+        // Back navigation lives in the contextual footer; the old large top nav is gone.
+        expect(host.querySelector('.mini-import-connected-nav')).toBeNull();
+        const nav = host.querySelector('[data-mini-footer-nav]');
         expect(nav).not.toBeNull();
         expect(nav.querySelector('[data-mini-action="back-connected-inbox"]')).not.toBeNull();
         expect(nav.querySelector('p')).toBeNull();
