@@ -863,9 +863,9 @@ export async function requestMiniAttendance({
     const hasPartialError = errors.length > 0;
     const status = hasPartialError ? 'partial_success' : 'success';
 
-    // Meta 2: zero-attendance (ignored) and semantic-duplicate/stale (unchanged)
-    // must never count as new. Messages keep the legacy nuevos/duplicados
-    // shape and append ignored/sin-cambios only when present.
+    // A first zero-attendance report is ignored, while a later zero-hour
+    // revision of an existing source/day series is returned as updated-version
+    // and therefore counts as new. Semantic duplicates/stale revisions remain unchanged.
     const ignoredSuffix = ignoredCount ? `, ${ignoredCount} ignorados` : '';
     const unchangedSuffix = unchangedCount ? `, ${unchangedCount} sin cambios` : '';
     let message;

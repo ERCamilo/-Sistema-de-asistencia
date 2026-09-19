@@ -35,7 +35,7 @@ function envelope({ submissionId, capturedAt, workDate = '2026-09-10', deviceId 
     };
 }
 
-describe('Meta2 — zero attendance is ignored, never a new version', () => {
+describe('Meta2 — zero attendance distinguishes empty first report from real revision', () => {
     test('whole zero report returns ignored and persists nothing', async () => {
         const db = new MemoryDB();
         const store = new AttendanceSubmissionInboxStore({ db, now: () => 100 });
@@ -50,20 +50,22 @@ describe('Meta2 — zero attendance is ignored, never a new version', () => {
         expect(db.updates).toEqual([]);
     });
 
-    test('zero incoming newer than current does not create Actual nor bump updateCount', async () => {
+    test('zero incoming newer than current becomes Actual and records attendance removal', async () => {
         const db = new MemoryDB();
         let now = 100;
         const store = new AttendanceSubmissionInboxStore({ db, now: () => now++ });
         await store.importSubmission(envelope({ submissionId: id(21), capturedAt: '2026-09-10T08:00:00.000Z', rows: [presentRow()] }), { expectedSaProjectId: PROJECT });
         const zeroNewer = envelope({ submissionId: id(22), capturedAt: '2026-09-10T10:00:00.000Z', rows: [unmarkedRow()] });
         const result = await store.importSubmission(zeroNewer, { expectedSaProjectId: PROJECT });
-        expect(result.outcome).toMatch(/ignored/);
+        expect(result.outcome).toBe('updated-version');
         const all = await store.list();
-        expect(all).toHaveLength(1);
-        expect(all[0].submissionId).toBe(id(21));
+        expect(all).toHaveLength(2);
         const [group] = await store.listVersionGroups();
-        expect(group.updateCount).toBe(0);
-        expect(group.current.submissionId).toBe(id(21));
+        expect(group.original.submissionId).toBe(id(21));
+        expect(group.current.submissionId).toBe(id(22));
+        expect(group.updateCount).toBe(1);
+        expect(group.diff.changed).toBe(true);
+        expect(group.diff.summary.attendanceRemoved).toBe(1);
     });
 
     test('partial capture with one present row is actionable (missing row not inferred as 0h)', async () => {
@@ -242,6 +244,41 @@ describe('Meta2 — per-day grouping preserves source series + version choice', 
         expect([...radios].map(r => r.value).sort()).toEqual([id(1), id(4)].sort());
     });
 
+    test('zero-hour Actual remains visible and selectable because it removes prior attendance', async () => {
+        const db = new MemoryDB();
+        let now = 100;
+        const inboxStore = new AttendanceSubmissionInboxStore({ db, now: () => now++ });
+        await inboxStore.importSubmission(envelope({
+            submissionId: id(5), capturedAt: '2026-09-10T08:00:00.000Z', rows: [presentRow()]
+        }), { expectedSaProjectId: PROJECT });
+        await inboxStore.updateStatus(PROJECT, id(5), 'incorporated', { metadata: { incorporatedAt: 150 } });
+        await inboxStore.importSubmission(envelope({
+            submissionId: id(6), capturedAt: '2026-09-10T10:00:00.000Z', rows: [unmarkedRow()]
+        }), { expectedSaProjectId: PROJECT });
+
+        const modal = new MiniAttendanceImportModal({ saProjectId: PROJECT, inboxStore, importMode: 'connected' });
+        modal.mount(host);
+        await modal.setImportMode('connected');
+        await modal.openConnectedInbox();
+
+        expect(modal.getVersionGroups()).toHaveLength(1);
+        const card = host.querySelector(`[data-mini-draft-item="${id(6)}"]`);
+        expect(card).not.toBeNull();
+        expect(card.textContent).toContain('Actualizado 1 vez');
+        expect(card.textContent).toContain('asistencia eliminada');
+        expect(modal.getVersionGroups()[0].original.status).toBe('incorporated');
+        expect(modal.getVersionGroups()[0].current.status).toBe('pending');
+        const radios = card.querySelectorAll('[data-mini-version-choices] input[type="radio"]');
+        expect(radios).toHaveLength(2);
+        expect([...radios].find(radio => radio.value === id(6)).checked).toBe(true);
+
+        card.querySelector('[data-mini-draft-checkbox]').click();
+        const selected = modal.getSelectedSourceDrafts();
+        expect(selected).toHaveLength(1);
+        expect(selected[0].submissionId).toBe(id(6));
+        expect(hasActualAttendance(selected[0].sourceSnapshot)).toBe(false);
+    });
+
     test('zero series excluded from date sections and counts', async () => {
         const db = new MemoryDB();
         const inboxStore = new AttendanceSubmissionInboxStore({ db, now: () => 100 });
@@ -377,6 +414,28 @@ describe('Meta2 — bridge counters and messages', () => {
         expect(result.unchangedCount).toBe(1);
         expect(result.message).toContain('0 nuevos');
         expect(await inboxStore.list()).toHaveLength(1);
+    });
+
+    test('zero-hour revision via P2P counts as an updated version, not ignored', async () => {
+        const db = new MemoryDB();
+        const inboxStore = new AttendanceSubmissionInboxStore({ db });
+        await inboxStore.importSubmission(envelope({
+            submissionId: id(76), capturedAt: '2026-09-06T12:00:00.000Z', workDate: '2026-09-06', deviceId: 'MINI-A', rows: [presentRow()]
+        }), { expectedSaProjectId: PROJECT, metadata: { sourcePeerId: 'peer-mini-1', sourcePeerName: 'Mini 1' } });
+        const zeroRevision = envelope({
+            submissionId: id(77), capturedAt: '2026-09-06T13:00:00.000Z', workDate: '2026-09-06', deviceId: 'MINI-A', rows: [unmarkedRow()]
+        });
+        const env = mockEnv([zeroRevision]);
+        const result = await requestMiniAttendance({
+            miniId: 'peer-mini-1', date: '2026-09-06', groupingMode: 'day', saProjectId: PROJECT,
+            inboxStore, identityStore: env.identityStore, p2pCore: env.p2pCore, p2pPairing: env.p2pPairing
+        });
+        expect(result.importedCount).toBe(1);
+        expect(result.ignoredCount).toBe(0);
+        expect(result.message).toContain('1 nuevos');
+        const [group] = await inboxStore.listVersionGroups();
+        expect(group.current.submissionId).toBe(id(77));
+        expect(group.diff.summary.attendanceRemoved).toBe(1);
     });
 
     test('updated version via P2P counts as new (imported)', async () => {

@@ -444,21 +444,10 @@ export class AttendanceSubmissionInboxStore {
             return { outcome: 'stale-version', record: freeze(current), versionGroupChanged: false };
         }
 
-        // Meta 2: zero-attendance never creates/replaces a version, even when
-        // newer than current. Stale ordering above is preserved.
-        if (isZeroAttendanceSubmission(envelope)) {
-            return freeze({
-                outcome: 'ignored',
-                reason: 'zero-attendance',
-                ignored: true,
-                ignoredKind: 'zero-attendance',
-                record: freeze(current),
-                submissionId: record.submissionId,
-                seriesKey,
-                workDate: envelope?.workDate || null,
-                versionGroupChanged: false
-            });
-        }
+        // A first all-zero report is ignored above, but once a source/day
+        // series exists, a later all-zero snapshot is a legitimate revision:
+        // it may mean the Mini removed the previously reported attendance.
+        // Keep stale/duplicate protections, then let semantic diffing decide.
 
         // Meta 2: semantically equal to the immediately previous stored version
         // must not create/replace an Actual entry nor increment updateCount.
@@ -547,11 +536,13 @@ export class AttendanceSubmissionInboxStore {
                 diff
             });
         }).filter(group => {
-            // Meta 2: legacy persisted zero-attendance series are not actionable
-            // inbox work and must not appear in visible/actionable counts.
+            // A standalone/legacy zero-only series is not actionable. A later
+            // zero-hour Current that removes attendance from a real Original is.
             if (includeZeroAttendance) return true;
             try {
-                return hasActualAttendance(group?.current?.sourceSnapshot);
+                const currentHasAttendance = hasActualAttendance(group?.current?.sourceSnapshot);
+                const originalHadAttendance = hasActualAttendance(group?.original?.sourceSnapshot);
+                return currentHasAttendance || (originalHadAttendance && group?.diff?.changed === true);
             } catch {
                 return true;
             }

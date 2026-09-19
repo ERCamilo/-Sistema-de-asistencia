@@ -167,6 +167,13 @@ function draftHasActualAttendance(draft) {
     return rows.some(row => row?.status === 'present' && (Number(row.normalHours || 0) + Number(row.overtimeHours || 0)) > 0);
 }
 
+function draftIsActionableRevision(draft) {
+    if (draftHasActualAttendance(draft)) return true;
+    return draft?.versioning?.role === 'current' &&
+        Number(draft?.versioning?.updateCount || 0) > 0 &&
+        draft?.versioning?.diffFromOriginal?.changed === true;
+}
+
 function humanMiniLabel(mini) {
     if (!mini || typeof mini !== 'object') return 'Mini';
     const alias = typeof mini.alias === 'string' ? mini.alias.trim() : '';
@@ -984,7 +991,11 @@ export class MiniAttendanceImportModal {
     }
 
     getSelectedSourceDrafts() {
-        return this.savedDrafts.filter(draft => this.selectedDraftIds.has(draft.submissionId) && !isIncorporatedDraft(draft) && draftHasActualAttendance(draft));
+        return this.savedDrafts.filter(draft =>
+            this.selectedDraftIds.has(draft.submissionId) &&
+            !isIncorporatedDraft(draft) &&
+            draftIsActionableRevision(draft)
+        );
     }
 
     async persistMiniProgress() {
@@ -1173,9 +1184,10 @@ export class MiniAttendanceImportModal {
             const diff = current?.versioning?.diffFromOriginal || original?.versioning?.diffFromOriginal || null;
             return { seriesKey, original, current, selected, diff, updateCount: Math.max(Number(original?.versioning?.updateCount || 0), Number(current?.versioning?.updateCount || 0)) };
         }).filter(group => {
-            // Meta 2: legacy persisted zero-attendance series are not actionable.
+            // A zero-only first report is not actionable, but a zero-hour Current
+            // that is a real revision of prior attendance must stay visible.
             try {
-                return draftHasActualAttendance(group?.current);
+                return draftIsActionableRevision(group?.current);
             } catch {
                 return true;
             }
