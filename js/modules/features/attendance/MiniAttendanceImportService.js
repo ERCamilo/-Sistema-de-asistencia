@@ -44,22 +44,33 @@ function validateWrite(write, date) {
     const totalHours = record && isNonNegativeHours(record.hoursWorked) && isNonNegativeHours(record.overtimeHours)
         ? record.hoursWorked + record.overtimeHours
         : NaN;
+    const explicitZeroHours = record?.present === false &&
+        totalHours === 0 &&
+        record.deletedAt == null;
     const attendanceStateValid = record?.present === true
         ? totalHours > 0 && totalHours <= 24
-        : record?.present === false && totalHours === 0 && record.deletedAt == null;
+        : explicitZeroHours;
+    const zeroPositionShapeValid = explicitZeroHours &&
+        record.selectedPosition === null &&
+        Array.isArray(positions) &&
+        positions.length === 0 &&
+        record.multiPosition === false;
+    const workedPositionShapeValid = record?.present === true &&
+        typeof record.selectedPosition === 'string' &&
+        Boolean(record.selectedPosition) &&
+        positionHoursValid &&
+        uniquePositionIds.size === positions?.length &&
+        positions?.[0]?.positionId === record.selectedPosition &&
+        record.multiPosition === (positions?.length > 1) &&
+        positionTotals?.normalHours === record.hoursWorked &&
+        positionTotals?.overtimeHours === record.overtimeHours;
     const malformed = !record ||
         typeof record.employeeId !== 'string' || !record.employeeId ||
         record.date !== date ||
         !attendanceStateValid ||
         !isNonNegativeHours(record.hoursWorked) ||
         !isNonNegativeHours(record.overtimeHours) ||
-        typeof record.selectedPosition !== 'string' || !record.selectedPosition ||
-        !positionHoursValid ||
-        uniquePositionIds.size !== positions?.length ||
-        positions?.[0]?.positionId !== record.selectedPosition ||
-        record.multiPosition !== (positions?.length > 1) ||
-        positionTotals?.normalHours !== record.hoursWorked ||
-        positionTotals?.overtimeHours !== record.overtimeHours;
+        (!zeroPositionShapeValid && !workedPositionShapeValid);
     if (malformed) throw new TypeError(`Malformed attendance write: ${write.key}`);
     if (write.key !== `${record.employeeId}-${date}`) {
         throw new TypeError(`Attendance write key does not match record: ${write.key}`);

@@ -2786,6 +2786,10 @@ export class MiniAttendanceImportModal {
                                 this.render();
                             } catch (err) {
                                 console.error('Error applying day:', err);
+                                window.showNotification?.(
+                                    'No se pudo aplicar este día. La asistencia no fue modificada.',
+                                    'error'
+                                );
                             }
                         });
                         headerEl.append(applyDayBtn);
@@ -3282,6 +3286,10 @@ export class MiniAttendanceImportModal {
                         this.render();
                     } catch (err) {
                         console.error('Error applying ready days:', err);
+                        window.showNotification?.(
+                            'No se pudieron aplicar los días listos. La asistencia no fue modificada.',
+                            'error'
+                        );
                     }
                 });
                 const allDaysApplied = multiSummary.totalDays > 0 && multiSummary.appliedDaysCount === multiSummary.totalDays;

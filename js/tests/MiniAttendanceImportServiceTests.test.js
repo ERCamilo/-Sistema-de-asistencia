@@ -215,14 +215,30 @@ describe('MiniAttendanceImportService', () => {
         expect(deps.saveApplicationData).not.toHaveBeenCalled();
     });
 
-    test('accepts explicit zero-hour records as non-tombstone attendance', async () => {
-        const zero = record('e0', 'p1', { present: false, deletedAt: null, hoursWorked: 0, overtimeHours: 0, positionHours: [{ positionId: 'p1', hours: 0, overtimeHours: 0 }] });
+    test('accepts explicit zero-hour records without requiring a position', async () => {
+        const zero = record('e0', null, {
+            present: false,
+            deletedAt: null,
+            hoursWorked: 0,
+            overtimeHours: 0,
+            selectedPosition: null,
+            multiPosition: false,
+            positionHours: []
+        });
         const plan = applyPlan([{ key: `e0-${DATE}`, record: zero }]);
         const state = { attendance: {} };
         const deps = dependencies(state);
         expect(validateMiniAttendanceApplyPlan(plan)).toBe(true);
         await applyMiniAttendancePlan(plan, { deps, now: 12345 });
-        expect(state.attendance[`e0-${DATE}`]).toMatchObject({ present: false, deletedAt: null, hoursWorked: 0, overtimeHours: 0 });
+        expect(state.attendance[`e0-${DATE}`]).toMatchObject({
+            present: false,
+            deletedAt: null,
+            hoursWorked: 0,
+            overtimeHours: 0,
+            selectedPosition: null,
+            multiPosition: false,
+            positionHours: []
+        });
     });
 
     test('propagates save failures instead of reporting success', async () => {
