@@ -24,7 +24,7 @@ const SCOPED_CLOSURE_REQUIRED_FIELDS = [
 ];
 const CLOSURE_MONEY_FIELDS = ['gross', 'bonuses', 'deductions', 'loans', 'net'];
 
-function canonicalProjectId(value) {
+export function canonicalProjectId(value) {
     if (typeof value !== 'string') {
         throw new TypeError('El projectId canónico del cierre de Nómina es obligatorio');
     }

@@ -1,4 +1,5 @@
 import { projectSetupService } from './ProjectSetupService.js';
+import { mountProjectOnboarding } from './ProjectOnboarding.js';
 
 const CREATE_MODAL_ID = 'project-create-modal';
 const ICONS = Object.freeze({
@@ -149,7 +150,7 @@ export async function openProjectCreateModal({ setupService = projectSetupServic
     document.body.appendChild(modalEl);
 
     const slot = modalEl.querySelector('[data-project-create-modal-slot]');
-    const formHandle = mountProjectCreateForm(slot, {
+    const formHandle = mountProjectOnboarding(slot, {
         setupService,
         onSuccess: (project, nextState) => { closeProjectCreateModal(); onSuccess?.(project, nextState); },
         onCancel: handleClose

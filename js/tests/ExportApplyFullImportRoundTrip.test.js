@@ -103,8 +103,13 @@ describe('ExportController FULL import round trip (applyFullImport via confirm f
         expect(state.showImportFullModal).toBe(false);
         expect(state.importFullText).toBe('');
 
-        // Persistence stays on the mocked IndexedDB service — never real storage.
-        expect(flushPendingSave()).toBe(true);
+        // F1 R02 FULL (Luna BLOCKER fix): the compatibility pre-save is promoted
+        // to immediate + requireLocalSuccess inside the ExportController wrapper,
+        // so NO 300ms debounce may remain pending after onConfirm — a leftover
+        // drain could fire an unawaited save during petty-cash restore or
+        // clearFirst. Stronger safety contract, not a relaxation. Persistence
+        // still goes through the mocked IndexedDB service, never real storage.
+        expect(flushPendingSave()).toBe(false);
         await sleep(10);
         expect(indexedDBService.saveState).toHaveBeenCalled();
     });

@@ -14,6 +14,11 @@ function readDefaultProjectId() {
 
 export function replaceEntityScope(scope = EMPTY_SCOPE) {
     resolvedScope = { ...scope };
+    if (scope?.defaultProjectId && typeof scope.defaultProjectId === 'string') {
+        try {
+            localStorage.setItem(DEFAULT_PROJECT_LS_KEY, scope.defaultProjectId);
+        } catch (_) {}
+    }
     return { ...resolvedScope };
 }
 
@@ -32,20 +37,70 @@ export function captureEntityProjectScope() {
     return {
         ...resolvedScope,
         enabled: true,
-        defaultProjectId: readDefaultProjectId()
+        defaultProjectId: readDefaultProjectId() ?? null
     };
 }
 
 export function effectiveProjectId(entity, scope = resolvedScope) {
-    return entity?.projectId ?? scope.defaultProjectId ?? null;
+    const defaultPid = scope && Object.prototype.hasOwnProperty.call(scope, 'defaultProjectId')
+        ? scope.defaultProjectId
+        : (readDefaultProjectId() ?? null);
+    return entity?.projectId ?? defaultPid ?? null;
 }
 
 export function entityInScope(entity, scope = resolvedScope) {
-    if (!scope.enabled || !scope.projectId) return true;
+    if (!scope?.enabled || !scope?.projectId) return true;
     return effectiveProjectId(entity, scope) === scope.projectId;
 }
 
 export function sameEffectiveProject(a, b, scope = resolvedScope) {
     if (!scope?.enabled) return true;
     return effectiveProjectId(a, scope) === effectiveProjectId(b, scope);
+}
+
+export function getScopedPositions(state, scope = resolvedScope) {
+    const positions = state?.positions || [];
+    if (!scope?.enabled || !scope?.projectId) {
+        return positions;
+    }
+    return positions.filter(p => entityInScope(p, scope));
+}
+
+export function getScopedLeaders(state, scope = resolvedScope) {
+    const leaders = state?.leaders || [];
+    if (!scope?.enabled || !scope?.projectId) {
+        return leaders;
+    }
+    return leaders.filter(l => entityInScope(l, scope));
+}
+
+export function getScopedEmployees(state, scope = resolvedScope) {
+    const employees = state?.employees || [];
+    if (!scope?.enabled || !scope?.projectId) {
+        return employees;
+    }
+    return employees.filter(e => entityInScope(e, scope));
+}
+
+export function getScopedSidebarCounters(state, scope = resolvedScope) {
+    const employees = state?.employees || [];
+    const isScoped = scope?.enabled && scope?.projectId;
+    const scopedEmployees = isScoped
+        ? employees.filter(e => entityInScope(e, scope))
+        : employees;
+    const activeEmployees = scopedEmployees.filter(e => e.active !== false).length;
+    let activeLoans = 0;
+    try {
+        scopedEmployees.forEach(e => {
+            (e.loans || []).forEach(l => {
+                if (l && l.status === 'active') activeLoans++;
+            });
+        });
+    } catch (_) {
+        activeLoans = 0;
+    }
+    return {
+        activeEmployees,
+        activeLoans
+    };
 }

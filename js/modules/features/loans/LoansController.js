@@ -41,6 +41,8 @@ import { findSimilarExistingLoan } from './LoanDuplicateDetector.js';
 import { resolveDuplicateAsDistinct, resolveDuplicateByDeleting } from './LoanDuplicateResolver.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
+import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
+import { captureEntityProjectScope } from '../projects/EntityProjectScope.js';
 import {
     createLoanPaymentDraft,
     updateLoanPaymentDraft,
@@ -161,6 +163,22 @@ function alertMsg(msg, type = 'error') {
     }
 }
 
+function findScopedLoanEmployee(employeeId) {
+    if (!employeeId) return null;
+    const projectScope = peekEntityScope();
+    const employee = (state.employees || []).find(item => String(item.id) === String(employeeId));
+    return employee && entityInScope(employee, projectScope) ? employee : null;
+}
+
+function rejectForeignLoanEmployee(employeeId) {
+    const projectScope = peekEntityScope();
+    if (!projectScope.enabled || !projectScope.projectId) return true;
+    const employee = findScopedLoanEmployee(employeeId);
+    if (employee) return employee;
+    alertMsg('Empleado no disponible en el proyecto activo');
+    return null;
+}
+
 // ─── One-time migration on app boot ──────────────────────────────────────────
 
 /**
@@ -185,6 +203,7 @@ export function migrateAllAdvances() {
 
 export function selectLoansEmployee(employeeId) {
     ensureLedgerState();
+    if (!rejectForeignLoanEmployee(employeeId)) return false;
     stateManager.batchSetState(() => {
         state.loansLedger.selectedEmployeeId = employeeId;
         state.loansLedger.showAddForm = false;
@@ -326,8 +345,9 @@ export function setLoansPickerSearch(value) {
  * encuentre listo.
  */
 export function openLoansLedgerFor(employeeId) {
-    if (!employeeId) return;
+    if (!employeeId) return false;
     ensureLedgerState();
+    if (!rejectForeignLoanEmployee(employeeId)) return false;
 
     stateManager.batchSetState(() => {
         // 1. Cerrar el modal del perfil si estaba abierto.
@@ -360,8 +380,9 @@ export function openLoansLedgerFor(employeeId) {
  * Funciona igual para empleados con o sin préstamos previos.
  */
 export function pickEmployeeForNewLoan(employeeId) {
-    if (!employeeId) return;
+    if (!employeeId) return false;
     ensureLedgerState();
+    if (!rejectForeignLoanEmployee(employeeId)) return false;
     stateManager.batchSetState(() => {
         state.loansLedger.showEmployeePicker = false;
         state.loansLedger.selectedEmployeeId = employeeId;
@@ -420,7 +441,7 @@ export function setLoanDraftField(field, value) {
 function _doCreateLoan(emp) {
     const draft = state.loansLedger.newLoanDraft;
     try {
-        const loan = createLoan(emp, draft);
+        const loan = createLoan(emp, draft, { projectScope: captureEntityProjectScope() });
         state.loansLedger.showAddForm = false;
         state.loansLedger.newLoanDraft = createEmptyLoanDraft();
         // Toast honesto: lo emite SaveOutcomeNotifier con el resultado REAL.
@@ -439,9 +460,9 @@ export function submitNewLoan() {
         alertMsg('Selecciona un empleado primero');
         return;
     }
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) {
-        alertMsg('Empleado no encontrado');
+        alertMsg('Empleado no disponible en el proyecto activo');
         return;
     }
 
@@ -477,9 +498,7 @@ export function togglePaymentForm(loanId) {
     const open = state.loansLedger.showPaymentFormForLoan === loanId
         ? null
         : loanId;
-    const employee = state.employees.find(item =>
-        String(item.id) === String(state.loansLedger.selectedEmployeeId)
-    );
+    const employee = findScopedLoanEmployee(state.loansLedger.selectedEmployeeId);
     const loan = (employee?.loans || []).find(item => String(item.id) === String(loanId));
     stateManager.batchSetState(() => {
         state.loansLedger.showPaymentFormForLoan = open;
@@ -501,9 +520,7 @@ export function setPaymentDraftField(field, value) {
     ensureLedgerState();
     const draft = state.loansLedger.paymentDraft;
     if (!draft) return;
-    const employee = state.employees.find(item =>
-        String(item.id) === String(state.loansLedger.selectedEmployeeId)
-    );
+    const employee = findScopedLoanEmployee(state.loansLedger.selectedEmployeeId);
     const loan = (employee?.loans || []).find(item =>
         String(item.id) === String(state.loansLedger.showPaymentFormForLoan)
     );
@@ -520,9 +537,9 @@ export function setPaymentDraftField(field, value) {
 export function submitPayment(loanId) {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) {
-        alertMsg('Empleado no encontrado');
+        alertMsg('Empleado no disponible en el proyecto activo');
         return;
     }
     const loan = (emp.loans || []).find(item => String(item.id) === String(loanId));
@@ -532,7 +549,7 @@ export function submitPayment(loanId) {
     }
     try {
         const resolvedDraft = resolveLoanPaymentDraft(loan, state.loansLedger.paymentDraft);
-        const payment = recordPayment(emp, loanId, resolvedDraft);
+        const payment = recordPayment(emp, loanId, resolvedDraft, { projectScope: captureEntityProjectScope() });
         state.loansLedger.showPaymentFormForLoan = null;
         saveApplicationData({ immediate: true, announce: `Abono registrado: ${payment.amount.toFixed(2)}` });
         render();
@@ -546,7 +563,7 @@ export function submitPayment(loanId) {
 export function settleLoanByFullPayment(loanId) {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) return;
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) return;
@@ -556,11 +573,20 @@ export function settleLoanByFullPayment(loanId) {
         notify('Este préstamo ya está saldado', 'info');
         return;
     }
+    const doSettle = () => {
+        try {
+            const currentEmp = findScopedLoanEmployee(empId);
+            if (!currentEmp) return;
+            recordPayment(currentEmp, loanId, { amount: balance, date: getDateKey(new Date()), note: 'Saldo completo' }, { projectScope: captureEntityProjectScope() });
+            saveApplicationData({ immediate: true, announce: 'Préstamo saldado' });
+            render();
+        } catch (err) {
+            alertMsg(`❌ ${err.message}`);
+        }
+    };
     if (!window.showConfirm) {
         // Fallback if Modal.confirm shim is unavailable
-        recordPayment(emp, loanId, { amount: balance, date: getDateKey(new Date()), note: 'Saldo completo' });
-        saveApplicationData({ immediate: true, announce: 'Préstamo saldado' });
-        render();
+        doSettle();
         return;
     }
     window.showConfirm({
@@ -569,28 +595,30 @@ export function settleLoanByFullPayment(loanId) {
         confirmText: 'Sí, saldar',
         cancelText: 'Cancelar',
         type: 'info',
-        onConfirm: () => {
-            try {
-                recordPayment(emp, loanId, { amount: balance, date: getDateKey(new Date()), note: 'Saldo completo' });
-                saveApplicationData({ immediate: true, announce: 'Préstamo saldado' });
-                render();
-            } catch (err) {
-                alertMsg(`❌ ${err.message}`);
-            }
-        }
+        onConfirm: doSettle
     });
 }
 
 export function writeOffLoanWithConfirm(loanId) {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) return;
 
+    const doWriteOff = () => {
+        try {
+            const currentEmp = findScopedLoanEmployee(empId);
+            if (!currentEmp) return;
+            writeOffLoan(currentEmp, loanId, null, { projectScope: captureEntityProjectScope() });
+            saveApplicationData({ immediate: true, announce: 'Préstamo anulado' });
+            render();
+        } catch (err) {
+            alertMsg(`❌ ${err.message}`);
+        }
+    };
+
     if (!window.showConfirm) {
-        writeOffLoan(emp, loanId);
-        saveApplicationData({ immediate: true, announce: 'Préstamo anulado' });
-        render();
+        doWriteOff();
         return;
     }
     window.showConfirm({
@@ -599,22 +627,22 @@ export function writeOffLoanWithConfirm(loanId) {
         confirmText: 'Sí, anular',
         cancelText: 'Cancelar',
         type: 'warning',
-        onConfirm: () => {
-            writeOffLoan(emp, loanId);
-            saveApplicationData({ immediate: true, announce: 'Préstamo anulado' });
-            render();
-        }
+        onConfirm: doWriteOff
     });
 }
 
 export function reopenLoanHandler(loanId) {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) return;
-    reopenLoan(emp, loanId);
-    saveApplicationData({ immediate: true, announce: 'Préstamo reactivado' });
-    render();
+    try {
+        reopenLoan(emp, loanId, { projectScope: captureEntityProjectScope() });
+        saveApplicationData({ immediate: true, announce: 'Préstamo reactivado' });
+        render();
+    } catch (err) {
+        alertMsg(`❌ ${err.message}`);
+    }
 }
 
 /**
@@ -626,12 +654,14 @@ export function reopenLoanHandler(loanId) {
 export function deleteLoanWithConfirm(loanId) {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) return;
 
     const doDelete = () => {
         try {
-            deleteLoan(emp, loanId);
+            const currentEmp = findScopedLoanEmployee(empId);
+            if (!currentEmp) return;
+            deleteLoan(currentEmp, loanId, { projectScope: captureEntityProjectScope() });
             saveApplicationData({ immediate: true, announce: 'Préstamo eliminado' });
             render();
         } catch (err) {
@@ -653,13 +683,23 @@ export function deleteLoanWithConfirm(loanId) {
 export function voidPaymentHandler(loanId, paymentId) {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) return;
 
+    const doVoid = () => {
+        try {
+            const currentEmp = findScopedLoanEmployee(empId);
+            if (!currentEmp) return;
+            voidPayment(currentEmp, loanId, paymentId, null, { projectScope: captureEntityProjectScope() });
+            saveApplicationData({ immediate: true, announce: 'Abono anulado' });
+            render();
+        } catch (err) {
+            alertMsg(`❌ ${err.message}`);
+        }
+    };
+
     if (!window.showConfirm) {
-        voidPayment(emp, loanId, paymentId);
-        saveApplicationData({ immediate: true, announce: 'Abono anulado' });
-        render();
+        doVoid();
         return;
     }
     window.showConfirm({
@@ -668,11 +708,7 @@ export function voidPaymentHandler(loanId, paymentId) {
         confirmText: 'Sí, anular',
         cancelText: 'Cancelar',
         type: 'warning',
-        onConfirm: () => {
-            voidPayment(emp, loanId, paymentId);
-            saveApplicationData({ immediate: true, announce: 'Abono anulado' });
-            render();
-        }
+        onConfirm: doVoid
     });
 }
 
@@ -684,7 +720,7 @@ export function toggleRefinanceForm(loanId) {
     // Pre-llenar la tasa con la del préstamo (editable).
     let rate = 0;
     if (open) {
-        const emp = state.employees.find(e => e.id === state.loansLedger.selectedEmployeeId);
+        const emp = findScopedLoanEmployee(state.loansLedger.selectedEmployeeId);
         const loan = (emp?.loans || []).find(l => l.id === loanId);
         rate = Number(loan?.interestRate || 0);
     }
@@ -724,9 +760,9 @@ export function setRefinanceDraftField(field, value) {
 export function submitRefinance(loanId) {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) {
-        alertMsg('Empleado no encontrado');
+        alertMsg('Empleado no disponible en el proyecto activo');
         return;
     }
     const draft = state.loansLedger.refinanceDraft || {};
@@ -745,7 +781,7 @@ export function submitRefinance(loanId) {
         params.replacement = false;
     }
     try {
-        const ev = refinanceLoan(emp, loanId, params);
+        const ev = refinanceLoan(emp, loanId, params, { projectScope: captureEntityProjectScope() });
         state.loansLedger.showRefinanceFormForLoan = null;
         saveApplicationData({ immediate: true, announce: `Préstamo refinanciado: +${ev.interestAmount.toFixed(2)} de interés` });
         render();
@@ -761,12 +797,14 @@ export function submitRefinance(loanId) {
 export function voidRefinanceHandler(loanId, refinId) {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) return;
 
     const doVoid = () => {
         try {
-            voidRefinancing(emp, loanId, refinId);
+            const currentEmp = findScopedLoanEmployee(empId);
+            if (!currentEmp) return;
+            voidRefinancing(currentEmp, loanId, refinId, null, { projectScope: captureEntityProjectScope() });
             saveApplicationData({ immediate: true, announce: 'Refinanciamiento anulado' });
             render();
         } catch (err) {
@@ -838,9 +876,9 @@ export function submitConsolidateLoans() {
         alertMsg('Selecciona un empleado primero');
         return;
     }
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) {
-        alertMsg('Empleado no encontrado');
+        alertMsg('Empleado no disponible en el proyecto activo');
         return;
     }
 
@@ -852,7 +890,7 @@ export function submitConsolidateLoans() {
             interestRate: Number(draft.interestRate || 0),
             startDate: draft.startDate,
             note: draft.note
-        });
+        }, null, { projectScope: captureEntityProjectScope() });
 
         stateManager.batchSetState(() => {
             state.loansLedger.showConsolidateForm = false;
@@ -882,7 +920,7 @@ export function toggleInactiveHistory() {
 function _selectedEmployee() {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
-    return state.employees.find(e => e.id === empId) || null;
+    return findScopedLoanEmployee(empId) || null;
 }
 
 /**

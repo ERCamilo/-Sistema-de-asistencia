@@ -30,11 +30,13 @@ export function filterLegacyEmployeeAdjustments(adjustments) {
 
 export function buildPayrollAdjustmentInstallmentSave(input = {}, dependencies = {}) {
     const { employees, kind, draft, createdAt } = input;
+    const projectId = input.projectId || draft?.projectId || null;
     validateDraft(kind, draft);
 
     const plans = createPayrollAdjustmentInstallmentPlans({
         kind,
         employeeIds: draft.targetIds,
+        projectId,
         name: draft.name,
         totalAmount: draft.value,
         installmentCount: draft.installmentsEnabled ? draft.installmentCount : 1,
@@ -44,7 +46,7 @@ export function buildPayrollAdjustmentInstallmentSave(input = {}, dependencies =
         scope: draft.scope,
         createdAt
     }, dependencies);
-    const nextEmployees = attachPayrollAdjustmentPlans(employees, plans);
+    const nextEmployees = attachPayrollAdjustmentPlans(employees, plans, { projectId });
     const noun = draft.installmentsEnabled
         ? kind === ADJUSTMENT_PLAN_KIND.BONUS
             ? (plans.length === 1 ? 'bonificación a cuotas' : 'bonificaciones a cuotas')

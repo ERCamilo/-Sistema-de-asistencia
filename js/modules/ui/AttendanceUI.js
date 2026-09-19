@@ -626,13 +626,15 @@ export function AttendanceDetailAvatar(employee) {
 }
 
 export function getEffectiveAttendanceDetailEmployeeId() {
+    const projectScope = peekEntityScope();
+    const scopedEmployees = state.employees.filter(employee => entityInScope(employee, projectScope));
     const selectedId = state.selectedDetailEmployeeId;
-    if (selectedId && state.employees.some(employee => employee.id === selectedId)) {
+    if (selectedId && scopedEmployees.some(employee => employee.id === selectedId)) {
         return selectedId;
     }
 
-    return state.employees.find(employee => employee.active !== false)?.id
-        || state.employees[0]?.id
+    return scopedEmployees.find(employee => employee.active !== false)?.id
+        || scopedEmployees[0]?.id
         || null;
 }
 

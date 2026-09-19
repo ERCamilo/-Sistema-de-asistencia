@@ -27,10 +27,12 @@ import {
     peekEntityScope,
     effectiveProjectId,
     entityInScope,
-    sameEffectiveProject
+    sameEffectiveProject,
+    getScopedPositions,
+    getScopedSidebarCounters
 } from './EntityProjectScope.js';
 
-export { peekEntityScope, effectiveProjectId, entityInScope, sameEffectiveProject };
+export { peekEntityScope, effectiveProjectId, entityInScope, sameEffectiveProject, getScopedPositions, getScopedSidebarCounters };
 
 export const ACTIVE_PROJECT_LS_KEY = 'asistencia_active_project_id';
 

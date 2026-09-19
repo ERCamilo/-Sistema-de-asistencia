@@ -7,6 +7,7 @@
  */
 
 import { state } from '../../core/AppState.js';
+import { peekEntityScope, entityInScope } from '../projects/ProjectContext.js';
 import {
     ProfileTabResumen,
     ProfileTabNomina,
@@ -20,6 +21,9 @@ export function EmployeeProfileModal() {
     const empId = state.employeeProfile.employeeId;
     const emp = state.employees.find(e => e.id === empId);
     if (!emp) return '';
+    // F1 R02: stale cross-project IDs fail closed — un empleado de otro
+    // proyecto nunca abre perfil global. Flag OFF ⇒ entityInScope identidad.
+    if (!entityInScope(emp, peekEntityScope())) return '';
 
     const activeTab = state.employeeProfile.activeTab;
 

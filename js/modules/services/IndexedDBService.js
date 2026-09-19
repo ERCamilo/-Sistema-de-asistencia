@@ -25,12 +25,36 @@ import {
 export const IDB_OPEN_TIMEOUT_MS = 8000;
 export const IDB_BLOCKED_GRACE_MS = 4000;
 
+// 🛡️ C02-NEW-1: stores propiedad de saveState — los únicos que participan
+// de la barrera de época (los canales independientes, p.ej. el outbox de
+// sync, no representan el dataset reemplazado y no deben bloquearse).
+const SAVE_STATE_OWNED_STORES = new Set([
+    'employees', 'positions', 'leaders', 'attendance', 'settings'
+]);
+
+/** ¿Es un store cuyo contenido es reemplazado/gestionado por saveState()? */
+function isSaveStateOwnedStore(storeName) {
+    return SAVE_STATE_OWNED_STORES.has(storeName);
+}
+
 export class IndexedDBService {
     constructor(dbName = 'attendance-app-db', version = 22) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
         this.isInitialized = false;
+        // 🛡️ C02-NEW-1: contexto de época del guardado EN VUELO en esta
+        // instancia ({ ref, epoch }), publicado por saveState() al entrar y
+        // liberado al terminar. Las primitivas de escritura lo consultan EN
+        // EL MOMENTO de emitir cada transacción (ver _isDatasetEpochStale).
+        this._epochFlightGuard = null;
+        // 🛡️ C03-NEW-1: true mientras el tx readwrite multi-store de un
+        // reemplazo FULL (clearFirst atómico) está CREADO pero todavía sin
+        // commitear. Cualquier primitiva sobre stores propiedad de saveState
+        // emitida en esa ventana encolaría DETRÁS del reemplazo y aterrizaría
+        // DESPUÉS del commit — exactamente la resurrección parcial que este
+        // ciclo cierra. Ver _isDatasetEpochStale.
+        this._fullReplacementTxInFlight = false;
     }
 
     /** 🌐 Verificar soporte de navegador */
@@ -339,7 +363,12 @@ export class IndexedDBService {
     }
 
     async update(storeName, data) {
+        // 🛡️ C02-NEW-1: barrera de época en el punto de escritura (mismo
+        // criterio que batchUpdate — settings es store propiedad de saveState
+        // y un put aterrizado tras el commit de un FULL lo resucitaría).
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return undefined;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return undefined;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -596,8 +625,19 @@ export class IndexedDBService {
      * @param {Array} records - Registros a guardar
      */
     async batchUpdate(storeName, records) {
+        // 🛡️ C02-NEW-1: barrera de época EN EL PUNTO DE ESCRITURA. El chequeo
+        // de entrada de saveState ya corrió cuando este guardado quedó
+        // suspendido DENTRO de batchUpdate (el caller puede gatearlo); si un
+        // reemplazo FULL compromete durante esa ventana y este put aterriza
+        // después del commit, upsertaría el dataset pre-import en los stores
+        // recién importados (el save post-commit nunca limpia — resurrección
+        // durable). Verificar la época justo antes de emitir la transacción.
+        // Sólo aplica a los stores propiedad de saveState: los canales
+        // independientes (p.ej. outbox de sync) no participan de la época.
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return 0;
         if (!records || records.length === 0) return 0;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return 0;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -619,8 +659,14 @@ export class IndexedDBService {
 
     /** Deletes several keys atomically in a single IndexedDB transaction. */
     async batchDelete(storeName, keys) {
+        // 🛡️ C04-NEW-1: barrera de época en el punto de escritura (mismo
+        // criterio que batchUpdate/update). Un batchDelete del pruner emitido
+        // mientras el tx de reemplazo FULL está creado-sin-commitear encolaría
+        // DETRÁS del reemplazo y borraría claves del dataset recién importado.
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return 0;
         if (!Array.isArray(keys) || keys.length === 0) return 0;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return 0;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -791,7 +837,13 @@ export class IndexedDBService {
     }
 
     async delete(storeName, key) {
+        // 🛡️ C04-NEW-1: barrera de época en el punto de escritura (mismo
+        // criterio que update). Un delete sobre un store propiedad de
+        // saveState emitido durante la ventana del reemplazo FULL aterrizaría
+        // DESPUÉS del commit y borraría filas recién importadas.
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return false;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return false;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -802,7 +854,18 @@ export class IndexedDBService {
     }
 
     async clear(storeName) {
+        // 🛡️ C04-NEW-1: barrera de época en el punto de escritura (mismo
+        // criterio que batchUpdate/update). Un clear('attendance') de un
+        // guardado clearAttendance (executeAutoRepair / MaintenanceUI) que se
+        // libere mientras el tx de reemplazo FULL está creado-sin-commitear
+        // encolaría DETRÁS del reemplazo, commit-earía DESPUÉS y limpiaría
+        // TODO el store recién importado — exactamente la pérdida durable que
+        // C02-NEW-1 cerró para los writes. Verificar la época justo antes de
+        // emitir la transacción; el guardado clearAttendance re-chequea tras
+        // este await y se detiene (silencioso, sin lanzar).
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return false;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return false;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -925,6 +988,146 @@ export class IndexedDBService {
     }
 
     /**
+     * 🛡️ C02-NEW-1 / C03-NEW-1: ¿la época del dataset avanzó por encima del
+     * estampo del vuelo activo de saveState()? Sólo evalúa cuando hay un
+     * vuelo publicado (saveState estampa __datasetEpochRef + __datasetEpoch
+     * en SUS options al entrar y libera el guard al terminar); fuera de un
+     * vuelo no hay barrera y las primitivas se comportan exactamente igual
+     * que siempre.
+     *
+     * 🛡️ C03-NEW-1: la ventana del reemplazo FULL en vuelo también es
+     * barrera dura, INDEPENDIENTEMENTE del guard de época. El contador
+     * compartido lo suma PersistenceService.saveToIndexedDB sólo DESPUÉS de
+     * `await saveState(clearFirst)` — es decir, DESPUÉS del commit. Un
+     * guardado obsoleto cuyo re-chequeo corre mientras el tx de reemplazo
+     * está creado-sin-commitear veía la época VIEJA, pasaba la barrera y
+     * encolaba su readwrite detrás del reemplazo: commit-earía después y
+     * resucitaría filas pre-import en un store recién importado. Mientras el
+     * tx del reemplazo esté en vuelo, ninguna escritura a stores propios
+     * puede emitirse.
+     */
+    _isDatasetEpochStale() {
+        if (this._fullReplacementTxInFlight) return true;
+        const guard = this._epochFlightGuard;
+        if (!guard || !guard.ref || typeof guard.ref.value !== 'number') return false;
+        return typeof guard.epoch === 'number' && guard.ref.value > guard.epoch;
+    }
+
+    /**
+     * Reemplaza atómicamente los stores propiedad de saveState.
+     * clear + put viven en UNA sola transacción: cualquier request fallido
+     * aborta todo el reemplazo y conserva el dataset anterior.
+     */
+    async _replaceOwnedStateAtomically(state, entityScope, stats, options = {}) {
+        await this.init();
+
+        const ownStores = ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue']
+            .filter(name => this.db.objectStoreNames.contains(name));
+
+        const pettyCash = options.pettyCash || state?.pettyCash;
+        const includePettyCash = Boolean(pettyCash && typeof pettyCash === 'object');
+        const pettyCashStores = ['pettyCashProjects', 'pettyCashPeriods', 'pettyCashMovements'];
+        const cashStoresToAdd = includePettyCash
+            ? pettyCashStores.filter(name => this.db.objectStoreNames.contains(name))
+            : [];
+        const storesToReplace = [...ownStores, ...cashStoresToAdd];
+
+        const empMap = new Map();
+        (state.employees || []).forEach(emp => {
+            const key = dedupKeyForRecord(emp, entityScope);
+            if (!key) return;
+            const existing = empMap.get(key);
+            if (!existing || (emp.updatedAt || 0) > (existing.updatedAt || 0)) {
+                if (existing) stats.deduplicated++;
+                empMap.set(key, emp);
+            } else {
+                stats.deduplicated++;
+            }
+        });
+
+        const leadMap = new Map();
+        (state.leaders || []).forEach(leader => {
+            const key = dedupKeyForRecord(leader, entityScope);
+            if (!key) return;
+            const existing = leadMap.get(key);
+            if (!existing || (leader.updatedAt || 0) > (existing.updatedAt || 0)) {
+                if (existing) stats.deduplicated++;
+                leadMap.set(key, leader);
+            } else {
+                stats.deduplicated++;
+            }
+        });
+
+        let attendance = Object.entries(state.attendance || {}).map(([key, value]) => ({ key, ...value }));
+        const seenAttendance = new Set();
+        attendance = attendance.filter(record => {
+            const employeeDateKey = `${record.employeeId}-${record.date}`;
+            if (seenAttendance.has(employeeDateKey)) {
+                stats.deduplicated++;
+                return false;
+            }
+            seenAttendance.add(employeeDateKey);
+            return true;
+        });
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(storesToReplace, 'readwrite');
+            let operationError = null;
+            let settled = false;
+            const fail = () => {
+                if (settled) return;
+                settled = true;
+                reject(operationError || tx.error || new Error('Atomic full-state replacement failed'));
+            };
+
+            tx.oncomplete = () => {
+                if (settled) return;
+                settled = true;
+                stats.employees = empMap.size;
+                stats.positions = (state.positions || []).length;
+                stats.leaders = leadMap.size;
+                stats.attendance = attendance.length;
+                if (includePettyCash) {
+                    stats.pettyCash = {
+                        projects: (pettyCash.projects || []).length,
+                        periods: (pettyCash.periods || []).length,
+                        movements: (pettyCash.movements || []).length
+                    };
+                }
+                resolve(stats);
+            };
+            tx.onerror = fail;
+            tx.onabort = fail;
+
+            try {
+                for (const name of storesToReplace) tx.objectStore(name).clear();
+
+                const putAll = (storeName, records) => {
+                    if (!storesToReplace.includes(storeName)) return;
+                    const store = tx.objectStore(storeName);
+                    for (const record of records) store.put(this._serializeForIDB(record));
+                };
+
+                putAll('employees', [...empMap.values()]);
+                putAll('positions', state.positions || []);
+                putAll('leaders', [...leadMap.values()]);
+                putAll('attendance', attendance);
+                if (state.settings && storesToReplace.includes('settings')) {
+                    tx.objectStore('settings').put(this._serializeForIDB({ ...state.settings, key: 'app' }));
+                }
+                if (includePettyCash) {
+                    putAll('pettyCashProjects', pettyCash.projects || []);
+                    putAll('pettyCashPeriods', pettyCash.periods || []);
+                    putAll('pettyCashMovements', pettyCash.movements || []);
+                }
+            } catch (error) {
+                operationError = error;
+                try { tx.abort(); } catch (_) { fail(); }
+            }
+        });
+    }
+
+    /**
      * 🛡️ GUARDADO SEGURO CON DEDUPLICACIÓN PROACTIVA
      * Procesa el estado y lo guarda en IndexedDB resolviendo conflictos de índices únicos
      * tanto en los datos entrantes como contra los registros existentes en la DB.
@@ -935,6 +1138,9 @@ export class IndexedDBService {
     async saveState(state, options = {}) {
         const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0 };
         const entityScope = captureEntityProjectScope();
+        // 🛡️ C02-NEW-1: preservar el guard de un vuelo previo (anidado) para
+        // restaurarlo al terminar este.
+        const _prevEpochFlightGuard = this._epochFlightGuard;
         try {
             // Granular = una fecha (dateKey) o un lote de fechas (dateKeys, el
             // canal unificado multi-fecha del purge). Sin reconocer dateKeys,
@@ -944,20 +1150,98 @@ export class IndexedDBService {
                 ? options.dateKeys.filter(Boolean)
                 : (options.dateKey ? [options.dateKey] : []);
             const isGranular = _granularDates.length > 0;
+            const _granularSuffixes = isGranular
+                ? _granularDates.flatMap(dk => [`-${dk}`, `_${dk}`])
+                : [];
+            const _matchesGranularDate = key => _granularSuffixes.some(s => key.endsWith(s));
 
+            // Preserve the historical granular clearFirst contract. FULL replacements
+            // continue below through the single atomic transaction branch.
             if (options.clearFirst) {
-                // 🧹 M3: limpiar SOLO los stores que este método reescribe.
-                // clearAll() borraría también la caja chica y los comprobantes,
-                // que saveState NO sabe restaurar (los maneja PettyCashStore) —
-                // un restore de backup viejo arrasaría datos que el archivo no
-                // trae. El borrado total sigue siendo clearAll() (Borrar Local).
-                const ownStores = ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue'];
-                await this.init();
-                await Promise.all(
-                    ownStores
-                        .filter(s => this.db.objectStoreNames.contains(s))
-                        .map(s => this.clear(s))
-                );
+                if (isGranular) {
+                    const ownStores = ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue'];
+                    await this.init();
+                    await Promise.all(
+                        ownStores
+                            .filter(store => this.db.objectStoreNames.contains(store))
+                            .map(store => this.clear(store))
+                    );
+                }
+            }
+
+            // 🛡️ C01-NEW-1: barrera de obsolescencia de dataset. PersistenceService
+            // estampa la época vigente en las options (__datasetEpochRef +
+            // __datasetEpoch) al lanzar un guardado. Si un reemplazo FULL
+            // durable (import) comprometió mientras este guardado volaba, el
+            // estampo quedó atrás del contador compartido: los per-store
+            // transactions de este guardado upsertarían el dataset pre-import
+            // en los stores recién importados, y el save post-commit nunca
+            // limpia (resurrección durable). Rechazar la escritura completa.
+            // Exento: los guardados clearFirst (reemplazos completos — su
+            // transacción atómica es autocontenida y nunca resucita nada).
+            const _epochRef = options && options.__datasetEpochRef;
+            if (!options.clearFirst && _epochRef && typeof _epochRef.value === 'number') {
+                if (typeof options.__datasetEpoch !== 'number') {
+                    options.__datasetEpoch = _epochRef.value;
+                }
+                if (options.__datasetEpoch < _epochRef.value) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — un reemplazo FULL comprometió durante su vuelo; escritura rechazada para no resucitar el dataset anterior.');
+                    return stats;
+                }
+            }
+
+            // 🛡️ C02-NEW-1: publicar el contexto de época de ESTE vuelo para
+            // que las primitivas de escritura (batchUpdate/update) re-verifiquen
+            // la obsolescencia EN EL PUNTO DE ESCRITURA — el chequeo de arriba
+            // es sólo de entrada, y un guardado puede quedar suspendido dentro
+            // de una primitiva (p.ej. el caller gatea batchUpdate) justo cuando
+            // el reemplazo FULL compromete. Sólo vuelos no-clearFirst: los
+            // reemplazos FULL son atómicos y autocontenidos. Se libera en finally.
+            if (!options.clearFirst && _epochRef && typeof _epochRef.value === 'number') {
+                this._epochFlightGuard = { ref: _epochRef, epoch: options.__datasetEpoch };
+            }
+
+            if (options.clearFirst && !isGranular) {
+                // R03: full replacement must be all-or-nothing. The legacy
+                // Promise.all(clear) + per-store writes could persist a half
+                // import when a later store failed. One transaction gives us
+                // IndexedDB's native abort/commit boundary.
+                //
+                // 🛡️ C03-NEW-1: la barrera de época ya no puede depender del
+                // bump post-commit (PersistenceService.saveToIndexedDB suma
+                // _datasetEpochRef sólo después de `await saveState`). Dos
+                // cierres:
+                //
+                // 1. Adelantar el bump AL INICIO del reemplazo: si hay un
+                //    vuelo publicado (guard de época), su estampo queda atrás
+                //    del contador EN EL INSTANTE en que el reemplazo arranca —
+                //    determinístico, sin depender de cuándo commit-eea el tx.
+                //    El bump es conservador: si el reemplazo luego aborta, los
+                //    guardados obsoletos quedan frenados sin daño (el flujo de
+                //    rollback re-persiste el estado vigente).
+                // 2. Marcar el vuelo del tx de reemplazo (restore-on-finally,
+                //    tolera anidamiento): mientras esté creado-sin-commitear,
+                //    _isDatasetEpochStale() devuelve true y NINGUNA primitiva
+                //    sobre stores propios puede emitirse.
+                const _inflightEpochRef = this._epochFlightGuard?.ref;
+                if (_inflightEpochRef && typeof _inflightEpochRef.value === 'number') {
+                    _inflightEpochRef.value += 1;
+                }
+                const _prevReplacementInFlight = this._fullReplacementTxInFlight;
+                this._fullReplacementTxInFlight = true;
+                try {
+                    await this._replaceOwnedStateAtomically(state, entityScope, stats, options);
+                } finally {
+                    this._fullReplacementTxInFlight = _prevReplacementInFlight;
+                }
+                const extras = computeSaveStatsExtras(state);
+                stats.loans = extras.loans;
+                const pettyCash = options.pettyCash || state?.pettyCash;
+                if (!pettyCash) {
+                    stats.pettyCash = extras.pettyCash;
+                }
+                console.log('📊 IndexedDB Atomic Full Save Stats:', stats);
+                return stats;
             }
 
             // ⚡ P1-OPT: No clonar todo el estado (evita 500ms+ de CPU)
@@ -996,8 +1280,25 @@ export class IndexedDBService {
 
                 // GUARDADO DE METADATOS
                 stats.employees = await this.batchUpdate('employees', [...empMap.values()]);
+                // 🛡️ C02-NEW-1: re-verificar la época tras CADA await — si un
+                // reemplazo FULL comprometió durante el vuelo, no emitir los
+                // writes restantes (silencioso, sin lanzar: un throw caería al
+                // fallback localStorage de _persistLocalState y persistiría el
+                // dataset pre-import).
+                if (this._isDatasetEpochStale()) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — reemplazo FULL comprometió durante el vuelo; se detiene el guardado (employees).');
+                    return stats;
+                }
                 stats.positions = await this.batchUpdate('positions', state.positions || []);
+                if (this._isDatasetEpochStale()) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — reemplazo FULL comprometió durante el vuelo; se detiene el guardado (positions).');
+                    return stats;
+                }
                 stats.leaders = await this.batchUpdate('leaders', [...leadMap.values()]);
+                if (this._isDatasetEpochStale()) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — reemplazo FULL comprometió durante el vuelo; se detiene el guardado (leaders).');
+                    return stats;
+                }
             }
 
             // 2. GUARDADO DE ASISTENCIA (Incremental si hay dateKey)
@@ -1006,15 +1307,17 @@ export class IndexedDBService {
             if (options.clearAttendance) {
                 await this.clear('attendance');
                 console.log('🧹 Store attendance limpiada antes de reescritura completa');
+                if (this._isDatasetEpochStale()) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — reemplazo FULL comprometió durante el vuelo; se detiene el guardado (clearAttendance).');
+                    return stats;
+                }
             }
 
             let attToSave = [];
             if (isGranular) {
-                // ⚡ FIX: Soportar sufijos con guion (-) o guion bajo (_) para mayor
-                // robustez, para CADA fecha del lote granular.
-                const suffixes = _granularDates.flatMap(dk => [`-${dk}`, `_${dk}`]);
+                // ⚡ FIX: Soportar sufijos con guion (-) o guion bajo (_) para cada fecha.
                 attToSave = Object.entries(state.attendance || {})
-                    .filter(([key]) => suffixes.some(s => key.endsWith(s)))
+                    .filter(([key]) => _matchesGranularDate(key))
                     .map(([key, value]) => ({ key, ...value }));
             } else {
                 attToSave = Object.entries(state.attendance || {}).map(([key, value]) => ({
@@ -1039,6 +1342,14 @@ export class IndexedDBService {
 
             stats.attendance = await this.batchUpdate('attendance', attToSave);
 
+            // 🛡️ C02-NEW-1: misma re-verificación de época antes de pisar
+            // settings — es el upsert final del vuelo y el más persistente
+            // (el save post-commit nunca limpia la fila key:'app').
+            if (this._isDatasetEpochStale()) {
+                console.warn('🛡️ IndexedDB: guardado local obsoleto — reemplazo FULL comprometió durante el vuelo; se detiene el guardado (attendance/settings).');
+                return stats;
+            }
+
             if (state.settings) {
                 // L3: key:'app' va DESPUÉS del spread para que un eventual
                 // state.settings.key no pise el keyPath del store.
@@ -1053,6 +1364,10 @@ export class IndexedDBService {
         } catch (error) {
             console.error('❌ Error en saveState (IndexedDB):', error);
             throw error;
+        } finally {
+            // 🛡️ C02-NEW-1: liberar el guard de época de este vuelo (restaura
+            // el de un vuelo anidado previo, si lo hubo).
+            this._epochFlightGuard = _prevEpochFlightGuard;
         }
     }
 

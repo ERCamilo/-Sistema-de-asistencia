@@ -118,12 +118,14 @@ export function renderPayrollHistoryView({
     selectedClosure = null,
     currentEmployees = [],
     detailFilters = {},
+    readOnly = false,
     now = Date.now()
 } = {}) {
     if (selectedClosure) return renderPayrollHistoryDetail(selectedClosure, {
         now,
         currentEmployees,
-        detailFilters
+        detailFilters,
+        readOnly
     });
     const visible = filterPayrollClosureHistory(items, filters).slice(0, 10);
     return `
@@ -183,7 +185,8 @@ export function renderPayrollHistoryView({
 export function renderPayrollHistoryDetail(closure, {
     now = Date.now(),
     currentEmployees = [],
-    detailFilters = {}
+    detailFilters = {},
+    readOnly = false
 } = {}) {
     if (!closure) return '<div class="payroll-history__message">No se encontró el cierre.</div>';
     const filters = normalizeDetailFilters(detailFilters);
@@ -205,7 +208,7 @@ export function renderPayrollHistoryDetail(closure, {
         simulatedNet: money(totals.simulatedNet + calculatePayrollHistoryNet(row, filters))
     }), { gross: 0, bonuses: 0, deductions: 0, loans: 0, net: 0, simulatedNet: 0 });
     const currentById = new Map((currentEmployees || []).map(employee => [String(employee.id), employee]));
-    const canUndo = closure.status === 'closed';
+    const canUndo = !readOnly && closure.status === 'closed';
     return `
         <section class="payroll-history payroll-history-detail" aria-labelledby="payroll-history-detail-title">
             <button type="button" class="payroll-history-detail__back"
@@ -230,7 +233,7 @@ export function renderPayrollHistoryDetail(closure, {
                 </div>
             </header>
             <div class="payroll-history-detail__notice" role="note">
-                Este es un registro histórico inmutable. Los datos actuales del empleado no lo modifican.
+                ${readOnly ? 'Consulta de solo lectura para la obra activa. ' : ''}Este es un registro histórico inmutable. Los datos actuales del empleado no lo modifican.
             </div>
             <div class="payroll-history-detail__controls" aria-label="Filtros y simulación del detalle">
                 <label>

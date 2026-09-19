@@ -14,6 +14,7 @@ import {
     resolvePositionBaseHourlyRate
 } from './EmployeePositionMetrics.js';
 import { EmployeePositionPickerModal } from '../../ui/modals/EmployeePositionPickerModal.js';
+import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 
 function formatMoney(amount) {
     return `$${Math.round(Number(amount) || 0).toLocaleString()}`;
@@ -108,9 +109,10 @@ export function renderAssignedPositionCard({
 
 export function renderEmployeePositionEditor(state, employee, regularHours) {
     const snapshot = buildEmployeePositionPeriodSnapshot(state, employee);
+    const projectScope = peekEntityScope();
     const assignedPositions = (employee?.positions || [])
         .map(positionId => state.positions.find(position => String(position.id) === String(positionId)))
-        .filter(Boolean);
+        .filter(position => Boolean(position) && entityInScope(position, projectScope));
     const employeeView = employee
         ? employee
         : { positions: [], positionSalaries: {}, positionSalaryModes: {} };
@@ -229,8 +231,10 @@ export function attachEmployeePositionEditor({ root, state, employee, regularHou
     editor.querySelector('[data-open-position-picker]')?.addEventListener('click', () => {
         const assignedIds = [...list.querySelectorAll('[data-position-assignment]')]
             .map(card => card.dataset.positionAssignment);
+        const projectScope = peekEntityScope();
+        const scopedPositions = state.positions.filter(position => entityInScope(position, projectScope));
         EmployeePositionPickerModal.open({
-            positions: state.positions,
+            positions: scopedPositions,
             assignedIds,
             regularHours,
             onAdd(position) {

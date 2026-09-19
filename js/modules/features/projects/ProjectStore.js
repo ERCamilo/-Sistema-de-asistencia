@@ -57,6 +57,16 @@ export class ProjectStore {
         await this.db.update(PROJECTS_STORE, payload);
         return clone(payload);
     }
+
+    /** Elimina un proyecto por ID (compensación en fallos de onboarding). */
+    async delete(id) {
+        if (!id) return false;
+        if (typeof this.db?.delete === 'function') {
+            await this.db.delete(PROJECTS_STORE, String(id));
+            return true;
+        }
+        return false;
+    }
 }
 
 export const projectStore = new ProjectStore();
