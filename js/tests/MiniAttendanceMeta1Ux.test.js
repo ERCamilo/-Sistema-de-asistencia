@@ -277,20 +277,22 @@ describe('Meta1 UX — consolidation footer zones and button hierarchy', () => {
         const nav = host.querySelector('[data-mini-footer-nav]');
         const decision = host.querySelector('[data-mini-footer-decision]');
         const global = host.querySelector('[data-mini-footer-global]');
-        expect(nav).toBeNull();
+        expect(nav).not.toBeNull();
         expect(decision).not.toBeNull();
         expect(global).not.toBeNull();
+        expect(footer.contains(nav)).toBe(true);
         expect(footer.contains(decision)).toBe(true);
         expect(footer.contains(global)).toBe(true);
-        const order = [...footer.querySelectorAll('[data-mini-footer-decision], [data-mini-footer-global]')];
-        expect(order).toEqual([decision, global]);
+        const order = [...footer.querySelectorAll('[data-mini-footer-nav], [data-mini-footer-decision], [data-mini-footer-global]')];
+        expect(order).toEqual([nav, decision, global]);
+        expect(nav.getAttribute('role')).toBe('group');
         expect(decision.getAttribute('role')).toBe('group');
         expect(global.getAttribute('role')).toBe('group');
 
-        // Contextual footer: one day has no disabled pager and "Crear" stays hidden
+        // Contextual footer: one day has only Volver for navigation; "Crear" stays hidden
         // until the day is explicitly confirmed.
         const labels = [...footer.querySelectorAll('button')].map(b => b.textContent.trim().replace(/\d+$/, '').trim());
-        expect(labels).toEqual(['Pendiente', 'Confirmar día', 'Descartar']);
+        expect(labels).toEqual(['← Volver', 'Pendiente', 'Confirmar día', 'Descartar']);
         expect(host.querySelector('[data-mini-action="create-mini-consolidated"]')).toBeNull();
 
         expect(host.querySelector('[data-mini-action="complete-mini-day"]').classList.contains('mini-import-action-primary')).toBe(true);
@@ -309,14 +311,14 @@ describe('Meta1 UX — consolidation footer zones and button hierarchy', () => {
         alertSpy.mockRestore();
         confirmSpy.mockRestore();
 
-        // SA stage stays contextual too: a one-day import has no pager.
+        // SA stage stays contextual too: a one-day import keeps only the compact Volver navigation.
         host.querySelector('[data-mini-action="create-mini-consolidated"]').click();
         await wait();
         expect(modal.connectedView).toBe('sa-comparison');
-        expect(host.querySelector('[data-mini-footer-nav]')).toBeNull();
+        expect(host.querySelector('[data-mini-footer-nav]')).not.toBeNull();
         expect(host.querySelector('[data-mini-footer-global]')).not.toBeNull();
         const saLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(b => b.textContent.trim());
-        expect(saLabels).toEqual(['Aplicar listos', 'Finalizar']);
+        expect(saLabels).toEqual(['← Volver', 'Aplicar listos', 'Finalizar']);
     });
 });
 

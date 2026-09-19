@@ -3399,3 +3399,137 @@
         max-height: min(360px, 55vh);
     }
 }
+
+/* Paint review — compact single-Mini exception layout. */
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity {
+    grid-template-columns: minmax(96px, .75fr) minmax(150px, 1.35fr) auto;
+    grid-template-areas:
+        "provenance name index"
+        "number hours details"
+        "identity identity identity";
+    align-items: center;
+    gap: 8px 14px;
+    border-color: color-mix(in oklch, var(--mini-good) 68%, var(--mini-border));
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-row-provenance {
+    grid-area: provenance;
+    grid-column: auto;
+    align-self: center;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-row-name {
+    grid-area: name;
+    text-align: center;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-row-number {
+    grid-area: number;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-row-hours {
+    grid-area: hours;
+    text-align: center;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-row-review-index {
+    grid-area: index;
+    justify-self: end;
+    color: var(--mini-good);
+    font-weight: 800;
+    font-size: 13px;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-technical-wrap {
+    grid-area: details;
+    grid-column: auto;
+    margin: 0;
+    justify-self: end;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-identity-resolve-row {
+    grid-area: identity;
+    display: grid;
+    grid-template-columns: minmax(82px, auto) minmax(190px, 1fr) minmax(92px, auto);
+    gap: 9px;
+    align-items: center;
+    padding-top: 10px;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-identity-resolve-row > .mini-control-label {
+    grid-column: 1 / -1;
+    justify-self: center;
+    text-align: center;
+    flex: none;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-identity-ignore-action {
+    grid-column: 1;
+    width: 100%;
+    min-height: 44px;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-employee-combobox {
+    grid-column: 2;
+    width: 100%;
+    min-width: 0;
+}
+.mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-link-identity-action {
+    grid-column: 3;
+    width: 100%;
+    min-width: 92px;
+    min-height: 44px;
+}
+.mini-employee-combobox-trigger.is-guided {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--mini-good);
+}
+.mini-link-identity-action.is-guided-action:not(:disabled) {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--mini-good), 0 4px 14px color-mix(in oklch, var(--mini-good) 20%, transparent);
+}
+
+/* Single-Mini footer follows the Paint hierarchy: Volver | Pendiente, then global action. */
+.mini-consolidation-batch-actions.is-single-mini-review {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px 12px;
+}
+.mini-consolidation-batch-actions.is-single-mini-review .mini-consolidation-footer-nav {
+    grid-column: 1;
+    width: 100%;
+    padding: 0;
+    border-top: 0;
+}
+.mini-consolidation-batch-actions.is-single-mini-review .mini-consolidation-footer-decision {
+    grid-column: 2;
+    width: 100%;
+    padding: 0;
+    border-top: 0;
+}
+.mini-consolidation-batch-actions.is-single-mini-review .mini-consolidation-footer-global {
+    grid-column: 1 / -1;
+    width: 100%;
+    padding-top: 10px;
+    border-top: 1px dashed var(--mini-border);
+}
+.mini-consolidation-batch-actions.is-single-mini-review .mini-consolidation-day-pager,
+.mini-consolidation-batch-actions.is-single-mini-review .mini-day-review-actions,
+.mini-consolidation-batch-actions.is-single-mini-review .mini-consolidation-flow-actions {
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+.mini-consolidation-batch-actions.is-single-mini-review .mini-import-complete-hint {
+    grid-column: 1 / -1;
+    justify-self: center;
+    text-align: center;
+}
+.mini-consolidation-batch-actions.is-single-mini-review .mini-footer-back {
+    justify-content: flex-start;
+}
+
+@media (max-width: 520px) {
+    .mini-consolidation-row.is-single-mini-review.has-unresolved-identity {
+        grid-template-columns: minmax(76px, .65fr) minmax(126px, 1.3fr) auto;
+        gap: 7px 8px;
+        padding: 10px;
+    }
+    .mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-identity-resolve-row {
+        grid-template-columns: minmax(72px, .65fr) minmax(150px, 1.45fr) minmax(82px, .7fr);
+        gap: 7px;
+    }
+    .mini-consolidation-row.is-single-mini-review.has-unresolved-identity .mini-employee-combobox-trigger {
+        padding-left: 10px;
+        padding-right: 30px;
+        font-size: 12px;
+    }
+}

@@ -1931,8 +1931,14 @@ export class MiniAttendanceImportModal {
             await this.resolveConnectedIdentity(item, empSelect.value);
         });
 
+        const ignoreBtn = actionButton('Ignorar', 'ignore-consolidated-attendance');
+        ignoreBtn.classList.add('mini-import-action-secondary', 'mini-identity-ignore-action');
+        ignoreBtn.dataset.miniItemId = item.id;
+        ignoreBtn.setAttribute('aria-label', 'Ignorar esta asistencia');
+        ignoreBtn.addEventListener('click', () => this.requestIgnoreConsolidatedItem(item));
+
         picker.append(trigger, panel, empSelect);
-        resolveIdentityEl.append(picker, linkBtn);
+        resolveIdentityEl.append(ignoreBtn, picker, linkBtn);
         return resolveIdentityEl;
     }
 
@@ -2541,12 +2547,6 @@ export class MiniAttendanceImportModal {
             return section;
         }
 
-        const nav = element('div', null, { className: 'mini-import-connected-nav' });
-        const back = actionButton('← Volver a la bandeja', 'back-connected-inbox');
-        back.classList.add('mini-import-action-secondary');
-        back.addEventListener('click', () => { void this.openConnectedInbox(); });
-        nav.append(back);
-        content.append(nav);
         if (this.consolidatedResult) {
             content.append(this.renderConsolidationSkeleton());
         } else {
@@ -2839,7 +2839,7 @@ export class MiniAttendanceImportModal {
                 const itemsList = element('div', null, { className: 'mini-consolidation-items-list' });
                 __displayItems.forEach(item => {
                     const rowEl = element('div', null, {
-                        className: `mini-consolidation-row is-${item.status}`,
+                        className: `mini-consolidation-row is-${item.status}${singleMiniReview ? ' is-single-mini-review' : ''}`,
                         dataset: { miniConsolidationItem: item.id }
                     });
                     const statusLabel = this.connectedConflictLabel(item);
@@ -2847,16 +2847,30 @@ export class MiniAttendanceImportModal {
                         ? [...new Set(item.sources.map(humanSourceLabel).filter(Boolean))]
                         : [];
                     const sourcesText = humanSources.join(', ');
+                    const hideRepeatedIdentityStatus = singleMiniReview &&
+                        (item.status === 'identity_conflict' || !item.saEmployeeId);
+                    if (hideRepeatedIdentityStatus) rowEl.classList.add('has-unresolved-identity');
                     rowEl.append(
                         element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
                         element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }),
                         element('span', item.normalHours !== null
                             ? this.formatConnectedHours(item.normalHours, item.overtimeHours, { status: item.sourceStatus, rosterStatus: item.rosterStatus })
-                            : 'Requiere resolución', { className: 'mini-row-hours' }),
-                        item.status === 'resolved'
-                            ? resolvedCheckSvg('Resuelto')
-                            : element('span', statusLabel, { className: `mini-row-status is-${item.status}` })
+                            : 'Requiere resolución', { className: 'mini-row-hours' })
                     );
+                    if (!hideRepeatedIdentityStatus) {
+                        rowEl.append(item.status === 'resolved'
+                            ? resolvedCheckSvg('Resuelto')
+                            : element('span', statusLabel, { className: `mini-row-status is-${item.status}` }));
+                    }
+                    if (singleMiniReview && this.isConsolidationRowPending(item, dayState, isMiniStage)) {
+                        const pendingIndex = __partition.pending.findIndex(candidate => candidate.id === item.id);
+                        if (pendingIndex >= 0 && __partition.pending.length > 0) {
+                            rowEl.append(element('span', `${pendingIndex + 1}/${__partition.pending.length}`, {
+                                className: 'mini-row-review-index',
+                                'aria-label': `Incidencia ${pendingIndex + 1} de ${__partition.pending.length}`
+                            }));
+                        }
+                    }
                     if (sourcesText) {
                         rowEl.append(element('span', `Mini: ${sourcesText}`, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
                     }
@@ -3025,7 +3039,11 @@ export class MiniAttendanceImportModal {
                         }
                     }
 
-                    if ((isMiniStage || isSaStage) && dayState?.status !== 'applied' && dayState?.status !== 'mini_day_completed' && this.multiDayResolver) {
+                    if ((isMiniStage || isSaStage) &&
+                        dayState?.status !== 'applied' &&
+                        dayState?.status !== 'mini_day_completed' &&
+                        this.multiDayResolver &&
+                        !(item.status === 'identity_conflict' || !item.saEmployeeId)) {
                         const ignoreActions = element('div', null, {
                             className: 'mini-import-unit-actions',
                             dataset: { miniIgnoreAttendance: item.id }
@@ -3141,50 +3159,52 @@ export class MiniAttendanceImportModal {
             overtimeOption.append(overtimeCheckbox, overtimeCopy);
             container.append(overtimeOption);
         }
-        container.append(proposalNotice);
+        if (!(isMiniStage && singleMiniReview)) {
+            container.append(proposalNotice);
+        }
 
         // Footer de etapa: Mini↔Mini nunca aplica en SA. Sólo completa días y
         // produce un draft revisado; la aplicación existe únicamente en etapa SA.
         if (this.multiDayResolver) {
             const multiSummary = this.multiDayResolver.getMultiDaySummary();
             const batchSection = element('div', null, {
-                className: 'mini-consolidation-batch-actions',
+                className: `mini-consolidation-batch-actions${singleMiniReview ? ' is-single-mini-review' : ''}`,
                 dataset: { miniBatchActions: '' }
             });
             const dates = this.multiDayResolver.workDates || [];
             const currentDate = dates[this.consolidationDayIndex] || null;
             const currentState = currentDate ? this.multiDayResolver.getDayState(currentDate) : null;
-            if (dates.length > 1) {
-                const navWrap = element('div', null, {
-                    className: 'mini-consolidation-footer-nav',
-                    dataset: { miniFooterNav: '' }
+            const navWrap = element('div', null, {
+                className: 'mini-consolidation-footer-nav',
+                dataset: { miniFooterNav: '' }
+            });
+            navWrap.setAttribute('role', 'group');
+            navWrap.setAttribute('aria-label', 'Navegación de la revisión');
+            const pager = element('div', null, { className: 'mini-consolidation-day-pager' });
+            const backInbox = actionButton('← Volver', 'back-connected-inbox');
+            backInbox.classList.add('mini-import-action-secondary', 'mini-footer-back');
+            backInbox.addEventListener('click', () => { void this.openConnectedInbox(); });
+            pager.append(backInbox);
+            if (dates.length > 1 && this.consolidationDayIndex > 0) {
+                const prev = actionButton('Anterior', 'previous-consolidation-day');
+                prev.classList.add('mini-import-action-secondary');
+                prev.addEventListener('click', () => {
+                    this.consolidationDayIndex = Math.max(0, this.consolidationDayIndex - 1);
+                    this.render();
                 });
-                navWrap.setAttribute('role', 'group');
-                navWrap.setAttribute('aria-label', 'Navegación por días');
-                const pager = element('div', null, { className: 'mini-consolidation-day-pager' });
-                if (this.consolidationDayIndex > 0) {
-                    const prev = actionButton('Anterior', 'previous-consolidation-day');
-                    prev.classList.add('mini-import-action-secondary');
-                    prev.addEventListener('click', () => {
-                        this.consolidationDayIndex = Math.max(0, this.consolidationDayIndex - 1);
-                        this.render();
-                    });
-                    pager.append(prev);
-                }
-                if (this.consolidationDayIndex < dates.length - 1) {
-                    const next = actionButton('Siguiente', 'next-consolidation-day');
-                    next.classList.add('mini-import-action-secondary');
-                    next.addEventListener('click', () => {
-                        this.consolidationDayIndex = Math.min(dates.length - 1, this.consolidationDayIndex + 1);
-                        this.render();
-                    });
-                    pager.append(next);
-                }
-                if (pager.childElementCount > 0) {
-                    navWrap.append(pager);
-                    batchSection.append(navWrap);
-                }
+                pager.append(prev);
             }
+            if (dates.length > 1 && this.consolidationDayIndex < dates.length - 1) {
+                const next = actionButton('Siguiente', 'next-consolidation-day');
+                next.classList.add('mini-import-action-secondary');
+                next.addEventListener('click', () => {
+                    this.consolidationDayIndex = Math.min(dates.length - 1, this.consolidationDayIndex + 1);
+                    this.render();
+                });
+                pager.append(next);
+            }
+            navWrap.append(pager);
+            batchSection.append(navWrap);
 
             if (isMiniStage) {
                 const reviewActions = element('div', null, { className: 'mini-day-review-actions' });

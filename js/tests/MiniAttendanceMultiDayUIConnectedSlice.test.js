@@ -259,13 +259,13 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
 
         expect(modal.connectedView).toBe('sa-comparison');
         let footerLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(button => button.textContent.trim());
-        expect(footerLabels).toEqual(['Aplicar listos', 'Finalizar']);
+        expect(footerLabels).toEqual(['← Volver', 'Aplicar listos', 'Finalizar']);
 
         const saBadges = [...host.querySelectorAll('.mini-consolidation-summary-badges .mini-badge')].map(el => el.textContent);
         expect(saBadges).toContain('Días listos: 1');
         expect(saBadges.some(text => text.startsWith('Días aplicados:'))).toBe(false);
         footerLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(button => button.textContent.trim());
-        expect(footerLabels).toEqual(['Aplicar listos', 'Finalizar']);
+        expect(footerLabels).toEqual(['← Volver', 'Aplicar listos', 'Finalizar']);
     });
 
     test('single Mini is presented as review, offers ignore before SA and orders link candidates numerically', async () => {
@@ -290,6 +290,22 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         expect(host.querySelector('.mini-import-topbar-chip').textContent).toBe('REVISAR');
         expect(host.querySelector('[data-mini-day-date="2026-09-12"]').textContent).toBe('Identidad no resuelta');
         expect(host.textContent).not.toContain('Conflicto entre Minis');
+        expect(host.querySelector('.mini-import-connected-nav')).toBeNull();
+        expect(host.querySelector('[data-mini-proposal-seam]')).toBeNull();
+
+        const unresolvedRow = host.querySelector('.mini-consolidation-row.has-unresolved-identity');
+        expect(unresolvedRow).not.toBeNull();
+        expect(unresolvedRow.querySelector('.mini-row-status')).toBeNull();
+        expect(unresolvedRow.querySelector('.mini-row-review-index').textContent).toBe('1/1');
+        const identityControls = unresolvedRow.querySelector('[data-mini-unresolved-identity]');
+        expect(identityControls.querySelector('[data-mini-action="ignore-consolidated-attendance"]').textContent.trim())
+            .toBe('Ignorar');
+        expect(identityControls.querySelector('[data-mini-employee-trigger]').textContent.trim())
+            .toBe('-- Seleccionar empleado --');
+        expect(identityControls.querySelector('[data-mini-action="resolve-identity"]').textContent.trim())
+            .toBe('Vincular');
+        expect(host.querySelector('[data-mini-footer-nav] [data-mini-action="back-connected-inbox"]').textContent)
+            .toBe('← Volver');
 
         const select = host.querySelector('[data-mini-select-employee]');
         expect([...select.options].slice(1).map(option => option.textContent)).toEqual([
