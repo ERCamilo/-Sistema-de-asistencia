@@ -185,9 +185,13 @@ export function adaptResolvedDayToConflictPlan({
             rowBlockers.push('decision_unacknowledged');
         }
         if (decision.action === 'use_imported') {
-            if (!positionAllocations.length) {
+            const importedTotal = Number(imported.normalHours || 0) + Number(imported.overtimeHours || 0);
+            // A 0h Mini attendance represents "sin asistencia". It does not need a
+            // work position because no hours will be allocated to any position.
+            if (importedTotal > 0 && !positionAllocations.length) {
                 rowBlockers.push('target_position_required');
-            } else if (positionAllocations.some(p => !p.positionId || !positionIds.includes(p.positionId))) {
+            } else if (importedTotal > 0 &&
+                positionAllocations.some(p => !p.positionId || !positionIds.includes(p.positionId))) {
                 rowBlockers.push('target_position_invalid');
             }
         }

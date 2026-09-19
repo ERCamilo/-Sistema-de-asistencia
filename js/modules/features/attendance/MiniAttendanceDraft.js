@@ -610,6 +610,9 @@ function summarizePositionAllocations(allocations) {
 }
 
 function positionAllocationBlockers(row) {
+    const importedTotal = Number(row?.imported?.normalHours || 0) + Number(row?.imported?.overtimeHours || 0);
+    // 0h means "sin asistencia": there are no hours to assign to a position.
+    if (importedTotal === 0) return [];
     const allocations = row.positionAllocations;
     if (!allocations.length) return ['target_position_required'];
 
@@ -776,20 +779,23 @@ export function reviewMiniAttendanceConflict(plan, rowIndex, review) {
 
 function importedRecord(row, date, { mergeOvertimeIntoNormal = false } = {}) {
     const existing = row.existing?.record || {};
-    const appliedAllocations = row.positionAllocations.map(allocation => ({
+    const importedTotal = Number(row.imported?.normalHours || 0) + Number(row.imported?.overtimeHours || 0);
+    const explicitZeroHours = importedTotal === 0;
+    const appliedAllocations = explicitZeroHours ? [] : row.positionAllocations.map(allocation => ({
         ...allocation,
         normalHours: mergeOvertimeIntoNormal
             ? allocation.normalHours + allocation.overtimeHours
             : allocation.normalHours,
         overtimeHours: mergeOvertimeIntoNormal ? 0 : allocation.overtimeHours
     }));
-    const applied = summarizePositionAllocations(appliedAllocations);
+    const applied = explicitZeroHours
+        ? { normalHours: 0, overtimeHours: 0, totalHours: 0 }
+        : summarizePositionAllocations(appliedAllocations);
     const positionHours = appliedAllocations.map(allocation => ({
         positionId: allocation.positionId,
         hours: allocation.normalHours,
         overtimeHours: allocation.overtimeHours
     }));
-    const explicitZeroHours = row.imported?.status === 'unmarked' && applied.totalHours === 0;
     return {
         notes: '',
         isHoliday: false,
@@ -800,8 +806,8 @@ function importedRecord(row, date, { mergeOvertimeIntoNormal = false } = {}) {
         deletedAt: null,
         hoursWorked: applied.normalHours,
         overtimeHours: applied.overtimeHours,
-        selectedPosition: positionHours[0].positionId,
-        multiPosition: positionHours.length > 1,
+        selectedPosition: explicitZeroHours ? null : (positionHours[0]?.positionId ?? null),
+        multiPosition: !explicitZeroHours && positionHours.length > 1,
         positionHours,
         miniImportAudit: {
             source: 'mini',

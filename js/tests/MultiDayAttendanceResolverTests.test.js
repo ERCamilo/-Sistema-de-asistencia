@@ -447,6 +447,63 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         }]);
     });
 
+    test('0h imported can replace existing SA hours without selecting a position', () => {
+        const date = '2026-09-06';
+        mockState.attendance[`EMP-003-${date}`] = {
+            employeeId: 'EMP-003',
+            date,
+            present: true,
+            hoursWorked: 8,
+            overtimeHours: 0,
+            selectedPosition: 'pos-1',
+            multiPosition: false,
+            positionHours: [{ positionId: 'pos-1', hours: 8, overtimeHours: 0 }]
+        };
+        const sub = sampleSubmission({
+            submissionId: 'sub-zero-multipos',
+            workDate: date,
+            rows: [{
+                miniLocalId: 'm3-zero',
+                number: '003',
+                name: 'David López',
+                normalHours: 0,
+                overtimeHours: 0,
+                status: 'unmarked',
+                saEmployeeId: 'EMP-003'
+            }]
+        });
+        const resolver = createMultiDayAttendanceResolver({
+            submissions: [sub],
+            employees: mockEmployees,
+            attendance: mockState.attendance,
+            positions: mockPositions,
+            saProjectId: PROJECT_ID,
+            entityScope: PROJECT_SCOPE,
+            applyPlan: mockApplyPlan
+        });
+
+        let dayState = resolver.getDayState(date);
+        expect(dayState.status).toBe('stage_b_conflict');
+
+        resolver.resolveDayConflict(date, 'EMP-003', { action: 'use_imported' });
+        dayState = resolver.getDayState(date);
+        expect(dayState.status).toBe('ready');
+        const row = dayState.conflictPlan.rows.find(item => item.employeeId === 'EMP-003');
+        expect(row.blockers).not.toContain('target_position_required');
+        expect(row.targetPositionId).toBeNull();
+        expect(row.positionAllocations).toEqual([]);
+
+        const write = resolver.buildDayApplyPlan(date).writes[0].record;
+        expect(write).toMatchObject({
+            present: false,
+            hoursWorked: 0,
+            overtimeHours: 0,
+            selectedPosition: null,
+            multiPosition: false,
+            positionHours: []
+        });
+    });
+
     test('5. Multi-day 2-3 dates: preserves day and period views; resolution and apply remain day-atomic', async () => {
         const sub1 = sampleSubmission({
             submissionId: 'sub-d1',

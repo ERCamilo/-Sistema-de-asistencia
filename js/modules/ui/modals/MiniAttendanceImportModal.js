@@ -2991,49 +2991,49 @@ export class MiniAttendanceImportModal {
                                 rowEl.append(saConflictEl);
                             }
 
-                            const needsPosition = conflictRow &&
+                            const importedTotal = Number(conflictRow?.imported?.normalHours || 0) +
+                                Number(conflictRow?.imported?.overtimeHours || 0);
+                            const positionIds = Array.isArray(conflictRow?.employeePositionIds)
+                                ? conflictRow.employeePositionIds
+                                : [];
+                            const showPositionChoices = conflictRow &&
                                 conflictRow.decision?.action === 'use_imported' &&
-                                conflictRow.blockers?.some(blocker =>
-                                    blocker === 'target_position_required' || blocker === 'target_position_invalid'
-                                );
-                            if (needsPosition) {
+                                importedTotal > 0 &&
+                                positionIds.length > 1;
+                            if (showPositionChoices) {
                                 const positionEl = element('div', null, {
-                                    className: 'mini-position-resolve-row',
+                                    className: 'mini-position-resolve-row is-button-grid',
                                     dataset: { miniPositionConflict: item.saEmployeeId }
                                 });
-                                positionEl.append(element('span', 'Asignar las horas importadas a una posición:', {
+                                positionEl.append(element('span', 'Seleccionar posición', {
                                     className: 'mini-control-label'
                                 }));
-                                const positionSelect = element('select', null, {
-                                    className: 'mini-import-select',
-                                    dataset: { miniSelectPosition: item.saEmployeeId }
+                                const choices = element('div', null, {
+                                    className: 'mini-position-choice-row',
+                                    role: 'group',
+                                    'aria-label': 'Seleccionar posición para las horas importadas'
                                 });
-                                positionSelect.append(element('option', '-- Seleccionar posición --', {
-                                    value: '', disabled: true, selected: true
-                                }));
-                                (conflictRow.employeePositionIds || []).forEach(positionId => {
+                                positionIds.forEach(positionId => {
                                     const position = this.positions.find(pos => pos.id === positionId);
-                                    positionSelect.append(element('option', position?.name || positionId, { value: positionId }));
-                                });
-                                const assignPositionBtn = actionButton(
-                                    'Asignar posición y continuar',
-                                    'resolve-position',
-                                    true
-                                );
-                                assignPositionBtn.dataset.miniEmployeeId = item.saEmployeeId;
-                                assignPositionBtn.dataset.miniDate = group.workDate;
-                                positionSelect.addEventListener('change', () => {
-                                    assignPositionBtn.disabled = !positionSelect.value;
-                                });
-                                assignPositionBtn.addEventListener('click', () => {
-                                    if (!positionSelect.value) return;
-                                    this.multiDayResolver.resolveDayConflict(group.workDate, item.saEmployeeId, {
-                                        action: 'use_imported',
-                                        targetPositionId: positionSelect.value
+                                    const selected = conflictRow.targetPositionId === positionId ||
+                                        conflictRow.positionAllocations?.some(allocation => allocation.positionId === positionId);
+                                    const positionBtn = actionButton(position?.name || positionId, 'resolve-position');
+                                    positionBtn.classList.add('mini-position-choice-button');
+                                    positionBtn.classList.toggle('is-selected', selected);
+                                    positionBtn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+                                    positionBtn.dataset.miniEmployeeId = item.saEmployeeId;
+                                    positionBtn.dataset.miniDate = group.workDate;
+                                    positionBtn.dataset.miniPositionId = positionId;
+                                    positionBtn.addEventListener('click', () => {
+                                        this.multiDayResolver.resolveDayConflict(group.workDate, item.saEmployeeId, {
+                                            action: 'use_imported',
+                                            targetPositionId: positionId
+                                        });
+                                        this.render();
                                     });
-                                    this.render();
+                                    choices.append(positionBtn);
                                 });
-                                positionEl.append(positionSelect, assignPositionBtn);
+                                positionEl.append(choices);
                                 rowEl.append(positionEl);
                             }
                         }

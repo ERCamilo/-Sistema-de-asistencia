@@ -15,11 +15,13 @@ const SA_PROJECT = 'PRJ-OBRA-UI';
 const SA_SCOPE = Object.freeze({ enabled: true, projectId: SA_PROJECT, defaultProjectId: SA_PROJECT });
 const wait = () => new Promise(resolve => setTimeout(resolve, 15));
 
-function buildSubmission({ id, workDate, deviceId = 'phone-1', sourceId = deviceId, rows = [] }) {
+function buildSubmission({ id, workDate, deviceId = 'phone-1', sourceId = deviceId, rows = [], coverageMode = null }) {
     return {
         schema: 'attendance-submission/v1', submissionId: id, saProjectId: SA_PROJECT,
         scope: { ownerUid: 'owner-1', siteId: 'obra-1', sourceId }, deviceId,
-        rosterVersion: 'roster-1', capturedAt: '2026-09-10T12:00:00.000Z', workDate, rows
+        rosterVersion: 'roster-1', capturedAt: '2026-09-10T12:00:00.000Z', workDate,
+        ...(coverageMode ? { coverageMode } : {}),
+        rows
     };
 }
 
@@ -468,11 +470,60 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click(); await modal.consolidateSelectedDrafts();
         expect(modal.connectedView).toBe('sa-comparison');
         expect(host.querySelector('[data-mini-day-date="2026-09-09"]').textContent).toBe('Cambio por revisar');
-        const select = host.querySelector('[data-mini-select-position="EMP-003"]');
-        const assign = host.querySelector('[data-mini-action="resolve-position"][data-mini-employee-id="EMP-003"]');
-        expect(select).not.toBeNull(); expect(assign.disabled).toBe(true);
-        select.value = 'pos-2'; select.dispatchEvent(new Event('change'));
-        expect(assign.disabled).toBe(false); assign.click();
+        expect(host.querySelector('[data-mini-select-position="EMP-003"]')).toBeNull();
+        const choices = [...host.querySelectorAll('[data-mini-action="resolve-position"][data-mini-employee-id="EMP-003"]')];
+        expect(choices.map(button => button.textContent.trim())).toEqual(['Albañil', 'Fierrero']);
+        expect(choices.every(button => button.getAttribute('aria-pressed') === 'false')).toBe(true);
+
+        choices.find(button => button.dataset.miniPositionId === 'pos-2').click();
+
+        const selected = host.querySelector('[data-mini-action="resolve-position"][data-mini-position-id="pos-2"]');
+        expect(selected.classList.contains('is-selected')).toBe(true);
+        expect(selected.getAttribute('aria-pressed')).toBe('true');
         expect(modal.multiDayResolver.buildDayApplyPlan('2026-09-09').writes[0].record.selectedPosition).toBe('pos-2');
+    });
+
+    test('using a 0h Mini attendance never asks a multi-position employee for a position', async () => {
+        const db = new MemoryDB();
+        const inbox = new AttendanceSubmissionInboxStore({ db });
+        const id = '66666666-6666-4666-8666-666666666666';
+        const date = '2026-09-10';
+        attendance[`EMP-003-${date}`] = {
+            employeeId: 'EMP-003',
+            date,
+            present: true,
+            hoursWorked: 8,
+            overtimeHours: 0,
+            selectedPosition: 'pos-1',
+            positionHours: [{ positionId: 'pos-1', hours: 8, overtimeHours: 0 }]
+        };
+        await inbox.importSubmission(buildSubmission({
+            id, workDate: date, deviceId: 'mini-a', coverageMode: 'linked-roster-full', rows: [
+                { miniLocalId: 'm1-present', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' },
+                { miniLocalId: 'm3-zero', number: '003', name: 'David', normalHours: 0, overtimeHours: 0, status: 'unmarked', saEmployeeId: 'EMP-003' }
+            ]
+        }), { expectedSaProjectId: SA_PROJECT });
+
+        const modal = makeModal({ db, employees, positions, attendance, applyPlan });
+        modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
+        host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
+        await modal.consolidateSelectedDrafts();
+
+        expect(modal.connectedView).toBe('sa-comparison');
+        expect(host.querySelector('[data-mini-position-conflict="EMP-003"]')).toBeNull();
+
+        host.querySelector('[data-mini-action="use-imported"][data-mini-employee-id="EMP-003"]').click();
+
+        expect(host.querySelector('[data-mini-position-conflict="EMP-003"]')).toBeNull();
+        expect(modal.multiDayResolver.getDayState(date).status).toBe('ready');
+        const plan = modal.multiDayResolver.buildDayApplyPlan(date);
+        const write = plan.writes.find(entry => entry.key === `EMP-003-${date}`).record;
+        expect(write).toMatchObject({
+            present: false,
+            hoursWorked: 0,
+            overtimeHours: 0,
+            selectedPosition: null,
+            positionHours: []
+        });
     });
 });
