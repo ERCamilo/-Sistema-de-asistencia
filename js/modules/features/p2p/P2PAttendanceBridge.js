@@ -728,6 +728,8 @@ export async function requestMiniAttendance({
     const errors = [];
     let totalSubmissions = 0;
     let importedCount = 0;
+    let newCount = 0;
+    let updatedCount = 0;
     let duplicateCount = 0;
     let ignoredCount = 0;
     let unchangedCount = 0;
@@ -810,8 +812,13 @@ export async function requestMiniAttendance({
             if (peerResult.importedRecords) {
                 for (const rec of peerResult.importedRecords) {
                     const outcome = rec?.outcome;
-                    if (outcome === 'imported' || outcome === 'updated-version') importedCount++;
-                    else if (outcome === 'duplicate') duplicateCount++;
+                    if (outcome === 'imported') {
+                        importedCount++;
+                        newCount++;
+                    } else if (outcome === 'updated-version') {
+                        importedCount++;
+                        updatedCount++;
+                    } else if (outcome === 'duplicate') duplicateCount++;
                     else if (outcome === 'ignored' || outcome === 'ignored-zero-attendance') ignoredCount++;
                     else if (
                         outcome === 'unchanged' ||
@@ -863,26 +870,33 @@ export async function requestMiniAttendance({
     const hasPartialError = errors.length > 0;
     const status = hasPartialError ? 'partial_success' : 'success';
 
-    // A first zero-attendance report is ignored, while a later zero-hour
-    // revision of an existing source/day series is returned as updated-version
-    // and therefore counts as new. Semantic duplicates/stale revisions remain unchanged.
+    // Keep accepted totals backward compatible via importedCount, but expose
+    // whether SA received a brand-new source/day or a revision of one it already knew.
+    const newLabel = `${newCount} ${newCount === 1 ? 'nuevo' : 'nuevos'}`;
+    const updatedSuffix = updatedCount
+        ? `, ${updatedCount} ${updatedCount === 1 ? 'actualizado' : 'actualizados'}`
+        : '';
+    const duplicateSuffix = duplicateCount
+        ? `, ${duplicateCount} ${duplicateCount === 1 ? 'duplicado' : 'duplicados'}`
+        : '';
     const ignoredSuffix = ignoredCount ? `, ${ignoredCount} ignorados` : '';
     const unchangedSuffix = unchangedCount ? `, ${unchangedCount} sin cambios` : '';
+    const outcomeSummary = `${newLabel}${updatedSuffix}${duplicateSuffix}${ignoredSuffix}${unchangedSuffix}`;
     let message;
     if (targets.length === 1) {
         if (totalSubmissions === 0) {
             message = `✓ Asistencia recibida de ${targets[0].name} (sin registros para esta fecha).`;
         } else {
-            message = `✓ Asistencia recibida de ${targets[0].name} (${importedCount} nuevos, ${duplicateCount} duplicados${ignoredSuffix}${unchangedSuffix}).`;
+            message = `✓ Asistencia recibida de ${targets[0].name} (${outcomeSummary}).`;
         }
     } else {
         if (hasPartialError) {
             const failedNames = errors.map(e => e.peer.name).join(', ');
-            message = `Parcial: ${results.length} de ${targets.length} Minis respondieron (${importedCount} nuevos${duplicateCount ? `, ${duplicateCount} duplicados` : ''}${ignoredSuffix}${unchangedSuffix}). Falló: ${failedNames}.`;
+            message = `Parcial: ${results.length} de ${targets.length} Minis respondieron (${outcomeSummary}). Falló: ${failedNames}.`;
         } else if (totalSubmissions === 0) {
             message = `✓ Asistencia recibida de ${targets.length} Minis (sin registros para esta fecha).`;
         } else {
-            message = `✓ Asistencia solicitada a ${targets.length} Minis (${results.length} respondieron, ${importedCount} nuevos, ${duplicateCount} duplicados${ignoredSuffix}${unchangedSuffix}).`;
+            message = `✓ Asistencia solicitada a ${targets.length} Minis (${results.length} respondieron, ${outcomeSummary}).`;
         }
     }
     const aggregateStatus = hasPartialError ? 'partial' : 'success';
@@ -897,6 +911,8 @@ export async function requestMiniAttendance({
         respondedCount: results.length,
         totalSubmissions,
         importedCount,
+        newCount,
+        updatedCount,
         duplicateCount,
         ignoredCount,
         unchangedCount,

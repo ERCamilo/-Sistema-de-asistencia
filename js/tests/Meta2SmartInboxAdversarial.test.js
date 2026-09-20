@@ -431,8 +431,10 @@ describe('Meta2 — bridge counters and messages', () => {
             inboxStore, identityStore: env.identityStore, p2pCore: env.p2pCore, p2pPairing: env.p2pPairing
         });
         expect(result.importedCount).toBe(1);
+        expect(result.newCount).toBe(0);
+        expect(result.updatedCount).toBe(1);
         expect(result.ignoredCount).toBe(0);
-        expect(result.message).toContain('1 nuevos');
+        expect(result.message).toContain('1 actualizado');
         const [group] = await inboxStore.listVersionGroups();
         expect(group.current.submissionId).toBe(id(77));
         expect(group.diff.summary.attendanceRemoved).toBe(1);
@@ -446,7 +448,61 @@ describe('Meta2 — bridge counters and messages', () => {
         const env = mockEnv([changed]);
         const result = await requestMiniAttendance({ miniId: 'peer-mini-1', date: '2026-09-06', groupingMode: 'day', saProjectId: PROJECT, inboxStore, identityStore: env.identityStore, p2pCore: env.p2pCore, p2pPairing: env.p2pPairing });
         expect(result.importedCount).toBe(1);
+        expect(result.newCount).toBe(0);
+        expect(result.updatedCount).toBe(1);
         expect(result.ignoredCount).toBe(0);
-        expect(result.message).toContain('1 nuevos');
+        expect(result.message).toContain('1 actualizado');
+    });
+
+    test('authenticated same-Mini revision is accepted after incorporation even if Mini capturedAt moved backwards', async () => {
+        const db = new MemoryDB();
+        let receivedAt = 100;
+        const inboxStore = new AttendanceSubmissionInboxStore({ db, now: () => receivedAt++ });
+        const firstId = id(78);
+        await inboxStore.importSubmission(envelope({
+            submissionId: firstId,
+            capturedAt: '2026-09-06T13:00:00.000Z',
+            workDate: '2026-09-06',
+            deviceId: 'MINI-A',
+            rows: [presentRow({ normalHours: 8, overtimeHours: 0 })]
+        }), {
+            expectedSaProjectId: PROJECT,
+            metadata: { sourcePeerId: 'peer-mini-1', sourcePeerName: 'Mini 1' }
+        });
+        await inboxStore.updateStatus(PROJECT, firstId, 'incorporated', {
+            metadata: { incorporatedAt: 150 }
+        });
+
+        const changedAfterReset = envelope({
+            submissionId: id(79),
+            capturedAt: '2026-09-06T12:00:00.000Z',
+            workDate: '2026-09-06',
+            deviceId: 'MINI-A',
+            rows: [presentRow({ normalHours: 5, overtimeHours: 0 })]
+        });
+        const env = mockEnv([changedAfterReset]);
+        const result = await requestMiniAttendance({
+            miniId: 'peer-mini-1',
+            date: '2026-09-06',
+            groupingMode: 'day',
+            saProjectId: PROJECT,
+            inboxStore,
+            identityStore: env.identityStore,
+            p2pCore: env.p2pCore,
+            p2pPairing: env.p2pPairing
+        });
+
+        expect(result.importedCount).toBe(1);
+        expect(result.newCount).toBe(0);
+        expect(result.updatedCount).toBe(1);
+        expect(result.unchangedCount).toBe(0);
+        expect(result.message).toContain('1 actualizado');
+        const [group] = await inboxStore.listVersionGroups();
+        expect(group.original.submissionId).toBe(firstId);
+        expect(group.original.status).toBe('incorporated');
+        expect(group.current.submissionId).toBe(id(79));
+        expect(group.current.status).toBe('pending');
+        expect(group.diff.summary.hoursChanged).toBe(1);
+        expect(group.diff.details[0]).toMatchObject({ beforeHours: 8, afterHours: 5, deltaHours: -3 });
     });
 });

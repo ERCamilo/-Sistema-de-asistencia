@@ -366,6 +366,18 @@ function recordSeriesKey(record) {
     }
 }
 
+function isAuthenticatedP2PRevision(record, current) {
+    const nextPeerId = typeof record?.metadata?.sourcePeerId === 'string'
+        ? record.metadata.sourcePeerId.trim()
+        : '';
+    const currentPeerId = typeof current?.metadata?.sourcePeerId === 'string'
+        ? current.metadata.sourcePeerId.trim()
+        : '';
+    if (!nextPeerId || !currentPeerId || nextPeerId !== currentPeerId) return false;
+    if (recordSeriesKey(record) !== recordSeriesKey(current)) return false;
+    return Number(record?.receivedAt || 0) > Number(current?.receivedAt || 0);
+}
+
 /**
  * Meta 2 — actionable attendance predicate.
  * A submission counts as actionable inbox work only when at least one row is
@@ -440,8 +452,23 @@ export class AttendanceSubmissionInboxStore {
             return { outcome: 'imported', record: initial, versionGroupChanged: false };
         }
 
+        let currentSemanticHash = null;
+        if (current) {
+            try {
+                currentSemanticHash = current.versioning?.semanticHash ||
+                    attendanceSubmissionSemanticHash(current.sourceSnapshot);
+            } catch {
+                currentSemanticHash = null;
+            }
+        }
+
         if (current && compareVersionOrder(envelope, current.sourceSnapshot) <= 0) {
-            return { outcome: 'stale-version', record: freeze(current), versionGroupChanged: false };
+            const p2pChangedRevision = isAuthenticatedP2PRevision(record, current) &&
+                currentSemanticHash &&
+                currentSemanticHash !== semanticHash;
+            if (!p2pChangedRevision) {
+                return { outcome: 'stale-version', record: freeze(current), versionGroupChanged: false };
+            }
         }
 
         // A first all-zero report is ignored above, but once a source/day
