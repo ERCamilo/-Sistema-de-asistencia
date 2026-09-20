@@ -41,12 +41,14 @@ import {
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { initProjectsInfrastructure } from './modules/features/projects/ProjectsBoot.js';
-import { resetEntityScope } from './modules/features/projects/EntityProjectScope.js';
+import { resetEntityScope, getScopedSidebarCounters } from './modules/features/projects/EntityProjectScope.js';
 import { MainSyncStore } from './modules/services/MainSyncStore.js';
 import { PayrollClosureLiveSync } from './modules/features/payroll/PayrollClosureLiveSync.js';
 import { startPayrollLiveSyncAfterOutboxDrain } from './modules/features/payroll/PayrollClosureLiveSyncStartup.js';
 import { createAuthStartupGuard, runAuthStartupAfterDrain } from './modules/services/AuthStartupGuard.js';
 import { projectContext } from './modules/features/projects/ProjectContext.js';
+import { peekEntityScope } from './modules/features/projects/ProjectContext.js';
+import { projectStore } from './modules/features/projects/ProjectStore.js';
 import { auth } from './modules/data/firebase.js';
 import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
@@ -4118,13 +4120,7 @@ function SidebarNavigation() {
     const cls = (...tabs) => tabs.includes(t) ? 'sidebar-item active' : 'sidebar-item';
 
     // Live counts for badges
-    const activeEmployees = (state.employees || []).filter(e => e.active !== false).length;
-    let activeLoans = 0;
-    try {
-        (state.employees || []).forEach(e => {
-            (e.loans || []).forEach(l => { if (l.status === 'active') activeLoans++; });
-        });
-    } catch (_) { activeLoans = 0; }
+    const { activeEmployees, activeLoans } = getScopedSidebarCounters(state, peekEntityScope());
 
     // Submenu persistence states
     if (state.sidebarPersonalOpen === undefined) {
@@ -4306,17 +4302,35 @@ function _AttendanceDetailPanelInner() {
         </aside>`;
     }
 
-    // Resolve the selected employee — fall back to first active, then first.
+    // F1 R02: selects/fallbacks only in active scope, without destructive
+    // global filtering (state.employees stays untouched for other views).
+    // Flag OFF ⇒ entityInScope identidad (paridad legacy exacta).
+    const scopedDetailEmployees = state.employees.filter(emp => entityInScope(emp));
+    if (scopedDetailEmployees.length === 0) {
+        return `<aside class="attendance-detail empty">
+            <div class="detail-empty-state">
+                <div class="detail-empty-icon">👥</div>
+                <div class="detail-empty-title">Sin empleados en esta obra</div>
+                <div class="detail-empty-sub">Crea uno desde la pestaña Personal para ver su detalle aquí.</div>
+            </div>
+        </aside>`;
+    }
+
+    // Resolve the selected employee — fall back to first active, then first (scoped only).
     const selId = getEffectiveAttendanceDetailEmployeeId();
-    let emp = selId ? state.employees.find(e => e.id === selId) : null;
-    if (!emp) emp = state.employees.find(e => e.active !== false) || state.employees[0];
+    let emp = selId ? scopedDetailEmployees.find(e => e.id === selId) : null;
+    if (!emp) emp = scopedDetailEmployees.find(e => e.active !== false) || scopedDetailEmployees[0];
 
     // Normalise positions array (older records may only have positionId)
     if (!emp.positions) emp.positions = emp.positionId ? [emp.positionId] : [];
 
+    // F1 R02: posiciones del detalle limitadas a la obra activa
+    // (OFF ⇒ entityInScope identidad ⇒ paridad legacy exacta).
+    const scopedDetailPositions = (state.positions || []).filter(p => entityInScope(p));
+
     // ----- Build position chips -----
     const positionChips = (emp.positions || []).map(pid => {
-        const pos = state.positions.find(p => p.id === pid);
+        const pos = scopedDetailPositions.find(p => p.id === pid);
         if (!pos) return '';
         const color = pos.color || '#64748b';
         return `<span class="detail-pos-chip" style="color:${color};border-color:${color};">
@@ -4353,7 +4367,10 @@ function _AttendanceDetailPanelInner() {
     try {
         for (let d = new Date(rangeStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
             const dk = getDateKey(new Date(d));
-            const att = state.attendance[`${emp.id}-${dk}`];
+            // F1 R02: registro de asistencia fuera de la obra activa ⇒ vacío
+            // (Flag OFF ⇒ entityInScope identidad ⇒ paridad legacy exacta).
+            const attRaw = state.attendance[`${emp.id}-${dk}`];
+            const att = (attRaw && entityInScope(attRaw)) ? attRaw : null;
             if (att && att.present) {
                 const workedHours = Number(att.hoursWorked) || 0;
                 const dailyTargetHours = resolveDailyTargetHours(dk, state.dayHoursConfig, regularHours);
@@ -4367,7 +4384,7 @@ function _AttendanceDetailPanelInner() {
     // ----- Visual summary cards: current week + period hours progress -----
     const holidays = state.settings?.holidays || [];
     const firstWorkPosId = emp.positions?.[0];
-    const firstWorkPos = state.positions.find(p => p.id === firstWorkPosId);
+    const firstWorkPos = scopedDetailPositions.find(p => p.id === firstWorkPosId);
     const employeeWorkingDays = (
         emp.customWorkingDays?.[firstWorkPosId]
         || firstWorkPos?.workingDays
@@ -4388,7 +4405,9 @@ function _AttendanceDetailPanelInner() {
         day.setDate(weekStart.getDate() + i);
         const dk = getDateKey(day);
         const isWorkDay = worksOnDay(day) && !holidays.includes(dk);
-        const att = state.attendance[`${emp.id}-${dk}`];
+        // F1 R02: registro fuera de la obra activa ⇒ día sin asistencia.
+        const attRaw = state.attendance[`${emp.id}-${dk}`];
+        const att = (attRaw && entityInScope(attRaw)) ? attRaw : null;
         const checkColor = getCheckColor(att, day);
         if (isWorkDay) weekWorkDays++;
         if (isWorkDay && att?.present) weekPresentDays++;
@@ -4415,7 +4434,7 @@ function _AttendanceDetailPanelInner() {
     // Approx salary based on first position tarifa × period hours.
     // TODO: if the employee worked under multiple positions in the period,
     // sum each position's rate × its own hours (per-position breakdown).
-    const firstPos = state.positions.find(p => p.id === emp.positions[0]);
+    const firstPos = scopedDetailPositions.find(p => p.id === emp.positions[0]);
     const hourlyRate = (firstPos && firstPos.hourlyRate) || 0;
     const salaryEstimate = periodHours * hourlyRate;
 
@@ -4527,10 +4546,12 @@ function _AttendanceDetailPanelInner() {
     </aside>`;
 }
 
-function getAttendanceDetailPositionHours(emp, att) {
-    const positionIds = (emp.positions && emp.positions.length > 0)
+function getAttendanceDetailPositionHours(emp, att, positionIdsOverride) {
+    // F1 R02: positionIdsOverride permite al detalle limitar las posiciones a
+    // la obra activa (OFF ⇒ identidad ⇒ paridad legacy exacta).
+    const positionIds = positionIdsOverride || ((emp.positions && emp.positions.length > 0)
         ? emp.positions
-        : (emp.positionId ? [emp.positionId] : []);
+        : (emp.positionId ? [emp.positionId] : []));
 
     if (att?.positionHours?.length) {
         return positionIds.map(pid => {
@@ -4556,8 +4577,18 @@ function renderAttendanceDetailWorkPanel(emp, selectedDate) {
     const calendarMonth = state.attendanceDetailCalendarMonth instanceof Date
         ? state.attendanceDetailCalendarMonth
         : new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-    const att = state.attendance[`${emp.id}-${selectedDateKey}`] || {};
-    const positionHours = getAttendanceDetailPositionHours(emp, att);
+    // F1 R02: registro fuera de la obra activa ⇒ panel del día se ve vacío
+    // (Flag OFF ⇒ entityInScope identidad ⇒ paridad legacy exacta).
+    const attRaw = state.attendance[`${emp.id}-${selectedDateKey}`];
+    const att = (attRaw && entityInScope(attRaw)) ? attRaw : {};
+    // F1 R02: posiciones del panel del día limitadas a la obra activa
+    // (mismo fallback legacy positions→positionId, luego filtro scoped).
+    const scopedDetailPosIds = new Set((state.positions || []).filter(p => entityInScope(p)).map(p => p.id));
+    const baseDetailPositionIds = (emp.positions && emp.positions.length > 0)
+        ? emp.positions
+        : (emp.positionId ? [emp.positionId] : []);
+    const scopedDetailPositionIds = baseDetailPositionIds.filter(pid => scopedDetailPosIds.has(pid));
+    const positionHours = getAttendanceDetailPositionHours(emp, att, scopedDetailPositionIds);
     const totalHours = positionHours.reduce((sum, ph) => sum + Number(ph.hours || 0), 0);
     const totalOvertime = positionHours.reduce((sum, ph) => sum + Number(ph.overtimeHours || 0), 0);
     const selectedLabel = selectedDate.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -4593,7 +4624,8 @@ function renderAttendanceDetailWorkPanel(emp, selectedDate) {
 
             <div class="detail-position-hours-list">
                 ${positionHours.length ? positionHours.map(ph => {
-                    const pos = state.positions.find(p => p.id === ph.positionId);
+                    // F1 R02: posiciones del editor limitadas a la obra activa.
+                    const pos = (state.positions || []).find(p => p.id === ph.positionId && entityInScope(p));
                     const color = pos?.color || '#06b6d4';
                     const positionSalary = pos?.salaryConfig?.amount ?? pos?.baseSalary ?? 0;
                     const config = pos?.salaryConfig || { amount: positionSalary, period: 'month', workDays: [] };
@@ -4710,18 +4742,25 @@ window.updateAttendanceDetailHoursTotal = (empId) => {
 };
 
 window.saveAttendanceDetailHours = (empId) => {
+    // F1 R02: fail closed — empleado fuera de la obra activa nunca se muta.
     const emp = state.employees.find(e => e.id === empId);
     const root = document.querySelector(`.detail-hours-editor[data-emp-id="${empId}"]`);
     if (!emp || !root) return;
+    if (!entityInScope(emp)) return;
 
     const dateKey = getDateKey(state.selectedDate);
     const key = `${emp.id}-${dateKey}`;
-    const existing = state.attendance[key] || {};
+    // F1 R02: registro existente de OTRA obra nunca se muta aquí.
+    const existingRaw = state.attendance[key];
+    if (existingRaw && !entityInScope(existingRaw)) return;
+    const existing = existingRaw || {};
     const positionHours = [];
     let totalHours = 0;
     let totalOvertime = 0;
 
-    (emp.positions || []).forEach(pid => {
+    // F1 R02: sólo posiciones de la obra activa alimentan el guardado.
+    const scopedSavePosIds = new Set((state.positions || []).filter(p => entityInScope(p)).map(p => p.id));
+    (emp.positions || []).filter(pid => scopedSavePosIds.has(pid)).forEach(pid => {
         const hoursInput = root.querySelector(`[data-detail-hours-input="hours"][data-position-id="${pid}"]`);
         const overtimeInput = root.querySelector(`[data-detail-hours-input="overtime"][data-position-id="${pid}"]`);
         const hours = Number.parseFloat(hoursInput?.value) || 0;
@@ -4746,7 +4785,10 @@ window.saveAttendanceDetailHours = (empId) => {
             overtimeHours: totalOvertime,
             positionHours,
             multiPosition: positionHours.length > 1,
-            selectedPosition: positionHours[0]?.positionId || emp.positions?.[0] || null,
+            // F1 R02: fallback de posición dentro de la obra activa.
+            selectedPosition: positionHours[0]?.positionId
+                || (emp.positions || []).find(pid => scopedSavePosIds.has(pid))
+                || null,
             isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
             notes: existing.notes || '',
             lastAccessed: Date.now(),
@@ -4775,6 +4817,9 @@ window.saveQuickNoteFromDetail = (empId) => {
     const key = `${empId}-${dateKey}`;
     const emp = state.employees.find(e => e.id === empId);
     if (!emp) return;
+    // F1 R02: fail closed — empleado/registro de otra obra nunca se mutan.
+    if (!entityInScope(emp)) return;
+    if (state.attendance[key] && !entityInScope(state.attendance[key])) return;
 
     // ⚡ Fase 4 Paso 5: el upsert/clear + la coherencia van en batchSetState → 1 repintado
     // (antes: el del set-trap + el manual del final). Notas NO son financieras, pero la
@@ -4795,8 +4840,9 @@ window.saveQuickNoteFromDetail = (empId) => {
                 hoursWorked: 0,
                 overtimeHours: 0,
                 isHoliday: false,
-                selectedPosition: emp.positions?.[0] || null,
-                multiPosition: false,
+                // F1 R02: posición por defecto dentro de la obra activa.
+                selectedPosition: (emp.positions || []).find(pid =>
+                    (state.positions || []).some(p => p.id === pid && entityInScope(p))) || null,                multiPosition: false,
                 positionHours: [],
                 notes: ''
             };
@@ -4819,7 +4865,10 @@ window.saveQuickNoteFromDetail = (empId) => {
 // han sido movidos a ./modules/ui/AttendanceUI.js para mejor mantenimiento.
 
 window.viewAttendanceEmployee = function (employeeId) {
-    if (!state.employees.some(employee => employee.id === employeeId)) return;
+    const target = state.employees.find(employee => employee.id === employeeId);
+    if (!target) return;
+    // F1 R02: stale cross-project selection fails closed (no destructive filtering).
+    if (!entityInScope(target)) return;
 
     if (!usesAttendanceDetailPanel(window.innerWidth)) {
         EmployeesUI.openEmployeeFloating(employeeId);
@@ -7061,6 +7110,87 @@ window.exportImage = async function () {
  */
 // ⚡ renderSkeleton movido a AttendanceUI.js
 
+// ─── F1 R02: compact persistent active-project indicator (Header) ───
+// Sync cache for the Header obra pill. Reuses ProjectContext APIs.
+// Flag OFF ⇒ empty (legacy header identical). Updates after project switch
+// via projectContext.subscribe + projects:setup-changed (rename/activate).
+let _headerActiveProjectName = '';
+let _headerActiveProjectId = null;
+
+function getHeaderActiveProjectName() {
+    try {
+        if (!isProjectsEnabled()) return '';
+    } catch (_) { return ''; }
+    return _headerActiveProjectName || '';
+}
+
+// F1 R02: el cache del Header JAMÁS muestra el nombre de la obra PREVIA.
+// Reglas:
+// 1. Cambio de obra ⇒ el nombre se vacía SINCRÓNICAMENTE (id distinto), y
+//    sólo se rellena cuando el read del store confirma que sigue vigente.
+// 2. Un fetch obsoleto (obra ya no activa al resolverse) se descarta: la
+//    escritura verifica que el id activo no haya cambiado durante el await.
+// 3. projects:setup-changed fuerza re-lectura aunque el id sea el mismo
+//    (rename de la misma obra) y dispara re-render si el nombre cambió.
+function applyHeaderProjectIdentity(activeId, name) {
+    const changed = (activeId || null) !== _headerActiveProjectId || (name || '') !== _headerActiveProjectName;
+    _headerActiveProjectId = activeId || null;
+    _headerActiveProjectName = name || '';
+    if (changed) { try { window.render?.(); } catch (_) {} }
+}
+
+async function refreshHeaderActiveProjectName({ force = false } = {}) {
+    try {
+        if (!isProjectsEnabled()) {
+            applyHeaderProjectIdentity(null, '');
+            return '';
+        }
+        const activeId = peekEntityScope()?.projectId || null;
+        if (!activeId) {
+            applyHeaderProjectIdentity(null, '');
+            return '';
+        }
+        // Switch de obra: vaciar de inmediato (sincrónico, antes de cualquier await)
+        // para que ningún render muestre el nombre de la obra previa.
+        if (activeId !== _headerActiveProjectId) {
+            applyHeaderProjectIdentity(activeId, '');
+        }
+        if (force || !_headerActiveProjectName) {
+            const snapshotId = activeId;
+            (async () => {
+                try {
+                    const proj = await projectStore.get(snapshotId);
+                    // Fetch obsoleto: la obra activa cambió durante el read ⇒ ignorar.
+                    if (_headerActiveProjectId !== snapshotId) return;
+                    const name = proj?.name ? String(proj.name).trim() : '';
+                    if (name !== _headerActiveProjectName) {
+                        _headerActiveProjectName = name;
+                        try { window.render?.(); } catch (_) {}
+                    }
+                } catch (_) { /* conservar lo visible; el próximo evento reintenta */ }
+            })();
+        }
+        return _headerActiveProjectName;
+    } catch (_) { return _headerActiveProjectName || ''; }
+}
+
+try {
+    projectContext.subscribe((payload) => {
+        const nextId = payload?.projectId ?? peekEntityScope()?.projectId ?? null;
+        if (nextId && nextId !== _headerActiveProjectId) {
+            applyHeaderProjectIdentity(nextId, '');
+        }
+        refreshHeaderActiveProjectName();
+        try { render(); } catch (_) { window.render?.(); }
+    });
+} catch (_) {}
+try {
+    window.addEventListener('projects:setup-changed', () => {
+        // force: re-lee el store aunque el id no cambie (rename de la misma obra).
+        refreshHeaderActiveProjectName({ force: true });
+    });
+} catch (_) {}
+
 function App() {
     // Banner de modo demo si está activo
     const demoBanner = state.usingDemoData ? `
@@ -7122,6 +7252,7 @@ function App() {
 
     return `${demoBanner}${Header({
         companyName: state.settings.companyName,
+        activeProjectName: getHeaderActiveProjectName(),
         SyncIndicator: SyncUI.SyncIndicator,
         openNotesCenter: () => window.openNotesCenter(),
         exportData: () => window.exportExcel(),
@@ -7470,6 +7601,8 @@ function _initOutgoingConflictGuard() {
         // el default existe antes de que cualquier código post-hydrate pregunte
         // por el proyecto activo.
         await initProjectsInfrastructure();
+        // F1 R02: prime Header obra pill (never-throw, async refresh re-renders).
+        try { refreshHeaderActiveProjectName(); } catch (_) {}
 
         // 1.0 Activar el guard de conflictos salientes (cloud más reciente que local).
         // Se registra AQUÍ (post-load) para que Modal y showNotification ya estén listos.
@@ -7647,6 +7780,13 @@ function _initOutgoingConflictGuard() {
                     }),
                     continueStartup: async ({ isCurrent }) => {
                         if (!isCurrent()) return;
+
+                        // Hotfix legacy→multiobra: ahora que la obra default ya fue adoptada
+                        // a su ID canónico, promover cierres schema2 históricos a esa obra.
+                        // Metadata-only, idempotente y sin habilitar mutaciones Tanda B.
+                        try { await payrollClosureStamper.run({ chunkSize: 20 }); } catch (error) {
+                            console.warn('No se pudo asociar el historial legacy a la obra predeterminada:', error?.message || error);
+                        }
 
                         // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
                         window.startPettyCashSync?.();

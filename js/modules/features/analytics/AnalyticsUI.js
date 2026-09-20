@@ -91,6 +91,7 @@ import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
 import { ensureChartJsLoaded } from '../../utils/LazyCDN.js';
 import payrollClosureStore from '../payroll/PayrollClosureStore.js';
+import { peekEntityScope, entityInScope } from '../projects/ProjectContext.js';
 
 let context = null;
 let dashboardDateManagerV2 = null;
@@ -106,6 +107,27 @@ export function init(ctx) {
 
 function getState() {
     return context.state;
+}
+
+// ─── F1 R02: snapshot project-aware compartido por toda la analítica ───
+// Una sola frontera para gráficas, KPIs, reporte y exportación a Excel:
+// empleados, posiciones, líderes y asistencia del proyecto activo.
+// Flag OFF ⇒ entityInScope identidad ⇒ listas idénticas a las globales
+// (legacy exacto). Los consumidores NUNCA caen de vuelta a los catálogos
+// globales ni leen state.attendance directamente: siempre leen este snapshot.
+function getScopedAnalytics() {
+    const state = getState();
+    const projectScope = peekEntityScope();
+    const employees = (state.employees || []).filter(e => entityInScope(e, projectScope));
+    const positions = (state.positions || []).filter(p => entityInScope(p, projectScope));
+    const leaders = (state.leaders || []).filter(l => entityInScope(l, projectScope));
+    const scopedIds = new Set(employees.map(e => e.id));
+    const attendance = {};
+    for (const k in (state.attendance || {})) {
+        const r = state.attendance[k];
+        if (r && entityInScope(r, projectScope) && (!r.employeeId || scopedIds.has(r.employeeId))) attendance[k] = r;
+    }
+    return { projectScope, employees, positions, leaders, attendance };
 }
 
 /**
@@ -193,7 +215,7 @@ function DashboardControls() {
                     <button type="button" data-analytics-action="set-dashboard-chart" data-value="heatmap" class="dashboard-chart-btn ${state.dashboardChart === 'heatmap' ? 'active' : ''}">${icons.get('zap')} Mapa Calor</button>
                 </div>
             </div>
-            
+
             <!--Selector de Rango de Fechas-->
             <div style="margin-bottom: 20px;">
                 <div style="font-size: 0.875rem; font-weight: 600; color: #94a3b8; margin-bottom: 12px;">
@@ -286,12 +308,15 @@ function AttendanceChart() {
 function getAttendanceChartData() {
     const state = getState();
     const cacheKey = 'chart-attendance';
-    const deps = [state.dashboardStartDate, state.dashboardEndDate, state.employees.length];
+    // F1 R02: el cache también se invalida al cambiar de obra activa.
+    const deps = [state.dashboardStartDate, state.dashboardEndDate, state.employees.length, peekEntityScope().projectId || ''];
 
     return memoCache.get(cacheKey, () => {
+        // F1 R02: snapshot project-aware (OFF ⇒ identidad legacy exacta).
+        const scoped = getScopedAnalytics();
         const startDate = parseDate(state.dashboardStartDate);
         const endDate = parseDate(state.dashboardEndDate);
-        const activeEmployees = state.employees.filter(e => e.active);
+        const activeEmployees = scoped.employees.filter(e => e.active);
         const totalEmployees = activeEmployees.length;
         const labels = [], present = [], absent = [];
 
@@ -301,7 +326,7 @@ function getAttendanceChartData() {
             let presentCount = 0;
             activeEmployees.forEach(emp => {
                 const key = `${ emp.id }-${ dateKey }`;
-                const att = state.attendance[key];
+                const att = scoped.attendance[key];
                 if (att && att.present) presentCount++;
             });
             present.push(presentCount);
@@ -340,9 +365,12 @@ function HoursChart() {
 function getHoursChartData() {
     const state = getState();
     const cacheKey = 'chart-hours';
-    const deps = [state.dashboardStartDate, state.dashboardEndDate, state.employees.length];
+    // F1 R02: el cache también se invalida al cambiar de obra activa.
+    const deps = [state.dashboardStartDate, state.dashboardEndDate, state.employees.length, peekEntityScope().projectId || ''];
 
     return memoCache.get(cacheKey, () => {
+        // F1 R02: snapshot project-aware (OFF ⇒ identidad legacy exacta).
+        const scoped = getScopedAnalytics();
         const startDate = parseDate(state.dashboardStartDate);
         const endDate = parseDate(state.dashboardEndDate);
         const weeks = {};
@@ -360,9 +388,9 @@ function getHoursChartData() {
             const dateKey = getDateKey(date);
             const isHoliday = isDayHoliday(date);
 
-            state.employees.filter(e => e.active).forEach(emp => {
+            scoped.employees.filter(e => e.active).forEach(emp => {
                 const key = `${ emp.id }-${ dateKey }`;
-                const att = state.attendance[key];
+                const att = scoped.attendance[key];
                 if (att && att.present) {
                     const regularHours = Math.min(att.hoursWorked, state.settings.regularHoursPerDay);
                     if (isHoliday || att.isHoliday) weeks[weekKey].holiday += att.hoursWorked;
@@ -405,8 +433,10 @@ function PositionsChart() {
 }
 
 function getPositionsChartData() {
+    // F1 R02: snapshot project-aware (OFF ⇒ identidad legacy exacta).
+    const scoped = getScopedAnalytics();
     const state = getState();
-    const activeEmployees = state.employees.filter(e => e.active);
+    const activeEmployees = scoped.employees.filter(e => e.active);
     const positionCounts = {};
     const positionColors = {};
 
@@ -414,14 +444,14 @@ function getPositionsChartData() {
         const posId = emp.positions?.[0];
         if (posId) {
             positionCounts[posId] = (positionCounts[posId] || 0) + 1;
-            const pos = state.positions.find(p => p.id === posId);
+            const pos = scoped.positions.find(p => p.id === posId);
             if (pos) positionColors[posId] = pos.color;
         }
     });
 
     return {
         labels: Object.keys(positionCounts).map(id => {
-            const pos = state.positions.find(p => p.id === id);
+            const pos = scoped.positions.find(p => p.id === id);
             return pos ? pos.name : id;
         }),
         values: Object.values(positionCounts),
@@ -455,15 +485,17 @@ function Top10Chart() {
 
 function getTop10ChartData() {
     const state = getState();
+    // F1 R02: snapshot project-aware (OFF ⇒ identidad legacy exacta).
+    const scoped = getScopedAnalytics();
     const startDate = parseDate(state.dashboardStartDate);
     const endDate = parseDate(state.dashboardEndDate);
-    const activeEmployees = state.employees.filter(e => e.active);
+    const activeEmployees = scoped.employees.filter(e => e.active);
 
     const employeeHours = activeEmployees.map(emp => {
         let regular = 0, overtime = 0;
         for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
             const key = `${ emp.id }-${ getDateKey(new Date(d))}`;
-    const att = state.attendance[key];
+    const att = scoped.attendance[key];
     if (att && att.present) {
         const regHours = Math.min(att.hoursWorked, state.settings.regularHoursPerDay);
         regular += regHours;
@@ -508,9 +540,11 @@ function HeatmapChart() {
 
 function getHeatmapData() {
     const state = getState();
+    // F1 R02: snapshot project-aware (OFF ⇒ identidad legacy exacta).
+    const scoped = getScopedAnalytics();
     const startDate = parseDate(state.dashboardStartDate);
     const endDate = parseDate(state.dashboardEndDate);
-    const activeEmployees = state.employees.filter(e => e.active);
+    const activeEmployees = scoped.employees.filter(e => e.active);
     const totalEmployees = activeEmployees.length;
 
     const weeks = [];
@@ -523,7 +557,7 @@ function getHeatmapData() {
         const dateKey = getDateKey(date);
         let presentCount = 0;
         activeEmployees.forEach(emp => {
-            const att = state.attendance[`${emp.id}-${dateKey}`];
+            const att = scoped.attendance[`${emp.id}-${dateKey}`];
             if (att && att.present) presentCount++;
         });
         const percentage = totalEmployees > 0 ? Math.round((presentCount / totalEmployees) * 100) : 0;
@@ -571,9 +605,12 @@ function GeneratedReport() {
 
 function calculateReportData(startDate, endDate) {
     const state = getState();
+    // F1 R02: KPI "Total Empleados Activos" limitado a la obra activa
+    // (OFF ⇒ identidad legacy exacta).
+    const scoped = getScopedAnalytics();
     const start = parseDate(startDate);
     const end = parseDate(endDate);
-    const activeEmployees = state.employees.filter(e => e.active);
+    const activeEmployees = scoped.employees.filter(e => e.active);
     let workDays = 0;
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) workDays++;
     return { totalEmployees: activeEmployees.length, workDays };
@@ -668,7 +705,7 @@ export function ExcelExportOptionsModal() {
     return `
         <div class="modal-backdrop" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px;">
             <div style="background: #1e293b; border: 1px solid #334155; border-radius: 16px; max-width: 540px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6); overflow: hidden;">
-                
+
                 <!-- Modal Header -->
                 <div style="padding: 20px 24px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; background: #0f172a;">
                     <div style="display: flex; align-items: center; gap: 12px;">
@@ -816,6 +853,7 @@ function EmployeeReportContent() {
 
 function EmployeeReportGeneralSection(reportData) {
     const state = getState();
+    const scoped = getScopedAnalytics();
     const collapses = state.collapsedPositions || {};
     const isCollapsed = collapses['general'] !== false; // Colapsado por defecto si es undefined o true
     const allEmployeesMap = new Map();
@@ -836,7 +874,7 @@ function EmployeeReportGeneralSection(reportData) {
     const allEmployees = Array.from(allEmployeesMap.values()).map(emp => {
         emp.totalDays = Object.values(emp.dayValues).reduce((sum, val) => sum + val, 0);
         reportData.days.forEach(day => {
-            const att = state.attendance[`${ emp.id }-${ getDateKey(day.date)}`];
+            const att = scoped.attendance[`${ emp.id }-${ getDateKey(day.date)}`];
     if (att && att.present) emp.totalHours += (att.hoursWorked || 0);
 });
 return emp;
@@ -890,6 +928,7 @@ return emp;
 
 export function EmployeeReportGeneralTable(employees, days) {
     const state = getState();
+    const scoped = getScopedAnalytics();
     return `<div class="responsive-table-wrapper" role="region" aria-label="Reporte general de empleados" tabindex="0"><table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem;">
                 <thead>
                     <tr>
@@ -910,10 +949,10 @@ export function EmployeeReportGeneralTable(employees, days) {
                             ${days.map(d => {
                                 const dateKey = getDateKey(d.date);
                                 const val = emp.dayValues[dateKey];
-                                const att = state?.attendance?.[`${emp.id}-${dateKey}`];
+                                const att = scoped.attendance?.[`${emp.id}-${dateKey}`];
                                 const isHoliday = Boolean(d.isHoliday || att?.isHoliday);
 
-                                const empPositions = (state?.positions || []).filter(p => 
+                                const empPositions = (scoped.positions || []).filter(p =>
                                     (emp.positions && emp.positions.includes(p.id)) || emp.position === p.id
                                 );
                                 const workingDays = (empPositions.length > 0 && empPositions[0].workingDays)
@@ -999,8 +1038,8 @@ function EmployeeReportTable(posData, days) {
                             ${days.map(d => {
                                 const dateKey = getDateKey(d.date);
                                 const val = emp.dayValues[dateKey] || 0;
-                                const workingDays = emp.customWorkingDays?.[posData.position.id] 
-                                    || posData.position.workingDays 
+                                const workingDays = emp.customWorkingDays?.[posData.position.id]
+                                    || posData.position.workingDays
                                     || [1, 2, 3, 4, 5];
                                 const att = state?.attendance?.[`${emp.id}-${dateKey}`];
                                 const isHoliday = Boolean(d.isHoliday || att?.isHoliday);
@@ -1038,26 +1077,24 @@ function calculateEmployeeReportData() {
     const endDate = state.employeeReportEndDate;
     const startDateObj = parseDate(startDate);
     const endDateObj = parseDate(endDate);
-
     const days = [];
     for (let d = new Date(startDateObj); d <= endDateObj; d.setDate(d.getDate() + 1)) {
         const date = new Date(d);
-        days.push({ date: date, isHoliday: isDayHoliday(date) });
+        days.push({ date, isHoliday: isDayHoliday(date) });
     }
-
-    // El armado vive en EmployeeReportData (puro, testeado). Regla que arregla
-    // el bug de campo 2026-07-10: EL HISTORIAL MANDA — los días registrados con
-    // una posición desasignada o desactivada siguen apareciendo bajo ella.
+    // F1 R02: frontera project-aware compartida (OFF ⇒ identidad legacy).
+    const scoped = getScopedAnalytics();
+    // El armado vive en EmployeeReportData (EL HISTORIAL MANDA).
     return buildEmployeeReportData({
-        employees: state.employees,
-        positions: state.positions,
-        attendance: state.attendance,
+        employees: scoped.employees,
+        positions: scoped.positions,
+        attendance: scoped.attendance,
         days,
         startDate,
         endDate,
         regularHours: state.settings.regularHoursPerDay,
         holidayFactor: state.settings.holidayFactor,
-        leaders: state.leaders,
+        leaders: scoped.leaders,
         settings: state.settings,
         restDayFactor: state.settings.restDayFactor
     });
@@ -1137,15 +1174,15 @@ export function toggleStartDatePicker() { dashboardDateManagerV2.toggleStartPick
 export function toggleEndDatePicker() { dashboardDateManagerV2.toggleEndPicker(); context.render(); }
 export function changeStartDatePickerMonth(delta) { dashboardDateManagerV2.changeStartMonth(delta); context.render(); }
 export function changeEndDatePickerMonth(delta) { dashboardDateManagerV2.changeEndMonth(delta); context.render(); }
-export function selectStartDate(dateStr) { 
-    if (dashboardDateManagerV2) dashboardDateManagerV2.selectStartDate(dateStr); 
-    memoCache.clear('chart-'); 
-    context.render(); 
+export function selectStartDate(dateStr) {
+    if (dashboardDateManagerV2) dashboardDateManagerV2.selectStartDate(dateStr);
+    memoCache.clear('chart-');
+    context.render();
 }
-export function selectEndDate(dateStr) { 
-    if (dashboardDateManagerV2) dashboardDateManagerV2.selectEndDate(dateStr); 
-    memoCache.clear('chart-'); 
-    context.render(); 
+export function selectEndDate(dateStr) {
+    if (dashboardDateManagerV2) dashboardDateManagerV2.selectEndDate(dateStr);
+    memoCache.clear('chart-');
+    context.render();
 }
 export function setDashboardThisWeek() { dashboardDateManagerV2.setThisWeek(); memoCache.clear('chart-'); context.render(); }
 export function setDashboardThisMonth() { dashboardDateManagerV2.setThisMonth(); memoCache.clear('chart-'); context.render(); }
@@ -1157,10 +1194,10 @@ export function toggleEmployeeReportStartPicker() { employeeReportDateManagerV2?
 export function toggleEmployeeReportEndPicker() { employeeReportDateManagerV2?.toggleEndPicker?.(); context.render(); }
 export function changeEmployeeReportStartPickerMonth(delta) { employeeReportDateManagerV2?.changeStartMonth?.(delta); context.render(); }
 export function changeEmployeeReportEndPickerMonth(delta) { employeeReportDateManagerV2?.changeEndMonth?.(delta); context.render(); }
-export function selectEmployeeReportStartDate(dateStr) { 
-    if (employeeReportDateManagerV2) employeeReportDateManagerV2.selectStartDate(dateStr); 
-    memoCache.clear('report-'); 
-    context.render(); 
+export function selectEmployeeReportStartDate(dateStr) {
+    if (employeeReportDateManagerV2) employeeReportDateManagerV2.selectStartDate(dateStr);
+    memoCache.clear('report-');
+    context.render();
     if (context?.services?.ensureAttendanceRange) {
         const state = getState();
         context.services.ensureAttendanceRange(
@@ -1172,10 +1209,10 @@ export function selectEmployeeReportStartDate(dateStr) {
         }).catch(() => {});
     }
 }
-export function selectEmployeeReportEndDate(dateStr) { 
-    if (employeeReportDateManagerV2) employeeReportDateManagerV2.selectEndDate(dateStr); 
-    memoCache.clear('report-'); 
-    context.render(); 
+export function selectEmployeeReportEndDate(dateStr) {
+    if (employeeReportDateManagerV2) employeeReportDateManagerV2.selectEndDate(dateStr);
+    memoCache.clear('report-');
+    context.render();
     if (context?.services?.ensureAttendanceRange) {
         const state = getState();
         context.services.ensureAttendanceRange(
@@ -1187,10 +1224,10 @@ export function selectEmployeeReportEndDate(dateStr) {
         }).catch(() => {});
     }
 }
-export function setEmployeeReportThisWeek() { 
-    employeeReportDateManagerV2.setThisWeek(); 
-    memoCache.clear('report-'); 
-    context.render(); 
+export function setEmployeeReportThisWeek() {
+    employeeReportDateManagerV2.setThisWeek();
+    memoCache.clear('report-');
+    context.render();
     if (context?.services?.ensureAttendanceRange) {
         const state = getState();
         context.services.ensureAttendanceRange(
@@ -1202,10 +1239,10 @@ export function setEmployeeReportThisWeek() {
         }).catch(() => {});
     }
 }
-export function setEmployeeReportThisMonth() { 
-    employeeReportDateManagerV2.setThisMonth(); 
-    memoCache.clear('report-'); 
-    context.render(); 
+export function setEmployeeReportThisMonth() {
+    employeeReportDateManagerV2.setThisMonth();
+    memoCache.clear('report-');
+    context.render();
     if (context?.services?.ensureAttendanceRange) {
         const state = getState();
         context.services.ensureAttendanceRange(
@@ -1217,10 +1254,10 @@ export function setEmployeeReportThisMonth() {
         }).catch(() => {});
     }
 }
-export function setEmployeeReportLast30Days() { 
-    employeeReportDateManagerV2.setLast30Days(); 
-    memoCache.clear('report-'); 
-    context.render(); 
+export function setEmployeeReportLast30Days() {
+    employeeReportDateManagerV2.setLast30Days();
+    memoCache.clear('report-');
+    context.render();
     if (context?.services?.ensureAttendanceRange) {
         const state = getState();
         context.services.ensureAttendanceRange(
@@ -1232,10 +1269,10 @@ export function setEmployeeReportLast30Days() {
         }).catch(() => {});
     }
 }
-export function setEmployeeReportPayPeriod() { 
-    employeeReportDateManagerV2.setPayPeriod(); 
-    memoCache.clear('report-'); 
-    context.render(); 
+export function setEmployeeReportPayPeriod() {
+    employeeReportDateManagerV2.setPayPeriod();
+    memoCache.clear('report-');
+    context.render();
     if (context?.services?.ensureAttendanceRange) {
         const state = getState();
         context.services.ensureAttendanceRange(
@@ -1250,11 +1287,11 @@ export function setEmployeeReportPayPeriod() {
 export function togglePositionCollapse(id) {
     const state = getState();
     if (!state.collapsedPositions) state.collapsedPositions = {};
-    
+
     // Si no está definido (undefined), se asume que está colapsado (true)
     const current = state.collapsedPositions[id] !== false;
     state.collapsedPositions[id] = !current;
-    
+
     context.render();
 }
 
@@ -1271,6 +1308,9 @@ export async function exportEmployeeReportExcel() {
         return;
     }
     const reportData = calculateEmployeeReportData();
+    // F1 R02: snapshot project-aware para TODA la exportación — sin fallback a
+    // catálogos globales ni lecturas directas de state.attendance (OFF ⇒ identidad).
+    const scoped = getScopedAnalytics();
     if (reportData.positions.length === 0) {
         if (window.showNotification) window.showNotification('No hay datos para exportar', 'error');
         return;
@@ -1404,15 +1444,15 @@ export async function exportEmployeeReportExcel() {
             for (let i = 0; i < extraColsBefore; i++) subHeaderRow.push('');
             reportData.days.forEach(d => subHeaderRow.push(`${d.date.getDate()}/${d.date.getMonth() + 1}`));
             for (let i = 0; i < extraColsAfter; i++) subHeaderRow.push('');
-            
+
             sheet.addRow(subHeaderRow);
-            
+
             if (opts.mergeHeaders) {
                 // Combinar celdas del encabezado izquierdo (filas 1 y 2)
                 for (let i = 1; i <= extraColsBefore; i++) {
                     sheet.mergeCells(1, i, 2, i);
                 }
-                
+
                 // Combinar celdas del encabezado derecho de Totales (filas 1 y 2)
                 for (let i = 0; i < extraColsAfter; i++) {
                     const col = totalCols - i;
@@ -1442,7 +1482,8 @@ export async function exportEmployeeReportExcel() {
         // Procesar todos los datos para métricas
         reportData.positions.forEach(posData => {
             const pos = posData.position;
-            const leader = state.leaders.find(l => l.id === pos.leaderId);
+            // F1 R02: líder resuelto SOLO dentro de la obra activa.
+            const leader = scoped.leaders.find(l => l.id === pos.leaderId);
             const leaderName = leader ? leader.name : 'Sin Líder';
 
             if (!globalMetrics.positionStats[pos.name]) globalMetrics.positionStats[pos.name] = 0;
@@ -1451,14 +1492,16 @@ export async function exportEmployeeReportExcel() {
             posData.employees.forEach(emp => {
                 globalMetrics.uniqueEmployees.add(emp.id);
                 globalMetrics.totalDays += emp.total;
-                
+
                 Object.keys(emp.dayValues).forEach(dateKey => {
-                    const att = state.attendance[`${emp.id}-${dateKey}`];
+                    // F1 R02: lectura de asistencia desde el snapshot scoped —
+                    // registros fuera de la obra activa no cuentan.
+                    const att = scoped.attendance[`${emp.id}-${dateKey}`];
                     if (att && att.present) {
                         const hours = att.hoursWorked || 0;
                         const dayLimit = state.dayHoursConfig[dateKey] ?? state.settings.regularHoursPerDay ?? 8;
                         const extra = Math.max(0, hours - dayLimit);
-                        
+
                         globalMetrics.totalHours += hours;
                         globalMetrics.totalOvertime += extra;
                         globalMetrics.leaderStats[leaderName] += hours;
@@ -1470,7 +1513,7 @@ export async function exportEmployeeReportExcel() {
 
         // -------- HOJA: DASHBOARD DE CONTROL --------
         const dashSheet = workbook.addWorksheet('Dashboard de Control');
-        
+
         // Estilos para el Dashboard
         const titleStyle = { font: { size: 18, bold: true, color: { argb: 'FF1E293B' } } };
         const labelStyle = { font: { bold: true, color: { argb: 'FF64748B' } } };
@@ -1524,7 +1567,7 @@ export async function exportEmployeeReportExcel() {
         dashSheet.getCell(`B${currentRow}`).value = 'Suma de Horas';
         dashSheet.getCell(`A${currentRow}`).style = headerStyle;
         dashSheet.getCell(`B${currentRow}`).style = headerStyle;
-        
+
         Object.entries(globalMetrics.leaderStats)
             .sort((a, b) => b[1] - a[1])
             .forEach(([name, hours]) => {
@@ -1607,7 +1650,8 @@ export async function exportEmployeeReportExcel() {
         allEmployees.forEach(emp => {
             emp.totalDays = Object.values(emp.dayValues).reduce((sum, v) => sum + v, 0);
             reportData.days.forEach(day => {
-                const att = state.attendance[`${emp.id}-${getDateKey(day.date)}`];
+                // F1 R02: lectura de asistencia desde el snapshot scoped.
+                const att = scoped.attendance[`${emp.id}-${getDateKey(day.date)}`];
                 if (att && att.present) emp.totalHours += (att.hoursWorked || 0);
             });
         });
@@ -1650,14 +1694,17 @@ export async function exportEmployeeReportExcel() {
 
         // -------- GENERADORES DE HOJAS POR LÍDER Y POR POSICIÓN --------
         const generateLeaderSheets = () => {
-            state.leaders.forEach(leader => {
+            // F1 R02: hojas de líderes y su catálogo de posiciones SOLO de la
+            // obra activa; las filas ocultas de inactivos también provienen del
+            // snapshot scoped (nunca del catálogo global).
+            scoped.leaders.forEach(leader => {
                 const leaderPositions = reportData.positions.filter(p => p.position.leaderId === leader.id);
-                const allLeaderPositionsCatalog = (state.positions || []).filter(p => p.leaderId === leader.id);
+                const allLeaderPositionsCatalog = scoped.positions.filter(p => p.leaderId === leader.id);
                 if (leaderPositions.length === 0 && allLeaderPositionsCatalog.length === 0) return;
 
                 const sheetName = (`Líder - ${leader.name}`).replace(/[*?:\\/\[\]]/g, '').slice(0, 31);
                 const sheet = workbook.addWorksheet(sheetName);
-                
+
                 const leaderTotalCols = opts.dualTotalColumns
                     ? [
                         { header: 'Total Días (Exportado)', key: 'totalExported', width: 20 },
@@ -1705,8 +1752,8 @@ export async function exportEmployeeReportExcel() {
                         ...allLeaderPositionsCatalog.map(p => p.id)
                     ]);
 
-                    (state.employees || []).forEach(emp => {
-                        const assignedPosList = allLeaderPositionsCatalog.filter(pos => 
+                    scoped.employees.forEach(emp => {
+                        const assignedPosList = allLeaderPositionsCatalog.filter(pos =>
                             leaderPosIdSet.has(pos.id) && (
                                 (Array.isArray(emp.positions) && emp.positions.includes(pos.id)) ||
                                 emp.position === pos.id
@@ -1813,7 +1860,7 @@ export async function exportEmployeeReportExcel() {
                             const key = getDateKey(day.date);
                             row[key] = item.dayValues[key] !== undefined ? item.dayValues[key] : null;
                         });
-                        
+
                         const addedRow = sheet.addRow(row);
 
                         const isInactive = emp.active === false || item.inactive === true;
@@ -1829,7 +1876,7 @@ export async function exportEmployeeReportExcel() {
                         currentRowNumber++;
                     });
                 });
-                
+
                 applyTableStyles(sheet, 4, reportData.days.length + 3);
             });
         };
@@ -1838,7 +1885,7 @@ export async function exportEmployeeReportExcel() {
             reportData.positions.forEach(posData => {
                 const sheetName = (posData.position?.name || 'Posición').replace(/[*?:\\/\[\]]/g, '').slice(0, 31);
                 const sheet = workbook.addWorksheet(sheetName);
-                
+
                 const posTotalCols = opts.dualTotalColumns
                     ? [
                         { header: 'Total Días (Exportado)', key: 'totalExported', width: 20 },
@@ -1893,7 +1940,7 @@ export async function exportEmployeeReportExcel() {
                     });
                     sheet.addRow(row);
                 });
-                
+
                 applyTableStyles(sheet, 3, reportData.days.length + 2);
             });
         };
@@ -1914,7 +1961,7 @@ export async function exportEmployeeReportExcel() {
         const fileName = `Reporte_Personal_${state.employeeReportStartDate}_${state.employeeReportEndDate}.xlsx`.replace(/:/g, '-');
         link.download = fileName;
         link.click();
-        
+
         if (window.showNotification) window.showNotification('Excel exportado correctamente', 'success');
     } else {
         if (window.showNotification) window.showNotification('Error: ExcelJS no está cargado', 'error');
@@ -2057,7 +2104,7 @@ export function getPastPeriodsList(state, closures = []) {
     for (let i = 0; i < 8; i++) {
         const prevEnd = new Date(curAnchor);
         prevEnd.setDate(prevEnd.getDate() - 1);
-        
+
         const prevStart = new Date(prevEnd);
         prevStart.setDate(prevStart.getDate() - len + 1);
 
@@ -2112,9 +2159,9 @@ export function getPastPeriodsList(state, closures = []) {
 function _renderPastPeriodCard(item, currentStart, currentEnd) {
     const isCurrent = item.start === currentStart && item.end === currentEnd;
     const isClosed = item.type === 'closure';
-    
+
     return `
-        <div role="button" tabindex="0" 
+        <div role="button" tabindex="0"
              class="past-period-card ${isCurrent ? 'is-active' : ''} ${isClosed ? 'is-closed' : ''}"
              data-analytics-action="select-past-period"
              data-start="${item.start}"
@@ -2143,11 +2190,11 @@ function _renderPastPeriodCard(item, currentStart, currentEnd) {
 export function PastPeriodsModal() {
     const state = getState();
     const target = state.pastPeriodsTarget || 'employee-report';
-    const currentStart = target === 'dashboard' 
-        ? getDateKey(state.dashboardStartDate) 
+    const currentStart = target === 'dashboard'
+        ? getDateKey(state.dashboardStartDate)
         : getDateKey(state.employeeReportStartDate);
-    const currentEnd = target === 'dashboard' 
-        ? getDateKey(state.dashboardEndDate) 
+    const currentEnd = target === 'dashboard'
+        ? getDateKey(state.dashboardEndDate)
         : getDateKey(state.employeeReportEndDate);
 
     const closures = state.cachedPayrollClosures || [];
@@ -2160,7 +2207,7 @@ export function PastPeriodsModal() {
     return `
         <div class="modal-backdrop" data-analytics-action="close-past-periods-modal" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px;">
             <div data-analytics-action="stop-propagation" role="dialog" aria-modal="true" aria-labelledby="past-periods-title" style="background: #1e293b; border: 1px solid #334155; border-radius: 16px; max-width: 560px; width: 100%; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6); overflow: hidden;">
-                
+
                 <!-- Modal Header -->
                 <div style="padding: 16px 20px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; background: #0f172a; flex-shrink: 0;">
                     <div style="display: flex; align-items: center; gap: 12px;">

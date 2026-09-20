@@ -31,7 +31,11 @@ const TRANSIENT_EXPORT_CONFIG_FIELDS = Object.freeze([
     'payrollLoanSelection',
     'payrollLoanExpandedEmployees',
     'payrollAdjustmentPeriodSelections',
-    'payrollAdjustmentComposerScopes'
+    'payrollAdjustmentComposerScopes',
+    'payrollGuideStep',
+    'collapsedSteps',
+    'payrollSummaryExpanded',
+    'payrollMobileSummaryExpanded'
 ]);
 
 function clone(value) {
@@ -122,6 +126,9 @@ export class ProjectPayrollUIRuntime {
     }
 
     beginRequest() {
+        if (this.disposed) {
+            return { enabled: false, projectId: null, generation: this.generation, ctx: null, session: null };
+        }
         const ctx = this.captureContext(this.state);
         if (!ctx.isScoped) {
             return { enabled: false, projectId: null, generation: this.generation, ctx, session: null };
@@ -167,6 +174,7 @@ export class ProjectPayrollUIRuntime {
             settingsView: request.session.settingsView,
             error: request.session.error,
             period: request.session.selectedPeriod,
+            preset: request.session.preset,
             previewRows: request.session.previewRows,
             request
         };
@@ -258,7 +266,7 @@ export class ProjectPayrollUIRuntime {
         return this.saveConfig(next, request);
     }
 
-    async generatePreview({ periodStart, periodEnd, today = new Date() } = {}) {
+    async generatePreview({ periodStart, periodEnd, preset = null, today = new Date() } = {}) {
         const request = this.beginRequest();
         if (!request.enabled) throw new Error('Scoped payroll preview requires projects enabled');
         const loaded = await this.ensureCurrentConfig(request);
@@ -295,22 +303,41 @@ export class ProjectPayrollUIRuntime {
                 [],
                 []
             );
+            const breakdown = payroll.breakdown || [];
+            const regularHours = breakdown.reduce((sum, b) => sum + (Number(b.regularHours) || 0), 0);
+            const overtimeHours = breakdown.reduce((sum, b) => sum + (Number(b.overtimeHours) || 0), 0);
+            const holidayHours = breakdown.reduce((sum, b) => sum + (Number(b.holidayHours) || 0), 0);
+            const restDayHours = breakdown.reduce((sum, b) => sum + (Number(b.restDayHours) || 0), 0);
+            const totalHours = regularHours + overtimeHours + holidayHours + restDayHours;
+
             return {
                 id: Number.parseInt(employee.number, 10) || 0,
                 nombre: `${employee.name} (Ref #${employee.number})`,
                 monto: payroll.neto,
                 _brutoOriginal: payroll.brutoOriginal,
+                _bruto: payroll.brutoOriginal,
+                _bonuses: 0,
+                _deductions: 0,
+                _loans: 0,
+                _totalHours: totalHours,
+                _regularHours: regularHours,
+                _overtimeHours: overtimeHours,
+                _holidayHours: holidayHours,
+                _restDayHours: restDayHours,
                 _employeeId: employee.id,
                 _employeeName: employee.name,
                 _number: employee.number,
-                _positionBreakdown: payroll.breakdown || [],
+                _positionBreakdown: breakdown,
                 _projectId: request.projectId
             };
         }).sort((left, right) => String(left._number).localeCompare(String(right._number), 'es', { numeric: true }));
         const current = this.isCurrent(request);
+        const effectivePreset = preset !== undefined && preset !== null
+            ? preset
+            : (period.source === 'configured' ? 'payPeriod' : (request.session.preset || null));
         this.commitIfCurrent(request, () => {
             request.session.selectedPeriod = period;
-            request.session.preset = period.source === 'configured' ? 'payPeriod' : null;
+            request.session.preset = effectivePreset;
             request.session.source = period.source;
             request.session.previewRows = rows;
             request.session.previewKey = `${request.session.key}:${period.periodStart}:${period.periodEnd}`;
@@ -319,6 +346,7 @@ export class ProjectPayrollUIRuntime {
             projectId: request.projectId,
             config: loaded.config,
             period,
+            preset: effectivePreset,
             rows,
             current,
             request,
@@ -344,6 +372,7 @@ export class ProjectPayrollUIRuntime {
     }
 
     dispose() {
+        this.disposed = true;
         this.unsubscribe();
         this.sessions.clear();
         this.invalidationListeners.clear();

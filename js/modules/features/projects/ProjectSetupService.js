@@ -151,6 +151,20 @@ export class ProjectSetupService {
         };
     }
 
+    /**
+     * Compensación atómica: elimina del store un proyecto recién creado
+     * si falla la persistencia durable subsecuente durante el onboarding.
+     */
+    async compensateProjectCreation(projectId) {
+        if (!projectId) return false;
+        if (typeof this.store?.delete === 'function') {
+            return await this.store.delete(projectId);
+        } else if (typeof this.store?.remove === 'function') {
+            return await this.store.remove(projectId);
+        }
+        return false;
+    }
+
     async switchActiveProject(targetProjectId, { doc = (typeof document !== 'undefined' ? document : null) } = {}) {
         if (this.flags.isEnabled() !== true) {
             throw new Error('Activa Proyectos antes de cambiar de proyecto.');

@@ -92,9 +92,14 @@ function validatePlanInput(input = {}) {
         throw new Error('La fecha de creación del plan es obligatoria');
     }
 
+    const projectId = input.projectId != null && String(input.projectId).trim() !== ''
+        ? String(input.projectId).trim()
+        : null;
+
     return {
         kind: input.kind,
         employeeIds,
+        projectId,
         name: String(input.name || '').trim() || (
             input.kind === ADJUSTMENT_PLAN_KIND.BONUS ? 'Bonificación' : 'Deducción'
         ),
@@ -186,6 +191,7 @@ export function createPayrollAdjustmentInstallmentPlans(input = {}, dependencies
             id,
             groupId,
             employeeId,
+            projectId: normalized.projectId,
             kind: normalized.kind,
             type: 'fixed',
             name: normalized.name,

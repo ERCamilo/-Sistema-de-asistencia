@@ -236,47 +236,210 @@ export function render() {
  *     Esto permite preservar scroll en listas anidadas (empleados, asistencia, etc.)
  *     sin hardcodear selectores específicos.
  */
-export function saveScrollPosition() {
-    // Window scroll (siempre)
-    state.scrollPosition = { x: window.scrollX, y: window.scrollY };
+let _savedScrollPosition = { x: 0, y: 0 };
+let _savedScrollContainers = {};
 
-    // Contenedores opt-in con data-preserve-scroll
-    const containers = document.querySelectorAll('[data-preserve-scroll]');
-    state._scrollContainers = {};
-    containers.forEach(el => {
-        const id = el.dataset.preserveScroll;
-        if (id) {
-            state._scrollContainers[id] = { x: el.scrollLeft, y: el.scrollTop };
+let _scrollListenersInstalled = false;
+let _currentSnapshot = null;
+let _snapshotCounter = 0;
+
+function _onUserScroll(e) {
+    if (!_currentSnapshot) return;
+
+    let container = null;
+    if (e.target && typeof e.target.closest === 'function') {
+        container = e.target.closest('[data-preserve-scroll]') || e.target.closest('.week-table-container');
+    }
+    const containerId = container ? (container.dataset?.preserveScroll || '__weekTable') : null;
+
+    let targetEntry;
+    if (containerId) {
+        targetEntry = _currentSnapshot.interactions.containers.get(containerId);
+        if (!targetEntry) {
+            targetEntry = { x: false, y: false };
+            _currentSnapshot.interactions.containers.set(containerId, targetEntry);
         }
-    });
+    } else {
+        targetEntry = _currentSnapshot.interactions.window;
+    }
 
-    // Compatibilidad: legacy .week-table-container también se preserva
-    const weekTable = document.querySelector('.week-table-container');
-    if (weekTable && !weekTable.dataset.preserveScroll) {
-        state._scrollContainers['__weekTable'] = { x: weekTable.scrollLeft, y: weekTable.scrollTop };
+    if (e.type === 'user-scroll-interaction') {
+        const a = e.detail?.axis;
+        if (a === 'x') {
+            targetEntry.x = true;
+            if (targetEntry.fromSyntheticWheel) targetEntry.y = false;
+        } else if (a === 'y') {
+            targetEntry.y = true;
+            if (targetEntry.fromSyntheticWheel) targetEntry.x = false;
+        } else {
+            targetEntry.x = true;
+            targetEntry.y = true;
+        }
+        delete targetEntry.fromSyntheticWheel;
+    } else if (e.type === 'wheel') {
+        const hasDeltaX = typeof e.deltaX === 'number' && e.deltaX !== 0;
+        const hasDeltaY = typeof e.deltaY === 'number' && e.deltaY !== 0;
+        if (hasDeltaX && !hasDeltaY) {
+            targetEntry.x = true;
+        } else if (hasDeltaY && !hasDeltaX) {
+            targetEntry.y = true;
+        } else if (hasDeltaX && hasDeltaY) {
+            targetEntry.x = true;
+            targetEntry.y = true;
+        } else {
+            // Synthetic wheel without deltas
+            const a = e.detail?.axis || e.axis;
+            if (a === 'x') {
+                targetEntry.x = true;
+            } else if (a === 'y') {
+                targetEntry.y = true;
+            } else {
+                targetEntry.x = true;
+                targetEntry.y = true;
+                targetEntry.fromSyntheticWheel = true;
+            }
+        }
+    } else if (e.type === 'touchmove') {
+        targetEntry.x = true;
+        targetEntry.y = true;
     }
 }
 
-export function restoreScrollPosition() {
-    requestAnimationFrame(() => {
-        // Contenedores con data-preserve-scroll
-        const saved = state._scrollContainers || {};
-        Object.entries(saved).forEach(([id, pos]) => {
-            let el;
-            if (id === '__weekTable') {
-                el = document.querySelector('.week-table-container');
-            } else {
-                el = document.querySelector(`[data-preserve-scroll="${id}"]`);
-            }
-            if (el && (pos.x > 0 || pos.y > 0)) {
-                el.scrollLeft = pos.x;
-                el.scrollTop = pos.y;
+function _ensureScrollListeners() {
+    if (_scrollListenersInstalled || typeof window === 'undefined') return;
+    _scrollListenersInstalled = true;
+    window.addEventListener('wheel', _onUserScroll, { capture: true, passive: true });
+    window.addEventListener('touchmove', _onUserScroll, { capture: true, passive: true });
+    window.addEventListener('user-scroll-interaction', _onUserScroll, { capture: true });
+}
+
+if (typeof window !== 'undefined') {
+    _ensureScrollListeners();
+}
+
+function _hasUserInteracted(snapshot, targetId, axis, el) {
+    if (targetId === 'window') {
+        const winInteracted = snapshot?.interactions?.window;
+        if (winInteracted && (winInteracted.x || winInteracted.y)) {
+            return !!winInteracted[axis];
+        }
+        if (typeof window !== 'undefined' && window.__userScrollInteracted) {
+            return true;
+        }
+        return false;
+    }
+
+    const containerInteracted = snapshot?.interactions?.containers?.get(targetId);
+    if (containerInteracted && (containerInteracted.x || containerInteracted.y)) {
+        return !!containerInteracted[axis];
+    }
+    if (el && (el.dataset?.userInteracted === 'true' || el.__userScrollInteracted)) {
+        return true;
+    }
+    return false;
+}
+
+export function saveScrollPosition() {
+    _ensureScrollListeners();
+
+    // Reset explicit interaction flags from prior cycles
+    if (typeof window !== 'undefined' && window.__userScrollInteracted) {
+        delete window.__userScrollInteracted;
+    }
+    if (typeof document !== 'undefined') {
+        document.querySelectorAll('[data-user-interacted], [data-preserve-scroll], .week-table-container').forEach(el => {
+            delete el.dataset.userInteracted;
+            delete el.__userScrollInteracted;
+        });
+    }
+
+    const windowPos = {
+        x: typeof window !== 'undefined' ? (window.scrollX ?? window.pageXOffset ?? 0) : 0,
+        y: typeof window !== 'undefined' ? (window.scrollY ?? window.pageYOffset ?? 0) : 0
+    };
+    _savedScrollPosition = windowPos;
+
+    const containers = {};
+    if (typeof document !== 'undefined') {
+        const els = document.querySelectorAll('[data-preserve-scroll]');
+        els.forEach(el => {
+            const id = el.dataset.preserveScroll;
+            if (id) {
+                containers[id] = { x: el.scrollLeft ?? 0, y: el.scrollTop ?? 0 };
             }
         });
 
-        // Window scroll
-        if (state.scrollPosition && state.scrollPosition.y > 0) {
-            window.scrollTo(state.scrollPosition.x, state.scrollPosition.y);
+        const weekTable = document.querySelector('.week-table-container');
+        if (weekTable && !weekTable.dataset.preserveScroll) {
+            containers['__weekTable'] = { x: weekTable.scrollLeft ?? 0, y: weekTable.scrollTop ?? 0 };
+        }
+    }
+    _savedScrollContainers = containers;
+
+    _currentSnapshot = {
+        id: ++_snapshotCounter,
+        window: windowPos,
+        containers,
+        interactions: {
+            window: { x: false, y: false },
+            containers: new Map()
+        }
+    };
+}
+
+export function restoreScrollPosition() {
+    _ensureScrollListeners();
+    const snapshot = _currentSnapshot;
+    if (!snapshot) return;
+
+    requestAnimationFrame(() => {
+        if (snapshot !== _currentSnapshot) return;
+
+        const targetScroll = snapshot.window;
+        const targetContainers = snapshot.containers;
+
+        // Contenedores con data-preserve-scroll
+        if (typeof document !== 'undefined') {
+            Object.entries(targetContainers).forEach(([id, pos]) => {
+                let el;
+                if (id === '__weekTable') {
+                    el = document.querySelector('.week-table-container');
+                } else {
+                    el = document.querySelector(`[data-preserve-scroll="${id}"]`);
+                }
+                if (!el) return;
+
+                const currentX = el.scrollLeft ?? 0;
+                const currentY = el.scrollTop ?? 0;
+
+                const userX = _hasUserInteracted(snapshot, id, 'x', el);
+                const userY = _hasUserInteracted(snapshot, id, 'y', el);
+
+                if (pos.x > 0 && currentX < pos.x && !userX) {
+                    el.scrollLeft = pos.x;
+                }
+                if (pos.y > 0 && currentY < pos.y && !userY) {
+                    el.scrollTop = pos.y;
+                }
+            });
+        }
+
+        // Window scroll - desacoplar ejes y restaurar clamps sin pisar interacción real
+        if (typeof window !== 'undefined' && targetScroll) {
+            const currentX = window.scrollX ?? window.pageXOffset ?? 0;
+            const currentY = window.scrollY ?? window.pageYOffset ?? 0;
+
+            const userX = _hasUserInteracted(snapshot, 'window', 'x');
+            const userY = _hasUserInteracted(snapshot, 'window', 'y');
+
+            const shouldRestoreX = targetScroll.x > 0 && currentX < targetScroll.x && !userX;
+            const shouldRestoreY = targetScroll.y > 0 && currentY < targetScroll.y && !userY;
+
+            if (shouldRestoreX || shouldRestoreY) {
+                const newX = shouldRestoreX ? targetScroll.x : currentX;
+                const newY = shouldRestoreY ? targetScroll.y : currentY;
+                window.scrollTo(newX, newY);
+            }
         }
     });
 }

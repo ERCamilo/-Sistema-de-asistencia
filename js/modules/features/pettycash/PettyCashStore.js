@@ -19,6 +19,7 @@ import { sendMovementMirror } from './PettyCashMovementMirror.js';
 import { PettyCashPersistenceMetrics } from './PettyCashPersistenceMetrics.js';
 import { createCrossTabLock } from '../../services/CrossTabLock.js';
 import { normalizeOfficialProjectId } from './PettyCashOfficialLink.js';
+import { preparePettyCashBackupForRestore } from '../../services/SnapshotSanitizer.js';
 
 const STORE = { projects: 'pettyCashProjects', periods: 'pettyCashPeriods', movements: 'pettyCashMovements' };
 const REPO = { projects: PettyCashRepository.projects, periods: PettyCashRepository.periods, movements: PettyCashRepository.movements };
@@ -56,8 +57,79 @@ async function deleteOutboxKeys(keys, except = null) {
         try { await indexedDBService.delete(OUTBOX, key); } catch { /* noop */ }
     }
 }
+/**
+ * 🧮 Cálculo puro de merge para una colección de Caja Chica.
+ * Preserva semántica vigente de applyRemote: outbox (pending/dead), borradores locales,
+ * contadores (nextRecordNumber) y vínculo oficial (officialProjectId).
+ * Sin IO ni efectos secundarios.
+ */
+export function computeMergedPettyCashCollection(col, list, local = [], queued = [], scope = {}) {
+    if (!STORE[col]) return [];
+    const remote = Array.isArray(list) ? list.filter((item) => item?.id) : [];
+
+    const localById = new Map((local || []).filter((item) => item?.id).map(
+        (item) => [String(item.id), item]
+    ));
+    const scopedPeriodIds = col === 'movements' && Array.isArray(scope.periodIds)
+        ? new Set(scope.periodIds.map((id) => String(id || '').trim()).filter(Boolean))
+        : null;
+    const retainedLocal = scopedPeriodIds
+        ? (local || []).filter((item) => !scopedPeriodIds.has(String(item?.periodId || '')))
+        : [];
+    const merged = new Map([
+        ...retainedLocal.map((item) => [String(item.id), item]),
+        ...remote.map((item) => [String(item.id), item])
+    ]);
+
+    if (col === 'projects') {
+        localById.forEach((localProject, id) => {
+            const remoteProject = merged.get(id);
+            if (!remoteProject) return;
+            let next = remoteProject;
+            const localCounter = Number(localProject.nextRecordNumber) || 0;
+            const remoteCounter = Number(remoteProject.nextRecordNumber) || 0;
+            if (localCounter > remoteCounter) {
+                next = { ...next, nextRecordNumber: localCounter };
+            }
+            // F1.7 (DEP-SA-001, narrow additive rule): un remoto legacy sin
+            // vínculo válido propio jamás borra el vínculo local. Sólo un
+            // remoto con officialProjectId válido y no-null ejerce la
+            // autoridad de merge existente. Sin tocar queries, outbox,
+            // flush, contadores (arriba) ni otros campos.
+            const localLink = normalizeOfficialProjectId(localProject?.officialProjectId);
+            const remoteLink = normalizeOfficialProjectId(remoteProject?.officialProjectId);
+            if (localLink && !remoteLink) {
+                next = { ...next, officialProjectId: localLink };
+            }
+            if (next !== remoteProject) merged.set(id, next);
+        });
+    }
+
+    if (col === 'movements') {
+        localById.forEach((item, id) => {
+            if (item.localDraft === true) merged.set(id, item);
+        });
+    }
+
+    const latestQueued = new Map();
+    (queued || [])
+        .filter((entry) => entry?.col === col && ['pending', 'dead'].includes(entry.status))
+        .sort((left, right) => (left.key || 0) - (right.key || 0))
+        .forEach((entry) => latestQueued.set(String(entry.id), entry));
+    latestQueued.forEach((entry, id) => {
+        if (entry.op === 'delete') {
+            merged.delete(id);
+            return;
+        }
+        const localItem = entry.data || localById.get(id);
+        if (localItem) merged.set(id, localItem);
+    });
+
+    return [...merged.values()];
+}
 
 export const PettyCashStore = {
+    computeMergedCollection: computeMergedPettyCashCollection,
 
     /** Carga las 3 colecciones desde IndexedDB. */
     async loadLocal() {
@@ -342,7 +414,6 @@ export const PettyCashStore = {
      */
     async applyRemote(col, list, scope = {}) {
         if (!STORE[col]) return [];
-        const remote = Array.isArray(list) ? list.filter((item) => item?.id) : [];
         let local = [];
         let queued = [];
         try {
@@ -355,70 +426,49 @@ export const PettyCashStore = {
             queued = [];
         }
 
-        const localById = new Map((local || []).filter((item) => item?.id).map(
-            (item) => [String(item.id), item]
-        ));
-        const scopedPeriodIds = col === 'movements' && Array.isArray(scope.periodIds)
-            ? new Set(scope.periodIds.map((id) => String(id || '').trim()).filter(Boolean))
-            : null;
-        const retainedLocal = scopedPeriodIds
-            ? (local || []).filter((item) => !scopedPeriodIds.has(String(item?.periodId || '')))
-            : [];
-        const merged = new Map([
-            ...retainedLocal.map((item) => [String(item.id), item]),
-            ...remote.map((item) => [String(item.id), item])
-        ]);
-
-        if (col === 'projects') {
-            localById.forEach((localProject, id) => {
-                const remoteProject = merged.get(id);
-                if (!remoteProject) return;
-                let next = remoteProject;
-                const localCounter = Number(localProject.nextRecordNumber) || 0;
-                const remoteCounter = Number(remoteProject.nextRecordNumber) || 0;
-                if (localCounter > remoteCounter) {
-                    next = { ...next, nextRecordNumber: localCounter };
-                }
-                // F1.7 (DEP-SA-001, narrow additive rule): un remoto legacy sin
-                // vínculo válido propio jamás borra el vínculo local. Sólo un
-                // remoto con officialProjectId válido y no-null ejerce la
-                // autoridad de merge existente. Sin tocar queries, outbox,
-                // flush, contadores (arriba) ni otros campos.
-                const localLink = normalizeOfficialProjectId(localProject?.officialProjectId);
-                const remoteLink = normalizeOfficialProjectId(remoteProject?.officialProjectId);
-                if (localLink && !remoteLink) {
-                    next = { ...next, officialProjectId: localLink };
-                }
-                if (next !== remoteProject) merged.set(id, next);
-            });
-        }
-
-        if (col === 'movements') {
-            localById.forEach((item, id) => {
-                if (item.localDraft === true) merged.set(id, item);
-            });
-        }
-
-        const latestQueued = new Map();
-        (queued || [])
-            .filter((entry) => entry?.col === col && ['pending', 'dead'].includes(entry.status))
-            .sort((left, right) => (left.key || 0) - (right.key || 0))
-            .forEach((entry) => latestQueued.set(String(entry.id), entry));
-        latestQueued.forEach((entry, id) => {
-            if (entry.op === 'delete') {
-                merged.delete(id);
-                return;
-            }
-            const localItem = entry.data || localById.get(id);
-            if (localItem) merged.set(id, localItem);
-        });
-
-        const mergedList = [...merged.values()];
+        const mergedList = computeMergedPettyCashCollection(col, list, local, queued, scope);
         try {
             await indexedDBService.clear(STORE[col]);
             if (mergedList.length) await indexedDBService.batchUpdate(STORE[col], mergedList);
         } catch (e) { console.warn('pc applyRemote:', e); }
         return mergedList;
+    },
+
+    /**
+     * 💵 Prepara las colecciones de Caja Chica para el import FULL (solo lectura).
+     * Ejecuta preparePettyCashBackupForRestore + computeMergedPettyCashCollection
+     * para projects, periods y movements SIN borrar ni escribir ningún store.
+     * El resultado se entrega a la transacción atómica multi-store de IndexedDBService.
+     */
+    async prepareForFullImport(pettyCashBackup) {
+        if (!pettyCashBackup || typeof pettyCashBackup !== 'object') return null;
+        const prepared = preparePettyCashBackupForRestore(pettyCashBackup);
+        let localProjects = [];
+        let localPeriods = [];
+        let localMovements = [];
+        let queued = [];
+        try {
+            [localProjects, localPeriods, localMovements, queued] = await Promise.all([
+                indexedDBService.getAll(STORE.projects),
+                indexedDBService.getAll(STORE.periods),
+                indexedDBService.getAll(STORE.movements),
+                indexedDBService.getAll(OUTBOX)
+            ]);
+        } catch (e) {
+            console.warn('⚠️ PettyCashStore.prepareForFullImport read error:', e);
+            throw e;
+        }
+
+        const projects = computeMergedPettyCashCollection('projects', prepared.pettyCash.projects, localProjects, queued);
+        const periods = computeMergedPettyCashCollection('periods', prepared.pettyCash.periods, localPeriods, queued);
+        const movements = computeMergedPettyCashCollection('movements', prepared.pettyCash.movements, localMovements, queued);
+
+        return {
+            projects,
+            periods,
+            movements,
+            unrecoverableReceiptCount: prepared.unrecoverableReceiptCount || 0
+        };
     },
 
     /**

@@ -245,7 +245,18 @@ export function EmployeesTab() {
     const isEmployees = subTab === 'employees';
     const isLeaders = subTab === 'leaders';
     const isPositions = subTab === 'positions';
-    const activeEmployees = state.employees.filter(employee => employee.active !== false).length;
+    const personnelScope = peekEntityScope();
+    const isScoped = personnelScope?.enabled && personnelScope?.projectId;
+    const scopedEmployees = isScoped
+        ? (state.employees || []).filter(e => entityInScope(e, personnelScope))
+        : (state.employees || []);
+    const scopedLeaders = isScoped
+        ? (state.leaders || []).filter(l => entityInScope(l, personnelScope))
+        : (state.leaders || []);
+    const scopedPositions = isScoped
+        ? (state.positions || []).filter(p => entityInScope(p, personnelScope))
+        : (state.positions || []);
+    const activeEmployees = scopedEmployees.filter(employee => employee.active !== false).length;
     const sectionLabel = isEmployees ? 'Empleados' : isLeaders ? 'Líderes' : 'Puestos';
 
     const subTabsHTML = `
@@ -256,7 +267,7 @@ export function EmployeesTab() {
                                 <h1>Personal</h1>
                                 <span class="personnel-page__context">${sectionLabel}</span>
                             </div>
-                            <p>${activeEmployees} activos · ${state.employees.length} empleados · ${state.leaders.length} líderes · ${state.positions.length} puestos</p>
+                            <p>${activeEmployees} activos · ${scopedEmployees.length} empleados · ${scopedLeaders.length} líderes · ${scopedPositions.length} puestos</p>
                         </div>
                     </header>
                     <nav class="personnel-tabs" aria-label="Secciones de personal">
@@ -264,19 +275,19 @@ export function EmployeesTab() {
                                 type="button"
                                 data-action="change-view-mode" data-value="employees"
                                 aria-label="Ver empleados">
-                            ${icons.get('user', { size: 16 })} <span>Empleados</span> <strong>${state.employees.length}</strong>
+                            ${icons.get('user', { size: 16 })} <span>Empleados</span> <strong>${scopedEmployees.length}</strong>
                         </button>
                         <button class="${isLeaders ? 'active' : ''}"
                                 type="button"
                                 data-action="change-view-mode" data-value="leaders"
                                 aria-label="Ver líderes">
-                            ${icons.get('personnel', { size: 16 })} <span>Líderes</span> <strong>${state.leaders.length}</strong>
+                            ${icons.get('personnel', { size: 16 })} <span>Líderes</span> <strong>${scopedLeaders.length}</strong>
                         </button>
                         <button class="${isPositions ? 'active' : ''}"
                                 type="button"
                                 data-action="change-view-mode" data-value="positions"
                                 aria-label="Ver posiciones">
-                            ${icons.get('briefcase', { size: 16 })} <span>Puestos</span> <strong>${state.positions.length}</strong>
+                            ${icons.get('briefcase', { size: 16 })} <span>Puestos</span> <strong>${scopedPositions.length}</strong>
                         </button>
                     </nav>
             `;
@@ -319,7 +330,9 @@ export function EmployeesTab() {
         }
 
         const employeeCountByPosition = new Map();
-        state.employees.forEach(employee => {
+        // R04: conteo por puesto solo con empleados del scope activo (no mezclar obras por IDs compartidos).
+        const scopedEmployeesForPositionCounts = (state.employees || []).filter(e => entityInScope(e, positionScope));
+        scopedEmployeesForPositionCounts.forEach(employee => {
             if (!employee.active) return;
             (employee.positions || []).forEach(positionId => {
                 employeeCountByPosition.set(
@@ -636,7 +649,7 @@ export function EmployeesTab() {
                                         onfocus="this.closest('.filter-pill').classList.add('open')"
                                         onblur="this.closest('.filter-pill').classList.remove('open')">
                                     <option value="all" ${(employeeFilters.positionId || 'all') === 'all' ? 'selected' : ''}>Todas las posiciones</option>
-                                    ${state.positions.slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => `
+                                    ${pickerPositions.slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => `
                                         <option value="${p.id}" ${employeeFilters.positionId === p.id ? 'selected' : ''}>
                                             ${p.name}
                                         </option>
@@ -656,7 +669,7 @@ export function EmployeesTab() {
                                         onfocus="this.closest('.filter-pill').classList.add('open')"
                                         onblur="this.closest('.filter-pill').classList.remove('open')">
                                     <option value="all" ${(leaderFilter || 'all') === 'all' ? 'selected' : ''}>Todos los lideres</option>
-                                    ${state.leaders.filter(l => l.active).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(l => `
+                                    ${pickerLeaders.filter(l => l.active).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(l => `
                                         <option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>
                                             ${l.name}
                                         </option>
@@ -796,6 +809,20 @@ function getFilteredEmployeesOrLeaders() {
         const searchValue = (employeeFilters.search || '').trim().toLowerCase();
         selectedPosition = positionFilter !== 'all' ? state.positions.find(p => p.id === positionFilter) : null;
         selectedLeader = leaderFilter !== 'all' ? state.leaders.find(l => l.id === leaderFilter) : null;
+        if (scope?.enabled && scope?.projectId) {
+            const validPositionIds = new Set((state.positions || []).filter(p => entityInScope(p, scope)).map(p => p.id));
+            const validLeaderIds = new Set((state.leaders || []).filter(l => entityInScope(l, scope)).map(l => l.id));
+            positionFilters = positionFilters.filter(id => validPositionIds.has(id));
+            leaderFilters = leaderFilters.filter(id => validLeaderIds.has(id));
+            if (selectedPosition && (!validPositionIds.has(selectedPosition.id) || !entityInScope(selectedPosition, scope))) {
+                selectedPosition = null;
+                positionFilter = 'all';
+            }
+            if (selectedLeader && (!validLeaderIds.has(selectedLeader.id) || !entityInScope(selectedLeader, scope))) {
+                selectedLeader = null;
+                leaderFilter = 'all';
+            }
+        }
         statusLabel = statusFilter === 'inactive' ? 'Desactivados' : (statusFilter === 'all' ? 'Todos' : 'Activos');
 
         if (positionFilters.length) {
@@ -804,7 +831,9 @@ function getFilteredEmployeesOrLeaders() {
             );
         }
         if (leaderFilters.length) {
-            const leaderPositions = state.positions
+            // R04: el filtro de líder deriva vínculos solo desde posiciones del scope activo.
+            const leaderPositions = (state.positions || [])
+                .filter(p => entityInScope(p, scope))
                 .filter(p => leaderFilters.includes(p.leaderId))
                 .map(p => p.id);
             filteredItems = filteredItems.filter(emp => (emp.positions || []).some(pid => leaderPositions.includes(pid)));
@@ -833,13 +862,21 @@ function getFilteredEmployeesOrLeaders() {
 
     const leaderEmployeeCounts = new Map();
     if (!isEmployees) {
+        // R04: conteos de líderes estrictamente dentro del scope activo para no mezclar
+        // obras cuando comparten IDs/referencias de puestos o empleados.
+        const scopedPositionsForLeaderCounts = (state.positions || []).filter(p => entityInScope(p, scope));
+        const scopedEmployeesForLeaderCounts = (state.employees || []).filter(e => entityInScope(e, scope));
         state.leaders.forEach(leader => {
+            if (!entityInScope(leader, scope)) {
+                leaderEmployeeCounts.set(leader.id, 0);
+                return;
+            }
             const positionIds = new Set(
-                state.positions
+                scopedPositionsForLeaderCounts
                     .filter(position => position.active && position.leaderId === leader.id)
                     .map(position => position.id)
             );
-            const employeeCount = state.employees.filter(employee =>
+            const employeeCount = scopedEmployeesForLeaderCounts.filter(employee =>
                 employee.active && (employee.positions || []).some(id => positionIds.has(id))
             ).length;
             leaderEmployeeCounts.set(leader.id, employeeCount);

@@ -168,7 +168,7 @@ describe('A4 productive project payroll UI wiring', () => {
         runtime.dispose();
     });
 
-    test('ON renderer is base preview only and exposes none of the forbidden economic surfaces', async () => {
+    test('ON renderer exposes the scoped generator plus safe navigation without economic mutation surfaces', async () => {
         setProjectsEnabled(true);
         replaceEntityScope({ enabled: true, projectId: A, defaultProjectId: DEFAULT });
         const currentState = state();
@@ -184,11 +184,16 @@ describe('A4 productive project payroll UI wiring', () => {
         expect(html).toContain('PRJ-A-A4-UI');
         expect(html).toContain('2026-01-01');
         expect(html).toContain('Ana');
+        expect(html).toContain('change-payroll-view-mode');
+        expect(html).toContain('Préstamos / Adelantos');
+        expect(html).toContain('Historial');
+        expect(html).toContain('copy-export-json');
+        expect(html).toContain('download-export-json');
+        expect(html).toContain('export-payroll-pdf');
+        expect(html).toContain('send-to-splitx');
         for (const forbidden of [
-            'change-payroll-view-mode', 'add-export-deduction', 'add-export-bonus',
-            'add-payroll-loans', 'toggle-payroll-paid', 'open-payroll-closure',
-            'copy-export-json', 'download-export-json', 'export-payroll-pdf',
-            'send-to-splitx', 'payroll-adjustment', 'Préstamos / Adelantos', 'Historial'
+            'add-export-deduction', 'add-export-bonus', 'add-payroll-loans',
+            'toggle-payroll-paid', 'open-payroll-closure'
         ]) expect(html).not.toContain(forbidden);
         runtime.dispose();
     });

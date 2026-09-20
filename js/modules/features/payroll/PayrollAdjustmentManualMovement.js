@@ -7,7 +7,11 @@ import {
     isPayrollAdjustmentInstallmentPlan,
     recomputePayrollAdjustmentInstallmentPlan
 } from './PayrollAdjustmentInstallmentPlan.js';
-import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
+import {
+    captureEntityProjectScope,
+    sameEffectiveProject,
+    entityInScope
+} from '../projects/EntityProjectScope.js';
 
 export const MANUAL_ADJUSTMENT_MOVEMENT_RECORD_TYPE =
     'payroll-adjustment-manual-movement';
@@ -71,11 +75,34 @@ function validatePlan(employee, input) {
 }
 
 export function applyManualAdjustmentMovement(employee, input = {}, {
-    now = Date.now()
+    now = Date.now(),
+    projectId = null
 } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollAdjustmentManualMovement.applyManualAdjustmentMovement');
     if (!employee?.id) throw new Error('El empleado no es válido');
     const { kind, planId, plan } = validatePlan(employee, input);
+    const scope = captureEntityProjectScope();
+    if (scope.enabled) {
+        if (!sameEffectiveProject(plan, employee, scope)) {
+            throw new Error('El plan no pertenece al proyecto del empleado');
+        }
+        const targetProjectId = projectId || (scope.enabled && scope.projectId ? String(scope.projectId) : null);
+        if (targetProjectId) {
+            const operationScope = { ...scope, enabled: true, projectId: targetProjectId };
+            if (!entityInScope(employee, operationScope)) {
+                throw new Error('El empleado no pertenece al proyecto indicado');
+            }
+            if (!entityInScope(plan, operationScope)) {
+                throw new Error('El plan no pertenece al proyecto indicado');
+            }
+        }
+    } else {
+        if (plan.projectId && employee?.projectId && String(plan.projectId) !== String(employee.projectId)) {
+            throw new Error('El plan no pertenece al proyecto del empleado');
+        }
+        if (projectId && employee?.projectId && String(projectId) !== String(employee.projectId)) {
+            throw new Error('El empleado no pertenece al proyecto indicado');
+        }
+    }
     const movementId = text(input.id);
     if (!movementId) throw new Error('No se pudo identificar el movimiento');
 

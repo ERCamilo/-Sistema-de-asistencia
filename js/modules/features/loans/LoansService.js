@@ -25,7 +25,36 @@
  */
 
 import { recordNestedTombstone } from '../../services/NestedTombstones.js';
-import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
+import { ProjectScopedGateError } from '../../config/TandaBGate.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import {
+    effectiveProjectId,
+    captureEntityProjectScope,
+    peekEntityScope
+} from '../projects/EntityProjectScope.js';
+
+/**
+ * Validates that an employee belongs to the captured/active project scope.
+ * When Projects is OFF, this is an exact no-op preserving legacy behavior.
+ * When Projects is ON, throws ProjectScopedGateError before any mutation if the
+ * employee is outside the target project scope.
+ */
+export function assertLoanEmployeeInScope(emp, scope = null, context = 'LoansService') {
+    if (!isProjectsEnabled()) return;
+    const resolvedScope = scope || captureEntityProjectScope();
+    if (!resolvedScope || !resolvedScope.enabled) return;
+    if (!emp || typeof emp !== 'object' || !emp.id) {
+        throw new ProjectScopedGateError(context);
+    }
+    const targetProjectId = resolvedScope.projectId;
+    if (!targetProjectId) {
+        throw new ProjectScopedGateError(context);
+    }
+    const empProjectId = effectiveProjectId(emp, resolvedScope);
+    if (!empProjectId || empProjectId !== targetProjectId) {
+        throw new ProjectScopedGateError(context);
+    }
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -233,8 +262,9 @@ export function migrateAdvancesToLoans(emp) {
  * @param {number} [params.installmentCount]
  * @returns {object} the created loan
  */
-export function createLoan(emp, params) {
-    assertTandaBBlockedWhenScoped('LoansService.createLoan');
+export function createLoan(emp, params, options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? params?.projectScope ?? params?.scope ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.createLoan');
     if (!emp) throw new Error('Empleado no proporcionado');
     if (!Array.isArray(emp.loans)) emp.loans = [];
 
@@ -308,8 +338,10 @@ export function generateInstallmentSchedule({ principal, interestRate, interestI
 }
 
 /** Record a payment (abono) against a loan. Throws on validation error. */
-export function recordPayment(emp, loanId, params) {
-    assertTandaBBlockedWhenScoped('LoansService.recordPayment');
+export function recordPayment(emp, loanId, params, options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? params?.projectScope ?? params?.scope ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.recordPayment');
+    if (!emp) throw new Error('Empleado no proporcionado');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     if (loan.status !== LOAN_STATUS.ACTIVE) {
@@ -382,8 +414,9 @@ export function recordPayment(emp, loanId, params) {
 }
 
 /** Restore a soft-voided payment without creating a duplicate merge identity. */
-export function restorePayment(emp, loanId, paymentId, restoredBy = null, restoredAt = Date.now()) {
-    assertTandaBBlockedWhenScoped('LoansService.restorePayment');
+export function restorePayment(emp, loanId, paymentId, restoredBy = null, restoredAt = Date.now(), options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? (typeof restoredBy === 'object' && restoredBy?.projectScope ? restoredBy.projectScope : null) ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.restorePayment');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     const payment = (loan.payments || []).find(p => String(p.id) === String(paymentId));
@@ -429,8 +462,9 @@ export function restorePayment(emp, loanId, paymentId, restoredBy = null, restor
  *
  * @returns {object} the refinancing event appended to loan.refinancings[]
  */
-export function refinanceLoan(emp, loanId, params = {}) {
-    assertTandaBBlockedWhenScoped('LoansService.refinanceLoan');
+export function refinanceLoan(emp, loanId, params = {}, options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? params?.projectScope ?? params?.scope ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.refinanceLoan');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     if (loan.status !== LOAN_STATUS.ACTIVE) {
@@ -504,8 +538,9 @@ export function refinanceLoan(emp, loanId, params = {}) {
  * evento (auditoría) pero lo saca del cálculo de interés/saldo. Reversible a
  * nivel datos. Refresca updatedAt para que la anulación gane el merge.
  */
-export function voidRefinancing(emp, loanId, refinId, voidedBy = null) {
-    assertTandaBBlockedWhenScoped('LoansService.voidRefinancing');
+export function voidRefinancing(emp, loanId, refinId, voidedBy = null, options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? (typeof voidedBy === 'object' && voidedBy?.projectScope ? voidedBy.projectScope : null) ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.voidRefinancing');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     const event = (loan.refinancings || []).find(r => r.id === refinId);
@@ -530,8 +565,9 @@ export function voidRefinancing(emp, loanId, refinId, voidedBy = null) {
 }
 
 /** Mark a previously recorded payment as voided. Preserves audit trail. */
-export function voidPayment(emp, loanId, paymentId, voidedBy = null) {
-    assertTandaBBlockedWhenScoped('LoansService.voidPayment');
+export function voidPayment(emp, loanId, paymentId, voidedBy = null, options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? (typeof voidedBy === 'object' && voidedBy?.projectScope ? voidedBy.projectScope : null) ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.voidPayment');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     const payment = loan.payments.find(p => p.id === paymentId);
@@ -557,8 +593,9 @@ export function voidPayment(emp, loanId, paymentId, voidedBy = null) {
 }
 
 /** Soft-delete: mark the loan as written-off. Preserves all data. */
-export function writeOffLoan(emp, loanId, writtenOffBy = null) {
-    assertTandaBBlockedWhenScoped('LoansService.writeOffLoan');
+export function writeOffLoan(emp, loanId, writtenOffBy = null, options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? (typeof writtenOffBy === 'object' && writtenOffBy?.projectScope ? writtenOffBy.projectScope : null) ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.writeOffLoan');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     loan.status = LOAN_STATUS.WRITTEN_OFF;
@@ -570,8 +607,9 @@ export function writeOffLoan(emp, loanId, writtenOffBy = null) {
 }
 
 /** Reverse a write-off (un-archive). */
-export function reopenLoan(emp, loanId) {
-    assertTandaBBlockedWhenScoped('LoansService.reopenLoan');
+export function reopenLoan(emp, loanId, options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.reopenLoan');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     if (loan.status !== LOAN_STATUS.WRITTEN_OFF) return loan;
@@ -596,8 +634,9 @@ export function reopenLoan(emp, loanId) {
  * @returns {object} el préstamo eliminado
  * @throws si el préstamo no existe o no está anulado
  */
-export function deleteLoan(emp, loanId) {
-    assertTandaBBlockedWhenScoped('LoansService.deleteLoan');
+export function deleteLoan(emp, loanId, options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.deleteLoan');
     const loans = emp.loans || [];
     const loan = loans.find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
@@ -1425,8 +1464,9 @@ export function consolidateLoans(emp, {
     interestRate = 0,
     startDate = null,
     note = ''
-} = {}, user = null) {
-    assertTandaBBlockedWhenScoped('LoansService.consolidateLoans');
+} = {}, user = null, options = {}) {
+    const scope = options?.projectScope ?? options?.scope ?? (typeof user === 'object' && user?.projectScope ? user.projectScope : null) ?? captureEntityProjectScope();
+    assertLoanEmployeeInScope(emp, scope, 'LoansService.consolidateLoans');
     if (!emp) throw new Error('Empleado no proporcionado');
     if (!Array.isArray(emp.loans)) emp.loans = [];
 

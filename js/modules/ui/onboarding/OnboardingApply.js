@@ -137,6 +137,15 @@ export async function applySetup(s, deps) {
             d.createEmployee({ number: emp.code, name: emp.name, positions: [position.id], projectId });
         }
         await d.saveAll();
+        // F1 R02 puppet gate: onboarding can activate/rename the project without
+        // going through ProjectSetupUI, so publish the same semantic event the
+        // Header listens to. This initializes the active-project pill before
+        // the user has to switch projects manually.
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('projects:setup-changed', {
+                detail: { activeProjectId: projectId, source: 'onboarding' }
+            }));
+        }
     } catch (err) {
         return { applied: false, error: errText(err) };
     }

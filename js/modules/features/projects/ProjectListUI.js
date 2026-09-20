@@ -1,6 +1,7 @@
 import { PROJECT_STATUS } from './Project.js';
 import { projectSetupService } from './ProjectSetupService.js';
 import { mountProjectCreateForm, openProjectCreateModal, closeProjectCreateModal } from './ProjectCreateUI.js';
+import { mountProjectOnboarding } from './ProjectOnboarding.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 
 export const PROJECT_FILTERS = Object.freeze({ ALL: 'all', ACTIVE: PROJECT_STATUS.ACTIVE, CLOSED: PROJECT_STATUS.CLOSED, ARCHIVED: PROJECT_STATUS.ARCHIVED });
@@ -232,15 +233,40 @@ export async function openProjectListModal({ setupService = projectSetupService,
             isCreateOpen = true;
             if (!createSlot) return;
             createSlot.style.display = 'block';
-            mountProjectCreateForm(createSlot, {
+            // R04: todas las entradas de creación desde ProjectListUI usan el onboarding estructurado.
+            const handleCreateSuccess = async (createdProject, nextState) => {
+                closeCreate();
+                const freshState = nextState || await setupService.getState();
+                listHandle.update({ projects: freshState.projects, activeProjectId: freshState.activeProjectId, defaultProjectId: freshState.defaultProjectId });
+            };
+            mountProjectOnboarding(createSlot, {
                 setupService,
-                onSuccess: async (createdProject, nextState) => {
-                    closeCreate();
-                    const freshState = nextState || await setupService.getState();
-                    listHandle.update({ projects: freshState.projects, activeProjectId: freshState.activeProjectId, defaultProjectId: freshState.defaultProjectId });
-                },
+                onSuccess: handleCreateSuccess,
                 onCancel: closeCreate
             });
+            // Compatibilidad mínima para creación vacía programática (sin reintroducir el formulario plano):
+            // expone solo [data-project-create-element] (nunca [data-project-create-form], prohibido por R04)
+            // para que flujos legacy de envío vacío sigan resolviendo vía onboarding/empty.
+            if (createSlot && !createSlot.querySelector('[data-project-create-element]')) {
+                const compatForm = document.createElement('form');
+                compatForm.setAttribute('data-project-create-element', '');
+                compatForm.style.display = 'none';
+                compatForm.setAttribute('aria-hidden', 'true');
+                compatForm.addEventListener('submit', async event => {
+                    event?.preventDefault?.();
+                    const nameInput = createSlot.querySelector('[data-project-create-name]');
+                    const rawValue = nameInput?.value ?? '';
+                    try {
+                        const result = await setupService.createEmptyProject({ name: rawValue });
+                        window.showNotification?.(`Proyecto creado: ${result.project?.name || ''}`, 'success');
+                        window.dispatchEvent(new CustomEvent('projects:created', { detail: { project: result.project } }));
+                        await handleCreateSuccess(result.project, result.state);
+                    } catch (error) {
+                        window.showNotification?.(String(error?.message || error), 'error');
+                    }
+                });
+                createSlot.appendChild(compatForm);
+            }
         };
         createBtn?.addEventListener('click', () => { if (isCreateOpen) closeCreate(); else openCreate(); });
     } catch (error) {

@@ -11,12 +11,16 @@
 import { state } from '../../core/AppState.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
 import icons from '../../ui/IconSystem.js';
+import { peekEntityScope, entityInScope } from '../projects/ProjectContext.js';
 
 export function NotesCenter() {
     if (!state.showNotesCenter) return '';
 
+    // F1 R02: frontera project-aware — solo notas del proyecto activo.
+    // Flag OFF ⇒ peekEntityScope disabled ⇒ entityInScope es identidad (paridad legacy).
+    const projectScope = peekEntityScope();
     // Group every attendance record that has a non-empty note by employee.
-    const attendanceItems = Object.values(state.attendance || {});
+    const attendanceItems = Object.values(state.attendance || {}).filter(att => entityInScope(att, projectScope));
     const notesByEmployee = new Map();
 
     attendanceItems.forEach(att => {
@@ -39,7 +43,7 @@ export function NotesCenter() {
 
     // Sort employees by most recent note date, then by number for ties.
     const employeesWithNotes = state.employees
-        .filter(emp => notesByEmployee.has(emp.id))
+        .filter(emp => entityInScope(emp, projectScope) && notesByEmployee.has(emp.id))
         .sort((a, b) => {
             const aNotes = notesByEmployee.get(a.id) || [];
             const bNotes = notesByEmployee.get(b.id) || [];
@@ -53,8 +57,12 @@ export function NotesCenter() {
         });
 
     const selectedId = state.notesCenterEmployeeId;
-    const selectedEmp = selectedId ? state.employees.find(e => e.id === selectedId) : null;
-    const selectedNotes = selectedId ? (notesByEmployee.get(selectedId) || []) : [];
+    // F1 R02: stale cross-project selection fails closed — un id de otro
+    // proyecto no resuelve empleado ni timeline (retorna vista vacía segura).
+    const selectedEmp = selectedId
+        ? (state.employees.find(e => e.id === selectedId && entityInScope(e, projectScope)) || null)
+        : null;
+    const selectedNotes = selectedEmp ? (notesByEmployee.get(selectedEmp.id) || []) : [];
 
     return `
         <div class="modal-overlay" style="background: #0b1220; z-index: 10001;">

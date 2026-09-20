@@ -28,6 +28,12 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.header-brand-block {
+    min-width: 0;
 }
 
 .header-logo {
@@ -119,6 +125,65 @@
     }
     .header-right {
         gap: 8px;
+    }
+    .header-left {
+        gap: 8px;
+    }
+    .company-name {
+        max-width: 110px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 1.05rem;
+    }
+}
+
+/* F1 R02: compact persistent active-project indicator (text/SVG, no emoji) */
+.header-project-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 200px;
+    min-width: 0;
+    flex-shrink: 1;
+    padding: 5px 10px;
+    border: 1px solid rgba(6, 182, 212, 0.28);
+    background: rgba(6, 182, 212, 0.08);
+    border-radius: 999px;
+    color: #a5f3fc;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.header-project-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.header-project-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 140px;
+    min-width: 0;
+}
+
+@media (max-width: 640px) {
+    .header-project-indicator {
+        max-width: 130px;
+        padding: 4px 8px;
+        font-size: 0.7rem;
+    }
+    .header-project-name {
+        max-width: 84px;
     }
 }
 

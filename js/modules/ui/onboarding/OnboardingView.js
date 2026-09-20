@@ -13,10 +13,10 @@ import {
     addEmployee, removeEmployee, cycleDemo, markAllPresent, cycleWeek
 } from './OnboardingCore.js';
 import { COLOR_PALETTE } from '../../utils/Constants.js';
-const C = { bg: '#0f172a', panel: '#1e293b', panel2: '#334155', border: '#334155', text: '#f8fafc', dim: '#94a3b8', faint: '#64748b', accent: '#06b6d4', onAccent: '#0f172a', good: '#10b981', warn: '#f59e0b', bad: '#ef4444' };
+export const C = { bg: '#0f172a', panel: '#1e293b', panel2: '#334155', border: '#334155', text: '#f8fafc', dim: '#94a3b8', faint: '#64748b', accent: '#06b6d4', onAccent: '#0f172a', good: '#10b981', warn: '#f59e0b', bad: '#ef4444' };
 const POS_COLORS = COLOR_PALETTE.slice(0, 4);
-const FIELD_STYLE = `width:100%;height:48px;padding:0 15px;border-radius:11px;border:1px solid ${C.border};background:${C.panel};font-size:16px;font-family:inherit;color:inherit;box-sizing:border-box;`;
-const LBL = `display:block;font-size:12px;font-weight:600;color:${C.dim};margin-bottom:8px;`;
+export const FIELD_STYLE = `width:100%;height:48px;padding:0 15px;border-radius:11px;border:1px solid ${C.border};background:${C.panel};font-size:16px;font-family:inherit;color:inherit;box-sizing:border-box;`;
+export const LBL = `display:block;font-size:12px;font-weight:600;color:${C.dim};margin-bottom:8px;`;
 export function esc(v) {
     return String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

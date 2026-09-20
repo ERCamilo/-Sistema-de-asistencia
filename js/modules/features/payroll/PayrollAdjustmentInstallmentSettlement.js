@@ -12,6 +12,9 @@ import {
     resolvePayrollAdjustmentPeriodApplication
 } from './PayrollAdjustmentPeriodSelection.js';
 import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { canonicalProjectId } from './PayrollClosure.js';
+import { captureEntityProjectScope, entityInScope, sameEffectiveProject } from '../projects/EntityProjectScope.js';
 
 export const ADJUSTMENT_INSTALLMENT_APPLICATION_RECORD_TYPE =
     'payroll-adjustment-installment-application';
@@ -33,7 +36,20 @@ function sameEmployee(left, right) {
     return text(left) !== '' && text(left) === text(right);
 }
 
-function isCanonicalEmployeePlan(plan, employeeId, kind, { requireActive = true } = {}) {
+function isCanonicalEmployeePlan(plan, employeeId, kind, { requireActive = true, employeeProjectId = null } = {}) {
+    if (isProjectsEnabled()) {
+        const scope = captureEntityProjectScope();
+        if (scope.enabled && (plan?.projectId || employeeProjectId || scope.projectId)) {
+            if (plan && employeeProjectId && !sameEffectiveProject(plan, { projectId: employeeProjectId }, scope)) {
+                return false;
+            }
+            if (scope.projectId && plan && !entityInScope(plan, scope)) {
+                return false;
+            }
+        }
+    } else if (plan?.projectId && employeeProjectId && String(plan.projectId) !== String(employeeProjectId)) {
+        return false;
+    }
     return Boolean(
         isPayrollAdjustmentInstallmentPlan(plan) &&
         sameEmployee(plan.employeeId, employeeId) &&
@@ -112,7 +128,7 @@ function previewDetails(employee, kind, periodStart, periodEnd, selections) {
     if (!text(periodStart) || !text(periodEnd) || text(periodStart) > text(periodEnd)) return [];
     return (Array.isArray(employee?.[kind]) ? employee[kind] : [])
         .filter(plan => isCanonicalEmployeePlan(
-            plan, employee?.id, kind, { requireActive: false }
+            plan, employee?.id, kind, { requireActive: false, employeeProjectId: employee?.projectId }
         ))
         .flatMap(plan => {
             const existing = applicationsForPeriod(plan, periodStart, periodEnd);
@@ -216,7 +232,7 @@ function findPlanTarget(employeeById, detail, { requireActive = false } = {}) {
     const employee = employeeById.get(detail.employeeId);
     if (!employee) throw new Error(`El empleado ${detail.employeeId} ya no existe`);
     const plan = (employee[detail.kind] || []).find(item => text(item?.id) === detail.planId);
-    if (!isCanonicalEmployeePlan(plan, employee.id, detail.kind, { requireActive })) {
+    if (!isCanonicalEmployeePlan(plan, employee.id, detail.kind, { requireActive, employeeProjectId: employee.projectId })) {
         throw new Error(`El plan ${detail.planId} ya no es válido para este empleado`);
     }
     const installment = plan.installments.find(item => text(item?.id) === detail.installmentId);
@@ -317,7 +333,31 @@ export function applyPayrollAdjustmentInstallmentsForClosure(employees, closure,
     now = Date.now(),
     recordedBy = null
 } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollAdjustmentInstallmentSettlement.applyPayrollAdjustmentInstallmentsForClosure');
+    if (isProjectsEnabled()) {
+        const closureProjectId = closure?.projectId ? String(closure.projectId).trim() : null;
+        if (!closureProjectId || closureProjectId.startsWith('legacy-unresolved:')) {
+            assertTandaBBlockedWhenScoped('PayrollAdjustmentInstallmentSettlement.applyPayrollAdjustmentInstallmentsForClosure');
+        }
+        const canonicalOwner = canonicalProjectId(closureProjectId);
+        const opScope = { ...captureEntityProjectScope(), enabled: true, projectId: canonicalOwner };
+        for (const employee of employees || []) {
+            if (!entityInScope(employee, opScope)) {
+                throw new Error(`El empleado "${employee.id}" no pertenece al proyecto "${canonicalOwner}"`);
+            }
+        }
+        const details = closureDetails(closure);
+        for (const detail of details) {
+            const emp = (employees || []).find(e => text(e?.id) === text(detail.employeeId));
+            if (!emp || !entityInScope(emp, opScope)) {
+                throw new Error(`El empleado "${detail.employeeId}" no pertenece al proyecto "${canonicalOwner}"`);
+            }
+            const plans = detail.kind === 'bonus' ? (emp.bonuses || []) : (emp.deductions || []);
+            const plan = plans.find(p => text(p?.id) === text(detail.planId));
+            if (plan && plan.projectId && String(plan.projectId).trim() !== canonicalOwner) {
+                throw new Error(`El plan "${plan.id}" no pertenece al proyecto "${canonicalOwner}"`);
+            }
+        }
+    }
     const operations = preflightApplication(employees, closure);
     const timestamp = Number(now) || Date.now();
     const affected = new Set();
@@ -377,7 +417,31 @@ export function undoPayrollAdjustmentInstallmentsForClosure(employees, closure, 
     now = Date.now(),
     voidedBy = null
 } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollAdjustmentInstallmentSettlement.undoPayrollAdjustmentInstallmentsForClosure');
+    if (isProjectsEnabled()) {
+        const closureProjectId = closure?.projectId ? String(closure.projectId).trim() : null;
+        if (!closureProjectId || closureProjectId.startsWith('legacy-unresolved:')) {
+            assertTandaBBlockedWhenScoped('PayrollAdjustmentInstallmentSettlement.undoPayrollAdjustmentInstallmentsForClosure');
+        }
+        const canonicalOwner = canonicalProjectId(closureProjectId);
+        const opScope = { ...captureEntityProjectScope(), enabled: true, projectId: canonicalOwner };
+        for (const employee of employees || []) {
+            if (!entityInScope(employee, opScope)) {
+                throw new Error(`El empleado "${employee.id}" no pertenece al proyecto "${canonicalOwner}"`);
+            }
+        }
+        const details = closureDetails(closure);
+        for (const detail of details) {
+            const emp = (employees || []).find(e => text(e?.id) === text(detail.employeeId));
+            if (!emp || !entityInScope(emp, opScope)) {
+                throw new Error(`El empleado "${detail.employeeId}" no pertenece al proyecto "${canonicalOwner}"`);
+            }
+            const plans = detail.kind === 'bonus' ? (emp.bonuses || []) : (emp.deductions || []);
+            const plan = plans.find(p => text(p?.id) === text(detail.planId));
+            if (plan && plan.projectId && String(plan.projectId).trim() !== canonicalOwner) {
+                throw new Error(`El plan "${plan.id}" no pertenece al proyecto "${canonicalOwner}"`);
+            }
+        }
+    }
     if (!closure?.id) throw new Error('El cierre de Nómina no es válido');
     const employeeById = new Map((employees || []).map(item => [text(item?.id), item]));
     const operations = closureDetails(closure).map(detail => {

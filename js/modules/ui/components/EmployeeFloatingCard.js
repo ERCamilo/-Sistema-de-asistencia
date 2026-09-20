@@ -6,6 +6,7 @@
 import { state } from '../../core/AppState.js';
 import { eventBus } from '../../core/Events.js';
 import { getDateKey } from '../../utils/DateUtils.js';
+import { peekEntityScope, entityInScope } from '../../features/projects/ProjectContext.js';
 import { CalendarView } from './CalendarView.js';
 import { EmployeeAvatar, hydrateEmployeeAvatars } from './EmployeeAvatar.js';
 import {
@@ -58,8 +59,16 @@ export class EmployeeFloatingCard {
     render() {
         if (!state.showFloatingCard || !state.floatingCardEmployee) return '';
 
-        const data = this.statsService.getFloatingCardSummary(state.floatingCardEmployee.id);
-        if (!data) return '';
+        // F1 R02: stale cross-project IDs fail closed — un id de otro proyecto
+        // nunca resuelve tarjeta global. Flag OFF ⇒ entityInScope identidad.
+        const projectScope = peekEntityScope();
+        const storedEmp = state.floatingCardEmployee;
+        if (!entityInScope(storedEmp, projectScope)) return '';
+        const sameIdEmployees = state.employees.filter(e => e.id === storedEmp.id);
+        if (sameIdEmployees.length > 0 && !sameIdEmployees.some(e => entityInScope(e, projectScope))) return '';
+
+        const data = this.statsService.getFloatingCardSummary(storedEmp.id);
+        if (!data || !entityInScope(data.employee, projectScope)) return '';
 
         const { employee: emp, stats } = data;
         const { h7, hw, hm, hp, gross } = stats;
@@ -167,6 +176,8 @@ export class EmployeeFloatingCard {
     static open(empId) {
         const emp = state.employees.find(e => e.id === empId);
         if (!emp) return;
+        // F1 R02: no abrir tarjeta para un empleado fuera del proyecto activo.
+        if (!entityInScope(emp, peekEntityScope())) return;
         state.showFloatingCard = true;
         state.floatingCardEmployee = emp;
         state.floatingCardMonth = new Date();

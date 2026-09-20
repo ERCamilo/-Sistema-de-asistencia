@@ -1,9 +1,9 @@
+import { captureEntityProjectScope, effectiveProjectId, entityInScope, sameEffectiveProject } from '../projects/EntityProjectScope.js';
 import {
     ADJUSTMENT_PLAN_KIND,
     isPayrollAdjustmentInstallmentPlan,
     normalizeEmployeeAdjustmentEntries
 } from './PayrollAdjustmentInstallmentPlan.js';
-import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 const VALID_KINDS = new Set(Object.values(ADJUSTMENT_PLAN_KIND));
 
@@ -62,18 +62,39 @@ function validatePlan(plan, employeeById, incomingIds) {
  * before any replacement employee is created, so callers never receive a
  * partially applied result.
  */
-export function attachPayrollAdjustmentPlans(employees, plans) {
-    assertTandaBBlockedWhenScoped('PayrollAdjustmentPlanRepository.attachPayrollAdjustmentPlans');
+export function attachPayrollAdjustmentPlans(employees, plans, { projectId } = {}) {
     const employeeById = validateEmployees(employees);
     if (!Array.isArray(plans) || plans.length === 0) {
         throw new Error('Debes proporcionar al menos un plan');
     }
 
+    const scope = captureEntityProjectScope();
     const incomingIds = new Set();
-    const validated = plans.map(plan => ({
-        plan,
-        ...validatePlan(plan, employeeById, incomingIds)
-    }));
+    const validated = plans.map(plan => {
+        const item = validatePlan(plan, employeeById, incomingIds);
+        const employee = item.employee;
+        if (scope.enabled) {
+            if (!sameEffectiveProject(plan, employee, scope)) {
+                const planProject = effectiveProjectId(plan, scope);
+                const employeeProject = effectiveProjectId(employee, scope);
+                throw new Error(`El plan pertenece al proyecto "${planProject}" pero el empleado pertenece a "${employeeProject}"`);
+            }
+            const targetProjectId = projectId || plan.projectId || (scope.projectId ? String(scope.projectId) : null);
+            if (targetProjectId) {
+                const operationScope = { ...scope, enabled: true, projectId: String(targetProjectId) };
+                if (!entityInScope(employee, operationScope)) {
+                    throw new Error(`El empleado "${item.ownerId}" no pertenece al proyecto "${targetProjectId}"`);
+                }
+                if (!entityInScope(plan, operationScope)) {
+                    throw new Error(`El plan no pertenece al proyecto "${targetProjectId}"`);
+                }
+            }
+        }
+        return {
+            plan,
+            ...item
+        };
+    });
     const additionsByEmployee = new Map();
 
     for (const item of validated) {

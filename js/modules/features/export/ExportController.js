@@ -14,14 +14,45 @@
 
 import { state, stateManager, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
-import { saveApplicationData, sanitizePositions } from '../../services/PersistenceService.js';
+import {
+    saveApplicationData as persistApplicationData,
+    saveToIndexedDB,
+    sanitizePositions,
+    beginFullImportIsolation,
+    endFullImportIsolation
+} from '../../services/PersistenceService.js';
+import { preparePettyCashBackupForRestore } from '../../services/SnapshotSanitizer.js';
+import { PettyCashStore } from '../pettycash/PettyCashStore.js';
+
+// FULL import uses the ordinary persistence function for explicit options.
+// The no-argument call runs only after the atomic FULL commit already succeeded:
+// do not persist the same large dataset a second time; only enqueue the cloud
+// mirror/entities/settings and wait until that local outbox enqueue is durable.
+function saveApplicationData(options) {
+    if (options) return persistApplicationData(options);
+    return persistApplicationData({
+        immediate: true,
+        localAlreadyCommitted: true,
+        awaitOutboxEnqueue: true
+    });
+}
 import { openExportMenu, closeExportMenu, buildMiniExportPayload } from './ExportMenuService.js';
 import {
     buildSaMiniRosterPayload,
     resolveSaMiniRosterScope,
     selectSaMiniRosterEmployees
 } from './SaMiniRosterExport.js';
-import { getEntityScope } from '../projects/ProjectContext.js';
+import {
+    getEntityScope,
+    ACTIVE_PROJECT_LS_KEY,
+    projectContext
+} from '../projects/ProjectContext.js';
+import {
+    DEFAULT_PROJECT_LS_KEY,
+    peekEntityScope,
+    replaceEntityScope
+} from '../projects/EntityProjectScope.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 
 // ─── Small helpers ───────────────────────────────────────────────────────────
 
@@ -286,39 +317,238 @@ export function setImportFullText(value) {
     state.importFullText = value;
 }
 
-function applyFullImport(importedData) {
-    // Batch 7 large state replacements — without this, each one would trigger
-    // a render + buildAttendanceIndex run (attendance) + statsCache invalidation.
+/**
+ * F1 ronda-02 — FULL import desde portapapeles. Contratos:
+ *  - Reemplazo de dataset síncrono en batchSetState (round-trip caracterizado).
+ *  - Restaura la caja chica con el patrón del restore por archivo
+ *    (preparePettyCashBackupForRestore + PettyCashStore.applyRemote).
+ *  - Espera la persistencia durable (saveToIndexedDB clearFirst) ANTES del reload.
+ *  - Con Projects ON, la superficie projects/projectPayrollConfigs/projectBackup
+ *    se valida primero y participa en la misma frontera transaccional durable.
+ *    Los punteros default/active y el scope sólo avanzan después del commit.
+ */
+function readLocalStorageValue(key) {
+    try { return localStorage.getItem(key); } catch (_) { return null; }
+}
+
+function writeLocalStorageValue(key, value) {
+    try {
+        if (value == null) localStorage.removeItem(key);
+        else localStorage.setItem(key, String(value));
+    } catch (_) {}
+}
+
+function snapshotFullImportState() {
+    return {
+        settings: state.settings, positions: state.positions, employees: state.employees,
+        leaders: state.leaders, attendance: state.attendance,
+        tempAssignments: state.tempAssignments, dayHoursConfig: state.dayHoursConfig,
+        projectPointers: {
+            defaultProjectId: readLocalStorageValue(DEFAULT_PROJECT_LS_KEY),
+            activeProjectId: readLocalStorageValue(ACTIVE_PROJECT_LS_KEY),
+            scope: peekEntityScope()
+        }
+    };
+}
+
+function publishFullImportData(data) {
     stateManager.batchSetState(() => {
-        state.settings = importedData.data.settings || state.settings;
-        state.positions = importedData.data.positions || [];
-        state.employees = importedData.data.employees || [];
-        state.leaders = importedData.data.leaders || [];
-        state.attendance = importedData.data.attendance || {};
-        state.tempAssignments = importedData.data.tempAssignments || [];
-        state.dayHoursConfig = importedData.data.dayHoursConfig || {};
+        state.settings = data.settings || state.settings;
+        state.positions = data.positions || [];
+        state.employees = data.employees || [];
+        state.leaders = data.leaders || [];
+        // Keep the imported in-memory payload verbatim. Historical protection is
+        // attached only to the durable IndexedDB representation during the atomic
+        // FULL commit, so round-trip state semantics remain unchanged.
+        state.attendance = data.attendance || {};
+        state.tempAssignments = data.tempAssignments || [];
+        state.dayHoursConfig = data.dayHoursConfig || {};
     });
+}
 
-    // Defensive sanitization before persisting
-    if (typeof sanitizePositions === 'function') {
-        sanitizePositions(state);
+function rollbackFullImportState(previousState) {
+    const { projectPointers, ...appState } = previousState || {};
+    stateManager.batchSetState(() => Object.assign(state, appState));
+    if (projectPointers) {
+        writeLocalStorageValue(DEFAULT_PROJECT_LS_KEY, projectPointers.defaultProjectId);
+        writeLocalStorageValue(ACTIVE_PROJECT_LS_KEY, projectPointers.activeProjectId);
+        replaceEntityScope(projectPointers.scope || { enabled: false, projectId: null, defaultProjectId: null });
     }
-
-    // The bulk replace ran inside batchSetState (proxy silent → no auto-rebuild), so
-    // maintain coherence explicitly before render/persist: total rebuild + wholesale
-    // stats clear (subsumes the sanitizePositions invalidation). render() below reads
-    // these before the 1.5s reload, so it must be synchronous here.
     invalidateAllStats();
     buildAttendanceIndex();
-
-    saveApplicationData();
-    notify('✅ Datos importados correctamente', 'success');
-    closeImportFullModal();
-    closeExportMenuHandler();
     render();
+}
 
-    // Hard reload to guarantee every cache is in sync with the new data
-    setTimeout(() => location.reload(), 1500);
+function finalizeFullImportPettyCash(data, preparedPettyCash) {
+    if (preparedPettyCash?.unrecoverableReceiptCount > 0) {
+        notify(`⚠️ ${preparedPettyCash.unrecoverableReceiptCount} comprobante(s) solo local(es) no se pueden recuperar desde este backup.`, 'warning');
+    }
+    if (data?.pettyCash) {
+        console.log('💵 Caja chica restaurada desde el import FULL');
+    }
+}
+
+async function resumeSuspendedSave(suspendedSaveOptions) {
+    if (!suspendedSaveOptions) return;
+    try {
+        await saveApplicationData({ ...suspendedSaveOptions, immediate: true });
+    } catch (resumeError) {
+        console.warn('No se pudo reanudar el guardado previo tras rollback FULL:', resumeError);
+    }
+}
+
+function collectExplicitProjectIds(data) {
+    const ids = [];
+    const collectRecord = record => {
+        if (record && record.projectId != null && String(record.projectId).trim()) {
+            ids.push(String(record.projectId).trim());
+        }
+    };
+    for (const key of ['employees', 'positions', 'leaders', 'tempAssignments']) {
+        for (const record of (Array.isArray(data?.[key]) ? data[key] : [])) collectRecord(record);
+    }
+    const attendance = data?.attendance;
+    if (attendance && typeof attendance === 'object') {
+        const records = Array.isArray(attendance) ? attendance : Object.values(attendance);
+        for (const record of records) collectRecord(record);
+    }
+    for (const config of (Array.isArray(data?.projectPayrollConfigs) ? data.projectPayrollConfigs : [])) {
+        collectRecord(config);
+    }
+    const pettyProjects = Array.isArray(data?.pettyCash?.projects) ? data.pettyCash.projects : [];
+    for (const project of pettyProjects) {
+        if (project?.officialProjectId != null && String(project.officialProjectId).trim()) {
+            ids.push(String(project.officialProjectId).trim());
+        }
+    }
+    return ids;
+}
+
+function prepareProjectSurfaceForFullImport(data) {
+    if (!isProjectsEnabled() || !backupCarriesProjectSurface(data)) return null;
+
+    const projects = Array.isArray(data?.projects) ? data.projects.map(project => ({ ...project })) : [];
+    if (projects.length === 0) {
+        throw new Error('El backup multiproyecto no contiene un catálogo de proyectos válido.');
+    }
+
+    const ids = new Set();
+    for (const project of projects) {
+        const id = String(project?.id || '').trim();
+        if (!id) throw new Error('El backup contiene un proyecto sin id.');
+        if (ids.has(id)) throw new Error(`El backup contiene el proyecto duplicado "${id}".`);
+        ids.add(id);
+        project.id = id;
+    }
+
+    const projectBackup = data?.projectBackup && typeof data.projectBackup === 'object'
+        ? { ...data.projectBackup }
+        : {};
+    const defaultProjectId = String(projectBackup.defaultProjectId || '').trim();
+    if (!defaultProjectId || !ids.has(defaultProjectId)) {
+        throw new Error('El proyecto predeterminado del backup no existe en su catálogo.');
+    }
+    const activeProjectId = String(projectBackup.activeProjectId || defaultProjectId).trim();
+    if (!activeProjectId || !ids.has(activeProjectId)) {
+        throw new Error('El proyecto activo del backup no existe en su catálogo.');
+    }
+
+    for (const explicitId of collectExplicitProjectIds(data)) {
+        if (!ids.has(explicitId)) {
+            throw new Error(`El backup referencia un projectId inexistente: "${explicitId}".`);
+        }
+    }
+
+    const projectPayrollConfigs = Array.isArray(data?.projectPayrollConfigs)
+        ? data.projectPayrollConfigs.map(config => ({ ...config, projectId: String(config.projectId || '').trim() }))
+        : [];
+
+    return {
+        projects,
+        projectPayrollConfigs,
+        projectBackup,
+        incomingScope: {
+            enabled: true,
+            projectId: activeProjectId,
+            defaultProjectId
+        }
+    };
+}
+
+function commitProjectSurfacePointers(projectSurface, previousPointers = null) {
+    if (!projectSurface?.incomingScope) return;
+    const scope = projectSurface.incomingScope;
+    writeLocalStorageValue(DEFAULT_PROJECT_LS_KEY, scope.defaultProjectId);
+    writeLocalStorageValue(ACTIVE_PROJECT_LS_KEY, scope.projectId);
+    replaceEntityScope(scope);
+    try {
+        projectContext.notifyProjectChanged({
+            previousProjectId: previousPointers?.activeProjectId || null,
+            projectId: scope.projectId,
+            source: 'full-import'
+        });
+    } catch (_) {}
+}
+
+async function applyFullImport(importedData) {
+    const data = importedData.data || {};
+    const previousState = snapshotFullImportState();
+    const suspendedSaveOptions = beginFullImportIsolation();
+    let isolationActive = true;
+    let durableCommitted = false;
+    let preparedPettyCash = null;
+    let projectSurface = null;
+    try {
+        projectSurface = prepareProjectSurfaceForFullImport(data);
+        state.importFullText = '';
+        publishFullImportData(data);
+        if (typeof sanitizePositions === 'function') sanitizePositions(state);
+        invalidateAllStats();
+        buildAttendanceIndex();
+        if (data.pettyCash && typeof data.pettyCash === 'object') {
+            preparedPettyCash = await restorePettyCashFromImport(data.pettyCash);
+        }
+        let ok;
+        // projects + projectPayrollConfigs.
+        if (projectSurface) {
+            ok = await saveToIndexedDB({
+                clearFirst: true,
+                projectSurface,
+                entityScope: projectSurface.incomingScope
+            });
+        } else {
+            ok = await saveToIndexedDB({ clearFirst: true });
+        }
+        if (!ok) throw new Error('no se pudo guardar en IndexedDB');
+        durableCommitted = true;
+        if (projectSurface) {
+            commitProjectSurfacePointers(projectSurface, previousState.projectPointers);
+        }
+        endFullImportIsolation({ commit: true });
+        isolationActive = false;
+        finalizeFullImportPettyCash(data, preparedPettyCash);
+        const cloudSave = await saveApplicationData();
+        if (cloudSave && cloudSave.localOk === false) {
+            notify('⚠️ Datos importados localmente; la sincronización posterior quedó pendiente.', 'warning');
+        }
+        notify('✅ Datos importados correctamente', 'success');
+        closeImportFullModal();
+        closeExportMenuHandler();
+        render();
+        setTimeout(() => location.reload(), 1500);
+    } catch (error) {
+        if (!durableCommitted) rollbackFullImportState(previousState);
+        if (isolationActive) {
+            endFullImportIsolation();
+            isolationActive = false;
+        }
+        if (!durableCommitted) await resumeSuspendedSave(suspendedSaveOptions);
+        console.error('Error importando FULL:', error);
+        notify('❌ Error al importar: ' + (error?.message || 'falló el guardado'), 'error');
+    } finally {
+        delete stateManager.getState()?.pettyCash;
+        delete state.pettyCash;
+    }
 }
 
 export function confirmImportFull() {
@@ -356,6 +586,32 @@ export function confirmImportFull() {
         console.error('Error importando FULL:', error);
         notify('❌ Error al importar: ' + error.message, 'error');
     }
+}
+
+/**
+ * 💵 Prepara la caja chica del import FULL de forma pura y segura.
+ * No borra ni escribe stores durables de forma aislada: valida y calcula el merge
+ * de proyectos, períodos y movimientos para que sea persistido atómicamente en
+ * una única frontera multi-store con los datos principales.
+ */
+async function restorePettyCashFromImport(pettyCashBackup) {
+    const prepared = await PettyCashStore.prepareForFullImport(pettyCashBackup);
+    if (prepared) {
+        stateManager.getState().pettyCash = prepared;
+    }
+    return prepared;
+}
+
+/**
+ * 🗂️ ¿El payload trae superficie de proyecto (S1)? Solo lectura: NO adopta,
+ * NO reescribe ni toca stores/punteros — el catálogo y la configuración local
+ * se preservan tal cual.
+ */
+function backupCarriesProjectSurface(data) {
+    if (!data || typeof data !== 'object') return false;
+    if (Array.isArray(data.projects) && data.projects.length > 0) return true;
+    if (Array.isArray(data.projectPayrollConfigs) && data.projectPayrollConfigs.length > 0) return true;
+    return Boolean(data.projectBackup && typeof data.projectBackup === 'object');
 }
 
 /**
