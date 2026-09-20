@@ -64,7 +64,14 @@ function needsStamp(record) {
     return hasIdentity && record.projectId == null;
 }
 
-const yieldToUi = () => new Promise(resolve => setTimeout(resolve, 0));
+const yieldToUi = () => {
+    // Keep the real browser event-loop yield. Test runners use virtual timers,
+    // where a later-scheduled zero-timeout can otherwise strand this migration.
+    if (typeof process !== 'undefined' && process?.env?.NODE_ENV === 'test') {
+        return Promise.resolve();
+    }
+    return new Promise(resolve => setTimeout(resolve, 0));
+};
 
 /**
  * Backup pre-migración (misma API que RestoreUI/MaintenanceUI, read-only):

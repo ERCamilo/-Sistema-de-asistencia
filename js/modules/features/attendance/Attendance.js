@@ -19,6 +19,16 @@ export class Attendance {
         // borrado marcado viaja como dato y no se confunde con "nunca existió".
         this.updatedAt = data.updatedAt || 0;
         this.deletedAt = (data.deletedAt !== undefined) ? data.deletedAt : null;
+        // Local-only retention metadata. Keep it across IndexedDB -> model
+        // inflation so boot pruning sees the same durable protection that was
+        // committed by FULL restore. Intentionally omitted from toJSON(): these
+        // signals are device-local cache/recovery metadata, not cloud payload.
+        if (Number.isFinite(data.lastAccessed)) {
+            this.lastAccessed = data.lastAccessed;
+        }
+        if (data.recoveryProtected === true) {
+            this.recoveryProtected = true;
+        }
         // F1.5 (ADR-008): proyecto propietario del registro dentro del documento
         // diario compartido. Igual que deletedAt en Employee: sólo se conserva
         // cuando la clave existe, para no alterar registros legacy en el

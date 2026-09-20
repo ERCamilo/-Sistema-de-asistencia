@@ -27,7 +27,7 @@ export function attendanceRetentionStart(now = Date.now(), months = ATTENDANCE_R
     return formatDateKey(firstOfTarget);
 }
 
-function dateForRecord(key, record) {
+export function attendanceDateForRecord(key, record) {
     const explicit = record?.date;
     if (validDateKey(explicit)) return explicit;
     const suffix = String(key).slice(-10);
@@ -51,12 +51,17 @@ export function planAttendanceEviction(attendance, {
     const evictKeys = [];
 
     for (const [key, record] of Object.entries(attendance || {})) {
-        const date = dateForRecord(key, record);
+        const date = attendanceDateForRecord(key, record);
+        // FULL-restored historical attendance may be the only recoverable copy.
+        // This durable flag is intentionally independent from lastAccessed:
+        // recent-access protection expires after 30 days; recovery protection
+        // does not expire merely because time passed.
+        const recoveryProtected = record?.recoveryProtected === true;
         const recentlyAccessed = Number.isFinite(record?.lastAccessed)
             && now - record.lastAccessed <= accessRetentionMs;
         const requiredTombstone = Number.isFinite(record?.deletedAt)
             && now - record.deletedAt <= tombstoneRetentionMs;
-        let mustKeep = !date || date >= cutoffDate || protectedDateKeys.has(date)
+        let mustKeep = recoveryProtected || !date || date >= cutoffDate || protectedDateKeys.has(date)
             || recentlyAccessed || requiredTombstone;
         if (!mustKeep && scopeActive) {
             // Registro sin projectId ⇒ proyecto predeterminado (F0.4 §2). Si el

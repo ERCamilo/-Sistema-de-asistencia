@@ -6,7 +6,7 @@
 import { Notification } from '../components/Notification.js';
 import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
-import { captureEntityProjectScope } from '../features/projects/EntityProjectScope.js';
+import { captureEntityProjectScope, effectiveProjectId, DEFAULT_PROJECT_LS_KEY } from '../features/projects/EntityProjectScope.js';
 import {
     deleteEmployeePhotoCache,
     ensureEmployeePhotoStore,
@@ -24,6 +24,12 @@ import {
 // tipados para que app.js pueda mostrar un diálogo accionable.
 export const IDB_OPEN_TIMEOUT_MS = 8000;
 export const IDB_BLOCKED_GRACE_MS = 4000;
+
+// Recovery-protection metadata lives beside app settings under a separate key.
+// It is not part of state.settings and therefore is neither UI configuration
+// nor ordinary cloud settings. FULL replacement writes it atomically with the
+// restored dataset; ordinary saves update only key:'app' and leave it intact.
+export const ATTENDANCE_RECOVERY_PROTECTION_KEY = 'attendanceRecoveryProtection';
 
 // 🛡️ C02-NEW-1: stores propiedad de saveState — los únicos que participan
 // de la barrera de época (los canales independientes, p.ej. el outbox de
@@ -1030,11 +1036,27 @@ export class IndexedDBService {
         const cashStoresToAdd = includePettyCash
             ? pettyCashStores.filter(name => this.db.objectStoreNames.contains(name))
             : [];
-        const storesToReplace = [...ownStores, ...cashStoresToAdd];
+
+        const projectSurface = options.projectSurface;
+        const includeProjectSurface = Boolean(
+            projectSurface
+            && Array.isArray(projectSurface.projects)
+            && this.db.objectStoreNames.contains('projects')
+        );
+        const projectStoresToAdd = includeProjectSurface
+            ? ['projects', 'projectPayrollConfigs']
+                .filter(name => this.db.objectStoreNames.contains(name))
+            : [];
+
+        const storesToReplace = [...ownStores, ...cashStoresToAdd, ...projectStoresToAdd];
 
         const empMap = new Map();
         (state.employees || []).forEach(emp => {
-            const key = dedupKeyForRecord(emp, entityScope);
+            // FULL replacement is a fidelity operation: stable entity identity is
+            // the record id, not the display/roster number. Distinct employees may
+            // legitimately share a number in legacy backups and must round-trip.
+            const id = String(emp?.id ?? '').trim();
+            const key = id ? 'id:' + id : dedupKeyForRecord(emp, entityScope);
             if (!key) return;
             const existing = empMap.get(key);
             if (!existing || (emp.updatedAt || 0) > (existing.updatedAt || 0)) {
@@ -1058,7 +1080,29 @@ export class IndexedDBService {
             }
         });
 
-        let attendance = Object.entries(state.attendance || {}).map(([key, value]) => ({ key, ...value }));
+        const recoveryProtectedAttendanceKeys = new Set(
+            (Array.isArray(options.recoveryProtectedAttendanceKeys)
+                ? options.recoveryProtectedAttendanceKeys
+                : [])
+                .map(key => String(key || '').trim())
+                .filter(Boolean)
+        );
+        const restoredAttendanceAccessedAt = Number(options.recoveryProtectionCreatedAt) || 0;
+        let attendance = Object.entries(state.attendance || {}).map(([key, value]) => {
+            // recoveryProtected is internal persistence metadata. Never trust an
+            // imported copy of it: recompute it for this FULL restore from the
+            // exact set selected by PersistenceService at restore time.
+            const { recoveryProtected: _ignoredRecoveryFlag, ...record } = value || {};
+            return {
+                key,
+                ...record,
+                // Preserve the existing finite "recent access" signal so the
+                // retention timeline remains meaningful. It is NOT the recovery
+                // guarantee; recoveryProtected below is the non-expiring guard.
+                ...(restoredAttendanceAccessedAt ? { lastAccessed: restoredAttendanceAccessedAt } : {}),
+                ...(recoveryProtectedAttendanceKeys.has(key) ? { recoveryProtected: true } : {})
+            };
+        });
         const seenAttendance = new Set();
         attendance = attendance.filter(record => {
             const employeeDateKey = `${record.employeeId}-${record.date}`;
@@ -1094,6 +1138,10 @@ export class IndexedDBService {
                         movements: (pettyCash.movements || []).length
                     };
                 }
+                if (includeProjectSurface) {
+                    stats.projects = (projectSurface.projects || []).length;
+                    stats.projectPayrollConfigs = (projectSurface.projectPayrollConfigs || []).length;
+                }
                 resolve(stats);
             };
             tx.onerror = fail;
@@ -1112,13 +1160,39 @@ export class IndexedDBService {
                 putAll('positions', state.positions || []);
                 putAll('leaders', [...leadMap.values()]);
                 putAll('attendance', attendance);
-                if (state.settings && storesToReplace.includes('settings')) {
-                    tx.objectStore('settings').put(this._serializeForIDB({ ...state.settings, key: 'app' }));
+                // A FULL replacement of an empty attendance store still verifies
+                // that the store is writable before the transaction commits.
+                // The probe is inserted and deleted in this same transaction, so
+                // no marker survives a successful commit.
+                if (attendance.length === 0 && storesToReplace.includes('attendance')) {
+                    const attendanceStore = tx.objectStore('attendance');
+                    const probeKey = '__full_replace_write_probe__';
+                    attendanceStore.put(this._serializeForIDB({ key: probeKey }));
+                    attendanceStore.delete(probeKey);
+                }
+                if (storesToReplace.includes('settings')) {
+                    const settingsStore = tx.objectStore('settings');
+                    if (state.settings) {
+                        settingsStore.put(this._serializeForIDB({ ...state.settings, key: 'app' }));
+                    }
+                    if (recoveryProtectedAttendanceKeys.size > 0) {
+                        settingsStore.put(this._serializeForIDB({
+                            key: ATTENDANCE_RECOVERY_PROTECTION_KEY,
+                            version: 1,
+                            source: 'full-import',
+                            createdAt: Number(options.recoveryProtectionCreatedAt) || Date.now(),
+                            recordKeys: [...recoveryProtectedAttendanceKeys]
+                        }));
+                    }
                 }
                 if (includePettyCash) {
                     putAll('pettyCashProjects', pettyCash.projects || []);
                     putAll('pettyCashPeriods', pettyCash.periods || []);
                     putAll('pettyCashMovements', pettyCash.movements || []);
+                }
+                if (includeProjectSurface) {
+                    putAll('projects', projectSurface.projects || []);
+                    putAll('projectPayrollConfigs', projectSurface.projectPayrollConfigs || []);
                 }
             } catch (error) {
                 operationError = error;
@@ -1137,7 +1211,7 @@ export class IndexedDBService {
      */
     async saveState(state, options = {}) {
         const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0 };
-        const entityScope = captureEntityProjectScope();
+        const entityScope = options.entityScope || captureEntityProjectScope();
         // 🛡️ C02-NEW-1: preservar el guard de un vuelo previo (anidado) para
         // restaurarlo al terminar este.
         const _prevEpochFlightGuard = this._epochFlightGuard;
@@ -1199,6 +1273,38 @@ export class IndexedDBService {
             // reemplazos FULL son atómicos y autocontenidos. Se libera en finally.
             if (!options.clearFirst && _epochRef && typeof _epochRef.value === 'number') {
                 this._epochFlightGuard = { ref: _epochRef, epoch: options.__datasetEpoch };
+            }
+
+            // R04: ordinary writes under Projects ON must resolve to a durable project.
+            // FULL clearFirst replacements are validated with their incoming catalog and
+            // committed atomically below, so they intentionally bypass this pre-guard.
+            if (entityScope.enabled && !options.clearFirst && !isGranular) {
+                const catalog = this.db?.objectStoreNames?.contains('projects')
+                    ? await this.getAll('projects')
+                    : [];
+                const validProjectIds = new Set(
+                    (catalog || []).map(project => String(project?.id ?? '').trim()).filter(Boolean)
+                );
+                let resolvedDefault = String(entityScope?.defaultProjectId ?? '').trim();
+                if ((!resolvedDefault || !validProjectIds.has(resolvedDefault)) && validProjectIds.size === 1) {
+                    resolvedDefault = validProjectIds.values().next().value;
+                    try { localStorage.setItem(DEFAULT_PROJECT_LS_KEY, resolvedDefault); } catch (_) {}
+                }
+                const validationScope = { ...entityScope, defaultProjectId: resolvedDefault || null };
+                const projectOwnedRecords = [
+                    ...(state.employees || []),
+                    ...(state.positions || []),
+                    ...(state.leaders || []),
+                    ...Object.values(state.attendance || {})
+                ].filter(record => record && typeof record === 'object');
+                const invalidRecord = projectOwnedRecords.find(record => {
+                    const pid = String(effectiveProjectId(record, validationScope) ?? '').trim();
+                    return !pid || !validProjectIds.has(pid);
+                });
+                if (invalidRecord) {
+                    console.warn('IndexedDB: guardado bloqueado para evitar una relacion huerfana de obra.');
+                    return stats;
+                }
             }
 
             if (options.clearFirst && !isGranular) {
@@ -1313,17 +1419,32 @@ export class IndexedDBService {
                 }
             }
 
+            const recoveryProtectedAttendanceKeys = await this.getAttendanceRecoveryProtectedKeys();
+            if (this._isDatasetEpochStale()) {
+                console.warn('🛡️ IndexedDB: guardado local obsoleto — reemplazo FULL comprometió mientras se leía la protección de recuperación.');
+                return stats;
+            }
+
+            const durableAttendanceRecord = (key, value) => {
+                const wasRecoveryProtected = value?.recoveryProtected === true;
+                const { recoveryProtected: _staleRecoveryFlag, ...record } = value || {};
+                const mustRemainProtected = recoveryProtectedAttendanceKeys.has(key) || wasRecoveryProtected;
+                return {
+                    key,
+                    ...record,
+                    ...(mustRemainProtected ? { recoveryProtected: true } : {})
+                };
+            };
+
             let attToSave = [];
             if (isGranular) {
                 // ⚡ FIX: Soportar sufijos con guion (-) o guion bajo (_) para cada fecha.
                 attToSave = Object.entries(state.attendance || {})
                     .filter(([key]) => _matchesGranularDate(key))
-                    .map(([key, value]) => ({ key, ...value }));
+                    .map(([key, value]) => durableAttendanceRecord(key, value));
             } else {
-                attToSave = Object.entries(state.attendance || {}).map(([key, value]) => ({
-                    key,
-                    ...value
-                }));
+                attToSave = Object.entries(state.attendance || {})
+                    .map(([key, value]) => durableAttendanceRecord(key, value));
             }
 
             // 🛡️ BARRERA DE PROTECCIÓN: Deduplicar forzosamente (employeeId, date)
@@ -1368,6 +1489,26 @@ export class IndexedDBService {
             // 🛡️ C02-NEW-1: liberar el guard de época de este vuelo (restaura
             // el de un vuelo anidado previo, si lo hubo).
             this._epochFlightGuard = _prevEpochFlightGuard;
+        }
+    }
+
+    /**
+     * Exact attendance keys protected because a FULL restore may be their only
+     * recoverable copy. Stored outside state.settings so ordinary saves cannot
+     * accidentally erase the protection metadata.
+     */
+    async getAttendanceRecoveryProtectedKeys() {
+        try {
+            const record = await this.get('settings', ATTENDANCE_RECOVERY_PROTECTION_KEY);
+            return new Set(
+                (Array.isArray(record?.recordKeys) ? record.recordKeys : [])
+                    .map(key => String(key || '').trim())
+                    .filter(Boolean)
+            );
+        } catch (_) {
+            // Fail closed for retention: inability to read the metadata must not
+            // fabricate protection for ordinary cache entries.
+            return new Set();
         }
     }
 

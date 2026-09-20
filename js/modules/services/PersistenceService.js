@@ -30,6 +30,7 @@ import { debug } from '../utils/Debug.js';
 import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/attendance/AttendanceRecordWriter.js';
 import { createAttendanceRangeLoader } from './AttendanceRangeLoader.js';
 import { createAttendanceCachePruner } from './AttendanceCachePruner.js';
+import { attendanceRetentionStart, attendanceDateForRecord } from './AttendanceRetentionPolicy.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject, effectiveProjectId } from '../features/projects/ProjectContext.js';
 import { employeeNumberIdentityKey, sameEmployeeNumber } from '../features/employees/EmployeeNumberIdentity.js';
 import { sanitizeExportConfig } from './ExportConfigSanitizer.js';
@@ -640,6 +641,29 @@ export async function saveToIndexedDB(options = {}) {
     try {
         // Use raw (non-proxy) state to avoid DataCloneError in IndexedDB structured clone
         const rawState = stateManager.getState();
+
+        // A FULL restore can revive attendance older than the ordinary local
+        // cache window. Those exact records may be the only recoverable copy,
+        // so select them once at restore time and persist their protection in
+        // the SAME atomic IndexedDB replacement. This is deliberately separate
+        // from lastAccessed, whose 30-day semantics are only "recently viewed".
+        if (options.clearFirst && _fullImportIsolationDepth > 0
+            && !Array.isArray(options.recoveryProtectedAttendanceKeys)) {
+            const recoveryProtectionCreatedAt = Date.now();
+            const cutoffDate = attendanceRetentionStart(recoveryProtectionCreatedAt);
+            const recoveryProtectedAttendanceKeys = Object.entries(rawState?.attendance || {})
+                .filter(([key, record]) => {
+                    const date = attendanceDateForRecord(key, record);
+                    return Boolean(date && date < cutoffDate);
+                })
+                .map(([key]) => key);
+
+            options = {
+                ...options,
+                recoveryProtectionCreatedAt,
+                recoveryProtectedAttendanceKeys
+            };
+        }
         // C01-NEW-1: estampar la época vigente del dataset en las options para
         // que saveState pueda reconocer (y rechazar) un guardado cuyo vuelo
         // straddleó un reemplazo FULL comprometido.
@@ -998,7 +1022,10 @@ async function _executeSave(options = {}) {
     }
 
     let _localOk = true;
-    let _localConfirmed = false;
+    // FULL restore can arrive here immediately after its own atomic multi-store
+    // commit. In that case local durability is already established and repeating
+    // a full save is both redundant and prohibitively expensive for large backups.
+    let _localConfirmed = options.localAlreadyCommitted === true;
     if (options.requireLocalSuccess) {
         _localOk = await _persistLocalState(options);
         _localConfirmed = true;
