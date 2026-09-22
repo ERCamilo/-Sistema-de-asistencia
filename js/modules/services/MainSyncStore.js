@@ -164,11 +164,38 @@ export const MainSyncStore = {
      */
     async enqueueDaily(dateKey, records, scope = null) {
         const all = await _getAll();
-        const stalePending = all.filter(e => e && e.kind === 'daily' && e.status === 'pending' && e.dateKey === dateKey);
+        // R07 A2c-2: nunca coalescer un patch de ownership-repair pendiente de la
+        // misma fecha — es un canal distinto (registros reparados + scope del
+        // proyecto reparado) y pisarlo perdería la propagación del repair.
+        const stalePending = all.filter(e => e && e.kind === 'daily' && e.status === 'pending'
+            && e.dateKey === dateKey && e.source !== 'ownership-repair');
         for (const e of stalePending) await _deleteQuiet(e.key);
 
         await indexedDBService.update(OUTBOX, {
             kind: 'daily', dateKey, records, scope: scope || null, ts: Date.now(), status: 'pending'
+        });
+    },
+
+    /**
+     * R07 A2c-2 — encole durable de un patch de reparación de ownership de
+     * asistencia. Reutiliza el kind 'daily' (mismo camino flush → saveDailyAttendance)
+     * pero marca `source: 'ownership-repair'` y NO coalesce NI borra entradas
+     * daily normales pendientes de la misma fecha. Una fecha con cambios para
+     * varios projectIds debe encolarse como entradas separadas con el scope del
+     * remitente correspondiente (el caller agrupa por dateKey + projectId).
+     *
+     * `records` = mapa congelado {claveCanonica: registro} SOLO de los registros
+     * reparados de ese día (nunca el día completo).
+     */
+    async enqueueDailyRepairPatch(dateKey, records, scope = null) {
+        await indexedDBService.update(OUTBOX, {
+            kind: 'daily',
+            source: 'ownership-repair',
+            dateKey,
+            records,
+            scope: scope || null,
+            ts: Date.now(),
+            status: 'pending'
         });
     },
 

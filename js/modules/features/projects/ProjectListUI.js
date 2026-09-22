@@ -1,6 +1,7 @@
 import { PROJECT_STATUS } from './Project.js';
 import { projectSetupService } from './ProjectSetupService.js';
 import { mountProjectCreateForm, openProjectCreateModal, closeProjectCreateModal } from './ProjectCreateUI.js';
+import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 
 export const PROJECT_FILTERS = Object.freeze({ ALL: 'all', ACTIVE: PROJECT_STATUS.ACTIVE, CLOSED: PROJECT_STATUS.CLOSED, ARCHIVED: PROJECT_STATUS.ARCHIVED });
@@ -25,6 +26,7 @@ export const PROJECT_STATUS_META = Object.freeze({
 });
 
 const MODAL_ID = 'project-list-modal';
+let detachProjectListA11y = null;
 function esc(value) { return String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch])); }
 
 export function formatProjectDate(timestamp) {
@@ -173,7 +175,11 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
 }
 export const renderProjectList = mountProjectList;
 function modal() { return document.getElementById(MODAL_ID); }
-export function closeProjectListModal() { modal()?.remove(); }
+export function closeProjectListModal() {
+    detachProjectListA11y?.();
+    detachProjectListA11y = null;
+    modal()?.remove();
+}
 
 export async function openProjectListModal({ setupService = projectSetupService, onSwitchSuccess = null } = {}) {
     closeProjectListModal();
@@ -184,6 +190,8 @@ export async function openProjectListModal({ setupService = projectSetupService,
     el.querySelector('[data-project-list-close]').addEventListener('click', closeProjectListModal);
     el.addEventListener('click', event => { if (event.target === el) closeProjectListModal(); });
     document.body.appendChild(el);
+    detachProjectListA11y?.({ restoreFocus: false });
+    detachProjectListA11y = attachProjectDialogA11y(el, { onEscape: closeProjectListModal });
 
     const bodyEl = el.querySelector('[data-project-list-modal-body]');
     try {

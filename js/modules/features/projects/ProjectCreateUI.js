@@ -1,6 +1,8 @@
 import { projectSetupService } from './ProjectSetupService.js';
+import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
 
 const CREATE_MODAL_ID = 'project-create-modal';
+let detachProjectCreateA11y = null;
 const ICONS = Object.freeze({
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>'
@@ -116,7 +118,11 @@ export function mountProjectCreateForm(container, {
     };
 }
 
-export function closeProjectCreateModal() { document.getElementById(CREATE_MODAL_ID)?.remove(); }
+export function closeProjectCreateModal() {
+    detachProjectCreateA11y?.();
+    detachProjectCreateA11y = null;
+    document.getElementById(CREATE_MODAL_ID)?.remove();
+}
 
 export async function openProjectCreateModal({ setupService = projectSetupService, onSuccess = null, onCancel = null } = {}) {
     closeProjectCreateModal();
@@ -147,6 +153,11 @@ export async function openProjectCreateModal({ setupService = projectSetupServic
     modalEl.querySelector('[data-project-create-modal-close]').addEventListener('click', handleClose);
     modalEl.addEventListener('click', event => { if (event.target === modalEl) handleClose(); });
     document.body.appendChild(modalEl);
+    detachProjectCreateA11y?.({ restoreFocus: false });
+    detachProjectCreateA11y = attachProjectDialogA11y(modalEl, {
+        onEscape: handleClose,
+        focusInitial: false
+    });
 
     const slot = modalEl.querySelector('[data-project-create-modal-slot]');
     const formHandle = mountProjectCreateForm(slot, {

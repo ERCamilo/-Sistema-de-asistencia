@@ -164,6 +164,12 @@
     }
 }
 
+/* R07 a11y: modal footer buttons keep a >=44px hit area on every pointer,
+   not only coarse (touch) pointers. */
+.modal-footer .modal-btn {
+    min-height: 44px;
+}
+
         /* ==========================================================================
    🚀 P4-OPT: PANTALLA DE CARGA (MODERN DESIGN)
    ========================================================================== */
@@ -2681,8 +2687,8 @@
         }
 
         .modal-close {
-            width: 36px;
-            height: 36px;
+            width: 44px;
+            height: 44px;
             border-radius: 8px;
             background: #1e293b;
             border: 2px solid #334155;
@@ -3893,8 +3899,8 @@
             color: #64748b;
             font-size: 1.75rem;
             cursor: pointer;
-            width: 36px;
-            height: 36px;
+            width: 44px;
+            height: 44px;
             display: flex;
             align-items: center;
             justify-content: center;

@@ -513,6 +513,104 @@ describe('A0.5 ProjectIdentity — flag OFF parity + offline + registry + adopti
         }
     });
 
+    test('R07 real-backup regression — canonical adoption preserves project payroll config before global seed', async () => {
+        setProjectsEnabled(true);
+        const dbName = `${DB_PREFIX}payroll-adoption-r07`;
+        const { svc, store } = makeHarness(dbName);
+        await svc.init();
+        const legacyId = 'PRJ-LEGACY-PAYROLL';
+        const canonicalId = 'PRJ-CANON-PAYROLL';
+        await store.create(Project.create({ id: legacyId, name: 'Mi obra' }));
+        const legacyConfig = {
+            projectId: legacyId,
+            regularHoursPerDay: 8,
+            overtimeFactor: 1,
+            holidayFactor: 2,
+            holidays: ['2026-01-26', '2026-02-27'],
+            payPeriod: { periodStart: '2026-09-11', periodLength: 21, payDay: '2026-10-03' },
+            defaultDeductionPercentage: 2,
+            payrollDefaults: { version: 2, deductions: [], bonuses: [] },
+            schemaVersion: 1,
+            updatedAt: 1789503383435
+        };
+        await svc.update('projectPayrollConfigs', legacyConfig);
+
+        const res = await ProjectAdoption.adoptProject({ legacyId, canonicalId, uid: 'uid-payroll-r07', idb: svc, skipAlias: true });
+        expect(res.adopted).toBe(true);
+
+        const canonicalConfig = await svc.get('projectPayrollConfigs', canonicalId);
+        expect(canonicalConfig).toEqual({ ...legacyConfig, projectId: canonicalId });
+        expect(await svc.get('projectPayrollConfigs', legacyId)).toBeUndefined();
+
+        const { ensureDefaultSeed } = await import('actual/features/payroll/ProjectPayrollConfigStore.js');
+        await ensureDefaultSeed(canonicalId, {
+            regularHoursPerDay: 8,
+            overtimeFactor: 1,
+            holidayFactor: 2,
+            holidays: ['2026-01-26', '2026-02-27'],
+            payPeriod: { periodStart: '2026-08-21', periodLength: 21, payDay: '2026-09-12' },
+            defaultDeductionPercentage: 2,
+            payrollDefaults: { version: 1, deductions: [], bonuses: [] }
+        }, { idb: svc });
+        expect((await svc.get('projectPayrollConfigs', canonicalId)).payPeriod).toEqual(legacyConfig.payPeriod);
+    });
+
+    test('R07 payroll conflict — adoption fails closed before entity rewrite when canonical config already differs', async () => {
+        setProjectsEnabled(true);
+        const dbName = `${DB_PREFIX}payroll-conflict-r07`;
+        const { svc, store } = makeHarness(dbName);
+        await svc.init();
+        const legacyId = 'PRJ-LEGACY-CONFLICT';
+        const canonicalId = 'PRJ-CANON-CONFLICT';
+        await store.create(Project.create({ id: legacyId, name: 'Legacy' }));
+        await store.create(Project.create({ id: canonicalId, name: 'Canon' }));
+        await svc.update('employees', { id: 'E-CONFLICT', number: '90', name: 'Conflicto', projectId: legacyId, active: true, positions: [] });
+        const legacyConfig = { projectId: legacyId, regularHoursPerDay: 8, overtimeFactor: 1, holidayFactor: 2, holidays: [], payPeriod: { periodStart: '2026-09-11', periodLength: 21, payDay: '2026-10-03' }, defaultDeductionPercentage: 2, payrollDefaults: { version: 2, deductions: [], bonuses: [] }, schemaVersion: 1, updatedAt: 1 };
+        const canonicalConfig = { ...legacyConfig, projectId: canonicalId, payPeriod: { periodStart: '2026-08-21', periodLength: 21, payDay: '2026-09-12' }, updatedAt: 2 };
+        await svc.update('projectPayrollConfigs', legacyConfig);
+        await svc.update('projectPayrollConfigs', canonicalConfig);
+
+        await expect(ProjectAdoption.adoptProject({ legacyId, canonicalId, uid: 'uid-payroll-conflict', idb: svc, skipAlias: true }))
+            .rejects.toThrow(/Conflicto de configuración de nómina/);
+        expect((await svc.get('employees', 'E-CONFLICT')).projectId).toBe(legacyId);
+        expect(await svc.get('projectPayrollConfigs', legacyId)).toEqual(legacyConfig);
+        expect(await svc.get('projectPayrollConfigs', canonicalId)).toEqual(canonicalConfig);
+        expect(ProjectAdoption.isAdoptionDone(legacyId, canonicalId)).toBe(false);
+    });
+
+    test('R07 old adoption marker — payroll reconciliation still runs before alreadyDone short-circuit', async () => {
+        setProjectsEnabled(true);
+        const dbName = `${DB_PREFIX}payroll-old-marker-r07`;
+        const { svc, store } = makeHarness(dbName);
+        await svc.init();
+        const legacyId = 'PRJ-LEGACY-OLD-MARKER';
+        const canonicalId = 'PRJ-CANON-OLD-MARKER';
+        await store.create(Project.create({ id: legacyId, name: 'Legacy' }));
+        await store.create(Project.create({ id: canonicalId, name: 'Canon' }));
+        const legacyConfig = {
+            projectId: legacyId,
+            regularHoursPerDay: 8,
+            overtimeFactor: 1,
+            holidayFactor: 2,
+            holidays: [],
+            payPeriod: { periodStart: '2026-09-11', periodLength: 21, payDay: '2026-10-03' },
+            defaultDeductionPercentage: 2,
+            payrollDefaults: { version: 2, deductions: [], bonuses: [] },
+            schemaVersion: 1,
+            updatedAt: 1789503383435
+        };
+        await svc.update('projectPayrollConfigs', legacyConfig);
+        localStorage.setItem(ProjectAdoption.ADOPTION_MARKER_KEY, JSON.stringify({
+            v: 1,
+            done: { [`${legacyId}->${canonicalId}`]: { at: 1789503383000, deviceId: 'old-version' } }
+        }));
+
+        const res = await ProjectAdoption.adoptProject({ legacyId, canonicalId, uid: 'uid-old-marker', idb: svc, skipAlias: true });
+        expect(res.alreadyDone).toBe(true);
+        expect(await svc.get('projectPayrollConfigs', canonicalId)).toEqual({ ...legacyConfig, projectId: canonicalId });
+        expect(await svc.get('projectPayrollConfigs', legacyId)).toBeUndefined();
+    });
+
     test('firestore rules: known project paths are explicitly owner-scoped (audit)', async () => {
         const rules = fs.readFileSync(path.resolve('firestore.rules'), 'utf8');
         expect(rules).not.toMatch(/match \/users\/\{userId\}\/\{document=\*\*}/);

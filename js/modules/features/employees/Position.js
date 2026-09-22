@@ -17,6 +17,12 @@ export class Position {
         // cómo se MUESTRA/edita; lo guardado en hourlyRate sigue siendo por hora.
         this.salaryInputMode = data.salaryInputMode === 'daily' ? 'daily' : 'hourly';
         this.leaderId = data.leaderId || null; // ⚡ NUEVO: ID del líder responsable
+        // R07 A2c-3 H8: referencia de líder cross-project preservada para
+        // reconciliación explícita (nunca re-animada automáticamente). Sólo se
+        // conserva si la clave existe — byte-estable, mismo patrón que projectId.
+        if (Object.prototype.hasOwnProperty.call(data, 'crossProjectLeaderId')) {
+            this.crossProjectLeaderId = data.crossProjectLeaderId ?? null;
+        }
         this.restDayFactor = (data.restDayFactor !== undefined && data.restDayFactor !== null && data.restDayFactor !== '')
             ? (Number.isFinite(parseFloat(data.restDayFactor)) ? parseFloat(data.restDayFactor) : null)
             : null;
@@ -74,6 +80,9 @@ export class Position {
         };
         if (Object.prototype.hasOwnProperty.call(this, 'projectId')) {
             json.projectId = this.projectId;
+        }
+        if (Object.prototype.hasOwnProperty.call(this, 'crossProjectLeaderId')) {
+            json.crossProjectLeaderId = this.crossProjectLeaderId;
         }
         return json;
     }

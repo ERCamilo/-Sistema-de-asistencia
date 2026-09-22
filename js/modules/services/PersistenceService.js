@@ -30,6 +30,7 @@ import { debug } from '../utils/Debug.js';
 import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/attendance/AttendanceRecordWriter.js';
 import { createAttendanceRangeLoader } from './AttendanceRangeLoader.js';
 import { createAttendanceCachePruner } from './AttendanceCachePruner.js';
+import { attendanceRetentionStart } from './AttendanceRetentionPolicy.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject, effectiveProjectId } from '../features/projects/ProjectContext.js';
 import { employeeNumberIdentityKey, sameEmployeeNumber } from '../features/employees/EmployeeNumberIdentity.js';
 import { sanitizeExportConfig } from './ExportConfigSanitizer.js';
@@ -44,25 +45,85 @@ import { getDemoSeed } from '../data/DemoSeed.js';
 // ⚡ Debounce de guardado: colapsa llamadas rápidas en un solo guardado
 let _saveDebounceTimer = null;
 let _pendingSaveOptions = {};
+let _fullImportIsolationDepth = 0;
+let _projectRepairIsolationDepth = 0;
+let _fullImportDeferredPositionDeleteIds = [];
+let _localDataWipeInProgress = false;
+// H4: slot diferido para saves suspendidos que NO pudieron reanudarse de
+// inmediato porque otra isolación de mutación del dataset seguía activa.
+let _deferredSuspendedSaveOptions = null;
 
-const _attendanceRangeLoader = createAttendanceRangeLoader({
-    fetchRange: (startDate, endDate) => FirebaseService.getAttendanceRange(startDate, endDate),
-    readAttendance: () => state.attendance || {},
-    writeAttendance: attendance => stateManager.silentSetState({ attendance }),
-    persistRecords: records => indexedDBService.batchUpdate('attendance', records),
-    onApplied: () => {
-        invalidateAllStats();
-        buildAttendanceIndex();
+// ─────────────────────────────────────────────────────────────────────────────
+// 🛡️ C01-NEW-1 / C01-NEW-2: época de dataset para guardados locales en vuelo y
+// cargas de asistencia por rango.
+// ─────────────────────────────────────────────────────────────────────────────
+const _datasetEpochRef = { value: 0 };
+
+/** Estampa la época vigente del dataset (y su referencia) en las options. */
+function _stampDatasetEpoch(options) {
+    if (options && typeof options === 'object') {
+        options.__datasetEpochRef = _datasetEpochRef;
+        options.__datasetEpoch = _datasetEpochRef.value;
     }
-});
+}
+
+function attendanceDateForRecord(key, record) {
+    const explicit = record?.date;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(explicit || '')) return explicit;
+    const suffix = String(key).slice(-10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(suffix) ? suffix : null;
+}
+
+export function stampDatasetEpochOptions(options = {}) {
+    _stampDatasetEpoch(options);
+    return options;
+}
+
+export function advanceDatasetEpoch() {
+    _datasetEpochRef.value += 1;
+    return _datasetEpochRef.value;
+}
+
+function isDatasetMutationIsolationInProgress() {
+    return _fullImportIsolationDepth > 0 || _projectRepairIsolationDepth > 0;
+}
+
+let _attendanceRangeLoaderEpoch = -1;
+let _attendanceRangeLoader = null;
+
+function _getAttendanceRangeLoader() {
+    const currentEpoch = _datasetEpochRef.value;
+    if (!_attendanceRangeLoader || _attendanceRangeLoaderEpoch !== currentEpoch) {
+        _attendanceRangeLoaderEpoch = currentEpoch;
+        const capturedEpoch = currentEpoch;
+        _attendanceRangeLoader = createAttendanceRangeLoader({
+            fetchRange: (startDate, endDate) => FirebaseService.getAttendanceRange(startDate, endDate),
+            readAttendance: () => state.attendance || {},
+            writeAttendance: attendance => {
+                if (_datasetEpochRef.value !== capturedEpoch || isDatasetMutationIsolationInProgress() || isLocalDataWipeInProgress()) return;
+                stateManager.silentSetState({ attendance });
+            },
+            persistRecords: records => {
+                if (_datasetEpochRef.value !== capturedEpoch || isDatasetMutationIsolationInProgress() || isLocalDataWipeInProgress()) return;
+                return indexedDBService.batchUpdate('attendance', records);
+            },
+            onApplied: () => {
+                if (_datasetEpochRef.value !== capturedEpoch || isDatasetMutationIsolationInProgress() || isLocalDataWipeInProgress()) return;
+                invalidateAllStats();
+                buildAttendanceIndex();
+            }
+        });
+    }
+    return _attendanceRangeLoader;
+}
 
 /** Ensures an explicit date range is complete before navigation/reporting. */
 export function ensureAttendanceRange(startDate, endDate) {
-    return _attendanceRangeLoader.ensureRange(startDate, endDate);
+    return _getAttendanceRangeLoader().ensureRange(startDate, endDate);
 }
 
 export function ensureAllAttendanceHistory() {
-    return _attendanceRangeLoader.ensureAll();
+    return _getAttendanceRangeLoader().ensureAll();
 }
 
 const _attendanceCachePruner = createAttendanceCachePruner({
@@ -601,15 +662,47 @@ export async function saveToIndexedDB(options = {}) {
     // flush ya agendado por requestIdleCallback podía dispararse dentro de la
     // ventana del wipe y re-escribir el state en memoria a IndexedDB,
     // resucitando datos recién borrados.
-    if (_localDataWipeInProgress) return false;
+    if (_localDataWipeInProgress
+        || (isDatasetMutationIsolationInProgress() && !options.clearFirst)
+        // R07 H3: un reemplazo FULL (clearFirst) NO debe ejecutarse mientras una
+        // reparación de ownership de proyectos esté activa. clearFirst sigue
+        // permitido DENTRO de la isolación del propio FULL import.
+        || (options.clearFirst && isProjectRepairIsolationInProgress())) return false;
     try {
         // Use raw (non-proxy) state to avoid DataCloneError in IndexedDB structured clone
         const rawState = stateManager.getState();
+        if (options.clearFirst && _fullImportIsolationDepth > 0
+            && !Array.isArray(options.recoveryProtectedAttendanceKeys)) {
+            const recoveryProtectionCreatedAt = Date.now();
+            const cutoffDate = attendanceRetentionStart(recoveryProtectionCreatedAt);
+            const recoveryProtectedAttendanceKeys = Object.entries(rawState?.attendance || {})
+                .filter(([key, record]) => {
+                    const date = attendanceDateForRecord(key, record);
+                    return Boolean(date && date < cutoffDate);
+                })
+                .map(([key]) => key);
+            options = {
+                ...options,
+                recoveryProtectionCreatedAt,
+                recoveryProtectedAttendanceKeys
+            };
+        }
+        _stampDatasetEpoch(options);
+        if (options.clearFirst && rawState?.pettyCash && !options.pettyCash) {
+            options = { ...options, pettyCash: rawState.pettyCash };
+        }
         await indexedDBService.saveState(rawState, options);
+        // C01-NEW-1: el reemplazo FULL durable comprometió. Incrementar la
+        // época compartida para que TODO guardado local no-clearFirst que
+        // esté en vuelo con el estampo anterior (sus per-store transactions
+        // pueden aterrizar después del commit) sea reconocido como obsoleto
+        // y no resucite el dataset pre-import en los stores recién importados.
+        if (options.clearFirst) advanceDatasetEpoch();
         debug.log('💾 Datos guardados en IndexedDB');
         return true;
     } catch (error) {
         console.error('❌ Error guardando en IndexedDB:', error);
+        return false;
     }
 }
 
@@ -623,7 +716,6 @@ export async function saveToIndexedDB(options = {}) {
 // un no-op hasta el reload (o hasta endLocalDataWipe, para flujos que abortan
 // a mitad de camino — p.ej. red caída en "Descargar y Reemplazar").
 // ─────────────────────────────────────────────────────────────────────────────
-let _localDataWipeInProgress = false;
 let _dataOperationDepth = 0;
 
 /** Bloquea todo guardado implícito (debounce, pagehide) durante un borrado local. */
@@ -637,6 +729,145 @@ export function endLocalDataWipe() { _localDataWipeInProgress = false; }
 
 /** ¿Hay un borrado local en curso? (para diagnósticos y otros guards) */
 export function isLocalDataWipeInProgress() { return _localDataWipeInProgress; }
+
+/**
+ * R03: suspende persistencias implícitas mientras FULL publica un estado
+ * provisional que todavía no cruzó el commit atómico. Devuelve el save
+ * debounced previo para poder reanudarlo si el import termina en rollback.
+ */
+export function beginFullImportIsolation() {
+    const suspended = _saveDebounceTimer ? { ..._pendingSaveOptions } : null;
+    if (_fullImportIsolationDepth === 0) _fullImportDeferredPositionDeleteIds = [];
+    if (_saveDebounceTimer) clearTimeout(_saveDebounceTimer);
+    _saveDebounceTimer = null;
+    _pendingSaveOptions = {};
+    syncFirebaseMirrorDebounced.discard();
+    _fullImportIsolationDepth += 1;
+    return suspended;
+}
+
+export function endFullImportIsolation({ commit = false } = {}) {
+    _fullImportIsolationDepth = Math.max(0, _fullImportIsolationDepth - 1);
+    if (_fullImportIsolationDepth === 0) {
+        const deferred = [...new Set(_fullImportDeferredPositionDeleteIds)];
+        _fullImportDeferredPositionDeleteIds = [];
+        if (commit) deferred.forEach(id => enqueueCloudPositionDelete(id));
+    }
+    _onMutationIsolationReleased();
+}
+
+export function isFullImportIsolationInProgress() { return _fullImportIsolationDepth > 0; }
+
+/**
+ * R07: narrow isolation for explicit project-ownership repairs.
+ * Suspends the local debounce only; unlike FULL import it does not discard the
+ * pending cloud mirror or use FULL-specific deferred-position-delete state.
+ */
+export function beginProjectRepairIsolation() {
+    const suspended = _saveDebounceTimer ? { ..._pendingSaveOptions } : null;
+    if (_saveDebounceTimer) clearTimeout(_saveDebounceTimer);
+    _saveDebounceTimer = null;
+    _pendingSaveOptions = {};
+    _projectRepairIsolationDepth += 1;
+    return suspended;
+}
+
+export function endProjectRepairIsolation() {
+    _projectRepairIsolationDepth = Math.max(0, _projectRepairIsolationDepth - 1);
+    _onMutationIsolationReleased();
+}
+
+export function isProjectRepairIsolationInProgress() {
+    return _projectRepairIsolationDepth > 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🛡️ H4: reanudación de saves suspendidos (exactly-once, merge acumulado)
+//
+// Un save suspendido por una isolación (FULL import o project repair) puede
+// quedar "colgado" si, al liberar SU isolación, otra sigue activa (dos repairs
+// solapados, o un repair que terminó mientras FULL aún publica). La reanudación
+// cruda con saveApplicationData() se tragaba silenciosamente ese save. Este
+// helper centraliza la reanudación: si aún queda isolación activa, MERGEA las
+// options en un slot diferido; cuando TODAS las profundidades llegan a cero, se
+// ejecuta el save diferido EXACTAMENTE una vez.
+//
+// Merge: unión de dateKey/dateKeys + announce pegajoso. Los flags destructivos/
+// forzantes (clearFirst/force) NO se arrastran de una opción ajena a la otra.
+// ─────────────────────────────────────────────────────────────────────────────
+function _mergeSuspendedSaveOptions(base, incoming) {
+    const dates = new Set([
+        ...(Array.isArray(base?.dateKeys) ? base.dateKeys : []),
+        ...(base?.dateKey ? [base.dateKey] : []),
+        ...(Array.isArray(incoming?.dateKeys) ? incoming.dateKeys : []),
+        ...(incoming?.dateKey ? [incoming.dateKey] : [])
+    ]);
+    const merged = { ...incoming };
+    delete merged.clearFirst;
+    delete merged.force;
+    if (dates.size > 0) {
+        merged.dateKeys = [...dates];
+        delete merged.dateKey;
+    }
+    // announce es pegajoso: sobrevive a menos que el incoming fije el suyo.
+    if (!merged.announce && base?.announce) merged.announce = base.announce;
+    return merged;
+}
+
+function _flushDeferredSuspendedSave() {
+    if (!_deferredSuspendedSaveOptions) return;
+    const opts = _deferredSuspendedSaveOptions;
+    _deferredSuspendedSaveOptions = null; // exactly-once: limpiar ANTES de ejecutar
+    try {
+        // A suspended save was already stamped when first scheduled; resuming it
+        // is not a new user mutation. Avoid a second Proxy write/render while
+        // preserving the original durable save exactly once.
+        const pending = saveApplicationData({ ...opts, immediate: true, skipLocalUpdatedAtStamp: true });
+        if (pending && typeof pending.catch === 'function') {
+            pending.catch(e => console.warn('No se pudo reanudar el guardado suspendido diferido:', e));
+        }
+    } catch (e) {
+        console.warn('No se pudo reanudar el guardado suspendido diferido:', e);
+    }
+}
+
+function _onMutationIsolationReleased() {
+    if (!isDatasetMutationIsolationInProgress()) {
+        _flushDeferredSuspendedSave();
+    }
+}
+
+/**
+ * Reanuda un save suspendido capturado por begin*Isolation. Si todavía queda
+ * otra isolación de mutación activa, lo retiene (mergeado) en el slot diferido;
+ * si las profundidades ya son cero, lo ejecuta de inmediato.
+ */
+export function resumeSuspendedSaveOptions(suspendedSaveOptions) {
+    if (!suspendedSaveOptions) return;
+    _deferredSuspendedSaveOptions = _mergeSuspendedSaveOptions(_deferredSuspendedSaveOptions, suspendedSaveOptions);
+    if (!isDatasetMutationIsolationInProgress()) {
+        _flushDeferredSuspendedSave();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🛡️ C01-NEW-1: época de dataset para guardados locales en vuelo.
+//
+// Los re-cheques de aislamiento de _persistLocalState/_executeSave son de
+// ENTRADA/CATCH: un guardado requireLocalSuccess que ya estaba volando dentro
+// de indexedDBService.saveState() cuando arranca un import FULL puede
+// STRADDLEAR el reemplazo atómico — sus per-store transactions aterrizan
+// después del commit y el save post-commit nunca limpia (resurrección
+// durable del dataset pre-import), y además _persistLocalState reportaba
+// localOk=true dejando que _executeSave subiera el snapshot provisional.
+//
+// Mecanismo: cada reemplazo FULL durable (saveToIndexedDB clearFirst)
+// incrementa el contador compartido `_datasetEpochRef.value`; todo guardado
+// estampa la época vigente en SUS options (`__datasetEpoch`). El estampo
+// viaja DENTRO del objeto options (que es el mismo objeto que el servicio
+// real recibe al completar el vuelo), así que IndexedDBService.saveState
+// puede comparar estampo vs. contador vigente sin acoplarse a este módulo.
+// ─────────────────────────────────────────────────────────────────────────────
 
 /** Bloquea escrituras cloud implícitas mientras DataOps modifica una fuente completa. */
 export function beginDataOperation() {
@@ -658,14 +889,14 @@ export function saveApplicationData(options = {}) {
     // 🧹 U2: durante un borrado local, NADA debe re-persistir el estado en
     // memoria — re-escribiría a IndexedDB/localStorage justo lo que el
     // usuario acaba de borrar.
-    if (_localDataWipeInProgress) return;
+    if (_localDataWipeInProgress || isDatasetMutationIsolationInProgress()) return;
 
     // ⚡ Marcar el estado local como "más reciente" DE INMEDIATO, antes del debounce.
     // Esto impide que Firebase (eco o datos de otro dispositivo) sobrescriba cambios
     // locales durante la ventana de 300 ms en que el guardado aún está en cola.
     // Sin esto, un nuevo empleado/cargo/líder añadido al state puede perderse si
     // el listener de Firebase aplica datos remotos antes de que _executeSave corra.
-    if (!globalThis._isApplyingRemoteData && !options.localOnly && !options.requireLocalSuccess) {
+    if (!globalThis._isApplyingRemoteData && !options.localOnly && !options.requireLocalSuccess && !options.skipLocalUpdatedAtStamp) {
         if (!state.settings) state.settings = {};
         state.settings.localUpdatedAt = Date.now();
     }
@@ -742,6 +973,10 @@ export function flushPendingSave() {
     // asistencia recién borrada y re-encolaría un mirror pre-borrado en el
     // outbox recién purgado.
     if (_localDataWipeInProgress) return false;
+    // A FULL import owns the pending durable replacement while its atomic
+    // transaction is in flight. Treat the flush request as accepted without
+    // issuing a second save over provisional state.
+    if (isDatasetMutationIsolationInProgress()) return _fullImportIsolationDepth > 0;
 
     // R3: drenar PRIMERO el BatchedSaver de asistencia ENTRANTE (ventana idle de
     // hasta 1000ms). Esa asistencia llega de Firebase por una vía separada del
@@ -779,7 +1014,7 @@ export function flushPendingSave() {
 // Some writes must be durable on this device before they are eligible for
 // cloud synchronization. This helper exposes the real local fallback result.
 async function _persistLocalState(options = {}) {
-    if (globalThis._isApplyingRemoteData) return false;
+    if (globalThis._isApplyingRemoteData || isDatasetMutationIsolationInProgress()) return false;
 
     let localOk = false;
     if (state.useIndexedDB) {
@@ -792,10 +1027,31 @@ async function _persistLocalState(options = {}) {
                 await validateDataIntegrity();
             }
 
+            if (isDatasetMutationIsolationInProgress()) return false;
             const rawState = stateManager.getState();
+            _stampDatasetEpoch(options);
             await indexedDBService.saveState(rawState, options);
+            // C01-NEW-1 (b): saveState es awaited — durante esa ventana un
+            // import FULL pudo activar el aislamiento y publicar estado
+            // provisional importado en `state`. Reportar éxito acá dejaría a
+            // _executeSave encolar ese snapshot provisional al outbox de la
+            // nube ANTES del commit durable (un import que luego se revierte
+            // ya habría sido subido). Re-verificar TAMBIÉN después del await.
+            if (isDatasetMutationIsolationInProgress()) return false;
+            // C01-NEW-1 (a): una mutación durable del dataset comprometió durante el await —
+            // el dataset fue reemplazado atómicamente y los writes de este
+            // guardado fueron rechazados como obsoletos. No reportar éxito
+            // local: el guardado post-commit del import ya persiste el
+            // dataset vigente.
+            if (options.__datasetEpoch < _datasetEpochRef.value) return false;
             localOk = true;
         } catch (error) {
+            // OBS-R03B-1: saveState es awaited — durante esa ventana un import
+            // FULL pudo activar el aislamiento y publicar estado provisional
+            // importado en `state`. Re-verificar ANTES del fallback: escribir
+            // ese estado provisional a localStorage ('asistencia-data') vía
+            // dataService.saveAll() corrompería el respaldo local legítimo.
+            if (isDatasetMutationIsolationInProgress()) return false;
             const errorName = error?.name || '';
             const errorMessage = error?.message || 'Error desconocido';
 
@@ -823,6 +1079,14 @@ async function _persistLocalState(options = {}) {
 }
 
 async function _executeSave(options = {}) {
+    if (isDatasetMutationIsolationInProgress()) {
+        return {
+            localOk: false,
+            cloudRequested: false,
+            skippedForFullImport: _fullImportIsolationDepth > 0,
+            skippedForProjectRepair: _projectRepairIsolationDepth > 0
+        };
+    }
     if (!state.isDataLoaded) {
         console.warn('⚠️ Intento de guardado ignorado: datos aún no cargados.');
         return { localOk: false, cloudRequested: false };
@@ -907,6 +1171,7 @@ async function _executeSave(options = {}) {
     // Lo usa el toast honesto (SaveOutcomeNotifier) para saber si debe esperar
     // el resultado de la nube (verde/amarillo) o anunciar solo el local (verde).
     const _cloudAttempted = _canSyncFirebase && !_hasOutgoingConflict &&
+        !isDatasetMutationIsolationInProgress() &&
         (!options.requireLocalSuccess || _localOk);
     if (_cloudAttempted) {
         // 1+2. U7 — Bandeja de pendientes hacia la nube (MainSyncStore) en vez
@@ -1384,11 +1649,19 @@ export async function validateDataIntegrity() {
     if (!leadersCatalogSuspicious) state.positions.forEach(pos => {
         if (!pos.leaderId) return;
         let orphan = !leaderIds.has(pos.leaderId);
+        let crossProject = false;
         if (!orphan && _entityScope.enabled) {
             const leader = state.leaders.find(l => l.id === pos.leaderId);
-            orphan = leader ? !sameEffectiveProject(leader, pos, _entityScope) : true;
+            crossProject = Boolean(leader) && !sameEffectiveProject(leader, pos, _entityScope);
+            orphan = crossProject || !leader;
         }
         if (orphan) {
+            // R07 A2c-3 H8: un líder PRESENTE pero de otro proyecto efectivo no
+            // es un huérfano a destruir — preservar la referencia para
+            // reconciliación/diagnóstico explícito en lugar de nullearla en
+            // silencio. El líder genuinamente ausente se sigue nulleando (sin
+            // referencia pendiente), conservando el comportamiento legacy.
+            if (crossProject) pos.crossProjectLeaderId = pos.leaderId;
             pos.leaderId = null;
             pos.updatedAt = Date.now(); // misma regla — sin estampa no sube ni converge
             fixes++;

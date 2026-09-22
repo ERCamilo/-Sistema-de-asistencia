@@ -37,9 +37,14 @@ export function getOverlayFocusable(root) {
 }
 export function trapTabKey(e, root) {
     const items = getOverlayFocusable(root);
-    if (!items.length || !root.contains(document.activeElement)) return;
+    if (!items.length) return;
     const first = items[0];
     const last = items[items.length - 1];
+    if (!root.contains(document.activeElement)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+        return;
+    }
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
@@ -55,7 +60,7 @@ function buildChrome() {
     return '<div data-od-preview-chrome class="odv-topbar-chrome" style="display:flex;align-items:center;gap:10px;min-width:0;">'
         + '<span data-od-preview-status style="display:none;align-items:center;height:26px;padding:0 11px;border-radius:20px;background:#334155;border:1px solid #475569;color:#06b6d4;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;"></span>'
         + (hostMode === 'preview' ? PREVIEW_BADGE : '')
-        + '<button type="button" data-act="closePreview" aria-label="Cerrar guía" title="Cerrar guía" style="width:36px;height:36px;min-width:36px;min-height:36px;border-radius:10px;border:1px solid #475569;background:#1e293b;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
+        + '<button type="button" data-act="closePreview" aria-label="Cerrar guía" title="Cerrar guía" style="width:44px;height:44px;min-width:44px;min-height:44px;border-radius:10px;border:1px solid #475569;background:#1e293b;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
         + '</div>';
 }
 

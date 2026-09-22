@@ -15,6 +15,21 @@ const salaryHintFor = (mode, hours) => mode === 'daily'
     ? `💡 Ingresá cuánto gana por DÍA (se divide por ${hours}h para guardar la tarifa por hora)`
     : '💡 Ingresá cuánto cobra por cada HORA trabajada';
 
+// Nombres legibles para cada color del selector (nunca color-sólo significado).
+const COLOR_NAMES = {
+    '#10b981': 'Verde',
+    '#f59e0b': 'Dorado',
+    '#3b82f6': 'Azul',
+    '#06b6d4': 'Cyan',
+    '#8b5cf6': 'Púrpura',
+    '#ec4899': 'Rosa',
+    '#ef4444': 'Rojo',
+    '#f97316': 'Naranja',
+    '#14b8a6': 'Teal',
+    '#6366f1': 'Índigo'
+};
+const colorName = color => COLOR_NAMES[color] || color;
+
 export class PositionModal {
     static open(positionId = null) {
         const state = getState();
@@ -39,14 +54,32 @@ export class PositionModal {
         const overtimeFactor = state.settings.overtimeFactor || 1.5;
         const holidayFactor = state.settings.holidayFactor || 2;
         const selectedLeader = pos?.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
+        const positionProjectId = pos?.projectId || (scope.enabled ? scope.projectId : null);
+        const projectContextCopy = isEdit
+            ? 'Este puesto pertenece a esta obra. Para proteger su historial, la obra no se cambia desde este formulario.'
+            : 'El nuevo puesto se guardará en esta obra.';
         const inheritedPlaceholder = selectedLeader?.restDayFactor != null && Number(selectedLeader.restDayFactor) > 0
             ? `Hereda de Líder (${selectedLeader.name}): ${selectedLeader.restDayFactor}x`
             : `Hereda Global: ${state.settings?.restDayFactor || 1.5}x`;
 
         const contentHTML = `
             <div style="max-height: 70vh; overflow-y: auto; padding-right: 8px;">
+                ${scope.enabled ? `
+                <section class="position-project-context" aria-labelledby="position-project-context-title">
+                    <div class="position-project-context-copy">
+                        <span class="position-project-context-kicker" id="position-project-context-title">Obra</span>
+                        <strong data-position-project-name>Obra activa</strong>
+                        <small>${projectContextCopy}</small>
+                    </div>
+                    ${!isEdit ? `
+                        <button type="button" class="btn-secondary position-project-context-action" data-position-change-project>
+                            Cambiar obra
+                        </button>
+                    ` : ''}
+                </section>
+                ` : ''}
                 <div class="form-group">
-                    <label class="form-label">📝 Nombre de la Posición *</label>
+                    <label class="form-label" for="posName">📝 Nombre de la Posición *</label>
                     <input type="text" id="posName" class="form-input" value="${pos?.name || ''}" placeholder="Ej: Albañil" required>
                 </div>
                 
@@ -57,15 +90,15 @@ export class PositionModal {
                     </h3>
                     
                     <div class="form-group">
-                        <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
+                        <label class="form-label" for="posHourlyRate" style="display: flex; align-items: center; gap: 8px;">
                             💵 Monto del Pago *
                             ${HelpTooltip.render('position.hourlyRate')}
                         </label>
                         <!-- Toggle hora/día: define cómo se interpreta el monto. Siempre se guarda por hora. -->
                         <input type="hidden" id="posSalaryMode" value="${savedMode}">
-                        <div id="posSalaryModeToggle" style="display:inline-flex; gap:4px; background:#0f172a; border:1px solid #334155; border-radius:8px; padding:4px; margin-bottom:8px;">
-                            <button type="button" data-mode="hourly" class="salary-mode-btn" style="padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:0.8rem; background:${savedMode === 'hourly' ? '#06b6d4' : 'transparent'}; color:${savedMode === 'hourly' ? '#04181d' : '#94a3b8'}; font-weight:${savedMode === 'hourly' ? '700' : '500'};">Por hora</button>
-                            <button type="button" data-mode="daily" class="salary-mode-btn" style="padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:0.8rem; background:${savedMode === 'daily' ? '#06b6d4' : 'transparent'}; color:${savedMode === 'daily' ? '#04181d' : '#94a3b8'}; font-weight:${savedMode === 'daily' ? '700' : '500'};">Por día</button>
+                        <div id="posSalaryModeToggle" role="group" aria-label="Modo de carga del salario" style="display:inline-flex; gap:4px; background:#0f172a; border:1px solid #334155; border-radius:8px; padding:4px; margin-bottom:8px;">
+                            <button type="button" data-mode="hourly" class="salary-mode-btn" aria-pressed="${savedMode === 'hourly'}" style="padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:0.8rem; background:${savedMode === 'hourly' ? '#06b6d4' : 'transparent'}; color:${savedMode === 'hourly' ? '#04181d' : '#94a3b8'}; font-weight:${savedMode === 'hourly' ? '700' : '500'};">Por hora</button>
+                            <button type="button" data-mode="daily" class="salary-mode-btn" aria-pressed="${savedMode === 'daily'}" style="padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:0.8rem; background:${savedMode === 'daily' ? '#06b6d4' : 'transparent'}; color:${savedMode === 'daily' ? '#04181d' : '#94a3b8'}; font-weight:${savedMode === 'daily' ? '700' : '500'};">Por día</button>
                         </div>
                         <input type="number" inputmode="decimal"
                                id="posHourlyRate"
@@ -113,7 +146,7 @@ export class PositionModal {
                     </div>
 
                     <div class="form-group" style="margin-top: 14px; margin-bottom: 0;">
-                        <label class="form-label" style="display: flex; align-items: center; justify-content: space-between;">
+                        <label class="form-label" for="posRestDayFactor" style="display: flex; align-items: center; justify-content: space-between;">
                             <span>Factor Día No Laborable (Opcional)</span>
                             <span style="font-size: 0.7rem; color: #64748b;">Override de este puesto</span>
                         </label>
@@ -128,7 +161,7 @@ export class PositionModal {
                 </div>
                 
                 <div class="form-group">
-                    <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
+                    <label class="form-label" for="posLeader" style="display: flex; align-items: center; gap: 8px;">
                         👑 Líder/Encargado (Opcional)
                         ${HelpTooltip.render('position.leader')}
                     </label>
@@ -144,12 +177,12 @@ export class PositionModal {
                 
                 <div class="position-appearance-panel">
                     <div class="form-group">
-                        <label class="form-label">Color identificador</label>
+                        <span class="form-label" id="posColorGroupLabel">Color identificador</span>
                         <p class="position-picker-help">El color se usa como acento, no como fondo completo.</p>
-                        <div class="position-color-picker" id="posColorContainer">
+                        <div class="position-color-picker" id="posColorContainer" role="radiogroup" aria-labelledby="posColorGroupLabel">
                         ${COLOR_PALETTE.map(color => `
-                            <label class="position-color-option" title="${color}">
-                                <input type="radio" name="posColor" value="${color}" ${selectedColor === color ? 'checked' : ''}>
+                            <label class="position-color-option" title="${colorName(color)}">
+                                <input type="radio" name="posColor" value="${color}" aria-label="${colorName(color)}" ${selectedColor === color ? 'checked' : ''}>
                                 <span style="--swatch-color: ${color};"></span>
                             </label>
                         `).join('')}
@@ -181,6 +214,29 @@ export class PositionModal {
 
         // Abrir modal y anexar en el navegador
         modal.open();
+
+        // R07 UX: hacer explícito el alcance de obra del puesto. Para creación
+        // se puede cambiar el contexto usando el selector oficial de proyectos;
+        // editar un puesto nunca mueve su ownership desde este formulario.
+        if (scope.enabled && positionProjectId) {
+            Promise.resolve(window.getProjectSetupState?.()).then(projectState => {
+                const project = projectState?.projects?.find(item => String(item?.id) === String(positionProjectId));
+                const label = modal.element?.querySelector('[data-position-project-name]');
+                if (label) label.textContent = project?.name || positionProjectId;
+            }).catch(() => {});
+        }
+        const changeProjectBtn = modal.element?.querySelector('[data-position-change-project]');
+        changeProjectBtn?.addEventListener('click', () => {
+            modal.close();
+            setTimeout(() => {
+                window.openProjectListModal?.({
+                    onSwitchSuccess: () => {
+                        window.closeProjectListModal?.();
+                        setTimeout(() => PositionModal.open(), 320);
+                    }
+                });
+            }, 320);
+        });
         
         // Listeners Locales (DOM recién inyectado)
         const rateInput = modal.element.querySelector('#posHourlyRate');
@@ -213,6 +269,7 @@ export class PositionModal {
                     b.style.background = on ? '#06b6d4' : 'transparent';
                     b.style.color = on ? '#04181d' : '#94a3b8';
                     b.style.fontWeight = on ? '700' : '500';
+                    b.setAttribute('aria-pressed', String(on));
                 });
                 const hint = modal.element.querySelector('#posSalaryHint');
                 if (hint) hint.textContent = salaryHintFor(newMode, regularHours);
@@ -271,6 +328,13 @@ export class PositionModal {
 
         // Trigger inicial del preview
         updatePreviewHandler();
+
+        // Coherente con Modal.open() (devuelve `this`) y con las fábricas
+        // hermanas EmployeeModal / EmployeePositionPickerModal: exponer la
+        // instancia permite cerrar el modal programáticamente (tests y
+        // callers). No rompe el contrato: los callers existentes ignoran el
+        // retorno.
+        return modal;
     }
 
     static updatePreview(modalEl, state) {
@@ -415,6 +479,13 @@ export class PositionModal {
                 posToEdit.hourlyRate = rate;
                 posToEdit.salaryInputMode = salaryMode;
                 posToEdit.leaderId = leaderId || null;
+                // R07 H8: crossProjectLeaderId is a preserved diagnostic marker,
+                // not a second source of truth. An explicit user edit of this
+                // position resolves that preserved cross-project relationship,
+                // because the picker only offers leaders from the active project.
+                if (Object.prototype.hasOwnProperty.call(posToEdit, 'crossProjectLeaderId')) {
+                    delete posToEdit.crossProjectLeaderId;
+                }
                 posToEdit.restDayFactor = restDayFactor;
                 posToEdit.color = color;
                 posToEdit.icon = icon;

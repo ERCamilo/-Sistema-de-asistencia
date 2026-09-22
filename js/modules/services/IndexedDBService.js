@@ -6,7 +6,7 @@
 import { Notification } from '../components/Notification.js';
 import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
-import { captureEntityProjectScope } from '../features/projects/EntityProjectScope.js';
+import { captureEntityProjectScope, effectiveProjectId, DEFAULT_PROJECT_LS_KEY } from '../features/projects/EntityProjectScope.js';
 import {
     deleteEmployeePhotoCache,
     ensureEmployeePhotoStore,
@@ -25,12 +25,28 @@ import {
 export const IDB_OPEN_TIMEOUT_MS = 8000;
 export const IDB_BLOCKED_GRACE_MS = 4000;
 
+// Recovery-protection metadata lives beside app settings under a separate key.
+// It is not part of state.settings and therefore is neither UI configuration
+// nor ordinary cloud settings. FULL replacement writes it atomically with the
+// restored dataset; ordinary saves update only key:'app' and leave it intact.
+export const ATTENDANCE_RECOVERY_PROTECTION_KEY = 'attendanceRecoveryProtection';
+
+const SAVE_STATE_OWNED_STORES = new Set([
+    'employees', 'positions', 'leaders', 'attendance', 'settings'
+]);
+
+function isSaveStateOwnedStore(storeName) {
+    return SAVE_STATE_OWNED_STORES.has(storeName);
+}
+
 export class IndexedDBService {
     constructor(dbName = 'attendance-app-db', version = 22) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
         this.isInitialized = false;
+        this._epochFlightGuard = null;
+        this._fullReplacementTxInFlight = false;
     }
 
     /** 🌐 Verificar soporte de navegador */
@@ -339,7 +355,9 @@ export class IndexedDBService {
     }
 
     async update(storeName, data) {
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return undefined;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return undefined;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -596,8 +614,10 @@ export class IndexedDBService {
      * @param {Array} records - Registros a guardar
      */
     async batchUpdate(storeName, records) {
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return 0;
         if (!records || records.length === 0) return 0;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return 0;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -619,8 +639,10 @@ export class IndexedDBService {
 
     /** Deletes several keys atomically in a single IndexedDB transaction. */
     async batchDelete(storeName, keys) {
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return 0;
         if (!Array.isArray(keys) || keys.length === 0) return 0;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return 0;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -791,7 +813,9 @@ export class IndexedDBService {
     }
 
     async delete(storeName, key) {
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return false;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return false;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -802,7 +826,9 @@ export class IndexedDBService {
     }
 
     async clear(storeName) {
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return false;
         await this.init();
+        if (isSaveStateOwnedStore(storeName) && this._isDatasetEpochStale()) return false;
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -924,6 +950,158 @@ export class IndexedDBService {
         });
     }
 
+    _isDatasetEpochStale() {
+        if (this._fullReplacementTxInFlight) return true;
+        const guard = this._epochFlightGuard;
+        if (!guard || !guard.ref || typeof guard.ref.value !== 'number') return false;
+        return typeof guard.epoch === 'number' && guard.ref.value > guard.epoch;
+    }
+
+    async _replaceOwnedStateAtomically(state, entityScope, stats, options = {}) {
+        await this.init();
+        const ownStores = ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue']
+            .filter(name => this.db.objectStoreNames.contains(name));
+        const pettyCash = options.pettyCash || state?.pettyCash;
+        const pettyCashStores = ['pettyCashProjects', 'pettyCashPeriods', 'pettyCashMovements'];
+        const cashStores = pettyCash && typeof pettyCash === 'object'
+            ? pettyCashStores.filter(name => this.db.objectStoreNames.contains(name))
+            : [];
+        const projectSurface = options.projectSurface;
+        const includeProjects = Boolean(
+            projectSurface && Array.isArray(projectSurface.projects)
+                && this.db.objectStoreNames.contains('projects')
+        );
+        const projectStores = includeProjects
+            ? ['projects', 'projectPayrollConfigs'].filter(name => this.db.objectStoreNames.contains(name))
+            : [];
+        const storesToReplace = [...ownStores, ...cashStores, ...projectStores];
+
+        const empMap = new Map();
+        (state.employees || []).forEach(employee => {
+            const id = String(employee?.id ?? '').trim();
+            const key = id ? `id:${id}` : dedupKeyForRecord(employee, entityScope);
+            if (!key) return;
+            const previous = empMap.get(key);
+            if (!previous || (employee.updatedAt || 0) > (previous.updatedAt || 0)) {
+                if (previous) stats.deduplicated++;
+                empMap.set(key, employee);
+            } else {
+                stats.deduplicated++;
+            }
+        });
+        const leaderMap = new Map();
+        (state.leaders || []).forEach(leader => {
+            const key = dedupKeyForRecord(leader, entityScope);
+            if (!key) return;
+            const previous = leaderMap.get(key);
+            if (!previous || (leader.updatedAt || 0) > (previous.updatedAt || 0)) {
+                if (previous) stats.deduplicated++;
+                leaderMap.set(key, leader);
+            } else {
+                stats.deduplicated++;
+            }
+        });
+
+        const protectedKeys = new Set((Array.isArray(options.recoveryProtectedAttendanceKeys)
+            ? options.recoveryProtectedAttendanceKeys : [])
+            .map(key => String(key || '').trim()).filter(Boolean));
+        const accessedAt = Number(options.recoveryProtectionCreatedAt) || 0;
+        let attendance = Object.entries(state.attendance || {}).map(([key, value]) => {
+            const { recoveryProtected: _ignored, ...record } = value || {};
+            return {
+                key,
+                ...record,
+                ...(accessedAt ? { lastAccessed: accessedAt } : {}),
+                ...(protectedKeys.has(key) ? { recoveryProtected: true } : {})
+            };
+        });
+        const seenAttendance = new Set();
+        attendance = attendance.filter(record => {
+            const identity = `${record.employeeId}-${record.date}`;
+            if (seenAttendance.has(identity)) {
+                stats.deduplicated++;
+                return false;
+            }
+            seenAttendance.add(identity);
+            return true;
+        });
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(storesToReplace, 'readwrite');
+            let operationError = null;
+            let settled = false;
+            const fail = () => {
+                if (settled) return;
+                settled = true;
+                reject(operationError || tx.error || new Error('Atomic full-state replacement failed'));
+            };
+            tx.oncomplete = () => {
+                if (settled) return;
+                settled = true;
+                stats.employees = empMap.size;
+                stats.positions = (state.positions || []).length;
+                stats.leaders = leaderMap.size;
+                stats.attendance = attendance.length;
+                if (pettyCash) {
+                    stats.pettyCash = {
+                        projects: (pettyCash.projects || []).length,
+                        periods: (pettyCash.periods || []).length,
+                        movements: (pettyCash.movements || []).length
+                    };
+                }
+                if (includeProjects) {
+                    stats.projects = projectSurface.projects.length;
+                    stats.projectPayrollConfigs = (projectSurface.projectPayrollConfigs || []).length;
+                }
+                resolve(stats);
+            };
+            tx.onerror = fail;
+            tx.onabort = fail;
+            try {
+                storesToReplace.forEach(name => tx.objectStore(name).clear());
+                const putAll = (storeName, records) => {
+                    if (!storesToReplace.includes(storeName)) return;
+                    const store = tx.objectStore(storeName);
+                    records.forEach(record => store.put(this._serializeForIDB(record)));
+                };
+                putAll('employees', [...empMap.values()]);
+                putAll('positions', state.positions || []);
+                putAll('leaders', [...leaderMap.values()]);
+                putAll('attendance', attendance);
+                if (attendance.length === 0 && storesToReplace.includes('attendance')) {
+                    const store = tx.objectStore('attendance');
+                    store.put({ key: '__full_replace_write_probe__' });
+                    store.delete('__full_replace_write_probe__');
+                }
+                if (storesToReplace.includes('settings')) {
+                    const store = tx.objectStore('settings');
+                    if (state.settings) store.put(this._serializeForIDB({ ...state.settings, key: 'app' }));
+                    if (protectedKeys.size > 0) {
+                        store.put(this._serializeForIDB({
+                            key: ATTENDANCE_RECOVERY_PROTECTION_KEY,
+                            version: 1,
+                            source: 'full-import',
+                            createdAt: Number(options.recoveryProtectionCreatedAt) || Date.now(),
+                            recordKeys: [...protectedKeys]
+                        }));
+                    }
+                }
+                if (pettyCash) {
+                    putAll('pettyCashProjects', pettyCash.projects || []);
+                    putAll('pettyCashPeriods', pettyCash.periods || []);
+                    putAll('pettyCashMovements', pettyCash.movements || []);
+                }
+                if (includeProjects) {
+                    putAll('projects', projectSurface.projects || []);
+                    putAll('projectPayrollConfigs', projectSurface.projectPayrollConfigs || []);
+                }
+            } catch (error) {
+                operationError = error;
+                try { tx.abort(); } catch (_) { fail(); }
+            }
+        });
+    }
+
     /**
      * 🛡️ GUARDADO SEGURO CON DEDUPLICACIÓN PROACTIVA
      * Procesa el estado y lo guarda en IndexedDB resolviendo conflictos de índices únicos
@@ -934,7 +1112,8 @@ export class IndexedDBService {
      */
     async saveState(state, options = {}) {
         const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0 };
-        const entityScope = captureEntityProjectScope();
+        const entityScope = options.entityScope || captureEntityProjectScope();
+        const previousEpochFlightGuard = this._epochFlightGuard;
         try {
             // Granular = una fecha (dateKey) o un lote de fechas (dateKeys, el
             // canal unificado multi-fecha del purge). Sin reconocer dateKeys,
@@ -944,20 +1123,104 @@ export class IndexedDBService {
                 ? options.dateKeys.filter(Boolean)
                 : (options.dateKey ? [options.dateKey] : []);
             const isGranular = _granularDates.length > 0;
+            const granularSuffixes = isGranular
+                ? _granularDates.flatMap(dateKey => [`-${dateKey}`, `_${dateKey}`])
+                : [];
+            const isGranularAttendanceKey = key => granularSuffixes.some(suffix => key.endsWith(suffix));
 
             if (options.clearFirst) {
-                // 🧹 M3: limpiar SOLO los stores que este método reescribe.
-                // clearAll() borraría también la caja chica y los comprobantes,
-                // que saveState NO sabe restaurar (los maneja PettyCashStore) —
-                // un restore de backup viejo arrasaría datos que el archivo no
-                // trae. El borrado total sigue siendo clearAll() (Borrar Local).
-                const ownStores = ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue'];
-                await this.init();
-                await Promise.all(
-                    ownStores
-                        .filter(s => this.db.objectStoreNames.contains(s))
-                        .map(s => this.clear(s))
+                if (isGranular) {
+                    const ownStores = ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue'];
+                    await this.init();
+                    await Promise.all(
+                        ownStores
+                            .filter(store => this.db.objectStoreNames.contains(store))
+                            .map(store => this.clear(store))
+                    );
+                }
+            }
+
+            // 🛡️ C01-NEW-1: barrera de obsolescencia de dataset. PersistenceService
+            // estampa la época vigente en las options (__datasetEpochRef +
+            // __datasetEpoch) al lanzar un guardado. Si un reemplazo FULL
+            // durable (import) comprometió mientras este guardado volaba, el
+            // estampo quedó atrás del contador compartido: los per-store
+            // transactions de este guardado upsertarían el dataset pre-import
+            // en los stores recién importados, y el save post-commit nunca
+            // limpia (resurrección durable). Rechazar la escritura completa.
+            // Exento: los guardados clearFirst (reemplazos completos — su
+            // transacción atómica es autocontenida y nunca resucita nada).
+            const _epochRef = options && options.__datasetEpochRef;
+            if (!options.clearFirst && _epochRef && typeof _epochRef.value === 'number') {
+                if (typeof options.__datasetEpoch !== 'number') {
+                    options.__datasetEpoch = _epochRef.value;
+                }
+                if (options.__datasetEpoch < _epochRef.value) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — una mutación durable del dataset comprometió durante su vuelo; escritura rechazada para no resucitar el dataset anterior.');
+                    return stats;
+                }
+            }
+
+            // 🛡️ C02-NEW-1: publicar el contexto de época de ESTE vuelo para
+            // que las primitivas de escritura (batchUpdate/update) re-verifiquen
+            // la obsolescencia EN EL PUNTO DE ESCRITURA — el chequeo de arriba
+            // es sólo de entrada, y un guardado puede quedar suspendido dentro
+            // de una primitiva (p.ej. el caller gatea batchUpdate) justo cuando
+            // el reemplazo FULL compromete. Sólo vuelos no-clearFirst: los
+            // reemplazos FULL son atómicos y autocontenidos. Se libera en finally.
+            if (!options.clearFirst && _epochRef && typeof _epochRef.value === 'number') {
+                this._epochFlightGuard = { ref: _epochRef, epoch: options.__datasetEpoch };
+            }
+
+            // R04: ordinary writes under Projects ON must resolve to a durable project.
+            // FULL clearFirst replacements are validated with their incoming catalog and
+            // committed atomically below, so they intentionally bypass this pre-guard.
+            if (entityScope.enabled && !options.clearFirst && !isGranular) {
+                const catalog = this.db?.objectStoreNames?.contains('projects')
+                    ? await this.getAll('projects')
+                    : [];
+                const validProjectIds = new Set(
+                    (catalog || []).map(project => String(project?.id ?? '').trim()).filter(Boolean)
                 );
+                let resolvedDefault = String(entityScope?.defaultProjectId ?? '').trim();
+                if ((!resolvedDefault || !validProjectIds.has(resolvedDefault)) && validProjectIds.size === 1) {
+                    resolvedDefault = validProjectIds.values().next().value;
+                    try { localStorage.setItem(DEFAULT_PROJECT_LS_KEY, resolvedDefault); } catch (_) {}
+                }
+                const validationScope = { ...entityScope, defaultProjectId: resolvedDefault || null };
+                const projectOwnedRecords = [
+                    ...(state.employees || []),
+                    ...(state.positions || []),
+                    ...(state.leaders || []),
+                    ...Object.values(state.attendance || {})
+                ].filter(record => record && typeof record === 'object');
+                const invalidRecord = projectOwnedRecords.find(record => {
+                    const pid = String(effectiveProjectId(record, validationScope) ?? '').trim();
+                    return !pid || !validProjectIds.has(pid);
+                });
+                if (invalidRecord) {
+                    console.warn('IndexedDB: guardado bloqueado para evitar una relacion huerfana de obra.');
+                    return stats;
+                }
+            }
+
+            if (options.clearFirst && !isGranular) {
+                const inflightEpochRef = this._epochFlightGuard?.ref;
+                if (inflightEpochRef && typeof inflightEpochRef.value === 'number') {
+                    inflightEpochRef.value += 1;
+                }
+                const previousReplacementInFlight = this._fullReplacementTxInFlight;
+                this._fullReplacementTxInFlight = true;
+                try {
+                    await this._replaceOwnedStateAtomically(state, entityScope, stats, options);
+                } finally {
+                    this._fullReplacementTxInFlight = previousReplacementInFlight;
+                }
+                const extras = computeSaveStatsExtras(state);
+                stats.loans = extras.loans;
+                if (!options.pettyCash) stats.pettyCash = extras.pettyCash;
+                console.log('📊 IndexedDB Atomic Full Save Stats:', stats);
+                return stats;
             }
 
             // ⚡ P1-OPT: No clonar todo el estado (evita 500ms+ de CPU)
@@ -996,8 +1259,25 @@ export class IndexedDBService {
 
                 // GUARDADO DE METADATOS
                 stats.employees = await this.batchUpdate('employees', [...empMap.values()]);
+                // 🛡️ C02-NEW-1: re-verificar la época tras CADA await — si un
+                // mutación durable del dataset comprometió durante el vuelo, no emitir los
+                // writes restantes (silencioso, sin lanzar: un throw caería al
+                // fallback localStorage de _persistLocalState y persistiría el
+                // dataset pre-import).
+                if (this._isDatasetEpochStale()) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — mutación durable del dataset comprometió durante el vuelo; se detiene el guardado (employees).');
+                    return stats;
+                }
                 stats.positions = await this.batchUpdate('positions', state.positions || []);
+                if (this._isDatasetEpochStale()) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — mutación durable del dataset comprometió durante el vuelo; se detiene el guardado (positions).');
+                    return stats;
+                }
                 stats.leaders = await this.batchUpdate('leaders', [...leadMap.values()]);
+                if (this._isDatasetEpochStale()) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — mutación durable del dataset comprometió durante el vuelo; se detiene el guardado (leaders).');
+                    return stats;
+                }
             }
 
             // 2. GUARDADO DE ASISTENCIA (Incremental si hay dateKey)
@@ -1006,20 +1286,36 @@ export class IndexedDBService {
             if (options.clearAttendance) {
                 await this.clear('attendance');
                 console.log('🧹 Store attendance limpiada antes de reescritura completa');
+                if (this._isDatasetEpochStale()) {
+                    console.warn('🛡️ IndexedDB: guardado local obsoleto — mutación durable del dataset comprometió durante el vuelo; se detiene el guardado (clearAttendance).');
+                    return stats;
+                }
             }
 
+            const recoveryProtectedAttendanceKeys = await this.getAttendanceRecoveryProtectedKeys();
+            if (this._isDatasetEpochStale()) {
+                console.warn('🛡️ IndexedDB: guardado local obsoleto — mutación durable del dataset comprometió mientras se leía la protección de recuperación.');
+                return stats;
+            }
+
+            const durableAttendanceRecord = (key, value) => {
+                const wasRecoveryProtected = value?.recoveryProtected === true;
+                const { recoveryProtected: _staleRecoveryFlag, ...record } = value || {};
+                const mustRemainProtected = recoveryProtectedAttendanceKeys.has(key) || wasRecoveryProtected;
+                return {
+                    key,
+                    ...record,
+                    ...(mustRemainProtected ? { recoveryProtected: true } : {})
+                };
+            };
             let attToSave = [];
             if (isGranular) {
-                // ⚡ FIX: Soportar sufijos con guion (-) o guion bajo (_) para mayor
-                // robustez, para CADA fecha del lote granular.
-                const suffixes = _granularDates.flatMap(dk => [`-${dk}`, `_${dk}`]);
                 attToSave = Object.entries(state.attendance || {})
-                    .filter(([key]) => suffixes.some(s => key.endsWith(s)))
-                    .map(([key, value]) => ({ key, ...value }));
+                    .filter(([key]) => isGranularAttendanceKey(key))
+                    .map(([key, value]) => durableAttendanceRecord(key, value));
             } else {
                 attToSave = Object.entries(state.attendance || {}).map(([key, value]) => ({
-                    key,
-                    ...value
+                    ...durableAttendanceRecord(key, value)
                 }));
             }
 
@@ -1039,6 +1335,13 @@ export class IndexedDBService {
 
             stats.attendance = await this.batchUpdate('attendance', attToSave);
 
+            // 🛡️ C02-NEW-1: misma re-verificación de época antes de pisar
+            // settings — es el upsert final del vuelo y el más persistente
+            // (el save post-commit nunca limpia la fila key:'app').
+            if (this._isDatasetEpochStale()) {
+                console.warn('🛡️ IndexedDB: guardado local obsoleto — mutación durable del dataset comprometió durante el vuelo; se detiene el guardado (attendance/settings).');
+                return stats;
+            }
             if (state.settings) {
                 // L3: key:'app' va DESPUÉS del spread para que un eventual
                 // state.settings.key no pise el keyPath del store.
@@ -1053,6 +1356,18 @@ export class IndexedDBService {
         } catch (error) {
             console.error('❌ Error en saveState (IndexedDB):', error);
             throw error;
+        } finally {
+            this._epochFlightGuard = previousEpochFlightGuard;
+        }
+    }
+
+    async getAttendanceRecoveryProtectedKeys() {
+        try {
+            const record = await this.get('settings', ATTENDANCE_RECOVERY_PROTECTION_KEY);
+            return new Set((Array.isArray(record?.recordKeys) ? record.recordKeys : [])
+                .map(key => String(key || '').trim()).filter(Boolean));
+        } catch (_) {
+            return new Set();
         }
     }
 

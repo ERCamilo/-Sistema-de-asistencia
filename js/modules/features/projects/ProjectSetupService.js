@@ -131,6 +131,58 @@ export class ProjectSetupService {
         return { ...(await this.getState()), activeProject: updated };
     }
 
+    /**
+     * R07 A2a: renombrado para onboarding de PRIMERA obra. Reconfigura el
+     * proyecto default/activo YA EXISTENTE en lugar de crear un segundo
+     * proyecto. Explícito por diseño (first-project mode): no se auto-detecta
+     * por conteo ni por nombre; el caller decide usarlo.
+     *
+     * Devuelve `previousProject` (snapshot durable) para que el caller pueda
+     * compensar el renombrado si un paso posterior (clonado/persistencia de
+     * estructura opcional) falla — todo-o-nada, sin obra a medio renombrar.
+     */
+    async renameDefaultProjectForOnboarding({ name } = {}) {
+        if (this.flags.isEnabled() !== true) {
+            throw new Error('Activa Proyectos antes de configurar la primera obra.');
+        }
+        const normalizedName = normalizeProjectSetupName(name);
+        const state = await this.getState();
+        if (!state.ready || !state.activeProject) {
+            throw new Error('No hay un proyecto activo válido para configurar como primera obra.');
+        }
+
+        // Unicidad excluyendo al propio proyecto (renombrar sobre su nombre
+        // actual u otra capitalización es válido; chocar con OTRA obra no).
+        const targetId = String(state.activeProject.id);
+        const duplicate = (state.projects || []).find(
+            p => p && String(p.id) !== targetId
+            && String(p?.name ?? '').trim().replace(/\s+/g, ' ').toLowerCase() === normalizedName.toLowerCase()
+        );
+        if (duplicate) {
+            throw new Error(`Ya existe un proyecto con el nombre "${duplicate.name}".`);
+        }
+
+        const previousProject = { ...state.activeProject };
+        const model = Project.create({ ...state.activeProject, name: normalizedName });
+        const updated = await this.store.update(model);
+        return {
+            project: updated,
+            previousProject,
+            state: await this.getState()
+        };
+    }
+
+    /**
+     * Compensación del renombrado de primera obra: restaura el snapshot
+     * durable previo del proyecto default. Sólo para rollback del onboarding.
+     */
+    async restoreDefaultProjectSnapshot(previousProject) {
+        if (!previousProject || !previousProject.id) return false;
+        const model = Project.create(previousProject);
+        const restored = await this.store.update(model);
+        return restored || null;
+    }
+
     async createEmptyProject({ name, metadata } = {}) {
         if (this.flags.isEnabled() !== true) {
             throw new Error('Activa Proyectos antes de crear un nuevo proyecto.');

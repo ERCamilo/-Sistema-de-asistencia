@@ -41,7 +41,10 @@ const mockService = {
     acquireLease: jest.fn().mockResolvedValue(true),
     renewLease: jest.fn().mockResolvedValue(true),
     releaseLease: jest.fn().mockResolvedValue(true),
-    batchDelete: jest.fn().mockResolvedValue(0)
+    batchDelete: jest.fn().mockResolvedValue(0),
+    // R07 A2b: init (no-op in mock — tests use real IDB) and atomicUpdate
+    init: jest.fn().mockResolvedValue(undefined),
+    atomicUpdate: jest.fn().mockResolvedValue(true)
 };
 
 export const IndexedDBService = mockService;

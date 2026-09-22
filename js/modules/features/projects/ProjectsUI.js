@@ -10,9 +10,12 @@ import {
     openProjectCreateModal,
     closeProjectCreateModal
 } from './ProjectCreateUI.js';
+import { mountProjectOnboarding } from './ProjectOnboarding.js';
+import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 
 const MODAL_ID = 'project-setup-modal';
+let detachSetupDialogA11y = null;
 const ICONS = Object.freeze({
     project: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V7l8-4 8 4v13"/><path d="M8 20v-5h8v5M8 9h.01M12 9h.01M16 9h.01"/></svg>',
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
@@ -50,6 +53,8 @@ function shell() {
     el.querySelector('[data-project-setup-close]').addEventListener('click', closeProjectSetupModal);
     el.addEventListener('click', event => { if (event.target === el) closeProjectSetupModal(); });
     document.body.appendChild(el);
+    detachSetupDialogA11y?.({ restoreFocus: false });
+    detachSetupDialogA11y = attachProjectDialogA11y(el, { onEscape: closeProjectSetupModal });
 }
 
 function primary(label, attrs = '') {
@@ -155,7 +160,11 @@ async function renderState() {
         isCreateOpen = true;
         if (!createSlot) return;
         createSlot.style.display = 'block';
-        mountProjectCreateForm(createSlot, {
+        // R07 UX: todas las entradas visibles de “Nuevo proyecto” deben
+        // pasar por el mismo onboarding. El formulario plano se conserva sólo
+        // como API de compatibilidad, pero no puede crear una obra y dejar al
+        // usuario operando silenciosamente en la obra anterior.
+        mountProjectOnboarding(createSlot, {
             setupService: projectSetupService,
             onSuccess: async (createdProject, nextState) => {
                 closeCreate();
@@ -166,6 +175,9 @@ async function renderState() {
                     defaultProjectId: freshState.defaultProjectId
                 });
                 emitChanged({ projectId: freshState.activeProjectId, createdProject: createdProject.id });
+                notify(`Proyecto activo: ${freshState.activeProject?.name || freshState.activeProjectId}`, 'success');
+                window.render?.();
+                await renderState();
             },
             onCancel: closeCreate
         });
@@ -204,7 +216,11 @@ async function renameProject() {
     }
 }
 
-export function closeProjectSetupModal() { modal()?.remove(); }
+export function closeProjectSetupModal() {
+    detachSetupDialogA11y?.();
+    detachSetupDialogA11y = null;
+    modal()?.remove();
+}
 export async function openProjectSetupModal() {
     try { shell(); await renderState(); }
     catch (error) { notify(String(error.message || error), 'error'); }

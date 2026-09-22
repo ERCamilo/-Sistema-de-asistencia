@@ -43,7 +43,12 @@ export {
     closeImportFullModal,
     setImportFullText,
     confirmImportFull,
-    registerLegacyGlobals
+    registerLegacyGlobals,
+    getLastFullImportReconciliation,
+    getPendingFullImport,
+    requestFullImportProjectChoice,
+    cancelFullImportProjectChoice,
+    FULL_IMPORT_RECONCILIATION_EVENT
 } from './ExportController.js';
 
 export { ExportMenu } from './ExportMenu.js';

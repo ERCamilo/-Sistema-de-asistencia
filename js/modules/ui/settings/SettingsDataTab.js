@@ -4,6 +4,7 @@
  */
 import { DateUtils } from '../../utils/DateUtils.js';
 import { getReasonInfo } from '../../services/SnapshotReasons.js';
+import { renderProjectReconciliationSettingsAction } from '../../features/projects/ProjectReconciliationUI.js';
 
 export function SettingsDataTab(context) {
     const state = context.state;
@@ -105,6 +106,7 @@ export function SettingsDataTab(context) {
                                 <small>Esto asegura que la nómina y las asistencias sean precisas.</small>
                             </span>
                         </button>
+                        ${renderProjectReconciliationSettingsAction()}
                     </div>
 
                     <!-- Gestión de Datos -->

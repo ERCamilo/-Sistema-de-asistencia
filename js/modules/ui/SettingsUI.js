@@ -47,6 +47,7 @@ const _SETTINGS_ACTION_MAP = {
     'sync-history-now': () => window.syncHistoryNow?.(),
     'create-firebase-snapshot': () => window.createFirebaseSnapshot?.(),
     'start-maintenance-wizard': () => window.startMaintenanceWizard?.(),
+    'open-project-reconciliation': () => window.openProjectReconciliation?.(),
     'export-data': () => window.exportData?.(),
     'open-project-setup': () => guardSettingsDraftOnLeave({
         onProceed: () => window.openProjectSetupModal?.()

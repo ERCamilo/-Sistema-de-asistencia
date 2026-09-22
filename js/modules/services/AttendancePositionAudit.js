@@ -101,6 +101,47 @@ export function collectPositionDays(attendance, { employeeId, positionId } = {})
 }
 
 /**
+ * Remapea UNA asistencia desde un puesto hacia otro. Es la primitiva canónica
+ * compartida por EmployeeModal y R07 Project Reconciliation.
+ *
+ * No muta el registro recibido. Si la asistencia no referencia `fromId`, la
+ * devuelve sin cambios. Cuando sí cambia, conserva todas las horas y fusiona
+ * positionHours si el destino ya existía; después estampa updatedAt por el
+ * choke point normal de asistencia.
+ */
+export function remapPositionInAttendanceRecord(record, { fromId, toId, now = Date.now() } = {}) {
+    if (!record || typeof record !== 'object' || !fromId || !toId || String(fromId) === String(toId)) {
+        return { changed: false, record };
+    }
+    if (!matchesPosition(record, fromId)) return { changed: false, record };
+
+    const copy = { ...record };
+    if (String(copy.selectedPosition ?? '') === String(fromId)) {
+        copy.selectedPosition = toId;
+    }
+
+    if (Array.isArray(copy.positionHours)) {
+        const fromEntry = positionEntryOf(copy, fromId);
+        if (fromEntry) {
+            const rest = copy.positionHours.filter(ph => ph !== fromEntry);
+            const toEntry = rest.find(ph => ph && String(ph.positionId) === String(toId));
+            if (toEntry) {
+                rest[rest.indexOf(toEntry)] = {
+                    ...toEntry,
+                    hours: (Number(toEntry.hours) || 0) + (Number(fromEntry.hours) || 0),
+                    overtimeHours: (Number(toEntry.overtimeHours) || 0) + (Number(fromEntry.overtimeHours) || 0)
+                };
+                copy.positionHours = rest;
+            } else {
+                copy.positionHours = [...rest, { ...fromEntry, positionId: toId }];
+            }
+        }
+    }
+
+    return { changed: true, record: stampAttendanceWrite(copy, now) };
+}
+
+/**
  * Reasigna (in-place sobre el mapa) los días trabajados del empleado en
  * `fromId` hacia `toId`. En días multi-posición, si ya existe una entrada de
  * `toId`, se FUSIONAN las horas (no se duplica la posición en el día).
@@ -122,32 +163,10 @@ export function reassignPositionDays(attendance, { employeeId, fromId, toId, now
 
     for (const key of affected.keys) {
         const rec = attendance[key];
-        const copy = { ...rec };
+        const remapped = remapPositionInAttendanceRecord(rec, { fromId, toId, now });
+        if (!remapped.changed) continue;
 
-        if (String(copy.selectedPosition ?? '') === String(fromId)) {
-            copy.selectedPosition = toId;
-        }
-
-        if (Array.isArray(copy.positionHours)) {
-            const fromEntry = positionEntryOf(copy, fromId);
-            if (fromEntry) {
-                const rest = copy.positionHours.filter(ph => ph !== fromEntry);
-                const toEntry = rest.find(ph => ph && String(ph.positionId) === String(toId));
-                if (toEntry) {
-                    // Fusión: el día no puede tener dos entradas de la misma posición.
-                    rest[rest.indexOf(toEntry)] = {
-                        ...toEntry,
-                        hours: (Number(toEntry.hours) || 0) + (Number(fromEntry.hours) || 0),
-                        overtimeHours: (Number(toEntry.overtimeHours) || 0) + (Number(fromEntry.overtimeHours) || 0)
-                    };
-                    copy.positionHours = rest;
-                } else {
-                    copy.positionHours = [...rest, { ...fromEntry, positionId: toId }];
-                }
-            }
-        }
-
-        attendance[key] = stampAttendanceWrite(copy, now);
+        attendance[key] = remapped.record;
         result.changedKeys.push(key);
         const date = dateOf(rec, key);
         if (date) dates.add(date);
@@ -157,4 +176,4 @@ export function reassignPositionDays(attendance, { employeeId, fromId, toId, now
     return result;
 }
 
-export default { collectPositionDays, reassignPositionDays };
+export default { collectPositionDays, remapPositionInAttendanceRecord, reassignPositionDays };

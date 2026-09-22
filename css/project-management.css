@@ -201,3 +201,1146 @@
     .project-item-dates { width: 100%; text-align: left; }
     .project-actions .project-action { flex: 1 1 150px; }
 }
+
+/* ============================================================
+   R07 Phase B — Pendientes de asignación (reconciliation UX)
+   Solid fills, >=44px targets, touch-first, reduced-motion.
+   ============================================================ */
+
+/* Persistent shell banner (non-overlay, above tab content) */
+.r07-recon-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 0 0 14px;
+    padding: 12px 16px;
+    background: var(--panel-2);
+    border: 1px solid var(--warn);
+    border-left: 4px solid var(--warn);
+    border-radius: 12px;
+    color: var(--text);
+}
+.r07-recon-banner-mark {
+    width: 10px; height: 10px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--warn);
+}
+.r07-recon-banner-copy {
+    display: flex; flex-direction: column; gap: 2px;
+    flex: 1 1 220px;
+    font-size: 0.85rem; color: var(--text-dim);
+}
+.r07-recon-banner-copy strong { color: var(--text); font-size: 0.9rem; }
+.r07-recon-banner-action {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 10px;
+    background: var(--warn);
+    color: #201500;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.r07-recon-banner-action:hover { filter: brightness(1.08); }
+
+/* Modal shell (rendered inside the shared Modal.js body) */
+.r07-recon-shell { display: flex; flex-direction: column; gap: 14px; color: var(--text); }
+
+.r07-recon-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: 10px;
+}
+.r07-recon-summary > div {
+    display: flex; flex-direction: column; align-items: flex-start;
+    padding: 12px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+.r07-recon-summary strong { font-size: 1.4rem; font-weight: 700; line-height: 1; }
+.r07-recon-summary span { font-size: 0.72rem; color: var(--text-dim); }
+
+.r07-recon-section { display: flex; flex-direction: column; gap: 10px; }
+.r07-recon-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.r07-recon-section-head h3 { margin: 0; font-size: 0.95rem; }
+.r07-recon-section-head p { margin: 0; font-size: 0.78rem; color: var(--text-dim); }
+.r07-recon-hint { margin: 0; font-size: 0.78rem; color: var(--text-dim); }
+
+.r07-recon-link-button {
+    min-height: 44px;
+    padding: 0 12px;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+.r07-recon-link-button:hover { text-decoration: underline; }
+
+/* Person rows: distinct solid surfaces */
+.r07-recon-people { display: flex; flex-direction: column; gap: 8px; }
+.r07-recon-person {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    min-height: 44px;
+}
+.r07-recon-person.is-selected { border-color: var(--accent); background: var(--hover); }
+.r07-recon-person input[type="checkbox"] { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--accent); }
+.r07-recon-person-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 auto; }
+.r07-recon-person-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.r07-recon-person-title strong { font-size: 0.9rem; color: var(--text); }
+.r07-recon-person-title > span { font-size: 0.85rem; color: var(--text-dim); }
+.r07-recon-person-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.72rem; color: var(--text-dim); }
+
+/* Solid status pills (never outline-only) */
+.r07-recon-status {
+    display: inline-flex; align-items: center;
+    min-height: 22px; padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.7rem; font-weight: 700;
+    background: var(--warn); color: #201500;
+}
+.r07-recon-status.is-pending { background: var(--accent); color: var(--on-accent); }
+.r07-recon-status.is-orphan { background: var(--bad); color: #201500; }
+
+.r07-recon-project-ref { color: var(--text-dim); }
+
+/* Choices: solid selected cards */
+.r07-recon-fieldset { border: none; padding: 0; margin: 0; }
+.r07-recon-fieldset legend { font-size: 0.9rem; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+.r07-recon-choices { display: flex; flex-direction: column; gap: 8px; }
+.r07-recon-choice {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    min-height: 44px;
+}
+.r07-recon-choice.is-selected { border-color: var(--accent); background: var(--hover); }
+.r07-recon-choice input[type="radio"] { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--accent); }
+.r07-recon-choice > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.r07-recon-choice strong { font-size: 0.85rem; color: var(--text); }
+.r07-recon-choice small { font-size: 0.72rem; color: var(--text-dim); overflow-wrap: anywhere; }
+
+.r07-recon-control { display: flex; flex-direction: column; gap: 6px; }
+.r07-recon-control label { font-size: 0.75rem; font-weight: 600; color: var(--text-dim); }
+.r07-recon-control select,
+.r07-recon-control input[type="text"] {
+    min-height: 44px;
+    padding: 10px 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 0.9rem;
+    width: 100%;
+}
+.r07-recon-control small { font-size: 0.7rem; color: var(--text-dim); }
+.r07-recon-inline-error {
+    display: block;
+    color: #fca5a5 !important;
+    font-weight: 600;
+    line-height: 1.4;
+}
+.r07-recon-inline-error[hidden] { display: none; }
+.r07-recon-control [aria-invalid="true"] {
+    border-color: var(--bad);
+}
+
+/* Blockers (role=alert): solid warning/error surface + text, never color-only */
+.r07-recon-blocker {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--bad);
+    background: color-mix(in srgb, var(--bad) 14%, var(--panel));
+    color: var(--text);
+    font-size: 0.8rem;
+}
+.r07-recon-blocker strong { color: #fca5a5; }
+.r07-recon-blocker ul { margin: 0; padding-left: 18px; }
+.r07-recon-blocker li { margin: 2px 0; }
+
+/* Cross-project integrity note with an explicit path to the existing position editor. */
+.r07-recon-note {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+    font-size: 0.8rem;
+}
+.r07-recon-note strong { color: var(--text); }
+.r07-recon-note span { color: var(--text-dim); }
+.r07-recon-note-list {
+    margin: 2px 0 0;
+    padding-left: 18px;
+    color: var(--text-dim);
+    font-size: 0.76rem;
+}
+.r07-recon-note-list li { margin: 2px 0; }
+.r07-recon-note-action {
+    align-self: flex-start;
+    min-height: 44px;
+    padding: 0 14px;
+    margin-top: 4px;
+    border-radius: 10px;
+}
+.r07-recon-personnel-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+}
+.r07-recon-personnel-link > span {
+    display: flex;
+    flex: 1 1 260px;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.r07-recon-personnel-link strong { color: var(--text); font-size: .82rem; }
+.r07-recon-personnel-link small { color: var(--text-dim); font-size: .72rem; line-height: 1.45; }
+.r07-position-cross-project-warning {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+.r07-position-cross-project-warning strong { color: var(--text); }
+
+.r07-recon-empty { padding: 14px; color: var(--text-dim); font-size: 0.82rem; }
+.r07-recon-message { padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); font-size: 0.8rem; color: var(--text); }
+
+/* Footer: contextual actions only */
+.r07-recon-footer {
+    display: flex; justify-content: flex-end; gap: 10px;
+    padding-top: 12px; border-top: 1px solid var(--border);
+}
+.r07-recon-footer-btn {
+    min-height: 44px;
+    padding: 0 18px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    border: none;
+}
+.r07-recon-footer-btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+
+/* Settings "Salud de los datos" entry */
+.r07-recon-settings-action {
+    width: 100%;
+    margin-top: 10px;
+    min-height: 44px;
+    justify-content: flex-start;
+    text-align: left;
+}
+.r07-recon-settings-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 26px; height: 26px; padding: 0 8px;
+    border-radius: 999px;
+    background: var(--warn); color: #201500;
+    font-weight: 700; font-size: 0.78rem;
+}
+.r07-recon-health-ok {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 10px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+}
+.r07-recon-health-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good); flex: 0 0 auto; }
+.r07-recon-health-ok > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.r07-recon-health-ok strong { font-size: 0.85rem; color: var(--text); }
+.r07-recon-health-ok small { font-size: 0.72rem; color: var(--text-dim); }
+
+.r07-recon-shell :focus-visible,
+.r07-recon-banner :focus-visible,
+.r07-recon-settings-action:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+/* ImportFullModal dialog focus visibility */
+.import-full-dialog :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Mobile-first: single column, stacked footer, no horizontal overflow */
+@media (max-width: 640px) {
+    .r07-recon-banner { align-items: stretch; }
+    .r07-recon-banner-copy { flex-basis: 100%; }
+    .r07-recon-banner-action { width: 100%; }
+    .r07-recon-footer { flex-direction: column-reverse; }
+    .r07-recon-footer-btn { width: 100%; }
+    .r07-recon-section-head { flex-direction: column; align-items: stretch; }
+    .r07-recon-link-button { width: 100%; }
+    .r07-recon-summary { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .r07-recon-banner,
+    .r07-recon-person,
+    .r07-recon-choice,
+    .r07-recon-summary > div,
+    .r07-recon-status,
+    .r07-recon-settings-count {
+        transition: none !important;
+        animation: none !important;
+    }
+    .modal-overlay,
+    .modal-container,
+    .modal-container.modal-enter,
+    .modal-container.modal-visible,
+    .modal-container.modal-exit,
+    .modal-drawer,
+    .drawer-enter,
+    .drawer-visible,
+    .drawer-exit {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
+/* Cross-project integrity note inside the Settings health panel */
+.r07-recon-note-settings { margin-top: 10px; }
+
+/* The reconciliation modal reuses the shared Modal close button; ensure its
+   hit target meets the 44px policy without changing other modals globally. */
+.modal-container:has(.r07-recon-shell) .modal-close {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
+    font-size: 1.5rem;
+}
+
+
+/* ============================================================
+   R07 Phase B — design.md strict alignment
+   ============================================================ */
+.r07-recon-kicker {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0 11px;
+    border-radius: 20px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+.r07-recon-banner-count,
+.r07-recon-settings-count {
+    font-variant-numeric: tabular-nums;
+}
+.r07-recon-banner-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 26px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: var(--warn);
+    border: 1px solid var(--warn);
+    color: #201500;
+    font-size: .78rem;
+    font-weight: 700;
+    flex: 0 0 auto;
+}
+
+.r07-recon-person,
+.r07-recon-choice {
+    position: relative;
+}
+.r07-recon-person.is-selected,
+.r07-recon-choice.is-selected {
+    background: var(--panel-2);
+    border-color: var(--accent);
+}
+
+.r07-recon-person .r07-recon-native-control,
+.r07-recon-choice .r07-recon-native-control {
+    position: absolute;
+    width: 1px !important;
+    height: 1px !important;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+.r07-recon-person:has(.r07-recon-native-control:focus-visible),
+.r07-recon-choice:has(.r07-recon-native-control:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 14px;
+}
+
+.r07-recon-check {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: transparent;
+}
+.r07-recon-check svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.r07-recon-person.is-selected .r07-recon-check {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+}
+
+.r07-recon-choice {
+    padding: 16px 18px;
+    border-radius: 14px;
+}
+.r07-recon-choice-icon {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+}
+.r07-recon-choice-icon svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.r07-recon-choice.is-selected .r07-recon-choice-icon {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+}
+.r07-recon-choice > .r07-recon-choice-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+/* Canonical modal shell from design.md §5.1. */
+.modal-container:has(.r07-recon-shell) {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+.modal-container.modal-medium:has(.r07-recon-shell) {
+    max-width: 620px;
+}
+.modal-container.modal-large:has(.r07-recon-shell) {
+    max-width: 900px;
+}
+.modal-container:has(.r07-recon-shell) .modal-header {
+    padding: 18px 26px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+}
+.modal-container:has(.r07-recon-shell) .modal-title {
+    margin: 0;
+    background: none;
+    color: var(--text);
+    -webkit-text-fill-color: currentColor;
+    font-size: clamp(1.35rem, 2.4vw, 1.65rem);
+    line-height: 1.2;
+    letter-spacing: -.015em;
+}
+.modal-container:has(.r07-recon-shell) .modal-subtitle {
+    color: var(--text-dim) !important;
+    line-height: 1.45;
+}
+.modal-container:has(.r07-recon-shell) .modal-body {
+    padding: 20px 26px;
+}
+.modal-container:has(.r07-recon-shell) .modal-close:hover {
+    transform: none;
+}
+
+/* Canonical footer: secondary / contextual hint / primary. */
+.r07-recon-footer {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    margin: 2px -26px -20px;
+    padding: 16px 26px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    position: sticky;
+    bottom: -20px;
+    z-index: 2;
+}
+.r07-recon-footer-hint {
+    min-height: 18px;
+    color: var(--text-dim);
+    font-size: .74rem;
+    line-height: 1.35;
+    text-align: center;
+}
+.r07-recon-footer-btn {
+    box-sizing: border-box;
+    height: 44px;
+    min-height: 44px;
+}
+.r07-recon-footer-primary {
+    min-width: 142px;
+    background: var(--accent);
+    color: var(--on-accent);
+}
+.r07-recon-footer-secondary {
+    min-width: 92px;
+}
+
+/* Keep click area >=44px while the visual control remains compact. */
+.r07-recon-person,
+.r07-recon-choice,
+.r07-recon-link-button,
+.r07-recon-banner-action,
+.r07-recon-settings-action {
+    min-height: 44px;
+}
+
+@media (max-width: 640px) {
+    .modal-overlay:not(.import-full-overlay):has(.r07-recon-shell) {
+        align-items: flex-end;
+        padding: 8px 8px 0;
+    }
+    .modal-container:has(.r07-recon-shell),
+    .modal-container.modal-small:has(.r07-recon-shell),
+    .modal-container.modal-medium:has(.r07-recon-shell),
+    .modal-container.modal-large:has(.r07-recon-shell) {
+        max-width: 100%;
+        max-height: 94dvh;
+        border-radius: 22px 22px 0 0;
+        margin: 0;
+    }
+    .modal-container:has(.r07-recon-shell) .modal-header {
+        padding: 16px 14px;
+    }
+    .modal-container:has(.r07-recon-shell) .modal-body {
+        padding: 14px 14px 0;
+        max-height: calc(94dvh - 92px);
+    }
+    .r07-recon-choice {
+        padding: 14px;
+    }
+    .r07-recon-footer {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "primary"
+            "hint"
+            "secondary";
+        margin: 2px 0 0;
+        padding: 14px 0 0;
+        bottom: 0;
+    }
+    .r07-recon-footer-primary { grid-area: primary; width: 100%; }
+    .r07-recon-footer-hint { grid-area: hint; }
+    .r07-recon-footer-secondary { grid-area: secondary; width: 100%; }
+}
+
+/* ============================================================
+   R07 Phase B — FULL import morphing shell
+   ============================================================ */
+.import-full-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(11, 19, 32, .82);
+    backdrop-filter: blur(8px);
+}
+.import-full-dialog {
+    width: min(720px, 100%);
+    max-height: min(88dvh, 820px);
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    box-shadow: var(--shadow);
+    color: var(--text);
+}
+.import-full-topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+}
+.import-full-heading {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.import-full-kicker {
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+}
+.import-full-heading h2 {
+    margin: 0;
+    color: var(--text);
+    font-size: clamp(1.3rem, 2.5vw, 1.65rem);
+    line-height: 1.2;
+}
+.import-full-heading p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: .82rem;
+    line-height: 1.45;
+}
+.import-full-close {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 44px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+}
+.import-full-close:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+.import-full-stage-body {
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.import-full-label {
+    color: var(--text-dim);
+    font-size: .78rem;
+    font-weight: 650;
+}
+#import-full-textarea {
+    width: 100%;
+    min-height: 250px;
+    resize: vertical;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-2);
+    color: var(--text);
+    font: 500 .82rem/1.5 "IBM Plex Mono", monospace;
+}
+#import-full-textarea::placeholder {
+    color: var(--text-dim);
+}
+.import-full-confirm-summary {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-2);
+}
+.import-full-confirm-summary strong {
+    font-size: 1.65rem;
+    line-height: 1;
+}
+.import-full-confirm-summary span {
+    color: var(--text-dim);
+    font-size: .82rem;
+}
+.import-full-inline-warning {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 14px 16px;
+    border: 1px solid var(--warn);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--warn) 12%, var(--panel));
+}
+.import-full-inline-warning strong {
+    color: var(--text);
+    font-size: .86rem;
+}
+.import-full-inline-warning span {
+    color: var(--text-dim);
+    font-size: .78rem;
+    line-height: 1.45;
+}
+.import-full-footer {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 22px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+}
+.import-full-footer-btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 18px;
+    border-radius: 10px;
+    font-weight: 700;
+}
+.import-full-footer-hint {
+    color: var(--text-dim);
+    font-size: .74rem;
+    line-height: 1.4;
+    text-align: center;
+}
+.import-full-embedded-body {
+    padding: 0;
+}
+.import-full-embedded-body > .r07-recon-shell {
+    padding: 20px 22px 0;
+}
+.import-full-embedded-body .r07-recon-footer {
+    margin-left: -22px;
+    margin-right: -22px;
+    padding-left: 22px;
+    padding-right: 22px;
+}
+.import-full-dialog :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+@media (max-width: 640px) {
+    .import-full-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+    .import-full-dialog {
+        width: 100%;
+        max-height: 94dvh;
+        border-radius: 20px 20px 0 0;
+    }
+    .import-full-topbar,
+    .import-full-stage-body {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    .import-full-footer {
+        grid-template-columns: 1fr;
+        padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    }
+    .import-full-footer-btn {
+        width: 100%;
+    }
+    .import-full-footer-hint {
+        order: -1;
+        text-align: left;
+    }
+    .import-full-embedded-body > .r07-recon-shell {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    .import-full-embedded-body .r07-recon-footer {
+        margin-left: -16px;
+        margin-right: -16px;
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    #import-full-textarea {
+        min-height: 220px;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .import-full-dialog,
+    .import-full-dialog *,
+    .modal-container:has(.r07-recon-shell),
+    .modal-container:has(.r07-recon-shell) *,
+    .modal-container:has(.r07-recon-shell) .modal-close,
+    .modal-container:has(.r07-recon-shell) .modal-close:hover {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
+/* R07 a11y hard gate: later-loaded legacy sheets still define 40px controls.
+   Keep the override local to the reconciliation shell instead of changing
+   global button geometry. */
+.modal-container:has(.r07-recon-shell) .modal-close {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    min-height: 44px !important;
+}
+.modal-container:has(.r07-recon-shell) .r07-recon-link-button,
+.modal-container:has(.r07-recon-shell) .r07-recon-footer-btn {
+    height: 44px !important;
+    min-height: 44px !important;
+}
+
+/* R07 modal motion must not shrink interactive hit areas below 44px while
+   entering/exiting. Use translation + opacity, never scale. */
+.modal-container:has(.r07-recon-shell).modal-enter {
+    opacity: 0;
+    transform: translateY(12px) !important;
+}
+.modal-container:has(.r07-recon-shell).modal-visible {
+    opacity: 1;
+    transform: translateY(0) !important;
+    transition: opacity 220ms ease, transform 220ms cubic-bezier(.2,.8,.2,1) !important;
+}
+.modal-container:has(.r07-recon-shell).modal-exit {
+    opacity: 0;
+    transform: translateY(8px) !important;
+    transition: opacity 160ms ease, transform 160ms ease !important;
+}
+
+/* Position creation/edit context: make project ownership explicit. */
+.position-project-context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-2);
+}
+.position-project-context-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.position-project-context-kicker {
+    color: var(--accent);
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+.position-project-context-copy strong {
+    color: var(--text);
+    font-size: .92rem;
+    overflow-wrap: anywhere;
+}
+.position-project-context-copy small {
+    color: var(--text-dim);
+    font-size: .74rem;
+    line-height: 1.45;
+}
+.position-project-context-action {
+    min-width: 112px;
+    min-height: 44px;
+    flex: 0 0 auto;
+}
+@media (max-width: 640px) {
+    .position-project-context {
+        align-items: stretch;
+        flex-direction: column;
+    }
+    .position-project-context-action {
+        width: 100%;
+    }
+}
+
+/* R07 — resolve incompatible employee positions inside reconciliation. */
+.r07-position-remap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+.r07-position-remap-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+.r07-position-remap-head > div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.r07-position-remap-head strong {
+    color: var(--text);
+    font-size: .86rem;
+}
+.r07-position-remap-head span {
+    color: var(--text-dim);
+    font-size: .74rem;
+    line-height: 1.45;
+}
+.r07-position-remap-project {
+    flex: 0 0 auto;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--on-accent) !important;
+    font-size: .7rem !important;
+    font-weight: 700;
+}
+.r07-position-remap-card {
+    display: grid;
+    grid-template-columns: minmax(150px, .8fr) minmax(190px, 1fr);
+    gap: 10px 14px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-2);
+}
+.r07-position-remap-person {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.r07-position-remap-person strong {
+    color: var(--text);
+    font-size: .84rem;
+}
+.r07-position-remap-person span {
+    color: var(--text-dim);
+    font-size: .73rem;
+}
+.r07-position-remap-impact {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    grid-column: 1 / -1;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+}
+.r07-position-remap-impact strong {
+    color: var(--text);
+    font-size: .76rem;
+}
+.r07-position-remap-impact span,
+.r07-position-remap-impact small {
+    color: var(--text-dim);
+    font-size: .72rem;
+    line-height: 1.45;
+}
+.r07-position-remap-consent {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    cursor: pointer;
+    color: var(--text);
+    font-size: .76rem;
+    line-height: 1.45;
+}
+.r07-position-remap-consent input {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    accent-color: var(--accent);
+}
+.r07-position-remap-consent input:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+.r07-position-remap-consent:has(input:disabled) {
+    color: var(--text-dim);
+    cursor: not-allowed;
+}
+.r07-position-remap :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+@media (max-width: 640px) {
+    .r07-position-remap-head {
+        flex-direction: column;
+    }
+    .r07-position-remap-project {
+        align-self: flex-start;
+    }
+    .r07-position-remap-card {
+        grid-template-columns: 1fr;
+    }
+    .r07-position-remap-impact,
+    .r07-position-remap-consent {
+        grid-column: auto;
+    }
+}
+
+/* R07 Phase B — inline "Crear puesto similar" (destination-owned copy). */
+.r07-position-remap-similar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    grid-column: 1 / -1;
+}
+.r07-position-remap-similar .r07-recon-note-action {
+    min-height: 44px;
+}
+.r07-position-similar-note {
+    color: var(--text-dim);
+    font-size: .74rem;
+    line-height: 1.45;
+}
+.r07-position-similar-note.is-queued {
+    color: var(--accent);
+    font-weight: 600;
+}
+.r07-position-similar-note strong {
+    color: var(--text);
+}
+
+/* R07 Phase B — preflight human summary ("Resumen antes de confirmar"). */
+.r07-preflight-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 12px 0;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-2);
+}
+.r07-preflight-summary > strong {
+    color: var(--text);
+    font-size: .86rem;
+}
+.r07-preflight-destiny {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+}
+.r07-preflight-destiny span {
+    color: var(--text-dim);
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.r07-preflight-destiny strong {
+    color: var(--text);
+    font-size: .86rem;
+    overflow-wrap: anywhere;
+}
+.r07-preflight-section {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.r07-preflight-tag {
+    align-self: flex-start;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+}
+.r07-preflight-tag.is-update {
+    background: rgba(6, 182, 212, 0.16);
+    color: var(--accent);
+}
+.r07-preflight-tag.is-keep {
+    background: rgba(16, 185, 129, 0.16);
+    color: #34d399;
+}
+.r07-preflight-tag.is-detach {
+    background: rgba(245, 158, 11, 0.16);
+    color: #fbbf24;
+}
+.r07-preflight-section ul {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.r07-preflight-section li {
+    color: var(--text-dim);
+    font-size: .76rem;
+    line-height: 1.5;
+    padding-left: 14px;
+    position: relative;
+}
+.r07-preflight-section li::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 8px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--text-dim);
+}

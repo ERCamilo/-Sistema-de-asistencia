@@ -180,6 +180,7 @@ import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlo
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import { registerP2PRosterGlobals } from './modules/features/p2p/P2PRosterUI.js';
 import { registerProjectSetupGlobals } from './modules/features/projects/ProjectsUI.js';
+import { registerProjectReconciliationGlobals, renderProjectReconciliationBanner, refreshProjectReconciliationSnapshot } from './modules/features/projects/ProjectReconciliationUI.js';
 import { EmployeeProfileModal, syncProfileToMaster, registerLegacyGlobals as registerProfileGlobals } from './modules/features/profile/index.js';
 import { migrateAllAdvances, registerLegacyGlobals as registerLoansGlobals } from './modules/features/loans/index.js';
 import {
@@ -3797,6 +3798,7 @@ window.setEmployeeLeaderFilter = (leaderId) => {
 registerNotesGlobals();
 registerExportGlobals();
 registerProjectSetupGlobals();
+registerProjectReconciliationGlobals();
 registerP2PRosterGlobals();
 registerProfileGlobals();
 registerLoansGlobals();
@@ -7128,7 +7130,7 @@ function App() {
         activeTab: state.activeTab,
         changeTab: (tab) => window.changeTab(tab),
         legacyNavigation: state.settings.legacyNavigation
-    })}${state.settings.legacyNavigation ? '' : SidebarNavigation()}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button type="button" class="landscape-toggle-btn" data-app-fn="toggleBottomNav" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}${employeeFloatingCard.render()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenter()}${NoteEditorModal()}`;
+    })}${state.settings.legacyNavigation ? '' : SidebarNavigation()}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}>${renderProjectReconciliationBanner()}<div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button type="button" class="landscape-toggle-btn" data-app-fn="toggleBottomNav" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}${employeeFloatingCard.render()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenter()}${NoteEditorModal()}`;
 }
 
 // 🎯 Registrar el componente raíz para el motor modular
