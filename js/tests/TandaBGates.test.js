@@ -7,6 +7,7 @@ import { buildPayrollClosureDraft } from 'actual/features/payroll/PayrollClosure
 import { createLoan, recordPayment } from 'actual/features/loans/LoansService.js';
 import { attachPayrollAdjustmentPlans } from 'actual/features/payroll/PayrollAdjustmentPlanRepository.js';
 import { applyManualAdjustmentMovement } from 'actual/features/payroll/PayrollAdjustmentManualMovement.js';
+import { createPayrollAdjustmentInstallmentPlans } from 'actual/features/payroll/PayrollAdjustmentInstallmentPlan.js';
 import { buildPayrollLoanSettlementBatch, confirmPayrollPaid } from 'actual/features/payroll/PayrollLoanSettlement.js';
 import { applyPayrollAdjustmentInstallmentsForClosure } from 'actual/features/payroll/PayrollAdjustmentInstallmentSettlement.js';
 import * as PayrollUI from 'actual/features/payroll/PayrollUI.js';
@@ -120,13 +121,69 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         await expectGateErrorAsync(() => buildPayrollClosureDraft({ employees, rows: closureDraftRows(), periodStart: '2026-01-01', periodEnd: '2026-01-15' }));
     });
 
-    test('persisted adjustments blocked (attachPayrollAdjustmentPlans)', () => {
-        expectGateError(() => attachPayrollAdjustmentPlans([{ id: 'E-A', bonuses: [], deductions: [] }], [{ id: 'plan1', kind: 'bonuses', employeeId: 'E-A', type: 'fixed', groupId: 'g1', firstPeriodStart: '2026-01-01', installmentCount: 1, totalAmount: 100, status: 'active', installments: [], history: [] }]));
+    test('scoped adjustments allowed in-scope and reject cross-project attachment', () => {
+        const empA = { id: 'E-A', projectId: A, bonuses: [], deductions: [] };
+        const [planA] = createPayrollAdjustmentInstallmentPlans({
+            kind: 'bonuses',
+            employeeIds: ['E-A'],
+            name: 'Bono A',
+            totalAmount: 100,
+            installmentCount: 1,
+            singlePayment: true,
+            firstPeriodStart: '2026-01-01',
+            createdAt: Date.now(),
+            projectId: A
+        }, { createId: prefix => `${prefix}-1` });
+        const attached = attachPayrollAdjustmentPlans([empA], [planA]);
+        expect(attached[0].bonuses).toHaveLength(1);
+        expect(attached[0].bonuses[0].id).toBe(planA.id);
+
+        // Negative assertion: cross-project plan attachment is rejected
+        const empB = { id: 'E-B', projectId: B, bonuses: [], deductions: [] };
+        const [planCross] = createPayrollAdjustmentInstallmentPlans({
+            kind: 'bonuses',
+            employeeIds: ['E-B'],
+            name: 'Bono Cross',
+            totalAmount: 100,
+            installmentCount: 1,
+            singlePayment: true,
+            firstPeriodStart: '2026-01-01',
+            createdAt: Date.now(),
+            projectId: A
+        }, { createId: prefix => `${prefix}-cross` });
+        expect(() => attachPayrollAdjustmentPlans([empB], [planCross])).toThrow(/El plan pertenece al proyecto "PRJ-A-GATE" pero el empleado pertenece a "PRJ-B-GATE"/);
     });
 
-    test('scheduled adjustments blocked (applyManualAdjustmentMovement)', () => {
-        const emp = { id: 'E-A', bonuses: [{ id: 'plan1', kind: 'bonuses', employeeId: 'E-A', type: 'fixed', groupId: 'g1', status: 'active', balance: 100, installments: [{ id: 'inst1', sequence: 1, status: 'pending', appliedAmount: 0, scheduledAmount: 100 }], history: [] }], deductions: [] };
-        expectGateError(() => applyManualAdjustmentMovement(emp, { kind: 'bonuses', planId: 'plan1', id: 'mov1', amount: 10, date: '2026-01-01', recordedBy: 'tester' }));
+    test('scheduled manual adjustment movements allowed in-scope and reject cross-project', () => {
+        const [planA] = createPayrollAdjustmentInstallmentPlans({
+            kind: 'bonuses',
+            employeeIds: ['E-A'],
+            name: 'Bono A',
+            totalAmount: 100,
+            installmentCount: 1,
+            singlePayment: true,
+            firstPeriodStart: '2026-01-01',
+            createdAt: Date.now(),
+            projectId: A
+        }, { createId: prefix => `${prefix}-1` });
+        const empA = { id: 'E-A', projectId: A, bonuses: [planA], deductions: [] };
+        const result = applyManualAdjustmentMovement(empA, { kind: 'bonuses', planId: planA.id, id: 'mov1', amount: 10, recordedBy: 'admin', type: 'pause', date: '2026-01-01' });
+        expect(result.employee.bonuses[0].history).toHaveLength(1);
+
+        // Negative assertion: cross-project plan movement is rejected
+        const [planB] = createPayrollAdjustmentInstallmentPlans({
+            kind: 'bonuses',
+            employeeIds: ['E-A'],
+            name: 'Bono B',
+            totalAmount: 100,
+            installmentCount: 1,
+            singlePayment: true,
+            firstPeriodStart: '2026-01-01',
+            createdAt: Date.now(),
+            projectId: B
+        }, { createId: prefix => `${prefix}-2` });
+        const empCross = { id: 'E-A', projectId: A, bonuses: [planB], deductions: [] };
+        expect(() => applyManualAdjustmentMovement(empCross, { kind: 'bonuses', planId: planB.id, id: 'mov2', amount: 10, type: 'pause', date: '2026-01-01' })).toThrow(/El plan no pertenece al proyecto del empleado/);
     });
 
     test('scheduled installment settlement blocked', () => {
@@ -135,13 +192,20 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         expectGateError(() => applyPayrollAdjustmentInstallmentsForClosure([emp], closure));
     });
 
-    test('loan ops blocked (createLoan, recordPayment)', () => {
-        const emp = { id: 'E-A', name: 'Ana', number: '12', loans: [] };
-        expectGateError(() => createLoan(emp, { principal: 1000, startDate: '2026-01-01', concept: 'Test' }));
-        expect(emp.loans.length).toBe(0);
-        const emp2 = { id: 'E-A', loans: [{ id: 'L1', principal: 1000, interestRate: 0, status: 'active', payments: [], createdAt: Date.now(), updatedAt: Date.now(), seq: 1, startDate: '2026-01-01' }] };
-        expectGateError(() => recordPayment(emp2, 'L1', { amount: 100, date: '2026-01-02' }));
-        expect(emp2.loans[0].payments.length).toBe(0);
+    test('loan ops allowed in-scope and reject foreign employee (createLoan, recordPayment)', () => {
+        const empInScope = { id: 'E-A', name: 'Ana', number: '12', projectId: A, loans: [] };
+        const loan = createLoan(empInScope, { principal: 1000, startDate: '2026-01-01', concept: 'In-scope loan' });
+        expect(loan.principal).toBe(1000);
+        expect(empInScope.loans.length).toBe(1);
+
+        const payment = recordPayment(empInScope, loan.id, { amount: 100, date: '2026-01-02' });
+        expect(payment.amount).toBe(100);
+        expect(empInScope.loans[0].payments.length).toBe(1);
+
+        // Negative assertion: foreign employee belonging to another project is rejected
+        const empForeign = { id: 'E-FOREIGN', name: 'Foreign', number: '99', projectId: B, loans: [] };
+        expectGateError(() => createLoan(empForeign, { principal: 1000, startDate: '2026-01-01', concept: 'Test' }));
+        expect(empForeign.loans.length).toBe(0);
     });
 
     test('PayrollLoanSettlement build/apply blocked', () => {
@@ -154,17 +218,46 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         expectGateError(() => ProfileController.markAsPaid());
     });
 
-    test('final exports blocked (PayrollUI)', () => {
-        expectGateError(() => PayrollUI.copyExportJSON());
-        expectGateError(() => PayrollUI.downloadExportJSON());
-        expectGateError(() => PayrollUI.sendToSplitX());
-        // async PDF must reject with gate
-        return expectGateErrorAsync(() => PayrollUI.exportPayrollPDF());
+    test('scoped JSON/PDF/SplitX exports allowed and contain only active project rows', async () => {
+        const { ProjectPayrollUIRuntime } = await import('actual/features/payroll/ProjectPayrollUIRuntime.js');
+        const { createDefaultConfig } = await import('actual/features/payroll/ProjectPayrollConfig.js');
+        const state = {
+            employees: [{ id: 'E-A', number: '12', name: 'Ana', projectId: A, active: true, positions: ['P-A'] }],
+            positions: [{ id: 'P-A', name: 'Role', projectId: A, hourlyRate: 100, workingDays: [1,2,3,4,5,6,0] }],
+            leaders: [], attendance: { 'E-A-2026-01-01': { employeeId: 'E-A', date: '2026-01-01', present: true, hoursWorked: 8, projectId: A } },
+            settings: { companyName: 'Co', regularHoursPerDay: 8, overtimeFactor: 1.5, holidayFactor: 2, holidays: [], payPeriod: { periodStart: '2026-01-01', periodLength: 15, payDay: '2026-01-01' }, defaultDeductionPercentage: 2 },
+            exportConfig: { leaderFilter: 'all', deductions: [], bonuses: [] }, payrollViewMode: 'generator', settingsCalendarMonth: new Date('2026-01-01T12:00:00'), settingsCalendarMode: 'holiday'
+        };
+        const configs = new Map([[A, createDefaultConfig(A, state.settings)]]);
+        configs.get(A).payPeriod = { periodStart: '2026-01-01', periodLength: 15, payDay: '2026-01-01' };
+        const store = { getConfig: async id => configs.get(id) || null, putConfig: async c => { configs.set(c.projectId, c); return c; } };
+        const events = { subscribe: () => () => {} };
+        const runtime = new ProjectPayrollUIRuntime({ state, configStore: store, projectContext: events });
+        let clipboard = '';
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText: jest.fn(async t => { clipboard = t; }) }, configurable: true });
+        global.URL.createObjectURL = jest.fn(() => 'blob:mock');
+        global.URL.revokeObjectURL = jest.fn();
+        window.open = jest.fn(() => ({ postMessage: jest.fn() }));
+        const mockDoc = { internal: { pageSize: { getWidth: () => 210, getHeight: () => 297 } }, setFillColor: jest.fn(), rect: jest.fn(), setFontSize: jest.fn(), setFont: jest.fn(), setTextColor: jest.fn(), text: jest.fn(), autoTable: jest.fn(), lastAutoTable: { finalY: 60 }, save: jest.fn() };
+        window.jspdf = { jsPDF: jest.fn(() => mockDoc) };
+        window.jspdf.jsPDF.API = { autoTable: jest.fn() };
+
+        PayrollUI.init({ state, services: { payroll: { calculateEmployeePayroll: () => ({ brutoOriginal: 800, neto: 800, breakdown: [] }) }, payrollRuntime: runtime }, render: () => {} });
+        await PayrollUI.refreshScopedPayrollPreview();
+
+        expect(() => PayrollUI.copyExportJSON()).not.toThrow();
+        expect(clipboard).toContain('Ana');
+        expect(() => PayrollUI.downloadExportJSON()).not.toThrow();
+        expect(() => PayrollUI.sendToSplitX()).not.toThrow();
+        await expect(PayrollUI.exportPayrollPDF()).resolves.not.toThrow();
+        runtime.dispose();
     });
 
-    test('economic history blocked (PayrollUI.loadPayrollHistory / openPayrollHistoryDetail)', async () => {
-        await expectGateErrorAsync(() => PayrollUI.loadPayrollHistory());
-        await expectGateErrorAsync(() => PayrollUI.openPayrollHistoryDetail('some-id'));
+    test('economic history is readable under Projects ON while mutations remain gated', async () => {
+        await expect(PayrollUI.loadPayrollHistory()).resolves.toBeUndefined();
+        await expect(PayrollUI.openPayrollHistoryDetail('some-id')).resolves.toBeUndefined();
+        await expectGateErrorAsync(() => PayrollUI.openPayrollClosure());
+        await expectGateErrorAsync(() => PayrollUI.undoPayrollClosure('some-id'));
     });
 
     test('definitive payment blocked (PayrollUI.togglePayrollPaidConfirmation)', () => {
@@ -179,7 +272,7 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         expect(emp.loans.length).toBe(0);
     });
 
-    test('A6 durable desktop adjustments blocked before read/mutation', () => {
+    test('scoped desktop adjustments update and isolate without touching global defaults', () => {
         const testState = {
             employees: [],
             exportConfig: {
@@ -194,17 +287,15 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         const save = jest.fn();
         PayrollUI.init({ state: testState, services: { payroll: { calculateEmployeePayroll: jest.fn() } }, render, saveToLocalStorage: save });
         window.showNotification = jest.fn();
-        const before = JSON.stringify(testState);
+
         const target = { dataset: { index: '0' }, closest: jest.fn(() => null) };
-        expectGateError(() => PayrollUI.updateDesktopAdjustment('deductions', target));
-        expectGateError(() => PayrollUI.removeDesktopAdjustment('deductions', target));
-        expect(target.closest).not.toHaveBeenCalled();
-        expect(JSON.stringify(testState)).toBe(before);
-        expect(save).not.toHaveBeenCalled();
-        expect(render).not.toHaveBeenCalled();
+        expect(() => PayrollUI.removeDesktopAdjustment('deductions', target)).not.toThrow();
+        expect(testState.exportConfig.deductions).toHaveLength(0);
+        // Negative assertion: global settings defaults are completely untouched
+        expect(testState.settings.payrollDefaults.deductions).toHaveLength(0);
     });
 
-    test('A6 durable export deduction paths blocked before mutation', () => {
+    test('scoped export deduction operations mutate scoped state and preserve global isolation', () => {
         const testState = {
             employees: [],
             exportConfig: {
@@ -219,18 +310,21 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         const save = jest.fn();
         PayrollUI.init({ state: testState, services: { payroll: { calculateEmployeePayroll: jest.fn() } }, render, saveToLocalStorage: save });
         window.showNotification = jest.fn();
-        const before = JSON.stringify(testState);
-        expectGateError(() => PayrollUI.removeExportDeduction(0));
-        expectGateError(() => PayrollUI.toggleRememberGlobalAdjustment('deductions', 0, true));
-        expectGateError(() => PayrollUI.updateExportDeductionType(0, 'percentage'));
-        expectGateError(() => PayrollUI.updateExportDeductionValue(0, '250'));
-        expectGateError(() => PayrollUI.updateExportDeductionName(0, 'AFP-Changed'));
-        expect(JSON.stringify(testState)).toBe(before);
-        expect(save).not.toHaveBeenCalled();
-        expect(render).not.toHaveBeenCalled();
+
+        expect(() => PayrollUI.updateExportDeductionValue(0, '250')).not.toThrow();
+        expect(testState.exportConfig.deductions[0].value).toBe(250);
+        expect(() => PayrollUI.updateExportDeductionName(0, 'AFP-Changed')).not.toThrow();
+        expect(testState.exportConfig.deductions[0].name).toBe('AFP-Changed');
+        expect(() => PayrollUI.updateExportDeductionType(0, 'percentage')).not.toThrow();
+        expect(testState.exportConfig.deductions[0].type).toBe('percentage');
+        expect(() => PayrollUI.removeExportDeduction(0)).not.toThrow();
+        expect(testState.exportConfig.deductions).toHaveLength(0);
+
+        // Negative assertion: global settings defaults are preserved intact
+        expect(testState.settings.payrollDefaults.deductions).toHaveLength(0);
     });
 
-    test('A6 durable export bonus paths blocked before mutation', () => {
+    test('scoped export bonus operations mutate scoped state and preserve global isolation', () => {
         const testState = {
             employees: [],
             exportConfig: {
@@ -245,17 +339,21 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         const save = jest.fn();
         PayrollUI.init({ state: testState, services: { payroll: { calculateEmployeePayroll: jest.fn() } }, render, saveToLocalStorage: save });
         window.showNotification = jest.fn();
-        const before = JSON.stringify(testState);
-        expectGateError(() => PayrollUI.removeExportBonus(0));
-        expectGateError(() => PayrollUI.updateExportBonusType(0, 'percentage'));
-        expectGateError(() => PayrollUI.updateExportBonusValue(0, '75'));
-        expectGateError(() => PayrollUI.updateExportBonusName(0, 'Bono-Changed'));
-        expect(JSON.stringify(testState)).toBe(before);
-        expect(save).not.toHaveBeenCalled();
-        expect(render).not.toHaveBeenCalled();
+
+        expect(() => PayrollUI.updateExportBonusValue(0, '75')).not.toThrow();
+        expect(testState.exportConfig.bonuses[0].value).toBe(75);
+        expect(() => PayrollUI.updateExportBonusName(0, 'Bono-Changed')).not.toThrow();
+        expect(testState.exportConfig.bonuses[0].name).toBe('Bono-Changed');
+        expect(() => PayrollUI.updateExportBonusType(0, 'percentage')).not.toThrow();
+        expect(testState.exportConfig.bonuses[0].type).toBe('percentage');
+        expect(() => PayrollUI.removeExportBonus(0)).not.toThrow();
+        expect(testState.exportConfig.bonuses).toHaveLength(0);
+
+        // Negative assertion: global settings defaults are preserved intact
+        expect(testState.settings.payrollDefaults.bonuses).toHaveLength(0);
     });
 
-    test('UI remains hidden: ScopedPayrollTab does not expose B surfaces', async () => {
+    test('scoped UI exposes safe navigation/read surfaces but no economic mutation actions', async () => {
         // Init scoped UI with runtime ON
         const { ProjectPayrollUIRuntime } = await import('actual/features/payroll/ProjectPayrollUIRuntime.js');
         const { createDefaultConfig } = await import('actual/features/payroll/ProjectPayrollConfig.js');
@@ -276,7 +374,14 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         PayrollUI.init({ state, services: { payroll: { calculateEmployeePayroll: () => ({ brutoOriginal: 800, neto: 800, breakdown: [] }) }, payrollRuntime: runtime }, render: () => {} });
         await PayrollUI.refreshScopedPayrollPreview();
         const html = PayrollUI.PayrollTab();
-        for (const forbidden of ['copy-export-json','download-export-json','export-payroll-pdf','send-to-splitx','open-payroll-closure','toggle-payroll-paid','add-export-deduction','add-export-bonus','Préstamos / Adelantos','Historial','change-payroll-view-mode']) {
+        expect(html).toContain('change-payroll-view-mode');
+        expect(html).toContain('Préstamos / Adelantos');
+        expect(html).toContain('Historial');
+        expect(html).toContain('copy-export-json');
+        expect(html).toContain('download-export-json');
+        expect(html).toContain('export-payroll-pdf');
+        expect(html).toContain('send-to-splitx');
+        for (const forbidden of ['open-payroll-closure','toggle-payroll-paid','add-export-deduction','add-export-bonus']) {
             expect(html).not.toContain(forbidden);
         }
         runtime.dispose();

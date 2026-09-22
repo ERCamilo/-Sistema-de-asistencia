@@ -88,7 +88,40 @@ import {
     setPayrollAdjustmentPeriodRuntimeSelection,
     setPayrollAdjustmentPeriodRuntimeSelections
 } from './PayrollAdjustmentPeriodSelection.js';
-import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
+import { assertTandaBBlockedWhenScoped, isTandaBBlocked } from '../../config/TandaBGate.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { canonicalProjectId } from './PayrollClosure.js';
+import { createPayrollProjectContext } from './PayrollProjectContext.js';
+import { calculateEmployeePayrollWithContext } from './PayrollService.js';
+import { captureEntityProjectScope, entityInScope, peekEntityScope } from '../projects/EntityProjectScope.js';
+
+function ensurePayrollScopeNotStale(capturedPid, capturedRequest = null) {
+    const cur = peekEntityScope();
+    const curPid = cur?.projectId ? String(cur.projectId).trim() : null;
+    const runtimeStale = Boolean(capturedRequest && payrollRuntime?.isCurrent && !payrollRuntime.isCurrent(capturedRequest));
+    if (!cur?.enabled || curPid !== capturedPid || runtimeStale) {
+        const err = new Error('Payroll closure operation stale: project switched');
+        err.code = 'PAYROLL_CLOSURE_STALE_READ';
+        err.name = 'PayrollClosureStaleReadError';
+        throw err;
+    }
+}
+
+function isPayrollHistoryDetailReadOnly(closure) {
+    if (!isProjectsEnabled()) return false;
+    if (isTandaBBlocked()) return true;
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const activePid = (scopedView?.enabled && scopedView.status === 'ready' && scopedView.projectId)
+        ? String(scopedView.projectId).trim()
+        : null;
+    if (!activePid || activePid.startsWith('legacy-unresolved:')) {
+        return true;
+    }
+    if (closure && String(closure.projectId || '') !== activePid) {
+        return true;
+    }
+    return false;
+}
 
 let context = null;
 let payrollService = null;
@@ -133,6 +166,7 @@ const _ACTION_MAP = {
     'toggle-payroll-mobile-summary': () => window.PayrollUI?.togglePayrollMobileSummary?.(),
     'toggle-payroll-summary-detail': (kind) => window.PayrollUI?.togglePayrollSummaryDetail?.(kind),
     'set-export-preset': (preset) => window.PayrollUI?.setExportPreset?.(preset),
+    'set-scoped-preset': (preset) => window.PayrollUI?.setScopedPreset?.(preset),
     'add-export-deduction': () => window.PayrollUI?.addExportDeduction?.(),
     'remove-export-deduction': (idx) => window.PayrollUI?.removeExportDeduction?.(parseInt(idx, 10)),
     'add-employee-deductions-to-export': () => window.PayrollUI?.addEmployeeDeductionsToExport?.(),
@@ -297,10 +331,31 @@ export function init(ctx) {
     payrollRuntime = ctx.services.payrollRuntime || null;
     unsubscribeRuntimeInvalidation = payrollRuntime?.subscribeInvalidation?.(() => {
         latestPayrollPreviewRows = [];
+        clearPayrollAdjustmentPeriodRuntime();
+        const state = getState();
+        if (state?.exportConfig) {
+            stateManager.batchSetState(() => {
+                state.exportConfig.payrollAdjustmentComposerScopes = {};
+                state.exportConfig.payrollGuideStep = 'period';
+                state.exportConfig.collapsedSteps = [];
+                state.exportConfig.payrollLoanSelection = [];
+                state.exportConfig.payrollLoanExpandedEmployees = [];
+                state.exportConfig.deductions = [];
+                state.exportConfig.bonuses = [];
+                state.exportConfig.rememberedGlobalsHydrated = false;
+                delete state.exportConfig.payrollAdjustmentPeriodSelections;
+                delete state.exportConfig.payrollSummaryExpanded;
+                delete state.exportConfig.payrollMobileSummaryExpanded;
+            });
+        }
         context?.render?.();
     }) || null;
     if (ctx.state?.exportConfig) {
         delete ctx.state.exportConfig.payrollAdjustmentPeriodSelections;
+        delete ctx.state.exportConfig.payrollGuideStep;
+        delete ctx.state.exportConfig.collapsedSteps;
+        delete ctx.state.exportConfig.payrollSummaryExpanded;
+        delete ctx.state.exportConfig.payrollMobileSummaryExpanded;
     }
     if (!_payrollDelegationAttached) {
         document.addEventListener('input', _handlePayrollAdjustmentChoiceCapture, true);
@@ -321,54 +376,103 @@ function getSummaryAmountClass(amount, nonZeroClass) {
     return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
 }
 
-function payrollPeriodKey(periodStart, periodEnd) {
-    return `${String(periodStart || '')}:${String(periodEnd || '')}`;
+function payrollPeriodKey(periodStart, periodEnd, projectId = null) {
+    const prefix = projectId ? `${projectId}:` : '';
+    return `${prefix}${String(periodStart || '')}:${String(periodEnd || '')}`;
+}
+
+function getPayrollRemoteAvailability() {
+    const authenticated = Boolean(globalThis.currentUser);
+    const online = globalThis.navigator?.onLine !== false;
+    return {
+        available: authenticated && online,
+        authenticated,
+        online,
+        key: `${authenticated ? 'auth' : 'anon'}:${online ? 'online' : 'offline'}`
+    };
 }
 
 function canUsePayrollRemote() {
-    return Boolean(globalThis.currentUser) && globalThis.navigator?.onLine !== false;
+    return getPayrollRemoteAvailability().available;
 }
 
-function requestPayrollPeriodClosures(periodStart, periodEnd, { force = false } = {}) {
-    const key = payrollPeriodKey(periodStart, periodEnd);
+function payrollRemoteUnavailableError(availability) {
+    const error = new Error(availability.online
+        ? 'Inicia sesión para verificar el historial remoto de nómina.'
+        : 'Sin conexión: mostrando historial local sin verificación remota.');
+    error.code = availability.online
+        ? 'PAYROLL_HISTORY_AUTH_REQUIRED'
+        : 'PAYROLL_HISTORY_OFFLINE';
+    error.expectedRemoteUnavailable = true;
+    return error;
+}
+
+function requestPayrollPeriodClosures(periodStart, periodEnd, { force = false, projectId = null } = {}) {
+    const key = payrollPeriodKey(periodStart, periodEnd, projectId);
+    const availability = getPayrollRemoteAvailability();
     if (payrollPeriodClosureCache.key !== key) {
         payrollPeriodClosureCache = {
             key,
             items: [],
             ready: false,
             loading: false,
-            error: null
+            error: null,
+            availabilityKey: null
         };
     }
     if ((payrollPeriodClosureCache.ready && !force) || payrollPeriodClosureCache.loading) {
         return payrollPeriodClosureCache;
     }
+    if (!force && payrollPeriodClosureCache.error
+        && payrollPeriodClosureCache.availabilityKey === availability.key) {
+        return payrollPeriodClosureCache;
+    }
     payrollPeriodClosureCache.loading = true;
     payrollPeriodClosureCache.error = null;
+    payrollPeriodClosureCache.availabilityKey = availability.key;
     Promise.resolve()
         .then(async () => {
-            if (!canUsePayrollRemote()) {
-                throw new Error('No se puede verificar el historial remoto sin conexión.');
+            if (!availability.available) {
+                return {
+                    items: await payrollClosureStore.getByPeriod(periodStart, periodEnd),
+                    ready: false,
+                    error: payrollRemoteUnavailableError(availability)
+                };
             }
             await payrollClosureSync.pullPeriod(periodStart, periodEnd);
-            return payrollClosureStore.getByPeriod(periodStart, periodEnd);
+            return {
+                items: await payrollClosureStore.getByPeriod(periodStart, periodEnd),
+                ready: true,
+                error: null
+            };
         })
-        .then(items => {
+        .then(result => {
+            if (payrollPeriodClosureCache.key !== key) return;
+            payrollPeriodClosureCache = {
+                key,
+                items: result.items,
+                ready: result.ready,
+                loading: false,
+                error: result.error,
+                availabilityKey: availability.key
+            };
+            context?.render?.();
+        })
+        .catch(async error => {
+            if (payrollPeriodClosureCache.key !== key) return;
+            let items = payrollPeriodClosureCache.items;
+            try {
+                items = await payrollClosureStore.getByPeriod(periodStart, periodEnd);
+            } catch (_) {}
             if (payrollPeriodClosureCache.key !== key) return;
             payrollPeriodClosureCache = {
                 key,
                 items,
-                ready: true,
+                ready: false,
                 loading: false,
-                error: null
+                error,
+                availabilityKey: availability.key
             };
-            context?.render?.();
-        })
-        .catch(error => {
-            if (payrollPeriodClosureCache.key !== key) return;
-            payrollPeriodClosureCache.loading = false;
-            payrollPeriodClosureCache.ready = false;
-            payrollPeriodClosureCache.error = error;
             console.warn('No se pudo cargar el historial de nómina:', error);
             context?.render?.();
         });
@@ -376,7 +480,7 @@ function requestPayrollPeriodClosures(periodStart, periodEnd, { force = false } 
 }
 
 function updatePayrollPeriodClosureCache(closure) {
-    const key = payrollPeriodKey(closure.periodStart, closure.periodEnd);
+    const key = payrollPeriodKey(closure.periodStart, closure.periodEnd, closure.projectId);
     if (payrollPeriodClosureCache.key !== key) return;
     const byId = new Map(payrollPeriodClosureCache.items.map(item => [item.id, item]));
     byId.set(closure.id, closure);
@@ -385,18 +489,43 @@ function updatePayrollPeriodClosureCache(closure) {
         items: [...byId.values()],
         ready: true,
         loading: false,
-        error: null
+        error: null,
+        availabilityKey: getPayrollRemoteAvailability().key
     };
+}
+
+function getScopedPayrollView() {
+    return payrollRuntime?.getCurrentView?.() || null;
 }
 
 function getEmployeesWithDeductions() {
     const state = getState();
-    return state.employees.filter(e => filterLegacyEmployeeAdjustments(e.deductions).length > 0);
+    const scopedView = getScopedPayrollView();
+    const isScoped = Boolean(scopedView?.enabled);
+    const activeProjectId = isScoped ? scopedView.projectId : null;
+    const operationScope = (isScoped && activeProjectId)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: String(activeProjectId) }
+        : null;
+    let employees = state.employees || [];
+    if (operationScope) {
+        employees = employees.filter(e => entityInScope(e, operationScope));
+    }
+    return employees.filter(e => filterLegacyEmployeeAdjustments(e.deductions).length > 0);
 }
 
 function getEmployeesWithBonuses() {
     const state = getState();
-    return state.employees.filter(e => filterLegacyEmployeeAdjustments(e.bonuses).length > 0);
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(scopedView?.enabled);
+    const activeProjectId = isScoped ? scopedView.projectId : null;
+    const operationScope = (isScoped && activeProjectId)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: String(activeProjectId) }
+        : null;
+    let employees = state.employees || [];
+    if (operationScope) {
+        employees = employees.filter(e => entityInScope(e, operationScope));
+    }
+    return employees.filter(e => filterLegacyEmployeeAdjustments(e.bonuses).length > 0);
 }
 
 function getLeaderFilteredEmployees(state) {
@@ -407,49 +536,86 @@ function getLeaderFilteredEmployees(state) {
     );
 }
 
+function getScopedProjectEmployees(projectId, state = getState()) {
+    if (!projectId) return [];
+    const activePid = String(projectId).trim();
+    const opScope = { ...captureEntityProjectScope(), enabled: true, projectId: activePid };
+    return (state?.employees || []).filter(e => entityInScope(e, opScope));
+}
+
+function getScopedEffectivePreviewRows(scopedView = null, state = getState()) {
+    const view = scopedView || payrollRuntime?.getCurrentView?.();
+    if (!view?.enabled || view.status !== 'ready') {
+        return [];
+    }
+    const baseRows = (view.previewRows && view.previewRows.length > 0)
+        ? view.previewRows
+        : (latestPayrollPreviewRows || []);
+    const activePid = view.projectId ? String(view.projectId).trim() : null;
+    if (!activePid) return baseRows;
+
+    const scopedEmployees = getScopedProjectEmployees(activePid, state);
+    const selection = state?.exportConfig?.payrollLoanSelection || [];
+    const periodEnd = view.period?.periodEnd || state?.exportConfig?.periodEnd || null;
+
+    return applyPayrollLoanDeductions(baseRows, scopedEmployees, selection, periodEnd);
+}
+
 /**
  * Top-level Nómina tab. Mirrors the Reports tab pattern: a header with two
  * sub-tab buttons that switch the inner view between the existing payroll
  * generator and the new Cuentas-por-Cobrar (loans ledger).
  */
+function PayrollViewSwitcher(mode) {
+    return `
+        <div class="date-controls payroll-view-switcher">
+            <div class="view-controls">
+                <button type="button"
+                        class="view-btn ${mode === 'generator' ? 'active' : ''}"
+                        data-payroll-action="change-payroll-view-mode"
+                        data-value="generator"
+                        aria-label="Generar Nómina">
+                    ${icons.get('payroll')}
+                    <span class="label-full">Generar Nómina</span>
+                    <span class="label-short">Nómina</span>
+                </button>
+                <button type="button"
+                        class="view-btn ${mode === 'ledger' ? 'active' : ''}"
+                        data-payroll-action="change-payroll-view-mode"
+                        data-value="ledger"
+                        aria-label="Préstamos y adelantos">
+                    ${icons.get('dollar')}
+                    <span class="label-full">Préstamos / Adelantos</span>
+                    <span class="label-short">Préstamos</span>
+                </button>
+                <button type="button"
+                        class="view-btn ${mode === 'history' ? 'active' : ''}"
+                        data-payroll-action="change-payroll-view-mode"
+                        data-value="history"
+                        aria-label="Historial de nómina">
+                    ${icons.get('calendar')}
+                    <span>Historial</span>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
 export function PayrollTab() {
-    const scopedView = payrollRuntime?.getCurrentView?.();
-    if (scopedView?.enabled) return ScopedPayrollTab(scopedView);
     const state = getState();
     const mode = state.payrollViewMode || 'generator';
+    // F1 R02 / F1.8 frozen gate: loans must remain reachable even when
+    // project payroll configuration is unavailable. Resolve ledger first.
+    if (mode === 'ledger') return LoansLedger();
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (scopedView?.enabled) {
+        const body = mode === 'history' ? PayrollHistoryTab() : ScopedPayrollTab(scopedView);
+        return `<div>${PayrollViewSwitcher(mode)}${body}</div>`;
+    }
 
     return `
         <div>
-            <div class="date-controls payroll-view-switcher">
-                <div class="view-controls">
-                    <button type="button"
-                            class="view-btn ${mode === 'generator' ? 'active' : ''}"
-                            data-payroll-action="change-payroll-view-mode"
-                            data-value="generator"
-                            aria-label="Generar Nómina">
-                        ${icons.get('payroll')}
-                        <span class="label-full">Generar Nómina</span>
-                        <span class="label-short">Nómina</span>
-                    </button>
-                    <button type="button"
-                            class="view-btn ${mode === 'ledger' ? 'active' : ''}"
-                            data-payroll-action="change-payroll-view-mode"
-                            data-value="ledger"
-                            aria-label="Préstamos y adelantos">
-                        ${icons.get('dollar')}
-                        <span class="label-full">Préstamos / Adelantos</span>
-                        <span class="label-short">Préstamos</span>
-                    </button>
-                    <button type="button"
-                            class="view-btn ${mode === 'history' ? 'active' : ''}"
-                            data-payroll-action="change-payroll-view-mode"
-                            data-value="history"
-                            aria-label="Historial de nómina">
-                        ${icons.get('calendar')}
-                        <span>Historial</span>
-                    </button>
-                </div>
-            </div>
+            ${PayrollViewSwitcher(mode)}
             ${mode === 'ledger'
                 ? LoansLedger()
                 : (mode === 'history' ? PayrollHistoryTab() : PayrollGeneratorTab())}
@@ -472,59 +638,369 @@ function ScopedPayrollTab(view) {
     }
     if (view.status !== 'ready') {
         return `
-            <section class="payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
-                <h2>Nómina del proyecto</h2>
-                <p>Cargando configuración de nómina para ${escapeHTML(view.projectId)}...</p>
-            </section>
+            <div class="payroll-generator payroll-project-preview payroll-loading-placeholder" data-project-id="${escapeHTML(view.projectId)}" aria-busy="true" style="min-height: 400px;">
+                <div class="payroll-generator__header">
+                    <div>
+                        <h2>
+                            <span>Nómina · ${escapeHTML(view.projectId)}</span>
+                        </h2>
+                        <p>Cargando configuración de nómina para ${escapeHTML(view.projectId)}...</p>
+                    </div>
+                </div>
+            </div>
         `;
     }
+
+    const state = getState();
+    const exportConfig = state?.exportConfig || {};
+    const guideSteps = ['period', 'deductions', 'bonuses', 'loans', 'review'];
+    const guideStep = guideSteps.includes(exportConfig.payrollGuideStep)
+        ? exportConfig.payrollGuideStep
+        : 'period';
+    const guideStepIndex = guideSteps.indexOf(guideStep);
+    const previousGuideStep = guideSteps[Math.max(guideStepIndex - 1, 0)];
+    const nextGuideStep = guideSteps[Math.min(guideStepIndex + 1, guideSteps.length - 1)];
+
     const period = view.period || resolvePayrollPeriod(view.config.payPeriod, new Date());
-    const rows = view.previewRows || [];
-    const total = rows.reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
+    const configuredPeriod = resolvePayrollPeriod(view.config.payPeriod, new Date());
+    const activePreset = view.preset || (period.periodStart === configuredPeriod.periodStart && period.periodEnd === configuredPeriod.periodEnd ? 'payPeriod' : (exportConfig.activePreset || null));
+    const rows = getScopedEffectivePreviewRows(view, state);
+    const totalAmount = rows.reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
+    const grossAmount = rows.reduce((sum, row) => sum + (Number(row._brutoOriginal) || 0), 0);
+    const bonusAmount = rows.reduce((sum, row) => sum + (Number(row._bonuses) || 0), 0);
+    const deductionAmount = rows.reduce((sum, row) => sum + (Number(row._deductions) || 0), 0);
+    const loanAmount = rows.reduce((sum, row) => sum + (Number(row._loans) || 0), 0);
+    const totalHours = rows.reduce((sum, row) => sum + (Number(row._totalHours) || 0), 0);
+    const isStepCollapsed = (id) => (exportConfig.collapsedSteps || []).includes(id);
+
+    const getReviewNet = (row) => Math.round((((Number(row?.monto) || 0) + Number.EPSILON) * 100)) / 100;
+    const invalidNetRows = rows.filter(row => getReviewNet(row) < 0 || row._invalidLoanNet);
+    const hasInvalidNetRows = invalidNetRows.length > 0;
+
+    const scopedEmployees = getScopedProjectEmployees(view.projectId, state);
+    const loanSummary = summarizePayrollLoans(
+        scopedEmployees,
+        exportConfig.payrollLoanSelection || [],
+        period.periodEnd
+    );
+    const closureState = currentPayrollClosureState();
+
+    const guideItems = [
+        ['period', '1', 'Período', `${formatDateShort(period.periodStart)} – ${formatDateShort(period.periodEnd)}`, 'Período'],
+        ['deductions', '2', 'Deducciones', deductionAmount > 0 ? `${formatCurrency(deductionAmount)} aplicado` : '$0.00', 'Deducc.'],
+        ['bonuses', '3', 'Bonificaciones', bonusAmount > 0 ? `${formatCurrency(bonusAmount)} agregado` : '$0.00', 'Bonos'],
+        ['loans', '4', 'Préstamos', `${loanSummary.selectedCount} seleccionados`, 'Préstamos'],
+        ['review', '5', 'Vista previa', `${rows.length} empleados`, 'Vista']
+    ];
+
     return `
-        <section class="payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
-            <header>
-                <h2>Nómina del proyecto</h2>
-                <p>Configuración disponible · ${escapeHTML(view.projectId)}</p>
-            </header>
-            <div class="payroll-project-preview__period">
-                <label>Desde
-                    <input type="date"
-                           id="payroll-scoped-period-start"
-                           name="scopedPeriodStart"
-                           autocomplete="off"
-                           value="${escapeHTML(period.periodStart)}"
-                           onchange="PayrollUI.updateScopedPeriod('start', this.value)">
-                </label>
-                <label>Hasta
-                    <input type="date"
-                           id="payroll-scoped-period-end"
-                           name="scopedPeriodEnd"
-                           autocomplete="off"
-                           value="${escapeHTML(period.periodEnd)}"
-                           onchange="PayrollUI.updateScopedPeriod('end', this.value)">
-                </label>
-                <button type="button" data-payroll-action="refresh-scoped-payroll-preview">
-                    Actualizar vista previa
-                </button>
+        <div class="payroll-generator payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
+            <!-- Header -->
+            <div class="payroll-generator__header">
+                <div>
+                    <h2>
+                        <span>Nómina · ${escapeHTML(view.projectId)}</span>
+                    </h2>
+                    <p>
+                        Generador de nómina por obra con cálculo aislado. Tarifa y período de la obra activos.
+                    </p>
+                </div>
             </div>
-            <div class="responsive-table-wrapper" role="region" aria-label="Vista previa base de nómina" tabindex="0">
-                <table class="payroll-review-table">
-                    <thead><tr><th>#</th><th>Empleado</th><th>Bruto</th><th>Neto</th></tr></thead>
-                    <tbody>
-                        ${rows.map(row => `
-                            <tr>
-                                <td>${escapeHTML(String(row._number || row.id))}</td>
-                                <td>${escapeHTML(row._employeeName)}</td>
-                                <td>${formatCurrency(row._brutoOriginal)}</td>
-                                <td>${formatCurrency(row.monto)}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                    <tfoot><tr><td colspan="3">Total base</td><td>${formatCurrency(total)}</td></tr></tfoot>
-                </table>
+
+            <div class="payroll-guided-layout">
+                <nav class="payroll-guide-steps" aria-label="Pasos de nómina de la obra">
+                    ${guideItems.map(([id, number, label, detail, mobileLabel], index) => `
+                        <button type="button"
+                                class="payroll-guide-step ${id === guideStep ? 'is-active' : ''} ${index < guideStepIndex ? 'is-complete' : ''} payroll-guide-step--${id}"
+                                data-payroll-action="set-payroll-guide-step"
+                                data-value="${id}"
+                                aria-label="Paso ${number}: ${label}"
+                                aria-current="${id === guideStep ? 'step' : 'false'}">
+                            <span class="payroll-guide-step__number">${index < guideStepIndex ? '<svg class="payroll-step-check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>' : number}</span>
+                            <span class="payroll-guide-step__copy" data-mobile-label="${mobileLabel}">
+                                <small>Paso ${number}</small>
+                                <strong>${label}</strong>
+                                <span>${detail}</span>
+                            </span>
+                        </button>
+                    `).join('')}
+                </nav>
+
+                <main class="payroll-guide-content">
+                    <!-- Paso 1: Período -->
+                    <section class="payroll-guide-panel payroll-guide-panel--period" ${guideStep === 'period' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Período de pago</h3>
+                            <p>Seleccioná el rango de fechas a liquidar para la obra ${escapeHTML(view.projectId)}.</p>
+                        </div>
+                        <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step1') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
+                            <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step1" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                                <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: rotate(${isStepCollapsed('step1') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                                    Paso 1: Período de Pago
+                                </h3>
+                                ${isStepCollapsed('step1') ? `<span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">${formatDateShort(period.periodStart)} - ${formatDateShort(period.periodEnd)}</span>` : ''}
+                            </div>
+                            <div style="display: ${isStepCollapsed('step1') ? 'none' : 'block'}; margin-top: 20px;">
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+                                    <div class="form-group">
+                                        <label class="form-label" for="payroll-scoped-period-start">Desde:</label>
+                                        <input type="date"
+                                               id="payroll-scoped-period-start"
+                                               name="scopedPeriodStart"
+                                               autocomplete="off"
+                                               value="${escapeHTML(period.periodStart)}"
+                                               onchange="PayrollUI.updateScopedPeriod('start', this.value)"
+                                               class="form-input">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="payroll-scoped-period-end">Hasta:</label>
+                                        <input type="date"
+                                               id="payroll-scoped-period-end"
+                                               name="scopedPeriodEnd"
+                                               autocomplete="off"
+                                               value="${escapeHTML(period.periodEnd)}"
+                                               onchange="PayrollUI.updateScopedPeriod('end', this.value)"
+                                               class="form-input">
+                                    </div>
+                                </div>
+                                <div class="payroll-period-presets" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                                    <button type="button" class="payroll-period-preset" data-payroll-action="set-export-preset" data-value="thisMonth"
+                                            style="padding: 6px 12px; background: ${activePreset === 'thisMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${activePreset === 'thisMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${activePreset === 'thisMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
+                                        Este mes
+                                    </button>
+                                    <button type="button" class="payroll-period-preset" data-payroll-action="set-export-preset" data-value="lastMonth"
+                                            style="padding: 6px 12px; background: ${activePreset === 'lastMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${activePreset === 'lastMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${activePreset === 'lastMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
+                                        Mes anterior
+                                    </button>
+                                    <button type="button" class="payroll-period-preset" data-payroll-action="set-export-preset" data-value="payPeriod"
+                                            style="padding: 6px 12px; background: ${activePreset === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${activePreset === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${activePreset === 'payPeriod' ? '#fff' : '#a78bfa'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
+                                        Período Configurado
+                                    </button>
+                                    <button type="button" class="payroll-btn-secondary" data-payroll-action="refresh-scoped-payroll-preview"
+                                            style="margin-left: auto; padding: 6px 14px; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer;">
+                                        Actualizar vista previa
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Paso 2: Deducciones -->
+                    <section class="payroll-guide-panel" ${guideStep === 'deductions' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Deducciones de nómina</h3>
+                            <p>Ajustes y descuentos para la obra activa.</p>
+                        </div>
+                        ${renderDesktopAdjustmentWorkspace('deductions', state, rows)}
+                    </section>
+
+                    <!-- Paso 3: Bonificaciones -->
+                    <section class="payroll-guide-panel" ${guideStep === 'bonuses' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Bonificaciones de nómina</h3>
+                            <p>Abonos adicionales para la obra activa.</p>
+                        </div>
+                        ${renderDesktopAdjustmentWorkspace('bonuses', state, rows)}
+                    </section>
+
+                    <!-- Paso 4: Préstamos -->
+                    <section class="payroll-guide-panel payroll-guide-panel--loans" ${guideStep === 'loans' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Préstamos del período</h3>
+                            <p>Esta selección es temporal y no registra abonos en préstamos / adelantos.</p>
+                        </div>
+                        ${guideStep === 'loans' ? renderPayrollLoansDesktop({
+                            employees: scopedEmployees,
+                            selection: exportConfig.payrollLoanSelection || [],
+                            payrollRows: rows,
+                            expandedEmployeeIds: exportConfig.payrollLoanExpandedEmployees || [],
+                            periodEnd: period.periodEnd
+                        }) : ''}
+                    </section>
+
+                    <!-- Paso 5: Vista previa / Revisión -->
+                    <section class="payroll-guide-panel payroll-guide-panel--review" ${guideStep === 'review' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Vista previa · ${rows.length} empleados</h3>
+                            <p>Revisá los cálculos y desglose de horas para la obra ${escapeHTML(view.projectId)}.</p>
+                        </div>
+                        <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
+                            <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 16px;">
+                                <button type="button"
+                                        data-payroll-action="export-payroll-pdf"
+                                        class="payroll-btn-secondary"
+                                        style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;"
+                                        ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
+                                    ${icons.get('file-pdf', { size: 14 })} Exportar PDF
+                                </button>
+                            </div>
+                            ${hasInvalidNetRows ? `
+                                <div role="alert" style="margin-bottom: 14px; padding: 12px; border: 1px solid #ef4444; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #fca5a5; font-weight: 700; font-size: 0.85rem;">
+                                    ⚠️ ${invalidNetRows.length} pago(s) negativos requieren revisión antes de continuar
+                                </div>
+                            ` : ''}
+                            <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina de la obra" tabindex="0">
+                                <table class="payroll-review-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="payroll-review-table__number">#</th>
+                                            <th class="payroll-review-table__employee">EMPLEADO</th>
+                                            <th>HORAS</th>
+                                            <th>BRUTO</th>
+                                            ${bonusAmount > 0 ? '<th>BONIF.</th>' : ''}
+                                            ${deductionAmount > 0 ? '<th>DED.</th>' : ''}
+                                            ${loanAmount > 0 ? '<th>PRÉSTAMOS</th>' : ''}
+                                            <th>NETO</th>
+                                            <th>DESGLOSE</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${rows.map((row, idx) => {
+                                            const breakdown = row._positionBreakdown || [];
+                                            return `
+                                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''}">
+                                                    <td class="payroll-review-table__number">${escapeHTML(String(row._number || row.id))}</td>
+                                                    <td class="payroll-review-table__employee">
+                                                        <strong>${escapeHTML(row._employeeName)}</strong>
+                                                        ${getReviewNet(row) < 0 ? `<br><span style="color: #ef4444; font-size: 0.75rem;">Pago negativo: ajusta los descuentos</span>` : ''}
+                                                    </td>
+                                                    <td class="payroll-review-table__amount">
+                                                        <span>${row._totalHours ?? 0}h</span>
+                                                        ${(row._overtimeHours || 0) > 0 ? `<br><small style="color: #38bdf8; font-size: 0.7rem;">(${row._regularHours}h reg + ${row._overtimeHours}h extra)</small>` : ''}
+                                                    </td>
+                                                    <td class="payroll-review-table__amount">${formatCurrency(row._brutoOriginal)}</td>
+                                                    ${bonusAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #10b981;">${(row._bonuses || 0) > 0 ? `+${formatCurrency(row._bonuses)}` : '—'}</td>` : ''}
+                                                    ${deductionAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #ef4444;">${(row._deductions || 0) > 0 ? `-${formatCurrency(row._deductions)}` : '—'}</td>` : ''}
+                                                    ${loanAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #ef4444;">${(row._loans || 0) > 0 ? `-${formatCurrency(row._loans)}` : '—'}</td>` : ''}
+                                                    <td class="payroll-review-table__amount is-net">${formatCurrency(row.monto)}</td>
+                                                    <td>
+                                                        ${breakdown.length > 0 ? `
+                                                            <details class="payroll-breakdown-details" style="cursor: pointer;">
+                                                                <summary style="color: #06b6d4; font-size: 0.75rem; font-weight: 600; outline: none; user-select: none;">
+                                                                    Ver cálculo (${breakdown.length})
+                                                                </summary>
+                                                                <div style="margin-top: 6px; padding: 8px 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; font-size: 0.75rem; min-width: 200px;">
+                                                                    ${breakdown.map(b => `
+                                                                        <div style="padding: 4px 0; border-bottom: 1px solid #1e293b;">
+                                                                            <div style="font-weight: 700; color: #f1f5f9;">${escapeHTML(b.positionName || 'Puesto')}</div>
+                                                                            <div style="color: #94a3b8; display: flex; justify-content: space-between; gap: 8px;">
+                                                                                <span>Tarifa: ${formatCurrency(b.hourlyRate)}/h</span>
+                                                                                <span>Reg: ${b.regularHours}h (${formatCurrency(b.regularAmount)})</span>
+                                                                            </div>
+                                                                            ${(b.overtimeHours || 0) > 0 ? `
+                                                                                <div style="color: #38bdf8; display: flex; justify-content: space-between; gap: 8px;">
+                                                                                    <span>Extra (x${b.overtimeRate / (b.hourlyRate || 1)}): ${b.overtimeHours}h</span>
+                                                                                    <span>${formatCurrency(b.overtimeAmount)}</span>
+                                                                                </div>
+                                                                            ` : ''}
+                                                                            ${((b.holidayHours || 0) + (b.restDayHours || 0)) > 0 ? `
+                                                                                <div style="color: #a78bfa; display: flex; justify-content: space-between; gap: 8px;">
+                                                                                    <span>Feriado/Descanso: ${(b.holidayHours || 0) + (b.restDayHours || 0)}h</span>
+                                                                                    <span>${formatCurrency((b.holidayAmount || 0) + (b.restDayAmount || 0))}</span>
+                                                                                </div>
+                                                                            ` : ''}
+                                                                            <div style="text-align: right; font-weight: 600; color: #10b981; margin-top: 2px;">
+                                                                                Subtotal: ${formatCurrency(b.subtotal)}
+                                                                            </div>
+                                                                        </div>
+                                                                    `).join('')}
+                                                                </div>
+                                                            </details>
+                                                        ` : '<span style="color: #64748b; font-size: 0.75rem;">Sin desglose</span>'}
+                                                    </td>
+                                                </tr>
+                                            `;
+                                        }).join('')}
+                                        ${rows.length === 0 ? `<tr><td colspan="${6 + (bonusAmount > 0 ? 1 : 0) + (deductionAmount > 0 ? 1 : 0) + (loanAmount > 0 ? 1 : 0)}" style="text-align: center; padding: 24px; color: #94a3b8;">No hay registros de asistencia para esta obra en el período seleccionado.</td></tr>` : ''}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr>
+                                            <td colspan="2">Totales (${rows.length} empleados)</td>
+                                            <td class="payroll-review-table__amount">${totalHours}h</td>
+                                            <td class="payroll-review-table__amount">${formatCurrency(grossAmount)}</td>
+                                            ${bonusAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #10b981;">+${formatCurrency(bonusAmount)}</td>` : ''}
+                                            ${deductionAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #ef4444;">-${formatCurrency(deductionAmount)}</td>` : ''}
+                                            ${loanAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #ef4444;">-${formatCurrency(loanAmount)}</td>` : ''}
+                                            <td class="payroll-review-table__amount is-net">${formatCurrency(totalAmount)}</td>
+                                            <td></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+
+                            ${guideStep === 'review' ? renderPayrollClosurePanel({
+                                gate: closureState.gate,
+                                now: Date.now()
+                            }) : ''}
+                        </div>
+                    </section>
+
+                    <!-- Navegación entre pasos -->
+                    <div class="payroll-guide-navigation">
+                        <button type="button"
+                                class="payroll-guide-navigation__back"
+                                data-payroll-action="set-payroll-guide-step"
+                                data-value="${previousGuideStep}"
+                                ${guideStep === 'period' ? 'disabled aria-disabled="true"' : ''}>
+                            Atrás
+                        </button>
+                        ${guideStep !== 'review' ? `
+                            <button type="button"
+                                    class="payroll-guide-navigation__next"
+                                    data-payroll-action="set-payroll-guide-step"
+                                    data-value="${nextGuideStep}">
+                                Continuar
+                            </button>
+                        ` : '<span class="payroll-guide-navigation__ready">Cálculo completado</span>'}
+                    </div>
+                </main>
+
+                <!-- Resumen lateral -->
+                <aside class="payroll-guide-summary" aria-label="Resumen de nómina de la obra">
+                    <div class="payroll-guide-summary__details">
+                        <div class="payroll-guide-summary__header">
+                            <span>Resumen de nómina</span>
+                            <strong>${formatDateShort(period.periodStart)} – ${formatDateShort(period.periodEnd)}</strong>
+                        </div>
+                        <dl class="payroll-guide-summary__values">
+                            <div class="payroll-guide-summary__employee-count"><dt>Empleados de obra</dt><dd>${rows.length}</dd></div>
+                            <div><dt>Horas totales</dt><dd>${totalHours}h</dd></div>
+                            <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
+                            <div><dt>Deducciones</dt><dd style="${deductionAmount > 0 ? 'color: #ef4444;' : 'color: #64748b;'}">${deductionAmount > 0 ? `-${formatCurrency(deductionAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Bonificaciones</dt><dd style="${bonusAmount > 0 ? 'color: #10b981;' : 'color: #64748b;'}">${bonusAmount > 0 ? `+${formatCurrency(bonusAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Préstamos</dt><dd style="${loanAmount > 0 ? 'color: #ef4444;' : 'color: #64748b;'}">${loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00'}</dd></div>
+                            <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
+                        </dl>
+                        <div class="payroll-guide-summary__validation is-valid">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 6px; vertical-align: -2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Obra: ${escapeHTML(view.projectId)} · Cálculo listo
+                        </div>
+                        <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
+                            <button type="button"
+                                    data-payroll-action="send-to-splitx"
+                                    ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
+                                ${icons.get('splitx', { size: 16 })} Abrir en SplitX
+                            </button>
+                            <button type="button"
+                                    data-payroll-action="export-payroll-pdf"
+                                    ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
+                                ${icons.get('file-pdf', { size: 15 })} Exportar PDF
+                            </button>
+                            <button type="button"
+                                    data-payroll-action="copy-export-json"
+                                    ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
+                                ${icons.get('copy', { size: 15 })} Copiar JSON
+                            </button>
+                            <button type="button"
+                                    data-payroll-action="download-export-json"
+                                    ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
+                                ${icons.get('download', { size: 15 })} Descargar .json
+                            </button>
+                        </div>
+                    </div>
+                </aside>
             </div>
-        </section>
+        </div>
     `;
 }
 
@@ -533,7 +1009,56 @@ export async function refreshScopedPayrollPreview(options = {}) {
     try {
         const result = await payrollRuntime.generatePreview(options);
         if (result.current) {
-            latestPayrollPreviewRows = result.rows;
+            const state = getState();
+            const { periodStart, periodEnd } = result.period;
+            if (!state.exportConfig?.rememberedGlobalsHydrated && result.config) {
+                stateManager.batchSetState(() => {
+                    const hydrated = hydrateRememberedAdjustments(state.exportConfig || {}, result.config);
+                    if (!state.exportConfig) state.exportConfig = {};
+                    state.exportConfig.deductions = hydrated.deductions;
+                    state.exportConfig.bonuses = hydrated.bonuses;
+                    state.exportConfig.rememberedGlobalsHydrated = true;
+                });
+            }
+            const deductions = state.exportConfig?.deductions || [];
+            const bonuses = state.exportConfig?.bonuses || [];
+            const adjustmentSelections = getPayrollAdjustmentPeriodRuntimeSelections(periodStart, periodEnd);
+            const ctx = createPayrollProjectContext({ state, scope: { enabled: true, projectId: result.projectId } });
+
+            result.rows.forEach(row => {
+                const payroll = calculateEmployeePayrollWithContext(
+                    ctx,
+                    result.config,
+                    row._employeeId,
+                    periodStart,
+                    periodEnd,
+                    deductions,
+                    bonuses,
+                    [],
+                    adjustmentSelections
+                );
+                row.monto = payroll.neto;
+                row._montoBeforeLoans = payroll.neto;
+                row._brutoOriginal = payroll.brutoOriginal;
+                row._bruto = payroll.bruto;
+                row._bonuses = payroll.bonuses;
+                row._deductions = payroll.deductions;
+                row._bonusDetails = payroll.bonusBreakdown || [];
+                row._deductionDetails = payroll.deductionBreakdown || [];
+                row._loans = 0;
+            });
+            const effectiveRows = getScopedEffectivePreviewRows({
+                enabled: true,
+                status: 'ready',
+                projectId: result.projectId,
+                period: result.period,
+                previewRows: result.rows
+            }, state);
+            result.rows = effectiveRows;
+            if (result.request?.session) {
+                result.request.session.previewRows = effectiveRows;
+            }
+            latestPayrollPreviewRows = effectiveRows;
             context?.render?.();
         }
         return result;
@@ -549,8 +1074,34 @@ export function updateScopedPeriod(type, value) {
     const resolved = view.period || resolvePayrollPeriod(view.config.payPeriod, new Date());
     return refreshScopedPayrollPreview({
         periodStart: type === 'start' ? value : resolved.periodStart,
-        periodEnd: type === 'end' ? value : resolved.periodEnd
+        periodEnd: type === 'end' ? value : resolved.periodEnd,
+        preset: null
     });
+}
+
+export function setScopedPreset(preset) {
+    const view = payrollRuntime?.getCurrentView?.();
+    if (!view?.enabled || view.status !== 'ready') return Promise.resolve(null);
+    const today = new Date();
+    let periodStart, periodEnd;
+    if (preset === 'thisMonth') {
+        const start = new Date(today.getFullYear(), today.getMonth(), 1);
+        periodStart = getDateKey(start);
+        periodEnd = getDateKey(today);
+    } else if (preset === 'lastMonth') {
+        const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const end = new Date(today.getFullYear(), today.getMonth(), 0);
+        periodStart = getDateKey(start);
+        periodEnd = getDateKey(end);
+    } else if (preset === 'payPeriod') {
+        const resolved = resolvePayrollPeriod(view.config.payPeriod, today);
+        periodStart = resolved.periodStart;
+        periodEnd = resolved.periodEnd;
+    }
+    if (periodStart && periodEnd) {
+        return refreshScopedPayrollPreview({ periodStart, periodEnd, preset });
+    }
+    return Promise.resolve(null);
 }
 
 /** Setter wired through data-payroll-action="change-payroll-view-mode". */
@@ -1373,23 +1924,57 @@ function validateDesktopAdjustment(draft) {
     return null;
 }
 
+function resolveActivePayrollPeriod(state) {
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (scopedView?.enabled && scopedView.period) {
+        return scopedView.period;
+    }
+    return state?.exportConfig || {};
+}
+
 function buildAdjustmentEmployeePickerEntries() {
     const state = getState();
-    const { periodStart, periodEnd } = state.exportConfig;
-    return [...(state.employees || [])]
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(scopedView?.enabled);
+    const activeProjectId = isScoped ? scopedView.projectId : null;
+    const operationScope = (isScoped && activeProjectId)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: String(activeProjectId) }
+        : null;
+    const period = resolveActivePayrollPeriod(state);
+    const { periodStart, periodEnd } = period;
+
+    let employees = state.employees || [];
+    if (operationScope) {
+        employees = employees.filter(emp => entityInScope(emp, operationScope));
+    }
+
+    return [...employees]
         .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }))
         .map(employee => {
             let payroll = { brutoOriginal: 0, breakdown: [] };
             if (periodStart && periodEnd) {
                 try {
-                    payroll = calculatePayrollBeforeLoans(
-                        payrollService,
-                        employee.id,
-                        periodStart,
-                        periodEnd,
-                        state.exportConfig.deductions || [],
-                        state.exportConfig.bonuses || []
-                    );
+                    if (isScoped && scopedView.config) {
+                        const ctx = createPayrollProjectContext({ state, scope: { enabled: true, projectId: activeProjectId } });
+                        payroll = calculateEmployeePayrollWithContext(
+                            ctx,
+                            scopedView.config,
+                            employee.id,
+                            periodStart,
+                            periodEnd,
+                            state.exportConfig?.deductions || [],
+                            state.exportConfig?.bonuses || []
+                        );
+                    } else {
+                        payroll = calculatePayrollBeforeLoans(
+                            payrollService,
+                            employee.id,
+                            periodStart,
+                            periodEnd,
+                            state.exportConfig.deductions || [],
+                            state.exportConfig.bonuses || []
+                        );
+                    }
                 } catch (_) {
                     // The picker must remain usable even if one historical payroll cannot be calculated.
                 }
@@ -1438,6 +2023,29 @@ export function removeAdjustmentEmployee(employeeId, target) {
 
 function persistAdjustmentDefault(kind, previous, next) {
     const state = getState();
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(scopedView?.enabled);
+
+    if (isScoped && scopedView.config && scopedView.projectId) {
+        const currentConfig = scopedView.config;
+        let defaults = currentConfig;
+        if (previous?.id && resolveAdjustmentScope(previous).scope !== 'employee') {
+            defaults = { ...defaults, payrollDefaults: updateRememberedDefault(defaults, kind, previous, false) };
+        }
+        if (next?.remembered && resolveAdjustmentScope(next).scope !== 'employee') {
+            defaults = { ...defaults, payrollDefaults: updateRememberedDefault(defaults, kind, next, true) };
+        }
+        const updatedConfig = {
+            ...currentConfig,
+            payrollDefaults: defaults.payrollDefaults,
+            updatedAt: Date.now()
+        };
+        payrollRuntime.saveConfig(updatedConfig).catch(err => {
+            console.error('Failed to save project payroll defaults:', err);
+        });
+        return;
+    }
+
     stateManager.batchSetState(() => {
         let defaults = state.settings;
         if (previous?.id && resolveAdjustmentScope(previous).scope !== 'employee') {
@@ -1452,8 +2060,11 @@ function persistAdjustmentDefault(kind, previous, next) {
 }
 
 export async function addDesktopAdjustment(kind, target) {
-    assertTandaBBlockedWhenScoped('PayrollUI.addDesktopAdjustment');
     if (!['deductions', 'bonuses'].includes(kind)) return;
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(scopedView?.enabled);
+    const startingProjectId = isScoped ? scopedView.projectId : null;
+
     const form = target?.closest('.payroll-adjustment-form');
     const draft = readAdjustmentForm(form);
     const validationError = validateDesktopAdjustment(draft);
@@ -1481,9 +2092,14 @@ export async function addDesktopAdjustment(kind, target) {
             result = buildPayrollAdjustmentInstallmentSave({
                 employees: state.employees,
                 kind,
-                draft,
+                draft: isScoped ? { ...draft, projectId: startingProjectId } : draft,
                 createdAt
             }, { createId: createPayrollAdjustmentIdFactory(createdAt) });
+
+            if (isScoped && payrollRuntime?.getCurrentView?.()?.projectId !== startingProjectId) {
+                return;
+            }
+
             stateManager.setState({
                 employees: result.employees,
                 exportConfig: {
@@ -1519,12 +2135,26 @@ export async function addDesktopAdjustment(kind, target) {
             return;
         }
 
+        if (isScoped && payrollRuntime?.getCurrentView?.()?.projectId !== startingProjectId) {
+            return;
+        }
+
         window.showNotification?.(result.notice, 'success');
-        context.render();
+        if (isScoped) {
+            await refreshScopedPayrollPreview();
+        } else {
+            context.render();
+        }
         return;
     }
 
+    if (isScoped && payrollRuntime?.getCurrentView?.()?.projectId !== startingProjectId) {
+        return;
+    }
     const item = buildDesktopAdjustment(kind, draft);
+    if (isScoped && startingProjectId) {
+        item.projectId = startingProjectId;
+    }
     stateManager.batchSetState(() => {
         if (!state.exportConfig[kind]) state.exportConfig[kind] = [];
         state.exportConfig[kind].push(item);
@@ -1535,7 +2165,11 @@ export async function addDesktopAdjustment(kind, target) {
     });
     if (item.remembered) persistAdjustmentDefault(kind, null, item);
     window.showNotification?.(`${adjustmentKindLabel(kind)} agregada.`, 'success');
-    context.render();
+    if (isScoped) {
+        await refreshScopedPayrollPreview();
+    } else {
+        context.render();
+    }
 }
 
 function notifyScheduledSelectionChanged() {
@@ -1548,13 +2182,24 @@ function notifyScheduledSelectionChanged() {
 
 function getScheduledSelectionPlan(state, reference) {
     if (!reference || reference.referenceType !== 'plan' ||
-        !['deductions', 'bonuses'].includes(reference.kind) ||
-        reference.periodStart !== String(state.exportConfig?.periodStart || '') ||
-        reference.periodEnd !== String(state.exportConfig?.periodEnd || '')) {
+        !['deductions', 'bonuses'].includes(reference.kind)) {
         return null;
     }
+    const period = resolveActivePayrollPeriod(state);
+    if (reference.periodStart !== String(period?.periodStart || '') ||
+        reference.periodEnd !== String(period?.periodEnd || '')) {
+        return null;
+    }
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(scopedView?.enabled);
+    const activeProjectId = isScoped ? scopedView.projectId : null;
+    const operationScope = (isScoped && activeProjectId)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: String(activeProjectId) }
+        : null;
+
     const employee = (state.employees || []).find(item =>
-        String(item?.id) === reference.employeeId
+        String(item?.id) === reference.employeeId &&
+        (!operationScope || entityInScope(item, operationScope))
     );
     const plan = (employee?.[reference.kind] || []).find(item =>
         String(item?.id) === reference.planId
@@ -1590,17 +2235,23 @@ export function setScheduledAdjustmentPeriodSelection(referenceToken, value) {
             payrollPaidConfirmation: null
         }
     });
-    context.render();
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (scopedView?.enabled) {
+        refreshScopedPayrollPreview().catch(() => {});
+    } else {
+        context.render();
+    }
     return true;
 }
 
 export function setScheduledAdjustmentGroupPeriodSelection(referenceToken, value) {
     const reference = resolveScheduledActionReference(referenceToken);
     const state = getState();
+    const period = resolveActivePayrollPeriod(state);
     if (!reference || reference.referenceType !== 'group' ||
         !['deductions', 'bonuses'].includes(reference.kind) ||
-        reference.periodStart !== String(state.exportConfig?.periodStart || '') ||
-        reference.periodEnd !== String(state.exportConfig?.periodEnd || '') ||
+        reference.periodStart !== String(period?.periodStart || '') ||
+        reference.periodEnd !== String(period?.periodEnd || '') ||
         !Array.isArray(reference.members) || reference.members.length === 0) {
         return notifyScheduledSelectionChanged();
     }
@@ -1632,7 +2283,12 @@ export function setScheduledAdjustmentGroupPeriodSelection(referenceToken, value
             payrollPaidConfirmation: null
         }
     });
-    context.render();
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (scopedView?.enabled) {
+        refreshScopedPayrollPreview().catch(() => {});
+    } else {
+        context.render();
+    }
     return true;
 }
 
@@ -1655,9 +2311,10 @@ function cancellationMembers(reference) {
 }
 
 function prepareScheduledRemoval(state, reference) {
+    const period = resolveActivePayrollPeriod(state);
     if (!reference || !['deductions', 'bonuses'].includes(reference.kind) ||
-        reference.periodStart !== String(state.exportConfig?.periodStart || '') ||
-        reference.periodEnd !== String(state.exportConfig?.periodEnd || '')) {
+        reference.periodStart !== String(period?.periodStart || '') ||
+        reference.periodEnd !== String(period?.periodEnd || '')) {
         throw new Error('Esta lista cambió. Abre nuevamente Programados e inténtalo otra vez.');
     }
     const members = cancellationMembers(reference);
@@ -1698,7 +2355,10 @@ function prepareScheduledRemoval(state, reference) {
 }
 
 export async function removeScheduledAdjustment(referenceToken) {
-    assertTandaBBlockedWhenScoped('PayrollUI.removeScheduledAdjustment');
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(scopedView?.enabled);
+    const startingProjectId = isScoped ? scopedView.projectId : null;
+
     const initialReference = resolveScheduledActionReference(referenceToken);
     let initial;
     try {
@@ -1723,6 +2383,10 @@ export async function removeScheduledAdjustment(referenceToken) {
         type: 'warning'
     });
     if (!confirmed) return false;
+
+    if (isScoped && payrollRuntime?.getCurrentView?.()?.projectId !== startingProjectId) {
+        return notifyScheduledSelectionChanged();
+    }
 
     const confirmedReference = resolveScheduledActionReference(referenceToken);
     if (!confirmedReference || confirmedReference.projectionRevision !== initialReference.projectionRevision ||
@@ -1754,6 +2418,10 @@ export async function removeScheduledAdjustment(referenceToken) {
         return false;
     }
 
+    if (isScoped && payrollRuntime?.getCurrentView?.()?.projectId !== startingProjectId) {
+        return false;
+    }
+
     removePayrollAdjustmentPeriodRuntimeSelections(committed.members.map(member => ({
         kind: confirmedReference.kind,
         planId: member.planId,
@@ -1767,12 +2435,19 @@ export async function removeScheduledAdjustment(referenceToken) {
             : 'Programación eliminada.',
         'success'
     );
-    context.render();
+    if (isScoped) {
+        await refreshScopedPayrollPreview();
+    } else {
+        context.render();
+    }
     return true;
 }
 
 export async function setScheduledAdjustmentPaused(referenceToken, paused) {
-    assertTandaBBlockedWhenScoped('PayrollUI.setScheduledAdjustmentPaused');
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(scopedView?.enabled);
+    const startingProjectId = isScoped ? scopedView.projectId : null;
+
     const planReference = resolveScheduledActionReference(referenceToken);
     if (!planReference) {
         window.showNotification?.(
@@ -1792,6 +2467,10 @@ export async function setScheduledAdjustmentPaused(referenceToken, paused) {
             type: 'warning'
         });
         if (!confirmed) return false;
+    }
+
+    if (isScoped && payrollRuntime?.getCurrentView?.()?.projectId !== startingProjectId) {
+        return notifyScheduledSelectionChanged();
     }
 
     const confirmedReference = resolveScheduledActionReference(referenceToken);
@@ -1849,21 +2528,36 @@ export async function setScheduledAdjustmentPaused(referenceToken, paused) {
         return false;
     }
 
+    if (isScoped && payrollRuntime?.getCurrentView?.()?.projectId !== startingProjectId) {
+        return false;
+    }
+
     window.showNotification?.(
         paused ? 'Pago programado pausado.' : 'Pago programado reanudado.',
         'success'
     );
-    context.render();
+    if (isScoped) {
+        await refreshScopedPayrollPreview();
+    } else {
+        context.render();
+    }
     return true;
 }
 
 export function updateDesktopAdjustment(kind, target) {
-    assertTandaBBlockedWhenScoped('PayrollUI.updateDesktopAdjustment');
     if (!['deductions', 'bonuses'].includes(kind)) return;
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(scopedView?.enabled);
+    const startingProjectId = isScoped ? scopedView.projectId : null;
+
     const index = Number(target?.dataset.index);
     const state = getState();
     const previous = state.exportConfig[kind]?.[index];
     if (!previous) return;
+
+    if (isScoped && payrollRuntime?.getCurrentView?.()?.projectId !== startingProjectId) {
+        return;
+    }
 
     const form = target.closest('.payroll-adjustment-form');
     const draft = readAdjustmentForm(form);
@@ -1874,6 +2568,9 @@ export function updateDesktopAdjustment(kind, target) {
     }
 
     const next = buildDesktopAdjustment(kind, draft, previous);
+    if (isScoped && startingProjectId) {
+        next.projectId = startingProjectId;
+    }
     stateManager.batchSetState(() => {
         state.exportConfig[kind][index] = next;
         state.exportConfig.payrollAdjustmentComposerScopes = {
@@ -1885,16 +2582,27 @@ export function updateDesktopAdjustment(kind, target) {
         persistAdjustmentDefault(kind, previous, next);
     }
     window.showNotification?.(`${adjustmentKindLabel(kind)} actualizada.`, 'success');
-    context.render();
+    if (isScoped) {
+        refreshScopedPayrollPreview().catch(() => {});
+    } else {
+        context.render();
+    }
 }
 
 export function removeDesktopAdjustment(kind, target) {
-    assertTandaBBlockedWhenScoped('PayrollUI.removeDesktopAdjustment');
     if (!['deductions', 'bonuses'].includes(kind)) return;
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(scopedView?.enabled);
+    const startingProjectId = isScoped ? scopedView.projectId : null;
+
     const index = Number(target?.dataset.index);
     const state = getState();
     const item = state.exportConfig[kind]?.[index];
     if (!item) return;
+
+    if (isScoped && payrollRuntime?.getCurrentView?.()?.projectId !== startingProjectId) {
+        return;
+    }
 
     stateManager.batchSetState(() => {
         state.exportConfig[kind].splice(index, 1);
@@ -1903,7 +2611,11 @@ export function removeDesktopAdjustment(kind, target) {
         persistAdjustmentDefault(kind, item, null);
     }
     window.showNotification?.(`${adjustmentKindLabel(kind)} eliminada.`, 'success');
-    context.render();
+    if (isScoped) {
+        refreshScopedPayrollPreview().catch(() => {});
+    } else {
+        context.render();
+    }
 }
 
 function generateExportDeductionsHTML() {
@@ -1999,79 +2711,96 @@ export function addExportDeduction() {
 }
 
 export function removeExportDeduction(index) {
-    assertTandaBBlockedWhenScoped('PayrollUI.removeExportDeduction');
     const state = getState();
+    const scopedView = getScopedPayrollView();
     const item = state.exportConfig.deductions?.[index];
     if (item && !item.employeeId && item.id) {
-        stateManager.batchSetState(() => {
-            state.settings.payrollDefaults = updateRememberedDefault(state.settings, 'deductions', item, false);
-        });
-        context.saveToLocalStorage({ immediate: true, announce: false });
+        persistAdjustmentDefault('deductions', item, null);
     }
-    state.exportConfig.deductions.splice(index, 1);
-    context.render();
-}
-
-function syncRememberedAdjustment(kind, item, immediate = false) {
-    if (!item || item.employeeId || !item.remembered) return;
-    const state = getState();
     stateManager.batchSetState(() => {
-        state.settings.payrollDefaults = updateRememberedDefault(state.settings, kind, item, true);
+        state.exportConfig.deductions.splice(index, 1);
     });
-    context.saveToLocalStorage(immediate ? { immediate: true, announce: false } : undefined);
-}
-
-export function toggleRememberGlobalAdjustment(kind, index, checked) {
-    assertTandaBBlockedWhenScoped('PayrollUI.toggleRememberGlobalAdjustment');
-    if (!['deductions', 'bonuses'].includes(kind)) return;
-    const state = getState();
-    const item = state.exportConfig[kind]?.[index];
-    if (!item || item.employeeId) return;
-    if (checked && !item.id) item.id = `${kind === 'deductions' ? 'DED' : 'BON'}-${Date.now()}-${index}`;
-    item.remembered = Boolean(checked);
-    stateManager.batchSetState(() => {
-        state.settings.payrollDefaults = updateRememberedDefault(state.settings, kind, item, checked);
-    });
-    context.saveToLocalStorage({ immediate: true, announce: false });
-    context.render();
-}
-
-export function updateExportDeductionType(index, type) {
-    assertTandaBBlockedWhenScoped('PayrollUI.updateExportDeductionType');
-    const state = getState();
-    const deductions = state.exportConfig.deductions;
-    if (deductions && deductions[index]) {
-        deductions[index].type = type;
-        syncRememberedAdjustment('deductions', deductions[index]);
+    if (scopedView?.enabled) {
+        refreshScopedPayrollPreview().catch(() => {});
+    } else {
         context.render();
     }
 }
 
-export function updateExportDeductionValue(index, value) {
-    assertTandaBBlockedWhenScoped('PayrollUI.updateExportDeductionValue');
+function syncRememberedAdjustment(kind, item, immediate = false) {
+    if (!item || item.employeeId || !item.remembered) return;
+    persistAdjustmentDefault(kind, null, item);
+    if (!getScopedPayrollView()?.enabled) {
+        context.saveToLocalStorage(immediate ? { immediate: true, announce: false } : undefined);
+    }
+}
+
+export function toggleRememberGlobalAdjustment(kind, index, checked) {
+    if (!['deductions', 'bonuses'].includes(kind)) return;
     const state = getState();
+    const scopedView = getScopedPayrollView();
+    const item = state.exportConfig[kind]?.[index];
+    if (!item || item.employeeId) return;
+    if (checked && !item.id) item.id = `${kind === 'deductions' ? 'DED' : 'BON'}-${Date.now()}-${index}`;
+    const previous = { ...item };
+    item.remembered = Boolean(checked);
+    persistAdjustmentDefault(kind, previous, checked ? item : null);
+    if (scopedView?.enabled) {
+        refreshScopedPayrollPreview().catch(() => {});
+    } else {
+        context.saveToLocalStorage({ immediate: true, announce: false });
+        context.render();
+    }
+}
+
+export function updateExportDeductionType(index, type) {
+    const state = getState();
+    const scopedView = getScopedPayrollView();
     const deductions = state.exportConfig.deductions;
     if (deductions && deductions[index]) {
-        // Guardar el número directamente en el estado
-        deductions[index].value = parseFloat(value) || 0;
+        stateManager.batchSetState(() => {
+            deductions[index].type = type;
+        });
         syncRememberedAdjustment('deductions', deductions[index]);
-        
-        // No llamamos a render aquí para evitar perder el foco mientras se escribe (oninput)
-        // El proxy de AppState se encargará de cualquier efecto secundario si es necesario, 
-        // pero preferimos re-renderizar solo cuando el usuario termine o cambie de sección.
-        // ACTUALIZACIÓN: Para ver los cambios en la tabla de vista previa, necesitamos un render debounced.
-        window.renderOptimizer.scheduleRender(() => context.render());
+        if (scopedView?.enabled) {
+            refreshScopedPayrollPreview().catch(() => {});
+        } else {
+            context.render();
+        }
+    }
+}
+
+export function updateExportDeductionValue(index, value) {
+    const state = getState();
+    const scopedView = getScopedPayrollView();
+    const deductions = state.exportConfig.deductions;
+    if (deductions && deductions[index]) {
+        stateManager.batchSetState(() => {
+            deductions[index].value = parseFloat(value) || 0;
+        });
+        syncRememberedAdjustment('deductions', deductions[index]);
+        if (scopedView?.enabled) {
+            refreshScopedPayrollPreview().catch(() => {});
+        } else {
+            window.renderOptimizer.scheduleRender(() => context.render());
+        }
     }
 }
 
 export function updateExportDeductionName(index, value) {
-    assertTandaBBlockedWhenScoped('PayrollUI.updateExportDeductionName');
     const state = getState();
+    const scopedView = getScopedPayrollView();
     const deductions = state.exportConfig.deductions;
     if (deductions && deductions[index]) {
-        deductions[index].name = value;
+        stateManager.batchSetState(() => {
+            deductions[index].name = value;
+        });
         syncRememberedAdjustment('deductions', deductions[index]);
-        window.renderOptimizer.scheduleRender(() => context.render());
+        if (scopedView?.enabled) {
+            refreshScopedPayrollPreview().catch(() => {});
+        } else {
+            window.renderOptimizer.scheduleRender(() => context.render());
+        }
     }
 }
 
@@ -2236,49 +2965,70 @@ export function addExportBonus() {
 }
 
 export function removeExportBonus(index) {
-    assertTandaBBlockedWhenScoped('PayrollUI.removeExportBonus');
     const state = getState();
+    const scopedView = getScopedPayrollView();
     const item = state.exportConfig.bonuses?.[index];
     if (item && !item.employeeId && item.id) {
-        stateManager.batchSetState(() => {
-            state.settings.payrollDefaults = updateRememberedDefault(state.settings, 'bonuses', item, false);
-        });
-        context.saveToLocalStorage({ immediate: true, announce: false });
+        persistAdjustmentDefault('bonuses', item, null);
     }
-    state.exportConfig.bonuses.splice(index, 1);
-    context.render();
-}
-
-export function updateExportBonusType(index, type) {
-    assertTandaBBlockedWhenScoped('PayrollUI.updateExportBonusType');
-    const state = getState();
-    const bonuses = state.exportConfig.bonuses;
-    if (bonuses && bonuses[index]) {
-        bonuses[index].type = type;
-        syncRememberedAdjustment('bonuses', bonuses[index]);
+    stateManager.batchSetState(() => {
+        state.exportConfig.bonuses.splice(index, 1);
+    });
+    if (scopedView?.enabled) {
+        refreshScopedPayrollPreview().catch(() => {});
+    } else {
         context.render();
     }
 }
 
-export function updateExportBonusValue(index, value) {
-    assertTandaBBlockedWhenScoped('PayrollUI.updateExportBonusValue');
+export function updateExportBonusType(index, type) {
     const state = getState();
+    const scopedView = getScopedPayrollView();
     const bonuses = state.exportConfig.bonuses;
     if (bonuses && bonuses[index]) {
-        bonuses[index].value = parseFloat(value) || 0;
+        stateManager.batchSetState(() => {
+            bonuses[index].type = type;
+        });
         syncRememberedAdjustment('bonuses', bonuses[index]);
-        window.renderOptimizer.scheduleRender(() => context.render());
+        if (scopedView?.enabled) {
+            refreshScopedPayrollPreview().catch(() => {});
+        } else {
+            context.render();
+        }
+    }
+}
+
+export function updateExportBonusValue(index, value) {
+    const state = getState();
+    const scopedView = getScopedPayrollView();
+    const bonuses = state.exportConfig.bonuses;
+    if (bonuses && bonuses[index]) {
+        stateManager.batchSetState(() => {
+            bonuses[index].value = parseFloat(value) || 0;
+        });
+        syncRememberedAdjustment('bonuses', bonuses[index]);
+        if (scopedView?.enabled) {
+            refreshScopedPayrollPreview().catch(() => {});
+        } else {
+            window.renderOptimizer.scheduleRender(() => context.render());
+        }
     }
 }
 
 export function updateExportBonusName(index, value) {
-    assertTandaBBlockedWhenScoped('PayrollUI.updateExportBonusName');
     const state = getState();
+    const scopedView = getScopedPayrollView();
     const bonuses = state.exportConfig.bonuses;
     if (bonuses && bonuses[index]) {
-        bonuses[index].name = value;
+        stateManager.batchSetState(() => {
+            bonuses[index].name = value;
+        });
         syncRememberedAdjustment('bonuses', bonuses[index]);
-        window.renderOptimizer.scheduleRender(() => context.render());
+        if (scopedView?.enabled) {
+            refreshScopedPayrollPreview().catch(() => {});
+        } else {
+            window.renderOptimizer.scheduleRender(() => context.render());
+        }
     }
 }
 
@@ -2354,16 +3104,33 @@ export function addEmployeeBonusFromForm() {
 // ---------------------- PRÉSTAMOS TEMPORALES DE NÓMINA ----------------------
 
 export function addPayrollLoansToExport() {
-    assertTandaBBlockedWhenScoped('PayrollUI.addPayrollLoansToExport');
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (isProjectsEnabled()) {
+        const activePid = (scopedView?.enabled && scopedView.status === 'ready' && scopedView.projectId)
+            ? String(scopedView.projectId).trim()
+            : null;
+        if (!activePid || activePid.startsWith('legacy-unresolved:')) {
+            assertTandaBBlockedWhenScoped('PayrollUI.addPayrollLoansToExport');
+        }
+    }
     const state = getState();
-    const eligibleEmployees = getLeaderFilteredEmployees(state);
-    const selection = buildPayrollLoanSelection(eligibleEmployees, state.exportConfig.periodEnd);
+    let eligibleEmployees = getLeaderFilteredEmployees(state);
+    if (isProjectsEnabled() && scopedView?.projectId) {
+        const activePid = String(scopedView.projectId).trim();
+        const opScope = { ...captureEntityProjectScope(), enabled: true, projectId: activePid };
+        eligibleEmployees = eligibleEmployees.filter(e => entityInScope(e, opScope));
+    }
+    const effectivePeriodEnd = (isProjectsEnabled() && scopedView?.period?.periodEnd)
+        ? scopedView.period.periodEnd
+        : state.exportConfig.periodEnd;
+    const selection = buildPayrollLoanSelection(eligibleEmployees, effectivePeriodEnd);
     stateManager.batchSetState(() => {
         state.exportConfig.payrollLoanSelection = selection;
     });
 
     if (window.showNotification) {
-        const invalidRows = getInvalidPayrollLoanRows(generateExportData());
+        const previewRows = isProjectsEnabled() ? getScopedEffectivePreviewRows(scopedView, state) : generateExportData();
+        const invalidRows = getInvalidPayrollLoanRows(previewRows);
         if (invalidRows.length > 0) {
             window.showNotification(
                 `❌ ${invalidRows.length} pago(s) quedan en cero o negativo. Elimina sus préstamos temporales.`,
@@ -2394,6 +3161,10 @@ export function removeEmployeePayrollLoans(employeeId) {
 // ---------------------- PERIODOS DE EXPORTACIÓN ----------------------
 
 export function updateExportPeriod(type, value) {
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (scopedView?.enabled) {
+        return updateScopedPeriod(type, value);
+    }
     const state = getState();
     clearPayrollAdjustmentPeriodRuntime();
     stateManager.batchSetState(() => {
@@ -2426,13 +3197,24 @@ export function togglePayrollPreviewCategory(category, checked) {
     });
     context.render();
     queueMicrotask(() => {
-        document.querySelector(`[data-payroll-action="toggle-payroll-preview-category"][data-value="${category}"]`)?.focus?.();
+        const target = document.querySelector(`[data-payroll-action="toggle-payroll-preview-category"][data-value="${category}"]`);
+        if (target) {
+            try {
+                target.focus({ preventScroll: true });
+            } catch {
+                target.focus();
+            }
+        }
         const net = generateExportData().reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
         window.showNotification?.(`Vista previa actualizada: neto ${formatCurrency(net)}`, 'info');
     });
 }
 
 export function setExportPreset(preset) {
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (scopedView?.enabled) {
+        return setScopedPreset(preset);
+    }
     const state = getState();
     clearPayrollAdjustmentPeriodRuntime();
     const today = new Date();
@@ -2483,8 +3265,16 @@ export function setExportPreset(preset) {
     context.render();
 }
 
+function getEffectiveExportRows() {
+    const scopedView = getScopedPayrollView();
+    if (scopedView?.enabled) {
+        return getScopedEffectivePreviewRows(scopedView, getState());
+    }
+    return generateExportData();
+}
+
 function getSplitXExportData() {
-    const previewRows = generateExportData();
+    const previewRows = getEffectiveExportRows();
     const invalidRows = getInvalidPayrollLoanRows(previewRows);
     if (invalidRows.length > 0) {
         if (window.showNotification) {
@@ -2499,35 +3289,40 @@ function getSplitXExportData() {
 }
 
 export function copyExportJSON() {
-    assertTandaBBlockedWhenScoped('PayrollUI.copyExportJSON');
     const data = getSplitXExportData();
     if (!data) return;
     const json = JSON.stringify(data, null, 2);
-    navigator.clipboard.writeText(json).then(() => {
-        if (window.showNotification) window.showNotification('✅ Datos para SplitX copiados', 'success');
-    }).catch(() => {
-        if (window.showNotification) window.showNotification('❌ No se pudo copiar al portapapeles', 'error');
-    });
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(json).then(() => {
+            if (window.showNotification) window.showNotification('✅ Datos para SplitX copiados', 'success');
+        }).catch(() => {
+            if (window.showNotification) window.showNotification('❌ No se pudo copiar al portapapeles', 'error');
+        });
+    } else if (window.showNotification) {
+        window.showNotification('❌ No se pudo copiar al portapapeles', 'error');
+    }
 }
 
 export function downloadExportJSON() {
-    assertTandaBBlockedWhenScoped('PayrollUI.downloadExportJSON');
     const data = getSplitXExportData();
     if (!data) return;
+    const scopedView = getScopedPayrollView();
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `nomina_${getDateKey(new Date())}.json`;
+    const dateSuffix = scopedView?.enabled && scopedView?.period?.periodEnd
+        ? scopedView.period.periodEnd
+        : getDateKey(new Date());
+    a.download = `nomina_${dateSuffix}.json`;
     a.click();
     URL.revokeObjectURL(url);
     if (window.showNotification) window.showNotification('✅ Archivo para SplitX descargado', 'success');
 }
 
 export async function exportPayrollPDF() {
-    assertTandaBBlockedWhenScoped('PayrollUI.exportPayrollPDF');
-    const previewRows = generateExportData();
+    const previewRows = getEffectiveExportRows();
     if (!previewRows || previewRows.length === 0) {
         if (window.showNotification) {
             window.showNotification('❌ No hay datos para exportar', 'error');
@@ -2547,9 +3342,16 @@ export async function exportPayrollPDF() {
     }
 
     const state = getState();
-    const companyName = state?.settings?.companyName || 'Empresa';
-    const periodStart = state?.exportConfig?.periodStart || '';
-    const periodEnd = state?.exportConfig?.periodEnd || '';
+    const scopedView = getScopedPayrollView();
+    const companyName = scopedView?.enabled
+        ? (scopedView.projectName || state?.settings?.companyName || 'Empresa')
+        : (state?.settings?.companyName || 'Empresa');
+    const periodStart = scopedView?.enabled
+        ? (scopedView.period?.periodStart || state?.exportConfig?.periodStart || '')
+        : (state?.exportConfig?.periodStart || '');
+    const periodEnd = scopedView?.enabled
+        ? (scopedView.period?.periodEnd || state?.exportConfig?.periodEnd || '')
+        : (state?.exportConfig?.periodEnd || '');
 
     const grossAmount = previewRows.reduce((sum, item) => sum + (Number(item._brutoOriginal) || 0), 0);
     const bonusAmount = previewRows.reduce((sum, item) => sum + (Number(item._bonuses) || 0), 0);
@@ -2737,11 +3539,11 @@ export async function exportPayrollPDF() {
 }
 
 export function sendToSplitX(targetUrl) {
-    assertTandaBBlockedWhenScoped('PayrollUI.sendToSplitX');
     const data = getSplitXExportData();
     if (!data || data.length === 0) return null;
 
     const state = getState();
+    const scopedView = getScopedPayrollView();
     const resolvedTargetUrl = targetUrl || state?.settings?.splitxUrl || 'https://splitx.erlin.do';
     let targetOrigin;
     try {
@@ -2752,8 +3554,12 @@ export function sendToSplitX(targetUrl) {
 
     const currency = state?.settings?.currency || 'DOP';
     const period = {
-        start: state?.exportConfig?.periodStart || null,
-        end: state?.exportConfig?.periodEnd || null
+        start: scopedView?.enabled
+            ? (scopedView.period?.periodStart || null)
+            : (state?.exportConfig?.periodStart || null),
+        end: scopedView?.enabled
+            ? (scopedView.period?.periodEnd || null)
+            : (state?.exportConfig?.periodEnd || null)
     };
 
     const transferId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
@@ -2768,6 +3574,7 @@ export function sendToSplitX(targetUrl) {
         timestamp: new Date().toISOString(),
         currency,
         period,
+        ...(scopedView?.enabled && scopedView?.projectId ? { projectId: scopedView.projectId, projectName: scopedView.projectName } : {}),
         employees: data,
         data: data,
         payroll: data,
@@ -2918,11 +3725,19 @@ export function clearPayrollLoans() {
     updatePayrollLoanSelection([]);
 }
 
+function getEffectivePayrollPeriodEnd(state) {
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    return (isProjectsEnabled() && scopedView?.period?.periodEnd)
+        ? scopedView.period.periodEnd
+        : state.exportConfig.periodEnd;
+}
+
 export function toggleEmployeePayrollLoans(employeeId) {
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
     if (!employee) return;
-    const eligibleLoans = getEligiblePayrollLoans(employee, state.exportConfig.periodEnd);
+    const periodEnd = getEffectivePayrollPeriodEnd(state);
+    const eligibleLoans = getEligiblePayrollLoans(employee, periodEnd);
     const current = (state.exportConfig.payrollLoanSelection || [])
         .find(item => String(item.employeeId) === String(employee.id));
     const selectedCounts = new Map(
@@ -2944,8 +3759,9 @@ export function toggleEmployeePayrollLoans(employeeId) {
 export function togglePayrollLoanSelection(employeeId, loanId) {
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    const periodEnd = getEffectivePayrollPeriodEnd(state);
     const loan = employee
-        ? getEligiblePayrollLoans(employee, state.exportConfig.periodEnd)
+        ? getEligiblePayrollLoans(employee, periodEnd)
             .find(item => String(item.loanId) === String(loanId))
         : null;
     if (!employee || !loan) return;
@@ -2964,8 +3780,9 @@ export function togglePayrollLoanSelection(employeeId, loanId) {
 export function adjustPayrollLoanChargeCount(employeeId, loanId, delta) {
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    const periodEnd = getEffectivePayrollPeriodEnd(state);
     const loan = employee
-        ? getEligiblePayrollLoans(employee, state.exportConfig.periodEnd)
+        ? getEligiblePayrollLoans(employee, periodEnd)
             .find(item => String(item.loanId) === String(loanId))
         : null;
     if (!employee || !loan) return;
@@ -2988,8 +3805,9 @@ export function adjustPayrollLoanChargeCount(employeeId, loanId, delta) {
 export function selectAllPayrollLoanCharges(employeeId, loanId) {
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    const periodEnd = getEffectivePayrollPeriodEnd(state);
     const loan = employee
-        ? getEligiblePayrollLoans(employee, state.exportConfig.periodEnd)
+        ? getEligiblePayrollLoans(employee, periodEnd)
             .find(item => String(item.loanId) === String(loanId))
         : null;
     if (!employee || !loan) return;
@@ -3004,16 +3822,25 @@ export function selectAllPayrollLoanCharges(employeeId, loanId) {
 
 function currentPayrollClosureState({ activeClosures = null, historyReady = null, ignoreInProgress = false } = {}) {
     const state = getState();
-    const rows = generateExportData();
-    const fingerprint = buildPayrollPreviewFingerprint({
-        periodStart: state.exportConfig.periodStart,
-        periodEnd: state.exportConfig.periodEnd,
-        rows
-    });
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(isProjectsEnabled() && scopedView?.enabled && scopedView.status === 'ready' && scopedView.projectId);
+    const rows = isScoped ? getScopedEffectivePreviewRows(scopedView, state) : generateExportData();
+    const periodStart = isScoped
+        ? (scopedView.period?.periodStart || state.exportConfig.periodStart)
+        : state.exportConfig.periodStart;
+    const periodEnd = isScoped
+        ? (scopedView.period?.periodEnd || state.exportConfig.periodEnd)
+        : state.exportConfig.periodEnd;
+    const projectId = isScoped ? scopedView.projectId : null;
+
+    const fingerprint = isScoped
+        ? buildPayrollPreviewFingerprint({ projectId, periodStart, periodEnd, rows })
+        : buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
     const cache = activeClosures === null
         ? requestPayrollPeriodClosures(
-            state.exportConfig.periodStart,
-            state.exportConfig.periodEnd
+            periodStart,
+            periodEnd,
+            { projectId }
         )
         : { items: activeClosures, ready: historyReady !== false, error: null };
     let gate = getPayrollClosureGate({
@@ -3026,27 +3853,42 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
         inProgress: ignoreInProgress ? false : payrollClosureInProgress
     });
     if (cache.error) gate = { ...gate, enabled: false, reason: 'history-error' };
-    return { state, rows, fingerprint, activeClosures: cache.items, gate };
+    return { state, rows, fingerprint, activeClosures: cache.items, gate, isScoped, projectId, periodStart, periodEnd };
 }
 
-async function loadCurrentPayrollClosureState({ ignoreInProgress = false } = {}) {
+async function loadCurrentPayrollClosureState({ ignoreInProgress = false, startingProjectId = null } = {}) {
     const state = getState();
-    const periodStart = state.exportConfig.periodStart;
-    const periodEnd = state.exportConfig.periodEnd;
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    const isScoped = Boolean(isProjectsEnabled() && scopedView?.enabled && scopedView.status === 'ready' && scopedView.projectId);
+    const periodStart = isScoped
+        ? (scopedView.period?.periodStart || state.exportConfig.periodStart)
+        : state.exportConfig.periodStart;
+    const periodEnd = isScoped
+        ? (scopedView.period?.periodEnd || state.exportConfig.periodEnd)
+        : state.exportConfig.periodEnd;
+    const projectId = isScoped ? scopedView.projectId : null;
+
     if (!canUsePayrollRemote()) {
         throw new Error('Conectate para verificar que este período no tenga un cierre remoto.');
     }
     await payrollClosureSync.pullPeriod(periodStart, periodEnd);
+    if (isProjectsEnabled() && startingProjectId) {
+        ensurePayrollScopeNotStale(startingProjectId);
+    }
     const activeClosures = await payrollClosureStore.getByPeriod(
         periodStart,
         periodEnd
     );
+    if (isProjectsEnabled() && startingProjectId) {
+        ensurePayrollScopeNotStale(startingProjectId);
+    }
     payrollPeriodClosureCache = {
-        key: payrollPeriodKey(periodStart, periodEnd),
+        key: payrollPeriodKey(periodStart, periodEnd, projectId),
         items: activeClosures,
         ready: true,
         loading: false,
-        error: null
+        error: null,
+        availabilityKey: getPayrollRemoteAvailability().key
     };
     return currentPayrollClosureState({
         activeClosures,
@@ -3056,7 +3898,12 @@ async function loadCurrentPayrollClosureState({ ignoreInProgress = false } = {})
 }
 
 export function togglePayrollPaidConfirmation(checked) {
-    assertTandaBBlockedWhenScoped('PayrollUI.togglePayrollPaidConfirmation');
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (isProjectsEnabled()) {
+        if (!scopedView?.enabled || scopedView.status !== 'ready' || !scopedView.projectId) {
+            assertTandaBBlockedWhenScoped('PayrollUI.togglePayrollPaidConfirmation');
+        }
+    }
     const current = currentPayrollClosureState();
     if (!checked) {
         stateManager.setState({
@@ -3065,6 +3912,9 @@ export function togglePayrollPaidConfirmation(checked) {
                 payrollPaidConfirmation: null
             }
         });
+        if (current.state?.exportConfig) {
+            current.state.exportConfig.payrollPaidConfirmation = null;
+        }
         context.render();
         return;
     }
@@ -3077,12 +3927,16 @@ export function togglePayrollPaidConfirmation(checked) {
         context.render();
         return;
     }
+    const confirmed = confirmPayrollPaid(current.fingerprint);
     stateManager.setState({
         exportConfig: {
             ...current.state.exportConfig,
-            payrollPaidConfirmation: confirmPayrollPaid(current.fingerprint)
+            payrollPaidConfirmation: confirmed
         }
     });
+    if (current.state?.exportConfig) {
+        current.state.exportConfig.payrollPaidConfirmation = confirmed;
+    }
     if (window.showNotification) {
         window.showNotification('✅ Nómina marcada como pagada para esta vista previa', 'success');
     }
@@ -3095,7 +3949,8 @@ function PayrollHistoryTab() {
     }
     return renderPayrollHistoryView({
         ...payrollHistoryState,
-        currentEmployees: getState().employees || []
+        currentEmployees: getState().employees || [],
+        readOnly: isTandaBBlocked() || isPayrollHistoryDetailReadOnly(payrollHistoryState.selectedClosure)
     });
 }
 
@@ -3108,7 +3963,6 @@ function payrollHistorySummary(item = {}) {
 }
 
 export async function loadPayrollHistory({ direction = 'current', force = false } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollUI.loadPayrollHistory');
     if (payrollHistoryState.loading && !force) return;
     if (direction === 'previous') {
         const previousIndex = payrollHistoryState.pageIndex - 1;
@@ -3255,12 +4109,17 @@ function focusPayrollHistoryControl(action, id = null) {
         const target = id === null
             ? controls[0]
             : [...controls].find(control => String(control.dataset.id) === String(id));
-        target?.focus?.();
+        if (target) {
+            try {
+                target.focus({ preventScroll: true });
+            } catch {
+                target.focus();
+            }
+        }
     });
 }
 
 export async function openPayrollHistoryDetail(closureId) {
-    assertTandaBBlockedWhenScoped('PayrollUI.openPayrollHistoryDetail');
     const id = String(closureId || '');
     if (!id) return;
     stateManager.setState({ payrollViewMode: 'history' });
@@ -3278,6 +4137,13 @@ export async function openPayrollHistoryDetail(closureId) {
     };
     context?.render?.();
     try {
+        if (isProjectsEnabled() && payrollRuntime?.ensureCurrentConfig) {
+            try {
+                await payrollRuntime.ensureCurrentConfig();
+            } catch (_) {
+                // History detail can still be viewed in read-only mode when config is unavailable
+            }
+        }
         const closure = canUsePayrollRemote() && loaded?.syncStatus === 'synced'
             ? await payrollClosureSync.pullDetail(id)
             : await payrollClosureStore.getById(id);
@@ -3339,31 +4205,55 @@ export function preparePayrollCorrection(closureId) {
 }
 
 export async function openPayrollClosure() {
-    assertTandaBBlockedWhenScoped('PayrollUI.openPayrollClosure');
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (isProjectsEnabled()) {
+        const activePid = (scopedView?.enabled && scopedView.status === 'ready' && scopedView.projectId)
+            ? String(scopedView.projectId).trim()
+            : null;
+        if (!activePid || activePid.startsWith('legacy-unresolved:')) {
+            assertTandaBBlockedWhenScoped('PayrollUI.openPayrollClosure');
+        }
+    }
+    const startingScope = captureEntityProjectScope();
+    const startingProjectId = (isProjectsEnabled() && startingScope?.enabled && startingScope?.projectId)
+        ? String(startingScope.projectId).trim()
+        : null;
     if (payrollClosureInProgress) return;
     payrollClosureInProgress = true;
     try {
-        const current = await loadCurrentPayrollClosureState({ ignoreInProgress: true });
+        const current = await loadCurrentPayrollClosureState({ ignoreInProgress: true, startingProjectId });
+        if (isProjectsEnabled() && startingProjectId) {
+            ensurePayrollScopeNotStale(startingProjectId);
+        }
         if (!current.gate.enabled) {
             window.showNotification?.('⚠️ El cierre de nómina todavía no está habilitado.', 'warning');
             return;
         }
+        const capturedProjectId = current.projectId || null;
+        const capturedRequest = scopedView?.request || null;
         const draft = buildPayrollClosureDraft({
             employees: current.state.employees,
             rows: current.rows,
-            periodStart: current.state.exportConfig.periodStart,
-            periodEnd: current.state.exportConfig.periodEnd,
+            periodStart: current.periodStart,
+            periodEnd: current.periodEnd,
             periodSource: current.state.exportConfig.periodSource,
             closedAt: Date.now(),
             closedBy: settlementOperatorId(),
             bonuses: current.state.exportConfig.bonuses,
             deductions: current.state.exportConfig.deductions,
-            supersedesId: current.gate.nextSupersedesId
+            supersedesId: current.gate.nextSupersedesId,
+            ...(capturedProjectId ? { projectId: capturedProjectId } : {})
         });
         const verified = await openPayrollClosureModal(draft);
         if (!verified) return;
+        if (isProjectsEnabled() && startingProjectId) {
+            ensurePayrollScopeNotStale(startingProjectId);
+        }
 
-        const latest = await loadCurrentPayrollClosureState({ ignoreInProgress: true });
+        const latest = await loadCurrentPayrollClosureState({ ignoreInProgress: true, startingProjectId });
+        if (isProjectsEnabled() && startingProjectId) {
+            ensurePayrollScopeNotStale(startingProjectId);
+        }
         if (!latest.gate.enabled || latest.fingerprint !== draft.closure.fingerprint) {
             throw new Error('La vista previa cambió mientras se verificaba el cierre. Revisala y confirmá la Nómina nuevamente.');
         }
@@ -3373,14 +4263,15 @@ export async function openPayrollClosure() {
         const finalized = buildPayrollClosureDraft({
             employees: employeeCopies,
             rows: latest.rows,
-            periodStart: latest.state.exportConfig.periodStart,
-            periodEnd: latest.state.exportConfig.periodEnd,
+            periodStart: latest.periodStart,
+            periodEnd: latest.periodEnd,
             periodSource: latest.state.exportConfig.periodSource,
             closedAt,
             closedBy: settlementOperatorId(),
             bonuses: latest.state.exportConfig.bonuses,
             deductions: latest.state.exportConfig.deductions,
-            supersedesId: latest.gate.nextSupersedesId
+            supersedesId: latest.gate.nextSupersedesId,
+            ...(capturedProjectId ? { projectId: capturedProjectId } : {})
         });
         const effects = applyPayrollClosureEffects(employeeCopies, finalized, {
             now: closedAt,
@@ -3397,7 +4288,11 @@ export async function openPayrollClosure() {
                 schemaVersion: latest.state.settings?.schemaVersion
             }
         );
+        if (isProjectsEnabled() && startingProjectId) {
+            ensurePayrollScopeNotStale(startingProjectId);
+        }
 
+        const isCurrent = !isProjectsEnabled() || (payrollRuntime?.isCurrent?.(capturedRequest) ?? true);
         const nextExportConfig = {
             ...consumePayrollClosureAdjustments(latest.state.exportConfig, savedClosure),
             payrollPaidConfirmation: null,
@@ -3405,11 +4300,20 @@ export async function openPayrollClosure() {
             payrollLoanSelection: [],
             payrollPreviewInclusion: getPayrollPreviewInclusion()
         };
-        stateManager.setState(affectedEmployees.length > 0
-            ? { employees: employeeCopies, exportConfig: nextExportConfig }
-            : { exportConfig: nextExportConfig });
+        if (isCurrent) {
+            stateManager.setState(affectedEmployees.length > 0
+                ? { employees: employeeCopies, exportConfig: nextExportConfig }
+                : { exportConfig: nextExportConfig });
+            if (context?.state) {
+                if (affectedEmployees.length > 0) context.state.employees = employeeCopies;
+                context.state.exportConfig = nextExportConfig;
+            }
+            updatePayrollHistoryState(savedClosure);
+        } else if (affectedEmployees.length > 0) {
+            stateManager.setState({ employees: employeeCopies });
+            if (context?.state) context.state.employees = employeeCopies;
+        }
         updatePayrollPeriodClosureCache(savedClosure);
-        updatePayrollHistoryState(savedClosure);
 
         try {
             await Promise.resolve(context.saveToLocalStorage({
@@ -3420,12 +4324,17 @@ export async function openPayrollClosure() {
             console.warn('El cierre quedó guardado, pero el guardado general debe reintentarse:', error);
             window.showNotification?.('⚠️ El cierre quedó local; la sincronización general se reintentará.', 'warning');
         }
-        context.render();
+        if (isCurrent) {
+            context.render();
+        }
     } catch (error) {
         await Modal.alert({
             title: 'No se cerró la nómina',
             message: escapeHTML(error?.message || 'La información cambió. Revisá la Nómina antes de intentarlo nuevamente.')
         });
+        if (isProjectsEnabled()) {
+            throw error;
+        }
     } finally {
         payrollClosureInProgress = false;
         context?.render?.();
@@ -3433,13 +4342,54 @@ export async function openPayrollClosure() {
 }
 
 export async function undoPayrollClosure(closureId) {
-    assertTandaBBlockedWhenScoped('PayrollUI.undoPayrollClosure');
+    if (isProjectsEnabled()) {
+        const initialRequest = payrollRuntime?.beginRequest?.();
+        const activePid = (initialRequest?.enabled && initialRequest.projectId)
+            ? String(initialRequest.projectId).trim()
+            : null;
+        if (!activePid || activePid.startsWith('legacy-unresolved:') || isTandaBBlocked()) {
+            assertTandaBBlockedWhenScoped('PayrollUI.undoPayrollClosure');
+        }
+    }
+    const startingScope = captureEntityProjectScope();
+    const startingPid = (isProjectsEnabled() && startingScope?.enabled && startingScope?.projectId)
+        ? String(startingScope.projectId).trim()
+        : null;
+    const capturedRequest = (isProjectsEnabled() && payrollRuntime?.beginRequest)
+        ? payrollRuntime.beginRequest()
+        : null;
     if (payrollClosureInProgress) return;
     payrollClosureInProgress = true;
     try {
+        if (isProjectsEnabled()) {
+            try {
+                await payrollRuntime.ensureCurrentConfig(capturedRequest);
+            } catch (error) {
+                if (error?.code === 'PAYROLL_CONFIG_UNAVAILABLE') {
+                    throw error;
+                }
+                const unavailErr = new Error(error?.message || 'Payroll config unavailable');
+                unavailErr.code = 'PAYROLL_CONFIG_UNAVAILABLE';
+                unavailErr.cause = error;
+                throw unavailErr;
+            }
+            ensurePayrollScopeNotStale(startingPid, capturedRequest);
+            const readyView = payrollRuntime?.getCurrentView?.();
+            if (!readyView?.enabled || readyView.status !== 'ready' || String(readyView.projectId || '').trim() !== startingPid) {
+                const unavailErr = new Error('Payroll closure requires ready scoped runtime');
+                unavailErr.code = 'PAYROLL_CONFIG_UNAVAILABLE';
+                throw unavailErr;
+            }
+        }
         const state = getState();
         const closure = await payrollClosureStore.getById(closureId);
+        if (isProjectsEnabled() && startingPid) {
+            ensurePayrollScopeNotStale(startingPid, capturedRequest);
+        }
         if (!closure) throw new Error('No se encontró el cierre de Nómina');
+        if (isProjectsEnabled() && startingPid && String(closure.projectId || '') !== startingPid) {
+            throw new Error('El cierre de Nómina no pertenece a la obra activa');
+        }
         if (!canUsePayrollRemote()) {
             throw new Error('Conectate para verificar que este período no tenga una corrección remota.');
         }
@@ -3447,6 +4397,9 @@ export async function undoPayrollClosure(closureId) {
             closure.periodStart,
             closure.periodEnd
         );
+        if (isProjectsEnabled() && startingPid) {
+            ensurePayrollScopeNotStale(startingPid, capturedRequest);
+        }
         if (refresh.conflicts?.length) {
             throw new Error('No se pudo verificar el estado remoto de este cierre de Nómina.');
         }
@@ -3454,6 +4407,9 @@ export async function undoPayrollClosure(closureId) {
             closure.periodStart,
             closure.periodEnd
         );
+        if (isProjectsEnabled() && startingPid) {
+            ensurePayrollScopeNotStale(startingPid, capturedRequest);
+        }
         const restoredExportConfig = restorePayrollClosureAdjustments(state.exportConfig, closure);
         const employeeCopies = JSON.parse(JSON.stringify(state.employees || []));
         const result = undoPayrollClosureEffects(employeeCopies, closure, {
@@ -3468,30 +4424,62 @@ export async function undoPayrollClosure(closureId) {
             affectedEmployees,
             { enqueueCloud: true, schemaVersion: state.settings?.schemaVersion }
         );
-        stateManager.setState({
-            employees: employeeCopies,
-            exportConfig: {
-                ...restoredExportConfig,
-                payrollPaidConfirmation: null,
-                payrollCorrectionSupersedesId: null
+        if (isProjectsEnabled() && startingPid) {
+            ensurePayrollScopeNotStale(startingPid, capturedRequest);
+        }
+
+        const isCurrent = !isProjectsEnabled() || (payrollRuntime?.isCurrent?.(capturedRequest) ?? true);
+        if (isCurrent) {
+            stateManager.setState({
+                employees: employeeCopies,
+                exportConfig: {
+                    ...restoredExportConfig,
+                    payrollPaidConfirmation: null,
+                    payrollCorrectionSupersedesId: null,
+                    payrollLoanSelection: [],
+                    payrollPreviewInclusion: getPayrollPreviewInclusion()
+                }
+            });
+            if (context?.state) {
+                context.state.employees = employeeCopies;
+                context.state.exportConfig = {
+                    ...restoredExportConfig,
+                    payrollPaidConfirmation: null,
+                    payrollCorrectionSupersedesId: null,
+                    payrollLoanSelection: [],
+                    payrollPreviewInclusion: getPayrollPreviewInclusion()
+                };
             }
-        });
+            updatePayrollHistoryState(savedClosure);
+        } else if (!isProjectsEnabled() && affectedEmployees.length > 0) {
+            stateManager.setState({ employees: employeeCopies });
+            if (context?.state) {
+                context.state.employees = employeeCopies;
+            }
+        }
         updatePayrollPeriodClosureCache(savedClosure);
-        updatePayrollHistoryState(savedClosure);
         await Promise.resolve(context.saveToLocalStorage({
             immediate: true,
             announce: 'Cierre de nómina deshecho'
         }));
-        window.showNotification?.(
-            `↩️ Cierre anulado${result.voidedPaymentCount ? ` · ${result.voidedPaymentCount} pago(s) restaurado(s)` : ''}${result.voidedBonusCount || result.voidedDeductionCount ? ' · ajustes restaurados' : ''}`,
-            'info'
-        );
-        context.render();
+        if (isProjectsEnabled() && startingPid) {
+            ensurePayrollScopeNotStale(startingPid, capturedRequest);
+        }
+        if (isCurrent) {
+            window.showNotification?.(
+                `↩️ Cierre anulado${result.voidedPaymentCount ? ` · ${result.voidedPaymentCount} pago(s) restaurado(s)` : ''}${result.voidedBonusCount || result.voidedDeductionCount ? ' · ajustes restaurados' : ''}`,
+                'info'
+            );
+            context.render();
+        }
     } catch (error) {
         await Modal.alert({
             title: 'No se puede deshacer',
             message: escapeHTML(error?.message || 'El cierre no se puede deshacer de forma segura.')
         });
+        if (isProjectsEnabled()) {
+            throw error;
+        }
     } finally {
         payrollClosureInProgress = false;
         context?.render?.();

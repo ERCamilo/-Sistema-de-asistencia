@@ -51,16 +51,33 @@ import {
 } from './LoansService.js';
 import { detectLoanDuplicateCandidates } from './LoanDuplicateDetector.js';
 import { isPendingUpload } from '../../services/EntitiesSyncStamp.js';
+import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import {
     getInstallmentPaymentChoices,
     resolveLoanPaymentDraft,
     PAYMENT_PLAN_MODE
 } from './LoanPaymentPlan.js';
 
+function getScopedLoanEmployees() {
+    const projectScope = peekEntityScope();
+    return (state.employees || []).filter(employee => entityInScope(employee, projectScope));
+}
+
+function getScopedLoansState() {
+    return { ...state, employees: getScopedLoanEmployees() };
+}
+
+function findScopedLoanEmployee(employeeId) {
+    return getScopedLoanEmployees().find(employee => String(employee.id) === String(employeeId)) || null;
+}
+
 export function LoansLedger() {
     const ledger = state.loansLedger || {};
-    const body = ledger.selectedEmployeeId
-        ? EmployeeLoansDetail(ledger.selectedEmployeeId)
+    const selectedEmployee = ledger.selectedEmployeeId
+        ? findScopedLoanEmployee(ledger.selectedEmployeeId)
+        : null;
+    const body = selectedEmployee
+        ? EmployeeLoansDetail(selectedEmployee.id)
         : LedgerOverview();
     // The picker and settings modal are overlays that can appear over either mode.
     return body +
@@ -72,6 +89,7 @@ export function LoansLedger() {
 
 function LedgerOverview() {
     const ledger = state.loansLedger || {};
+    const scopedState = getScopedLoansState();
     const search = (ledger.search || '').toLowerCase().trim();
     const filterView = ledger.filterView || 'active';
     const displayMode = ledger.displayMode || 'grouped';
@@ -81,21 +99,21 @@ function LedgerOverview() {
     const dateFilter = ledger.dateFilter || 'all';
     const showFilterMenu = Boolean(ledger.showFilterMenu);
 
-    const allWithDebt = getEmployeesWithDebt(state);
+    const allWithDebt = getEmployeesWithDebt(scopedState);
     const inactiveWithDebt = allWithDebt.filter(employee => employee.active === false);
-    const allInactive = getEmployeesWithOnlyInactiveLoans(state);
+    const allInactive = getEmployeesWithOnlyInactiveLoans(scopedState);
 
     // Conteo por unidad individual para los badges
-    const allLoansFlat = (state.employees || []).flatMap(e => e.loans || []);
+    const allLoansFlat = scopedState.employees.flatMap(e => e.loans || []);
     const activeLoanCount = allLoansFlat.filter(l => l.status === LOAN_STATUS.ACTIVE).length;
     const settledLoanCount = allLoansFlat.filter(l => l.status === LOAN_STATUS.PAID || getBalance(l) <= 0.01).length;
-    const inactiveEmpLoanCount = (state.employees || []).filter(e => e.active === false).flatMap(e => e.loans || []).filter(l => l.status === LOAN_STATUS.ACTIVE).length;
+    const inactiveEmpLoanCount = scopedState.employees.filter(e => e.active === false).flatMap(e => e.loans || []).filter(l => l.status === LOAN_STATUS.ACTIVE).length;
     const totalLoanCount = allLoansFlat.filter(l => l.status !== LOAN_STATUS.WRITTEN_OFF).length;
 
     // Seleccionar lista según displayMode y filterView
     let baseList = [];
     if (displayMode === 'individual') {
-        baseList = getIndividualLoanRecords(state, filterView);
+        baseList = getIndividualLoanRecords(scopedState, filterView);
     } else {
         if (filterView === 'all') {
             const seen = new Set();
@@ -126,15 +144,15 @@ function LedgerOverview() {
             (e.number || '').toLowerCase().includes(search))
         : allInactive;
 
-    const totalExposure = getTotalExposure(state);
-    const totalPaid = getTotalPaidActive(state);
+    const totalExposure = getTotalExposure(scopedState);
+    const totalPaid = getTotalPaidActive(scopedState);
     const totalLoans = allWithDebt.reduce((s, e) => s + e.loanCount, 0);
 
-    const totalActiveInterest = getTotalActiveInterest(state);
-    const totalHistoricalInterest = getTotalHistoricalInterest(state);
-    const totalHistoricalDue = getTotalHistoricalDue(state);
-    const totalHistoricalPaid = getTotalHistoricalPaid(state);
-    const closedLoansCount = getClosedLoansCount(state);
+    const totalActiveInterest = getTotalActiveInterest(scopedState);
+    const totalHistoricalInterest = getTotalHistoricalInterest(scopedState);
+    const totalHistoricalDue = getTotalHistoricalDue(scopedState);
+    const totalHistoricalPaid = getTotalHistoricalPaid(scopedState);
+    const closedLoansCount = getClosedLoansCount(scopedState);
 
     return `
         <div class="loans-overview">
@@ -762,7 +780,7 @@ export const LOANS_KPI_CATALOG = {
 // ─── DETAIL VIEW (one employee) ──────────────────────────────────────────────
 
 function EmployeeLoansDetail(empId) {
-    const emp = state.employees.find(e => e.id === empId);
+    const emp = findScopedLoanEmployee(empId);
     if (!emp) {
         return `
             <div style="text-align: center; padding: 60px 20px;">
@@ -1852,8 +1870,8 @@ function RefinanceForm(loan, balance, emp = null) {
     const approxInstallment = isInstallments && count > 0 ? r2(newBalance / count) : 0;
 
     const resolvedEmp = emp || (state.loansLedger?.selectedEmployeeId
-        ? (state.employees || []).find(e => e.id === state.loansLedger.selectedEmployeeId)
-        : (state.employees || []).find(e => (e.loans || []).some(l => l.id === loan.id)));
+        ? findScopedLoanEmployee(state.loansLedger.selectedEmployeeId)
+        : getScopedLoanEmployees().find(e => (e.loans || []).some(l => l.id === loan.id)));
 
     const calendarWeeks = getCalendarPeriodWeeks(state);
     const frequencyWeeks = isInstallments ? Number(draft.installmentFrequencyWeeks || 2) : calendarWeeks;
@@ -1978,7 +1996,8 @@ function RefinanceForm(loan, balance, emp = null) {
 function EmployeePickerOverlay() {
     const ledger = state.loansLedger || {};
     const search = (ledger.pickerSearch || '').toLowerCase().trim();
-    const all = [...(state.employees || [])].sort((a, b) => {
+    const projectScope = peekEntityScope();
+    const all = (state.employees || []).filter(employee => entityInScope(employee, projectScope)).sort((a, b) => {
         const statusOrder = Number(a.active === false) - Number(b.active === false);
         if (statusOrder !== 0) return statusOrder;
         return String(a.number || a.name || '').localeCompare(String(b.number || b.name || ''), 'es', { numeric: true });
@@ -2043,7 +2062,7 @@ function NewLoanForm(emp = null) {
     const draft = (state.loansLedger || {}).newLoanDraft || {};
     const isInstallments = draft.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
     const resolvedEmp = emp || (state.loansLedger?.selectedEmployeeId
-        ? (state.employees || []).find(e => e.id === state.loansLedger.selectedEmployeeId)
+        ? findScopedLoanEmployee(state.loansLedger.selectedEmployeeId)
         : null);
 
     const calendarWeeks = getCalendarPeriodWeeks(state);

@@ -7,8 +7,10 @@ import {
     round2,
     voidPayment
 } from '../loans/LoansService.js';
-import { buildPayrollClosureSnapshot } from './PayrollClosure.js';
+import { buildPayrollClosureSnapshot, canonicalProjectId } from './PayrollClosure.js';
 import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { captureEntityProjectScope, entityInScope } from '../projects/EntityProjectScope.js';
 
 export const PAYROLL_LOAN_UNDO_WINDOW_MS = 30_000;
 
@@ -80,6 +82,7 @@ function compactPreviewRow(row = {}) {
 function compactBatchSnapshot(batch) {
     return {
         id: batch.id,
+        projectId: batch.projectId || null,
         closureId: batch.closureId || null,
         supersedesClosureId: batch.supersedesClosureId || null,
         source: batch.source,
@@ -156,9 +159,18 @@ export function buildPayrollPreviewFingerprint(options = {}) {
 }
 
 export function confirmPayrollPaid(fingerprint, confirmedAt = Date.now()) {
-    assertTandaBBlockedWhenScoped('PayrollLoanSettlement.confirmPayrollPaid');
     if (!fingerprint || typeof fingerprint !== 'string') {
         throw new Error('No se puede confirmar una nómina sin vista previa');
+    }
+    if (isProjectsEnabled()) {
+        let parsed = null;
+        try {
+            parsed = JSON.parse(fingerprint);
+        } catch (_) {}
+        if (!parsed || typeof parsed !== 'object' || !parsed.projectId || typeof parsed.projectId !== 'string' || parsed.projectId.trim().startsWith('legacy-unresolved:')) {
+            assertTandaBBlockedWhenScoped('PayrollLoanSettlement.confirmPayrollPaid');
+        }
+        canonicalProjectId(parsed.projectId);
     }
     return {
         fingerprint,
@@ -206,12 +218,32 @@ export function buildPayrollLoanSettlementBatch({
     periodEnd,
     createdAt = Date.now(),
     recordedBy = null,
-    undoWindowMs = PAYROLL_LOAN_UNDO_WINDOW_MS
+    undoWindowMs = PAYROLL_LOAN_UNDO_WINDOW_MS,
+    projectId
 } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollLoanSettlement.buildPayrollLoanSettlementBatch');
+    if (isProjectsEnabled() && !projectId) {
+        assertTandaBBlockedWhenScoped('PayrollLoanSettlement.buildPayrollLoanSettlementBatch');
+    }
+    const canonicalOwner = projectId !== undefined ? canonicalProjectId(projectId) : null;
     if (!periodStart || !periodEnd) throw new Error('El período de Nómina es obligatorio');
-    const employeeById = new Map(employees.map(employee => [text(employee.id), employee]));
-    const previewFingerprint = buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
+    const operationScope = (isProjectsEnabled() && canonicalOwner)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: canonicalOwner }
+        : null;
+    const filteredEmployees = operationScope
+        ? (employees || []).filter(employee => entityInScope(employee, operationScope))
+        : (employees || []);
+    if (operationScope) {
+        const allowedEmployeeIds = new Set(filteredEmployees.map(e => String(e.id)));
+        const foreignRow = (rows || []).find(row => !allowedEmployeeIds.has(String(row?._employeeId ?? row?.employeeId ?? row?.id ?? '')));
+        if (foreignRow) {
+            const foreignId = foreignRow?._employeeId ?? foreignRow?.employeeId ?? foreignRow?.id ?? 'desconocido';
+            throw new Error(`El empleado "${foreignId}" no pertenece al proyecto "${canonicalOwner}"`);
+        }
+    }
+    const employeeById = new Map(filteredEmployees.map(employee => [text(employee.id), employee]));
+    const previewFingerprint = canonicalOwner
+        ? buildPayrollPreviewFingerprint({ projectId: canonicalOwner, periodStart, periodEnd, rows })
+        : buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
     const batchId = `PAYROLL-BATCH-${stableToken(previewFingerprint)}`;
     const summaries = [];
     const items = [];
@@ -300,7 +332,8 @@ export function buildPayrollLoanSettlementBatch({
             loanId: item.loanId,
             paymentId: item.paymentId
         })),
-        previewRows: rows.map(compactPreviewRow)
+        previewRows: rows.map(compactPreviewRow),
+        ...(canonicalOwner ? { projectId: canonicalOwner } : {})
     };
 }
 
@@ -323,12 +356,22 @@ function preflightPayrollBatch(employees, batch) {
     if (!batch?.id || !Array.isArray(batch.items) || batch.items.length === 0) {
         throw new Error('El lote de préstamos no es válido');
     }
-    const employeeById = new Map((employees || []).map(employee => [text(employee.id), employee]));
+    const canonicalOwner = batch.projectId ? canonicalProjectId(batch.projectId) : null;
+    const operationScope = (isProjectsEnabled() && canonicalOwner)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: canonicalOwner }
+        : null;
+    const filteredEmployees = operationScope
+        ? (employees || []).filter(e => entityInScope(e, operationScope))
+        : (employees || []);
+    const employeeById = new Map(filteredEmployees.map(employee => [text(employee.id), employee]));
     const operations = [];
 
     for (const item of batch.items) {
         const employee = employeeById.get(text(item.employeeId));
         if (!employee) throw new Error(`El empleado ${item.employeeName || item.employeeId} ya no existe`);
+        if (operationScope && !entityInScope(employee, operationScope)) {
+            throw new Error(`El empleado ${item.employeeName || item.employeeId} no pertenece al proyecto`);
+        }
         const loan = (employee.loans || []).find(entry => text(entry.id) === text(item.loanId));
         if (!loan) throw new Error(`El préstamo ${item.concept || item.loanId} ya no existe`);
         const existing = (loan.payments || []).find(payment => text(payment.id) === text(item.paymentId));
@@ -392,6 +435,7 @@ function preflightPayrollBatch(employees, batch) {
 
 function relinkPayrollPayment(payment, operation, batch, firstPaymentId, now) {
     payment.payrollBatchId = batch.id;
+    if (batch.projectId) payment.payrollProjectId = batch.projectId;
     payment.payrollClosureId = batch.closureId || null;
     payment.payrollSupersedesClosureId = batch.supersedesClosureId || null;
     payment.payrollPreviewFingerprint = batch.previewFingerprint;
@@ -412,8 +456,103 @@ function relinkPayrollPayment(payment, operation, batch, firstPaymentId, now) {
     operation.employee.updatedAt = payment.updatedAt;
 }
 
+function applyPayrollPaymentRecord(employee, loan, params) {
+    const paymentId = params.id;
+    const now = Number.isFinite(Number(params.recordedAt)) ? Number(params.recordedAt) : Date.now();
+    const payment = {
+        id: paymentId,
+        date: params.date,
+        amount: money(params.amount),
+        note: (params.note || '').trim(),
+        recordedBy: params.recordedBy || null,
+        recordedAt: now,
+        updatedAt: now,
+        voided: false,
+        voidedAt: null
+    };
+    if (params.source) payment.source = String(params.source);
+    if (params.payrollBatchId) payment.payrollBatchId = String(params.payrollBatchId);
+    if (params.payrollProjectId) payment.payrollProjectId = String(params.payrollProjectId);
+    if (params.payrollClosureId) payment.payrollClosureId = String(params.payrollClosureId);
+    if (params.payrollSupersedesClosureId) payment.payrollSupersedesClosureId = String(params.payrollSupersedesClosureId);
+    if (params.payrollPreviewFingerprint) payment.payrollPreviewFingerprint = String(params.payrollPreviewFingerprint);
+    if (params.payrollIdempotencyKey) payment.payrollIdempotencyKey = String(params.payrollIdempotencyKey);
+    if (Array.isArray(params.payrollChargeKeys)) payment.payrollChargeKeys = [...new Set(params.payrollChargeKeys.map(String))];
+    if (params.payrollPeriodStart) payment.payrollPeriodStart = String(params.payrollPeriodStart);
+    if (params.payrollPeriodEnd) payment.payrollPeriodEnd = String(params.payrollPeriodEnd);
+    for (const field of [
+        'payrollBatchCreatedAt',
+        'payrollBatchUndoUntil',
+        'payrollBatchTotal',
+        'payrollBatchEmployeeCount',
+        'payrollExpectedPaymentCount'
+    ]) {
+        if (Number.isFinite(Number(params[field]))) payment[field] = Number(params[field]);
+    }
+    if (params.payrollBatchSnapshot && typeof params.payrollBatchSnapshot === 'object') {
+        payment.payrollBatchSnapshot = params.payrollBatchSnapshot;
+    }
+    if (!Array.isArray(loan.payments)) loan.payments = [];
+    loan.payments.push(payment);
+    loan.updatedAt = now;
+    if (employee) employee.updatedAt = now;
+
+    const remaining = getBalance(loan);
+    if (remaining <= 0.01) {
+        loan.status = LOAN_STATUS.PAID;
+        loan.closedAt = now;
+        loan.closedBy = params.recordedBy || null;
+    }
+    return payment;
+}
+
+function applyPayrollPaymentRestore(employee, loan, paymentId, restoredBy, now = Date.now()) {
+    const payment = (loan.payments || []).find(p => String(p.id) === String(paymentId));
+    if (!payment) throw new Error(`Abono no encontrado: ${paymentId}`);
+    if (!payment.voided) return payment;
+    payment.voided = false;
+    payment.voidedAt = null;
+    payment.voidedBy = null;
+    payment.restoredAt = now;
+    payment.restoredBy = restoredBy;
+    payment.updatedAt = now;
+    loan.updatedAt = now;
+    if (employee) employee.updatedAt = now;
+
+    if (getBalance(loan) <= 0.01) {
+        loan.status = LOAN_STATUS.PAID;
+        loan.closedAt = now;
+        loan.closedBy = restoredBy;
+    } else if (loan.status === LOAN_STATUS.PAID) {
+        loan.status = LOAN_STATUS.ACTIVE;
+        loan.closedAt = null;
+    }
+    return payment;
+}
+
+function applyPayrollPaymentVoid(employee, loan, paymentId, voidedBy = null, now = Date.now()) {
+    const payment = (loan.payments || []).find(p => String(p.id) === String(paymentId));
+    if (!payment) throw new Error(`Abono no encontrado: ${paymentId}`);
+    if (payment.voided) return payment;
+
+    payment.voided = true;
+    payment.voidedAt = now;
+    payment.voidedBy = voidedBy;
+    payment.updatedAt = now;
+    loan.updatedAt = now;
+    if (employee) employee.updatedAt = now;
+
+    if (getBalance(loan) > 0.01 && loan.status === LOAN_STATUS.PAID) {
+        loan.status = LOAN_STATUS.ACTIVE;
+        loan.closedAt = null;
+    }
+    return payment;
+}
+
 export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.now(), recordedBy } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollLoanSettlement.applyPayrollLoanSettlementBatch');
+    if (isProjectsEnabled() && !batch?.projectId) {
+        assertTandaBBlockedWhenScoped('PayrollLoanSettlement.applyPayrollLoanSettlementBatch');
+    }
     const operations = preflightPayrollBatch(employees, batch);
     const firstPaymentId = batch.paymentRefs?.[0]?.paymentId;
     let createdCount = 0;
@@ -431,19 +570,27 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
             continue;
         }
         if (operation.kind === 'restore') {
-            const payment = restorePayment(
-                operation.employee,
-                operation.loan.id,
-                operation.payment.id,
-                recordedBy ?? batch.recordedBy ?? null,
-                now
-            );
+            const payment = isProjectsEnabled()
+                ? applyPayrollPaymentRestore(
+                    operation.employee,
+                    operation.loan,
+                    operation.payment.id,
+                    recordedBy ?? batch.recordedBy ?? null,
+                    now
+                )
+                : restorePayment(
+                    operation.employee,
+                    operation.loan.id,
+                    operation.payment.id,
+                    recordedBy ?? batch.recordedBy ?? null,
+                    now
+                );
             relinkPayrollPayment(payment, operation, batch, firstPaymentId, now);
             restoredCount++;
             payments.push(payment);
             continue;
         }
-        const payment = recordPayment(operation.employee, operation.loan.id, {
+        const paymentParams = {
             id: operation.item.paymentId,
             date: batch.paymentDate,
             amount: operation.item.amount,
@@ -452,6 +599,7 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
             recordedAt: now,
             source: 'payroll',
             payrollBatchId: batch.id,
+            payrollProjectId: batch.projectId || null,
             payrollClosureId: batch.closureId || null,
             payrollSupersedesClosureId: batch.supersedesClosureId || null,
             payrollPreviewFingerprint: batch.previewFingerprint,
@@ -467,7 +615,10 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
             payrollBatchSnapshot: operation.item.paymentId === firstPaymentId
                 ? compactBatchSnapshot(batch)
                 : null
-        });
+        };
+        const payment = isProjectsEnabled()
+            ? applyPayrollPaymentRecord(operation.employee, operation.loan, paymentParams)
+            : recordPayment(operation.employee, operation.loan.id, paymentParams);
         createdCount++;
         payments.push(payment);
     }
@@ -496,6 +647,7 @@ export function listPayrollLoanSettlementBatches(employees, {
         const metadata = linked[0].payment;
         const snapshot = header ? clone(header) : {
             id,
+            projectId: snapshotEntry?.payment.payrollProjectId || metadata.payrollProjectId || null,
             closureId: text(metadata.payrollClosureId) || null,
             supersedesClosureId: text(metadata.payrollSupersedesClosureId) || null,
             source: 'payroll',
@@ -531,6 +683,7 @@ export function listPayrollLoanSettlementBatches(employees, {
         return {
             ...snapshot,
             id,
+            projectId: snapshot.projectId || metadata.payrollProjectId || null,
             incomplete,
             missingPaymentCount,
             voided,
@@ -560,16 +713,25 @@ export function undoPayrollLoanSettlementBatch(employees, batchId, {
     now = Date.now(),
     voidedBy = null
 } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollLoanSettlement.undoPayrollLoanSettlementBatch');
     const batch = findPayrollLoanSettlementBatch(employees, { batchId });
     if (!batch) throw new Error('No se encontró el lote de pagos');
+    if (isProjectsEnabled() && !batch?.projectId) {
+        assertTandaBBlockedWhenScoped('PayrollLoanSettlement.undoPayrollLoanSettlementBatch');
+    }
     if (batch.incomplete) {
         throw new Error('El lote está incompleto y todavía se está sincronizando');
     }
     if (batch.voided) {
         throw new Error('El lote ya fue anulado y no se puede deshacer nuevamente');
     }
-    const entries = paymentEntries(employees);
+    const canonicalOwner = batch.projectId ? canonicalProjectId(batch.projectId) : null;
+    const operationScope = (isProjectsEnabled() && canonicalOwner)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: canonicalOwner }
+        : null;
+    const scopedEmployees = operationScope
+        ? (employees || []).filter(e => entityInScope(e, operationScope))
+        : (employees || []);
+    const entries = paymentEntries(scopedEmployees);
     const targets = (batch.paymentRefs || []).map(ref => {
         const target = entries.find(({ employee, loan, payment }) =>
             text(employee.id) === text(ref.employeeId) &&
@@ -585,7 +747,11 @@ export function undoPayrollLoanSettlementBatch(employees, batchId, {
     let voidedCount = 0;
     for (const { employee, loan, payment } of targets) {
         if (payment.voided) continue;
-        voidPayment(employee, loan.id, payment.id, voidedBy);
+        if (isProjectsEnabled()) {
+            applyPayrollPaymentVoid(employee, loan, payment.id, voidedBy, now);
+        } else {
+            voidPayment(employee, loan.id, payment.id, voidedBy);
+        }
         voidedCount++;
     }
     return { batch: { ...batch, voided: true }, voidedCount };

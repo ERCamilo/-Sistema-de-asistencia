@@ -1,3 +1,6 @@
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { captureEntityProjectScope, entityInScope } from '../projects/EntityProjectScope.js';
+
 const KINDS = new Set(['deductions', 'bonuses']);
 const SCOPES = new Set(['global', 'leader', 'position', 'employee']);
 
@@ -53,7 +56,8 @@ function canonicalAdjustment(adjustment) {
         value: Number(adjustment.value) || 0,
         name: String(adjustment.name || ''),
         scope: resolved.scope,
-        targetId: resolved.targetId
+        targetId: resolved.targetId,
+        ...(adjustment.projectId ? { projectId: adjustment.projectId } : {})
     };
 }
 
@@ -129,6 +133,16 @@ function sumPositionBase(entries) {
  */
 export function calculateScopedAdjustment(adjustment, context = {}, index = 0, fallbackLabel = 'Ajuste') {
     if (!adjustment) return null;
+    if (isProjectsEnabled()) {
+        const scope = captureEntityProjectScope();
+        const activeProjectId = context.projectId ? String(context.projectId) : (scope.enabled && scope.projectId ? String(scope.projectId) : null);
+        if (activeProjectId) {
+            const operationScope = { ...scope, enabled: true, projectId: activeProjectId };
+            if (!entityInScope(adjustment, operationScope)) {
+                return null;
+            }
+        }
+    }
 
     const resolved = resolveAdjustmentScope(adjustment);
     const employeeId = context.employeeId == null ? null : String(context.employeeId);
