@@ -5,6 +5,7 @@
  * Flag OFF preserves legacy behavior without gate.
  */
 import { isProjectsEnabled } from './FeatureFlags.js';
+import { peekEntityScope } from '../features/projects/EntityProjectScope.js';
 
 export class ProjectScopedGateError extends Error {
     constructor(context = 'Tanda B operation') {
@@ -21,7 +22,13 @@ export function assertTandaBBlockedWhenScoped(context = 'Tanda B operation') {
 }
 
 export function isTandaBBlocked() {
-    return isProjectsEnabled();
+    if (!isProjectsEnabled()) return false;
+    const scope = peekEntityScope();
+    const pid = scope?.projectId ? String(scope.projectId).trim() : '';
+    if (!scope?.enabled || !pid || pid.startsWith('legacy-unresolved:')) {
+        return true;
+    }
+    return false;
 }
 
 export default { ProjectScopedGateError, assertTandaBBlockedWhenScoped, isTandaBBlocked };

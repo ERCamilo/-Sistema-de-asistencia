@@ -1,5 +1,6 @@
 import icons from './IconSystem.js';
 import { escapeHTML, escapeAttr } from '../utils/Sanitize.js';
+import { isProjectsEnabled } from '../config/FeatureFlags.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-header-action)
@@ -87,6 +88,7 @@ function _renderUserPill() {
 
 export const Header = ({
     companyName,
+    activeProjectName,
     SyncIndicator,
     openNotesCenter,
     exportData,
@@ -95,6 +97,24 @@ export const Header = ({
     legacyNavigation
 }) => {
     const subtitle = _HEADER_SUBTITLE[activeTab] || '';
+    // F1 R02: compact persistent active-project indicator. Flag OFF ⇒ hidden
+    // (legacy header byte-identical). Uses text/SVG, no emoji.
+    let showProjectName = '';
+    try {
+        if (isProjectsEnabled() && activeProjectName && String(activeProjectName).trim()) {
+            showProjectName = String(activeProjectName).trim();
+        }
+    } catch (_) { showProjectName = ''; }
+    const projectIndicator = showProjectName ? `
+        <div class="header-project-indicator" data-active-project-indicator
+             title="Obra activa: ${escapeAttr(showProjectName)}"
+             aria-label="Obra activa: ${escapeAttr(showProjectName)}">
+            <svg class="header-project-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 20V7l8-4 8 4v13"></path>
+                <path d="M8 20v-5h8v5"></path>
+            </svg>
+            <span class="header-project-name">${escapeHTML(showProjectName)}</span>
+        </div>` : '';
     return `
         <header class="header glass-effect">
             <div class="container">
@@ -105,6 +125,7 @@ export const Header = ({
                             <h1 class="company-name">${companyName || 'Contrutek'}</h1>
                             ${subtitle ? `<div class="header-context-sub">${subtitle}</div>` : ''}
                         </div>
+                        ${projectIndicator}
                     </div>
                     <div class="header-right">
                         ${(typeof window !== 'undefined' && typeof window.renderSyncStatusBadgeForHeader === 'function')

@@ -145,7 +145,14 @@ export function openPayrollAdjustmentEmployeePicker({ employees = [], selectedId
                     else selection.add(id);
                     renderList();
                 });
-                this.element.querySelector('[data-adjustment-picker-search]')?.focus();
+                const searchEl = this.element.querySelector('[data-adjustment-picker-search]');
+                if (searchEl) {
+                    try {
+                        searchEl.focus({ preventScroll: true });
+                    } catch {
+                        searchEl.focus();
+                    }
+                }
             },
             onClose() {
                 finish(null);

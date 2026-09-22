@@ -14,6 +14,8 @@ import {
 } from './PayrollAdjustmentScheduled.js';
 import { getPayrollAdjustmentPeriodRuntimeSelections } from
     './PayrollAdjustmentPeriodSelection.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { captureEntityProjectScope, entityInScope } from '../projects/EntityProjectScope.js';
 
 const SCOPE_META = [
     { id: 'global', label: 'General', summary: 'Generales' },
@@ -290,7 +292,8 @@ export function calculateAdjustmentPreview(adjustment, rows = [], positions = []
                 employeeId: row._employeeId,
                 totalGross: row._brutoOriginal,
                 breakdown: row._positionBreakdown || [],
-                positions
+                positions,
+                projectId: row._projectId || row.projectId || null
             },
             index
         );
@@ -645,8 +648,43 @@ function renderSummary(kind, summary, state, rows, projectionRevision) {
 }
 
 export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
-    const adjustments = state.exportConfig?.[kind] || [];
-    const scheduledGroups = buildScheduledAdjustmentGroups(kind, state.employees || [], {
+    const activeProjectId = rows?.[0]?._projectId != null
+        ? String(rows[0]._projectId)
+        : (state?.exportConfig?.projectId ? String(state.exportConfig.projectId) : (isProjectsEnabled() && captureEntityProjectScope().projectId ? String(captureEntityProjectScope().projectId) : null));
+
+    const isScoped = isProjectsEnabled() && Boolean(activeProjectId);
+    const operationScope = isScoped
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: activeProjectId }
+        : null;
+
+    const scopedEmployees = operationScope
+        ? (state.employees || []).filter(e => entityInScope(e, operationScope))
+        : (state.employees || []);
+    const scopedLeaders = operationScope
+        ? (state.leaders || []).filter(l => entityInScope(l, operationScope))
+        : (state.leaders || []);
+    const scopedPositions = operationScope
+        ? (state.positions || []).filter(p => entityInScope(p, operationScope))
+        : (state.positions || []);
+    const scopedAdjustments = operationScope
+        ? (state.exportConfig?.[kind] || []).filter(a => entityInScope(a, operationScope))
+        : (state.exportConfig?.[kind] || []);
+
+    const effectiveState = activeProjectId
+        ? {
+            ...state,
+            employees: scopedEmployees,
+            leaders: scopedLeaders,
+            positions: scopedPositions,
+            exportConfig: {
+                ...(state.exportConfig || {}),
+                [kind]: scopedAdjustments
+            }
+        }
+        : state;
+
+    const adjustments = scopedAdjustments;
+    const scheduledGroups = buildScheduledAdjustmentGroups(kind, scopedEmployees, {
         periodStart: state.exportConfig?.periodStart,
         periodEnd: state.exportConfig?.periodEnd,
         selections: getPayrollAdjustmentPeriodRuntimeSelections(
@@ -658,7 +696,7 @@ export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
     const scheduledHTML = renderScheduledAdjustmentGroups(
         kind, scheduledGroups, { projectionRevision }
     );
-    const summary = buildAdjustmentScopeSummary(kind, adjustments, rows, state, scheduledGroups);
+    const summary = buildAdjustmentScopeSummary(kind, adjustments, rows, effectiveState, scheduledGroups);
     const isBonus = kind === 'bonuses';
     const composerScope = resolveAdjustmentScope({
         scope: state.exportConfig?.payrollAdjustmentComposerScopes?.[kind]
@@ -676,9 +714,9 @@ export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
             </div>
             <div class="payroll-adjustment-desktop__layout">
                 <section class="payroll-adjustment-composer">
-                    ${renderAdjustmentForm(kind, state, rows, { scope: composerScope })}
+                    ${renderAdjustmentForm(kind, effectiveState, rows, { scope: composerScope })}
                 </section>
-                ${renderSummary(kind, summary, state, rows, projectionRevision)}
+                ${renderSummary(kind, summary, effectiveState, rows, projectionRevision)}
             </div>
             ${scheduledHTML}
         </div>

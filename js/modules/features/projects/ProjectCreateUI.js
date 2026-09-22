@@ -1,4 +1,5 @@
 import { projectSetupService } from './ProjectSetupService.js';
+import { mountProjectOnboarding } from './ProjectOnboarding.js';
 import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
 
 const CREATE_MODAL_ID = 'project-create-modal';
@@ -160,7 +161,7 @@ export async function openProjectCreateModal({ setupService = projectSetupServic
     });
 
     const slot = modalEl.querySelector('[data-project-create-modal-slot]');
-    const formHandle = mountProjectCreateForm(slot, {
+    const formHandle = mountProjectOnboarding(slot, {
         setupService,
         onSuccess: (project, nextState) => { closeProjectCreateModal(); onSuccess?.(project, nextState); },
         onCancel: handleClose

@@ -1,4 +1,4 @@
-import { buildPayrollClosure, PAYROLL_CLOSURE_STATUS, voidPayrollClosure } from './PayrollClosure.js';
+import { buildPayrollClosure, canonicalProjectId, PAYROLL_CLOSURE_STATUS, voidPayrollClosure } from './PayrollClosure.js';
 import {
     applyPayrollLoanSettlementBatch,
     buildPayrollLoanSettlementBatch,
@@ -12,6 +12,8 @@ import {
     undoPayrollAdjustmentInstallmentsForClosure
 } from './PayrollAdjustmentInstallmentSettlement.js';
 import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { captureEntityProjectScope, entityInScope } from '../projects/EntityProjectScope.js';
 
 function money(value) {
     return Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
@@ -101,20 +103,34 @@ export function buildPayrollClosureDraft({
     supersedesId = null,
     projectId
 } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.buildPayrollClosureDraft');
-    const closureProjectId = projectId;
-    const projectAware = projectId !== undefined;
+    if (isProjectsEnabled() && !projectId) {
+        assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.buildPayrollClosureDraft');
+    }
+    const closureProjectId = projectId !== undefined ? canonicalProjectId(projectId) : undefined;
+    const projectAware = closureProjectId !== undefined;
+    const operationScope = (isProjectsEnabled() && closureProjectId)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: closureProjectId }
+        : null;
+    const filteredEmployees = operationScope
+        ? (employees || []).filter(e => entityInScope(e, operationScope))
+        : (employees || []);
+    if (operationScope) {
+        const allowedEmployeeIds = new Set(filteredEmployees.map(e => String(e.id)));
+        const foreignRow = (rows || []).find(row => !allowedEmployeeIds.has(String(row?._employeeId ?? row?.employeeId ?? row?.id ?? '')));
+        if (foreignRow) throw new Error(`El empleado "${foreignRow?._employeeId ?? foreignRow?.employeeId ?? foreignRow?.id ?? 'desconocido'}" no pertenece al proyecto "${closureProjectId}"`);
+    }
     const fingerprint = projectAware
         ? buildPayrollPreviewFingerprint({ projectId: closureProjectId, periodStart, periodEnd, rows })
         : buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
     const hasLoans = rows.some(item => money(item?._loans) > 0);
     const loanBatch = hasLoans ? buildPayrollLoanSettlementBatch({
-        employees,
+        employees: filteredEmployees,
         rows,
         periodStart,
         periodEnd,
         createdAt: closedAt,
-        recordedBy: closedBy
+        recordedBy: closedBy,
+        ...(projectAware ? { projectId: closureProjectId } : {})
     }) : null;
     const closureOptions = {
         periodStart,
@@ -146,20 +162,44 @@ export function applyPayrollClosureEffects(employees, draft, {
     now = Date.now(),
     recordedBy = null
 } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.applyPayrollClosureEffects');
+    const isScoped = isProjectsEnabled();
+    const closureProjectId = draft?.closure?.projectId;
+    if (isScoped && !closureProjectId) {
+        assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.applyPayrollClosureEffects');
+    }
     if (!draft?.closure?.id) throw new Error('El cierre de Nómina no es válido');
+    const canonicalOwner = closureProjectId ? canonicalProjectId(closureProjectId) : null;
+    const operationScope = (isScoped && canonicalOwner)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: canonicalOwner }
+        : null;
+    const scopedEmployees = operationScope
+        ? (employees || []).filter(e => entityInScope(e, operationScope))
+        : (employees || []);
+    if (operationScope) {
+        const allowedEmployeeIds = new Set(scopedEmployees.map(e => String(e.id)));
+        const foreignRow = (draft?.closure?.rows || []).find(row => !allowedEmployeeIds.has(String(row?._employeeId ?? row?.employeeId ?? row?.id ?? '')));
+        if (foreignRow) throw new Error(`El empleado "${foreignRow?._employeeId ?? foreignRow?.employeeId ?? foreignRow?.id ?? 'desconocido'}" no pertenece al proyecto "${canonicalOwner}"`);
+    }
     let loanResult = null;
     if (draft.batch) {
-        loanResult = applyPayrollLoanSettlementBatch(employees, draft.batch, {
+        if (canonicalOwner && !draft.batch.projectId) {
+            draft.batch.projectId = canonicalOwner;
+        }
+        loanResult = applyPayrollLoanSettlementBatch(scopedEmployees, draft.batch, {
             now,
             recordedBy
         });
     }
-    const installmentResult = applyPayrollAdjustmentInstallmentsForClosure(
-        employees,
-        draft.closure,
-        { now, recordedBy }
-    );
+    let installmentResult = { appliedCount: 0, relinkedCount: 0, affectedEmployeeIds: [] };
+    const hasAdjustmentInstallments = (draft.closure.adjustments?.bonuses || []).some(b => b.installments?.length) ||
+        (draft.closure.adjustments?.deductions || []).some(d => d.installments?.length);
+    if (!isScoped || hasAdjustmentInstallments) {
+        installmentResult = applyPayrollAdjustmentInstallmentsForClosure(
+            scopedEmployees,
+            draft.closure,
+            { now, recordedBy }
+        );
+    }
     const affected = new Set([
         ...(draft.batch?.employees || []).map(item => String(item.employeeId)),
         ...installmentResult.affectedEmployeeIds
@@ -180,7 +220,11 @@ export function undoPayrollClosureEffects(employees, closure, {
     voidReason = 'Cierre anulado',
     activeClosures = []
 } = {}) {
-    assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.undoPayrollClosureEffects');
+    const isScoped = isProjectsEnabled();
+    const closureProjectId = closure?.projectId;
+    if (isScoped && !closureProjectId) {
+        assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.undoPayrollClosureEffects');
+    }
     if (!closure?.id) throw new Error('El cierre de Nómina no es válido');
     if (closure.status !== PAYROLL_CLOSURE_STATUS.CLOSED) {
         throw new Error('El cierre ya fue anulado y no se puede deshacer nuevamente');
@@ -188,20 +232,37 @@ export function undoPayrollClosureEffects(employees, closure, {
     if (hasClosedPayrollClosureSuccessor(activeClosures, closure.id)) {
         throw new Error('El cierre tiene una corrección vigente y no se puede deshacer');
     }
+    const canonicalOwner = closureProjectId ? canonicalProjectId(closureProjectId) : null;
+    const operationScope = (isScoped && canonicalOwner)
+        ? { ...captureEntityProjectScope(), enabled: true, projectId: canonicalOwner }
+        : null;
+    const scopedEmployees = operationScope
+        ? (employees || []).filter(e => entityInScope(e, operationScope))
+        : (employees || []);
+    if (operationScope) {
+        const allowedEmployeeIds = new Set(scopedEmployees.map(e => String(e.id)));
+        const foreignRow = (closure?.rows || []).find(row => !allowedEmployeeIds.has(String(row?._employeeId ?? row?.employeeId ?? row?.id ?? '')));
+        if (foreignRow) throw new Error(`El empleado "${foreignRow?._employeeId ?? foreignRow?.employeeId ?? foreignRow?.id ?? 'desconocido'}" no pertenece al proyecto "${canonicalOwner}"`);
+    }
     let voidedPaymentCount = 0;
     if (closure.loanSettlementBatchId) {
         const result = undoPayrollLoanSettlementBatch(
-            employees,
+            scopedEmployees,
             closure.loanSettlementBatchId,
             { now, voidedBy }
         );
         voidedPaymentCount = result.voidedCount;
     }
-    const installmentResult = undoPayrollAdjustmentInstallmentsForClosure(
-        employees,
-        closure,
-        { now, voidedBy }
-    );
+    let installmentResult = { revertedCount: 0, affectedEmployeeIds: [] };
+    const hasAdjustmentInstallments = (closure.adjustments?.bonuses || []).some(b => b.installments?.length) ||
+        (closure.adjustments?.deductions || []).some(d => d.installments?.length);
+    if (!isScoped || hasAdjustmentInstallments) {
+        installmentResult = undoPayrollAdjustmentInstallmentsForClosure(
+            scopedEmployees,
+            closure,
+            { now, voidedBy }
+        );
+    }
     const affected = new Set([
         ...(closure.paymentRefs || []).map(ref => String(ref.employeeId)),
         ...installmentResult.affectedEmployeeIds

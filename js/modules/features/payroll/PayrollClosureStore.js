@@ -12,6 +12,7 @@ import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import {
     captureEntityProjectScope,
+    entityInScope,
     peekEntityScope
 } from '../projects/EntityProjectScope.js';
 
@@ -77,8 +78,17 @@ export class PayrollClosureStore {
         this.db = db;
     }
 
-    async save(closure) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.save');
+    async save(closure, options = {}) {
+        if (isProjectsEnabled()) {
+            if (!closure?.projectId) {
+                assertTandaBBlockedWhenScoped('PayrollClosureStore.save');
+            }
+            const expectedProjectId = options?.scope?.projectId
+                ? String(options.scope.projectId).trim()
+                : String(closure.projectId).trim();
+            ensureNotStale(expectedProjectId);
+            validatePayrollClosureForScopedWrite(closure, expectedProjectId);
+        }
         assertClosure(closure);
         assertPayrollClosureSize(closure);
         const incoming = {
@@ -88,8 +98,16 @@ export class PayrollClosureStore {
         const saved = await this.db.atomicMutate(
             PAYROLL_CLOSURE_STORE,
             incoming.id,
-            existing => resolvePayrollClosureMutation(existing, incoming)
+            existing => {
+                if (isProjectsEnabled() && closure?.projectId) {
+                    ensureNotStale(String(closure.projectId).trim());
+                }
+                return resolvePayrollClosureMutation(existing, incoming);
+            }
         );
+        if (isProjectsEnabled() && closure?.projectId) {
+            ensureNotStale(String(closure.projectId).trim());
+        }
         return clone(saved);
     }
 
@@ -119,9 +137,25 @@ export class PayrollClosureStore {
     async saveWithEmployees(closure, employees = [], {
         enqueueCloud = false,
         queuedAt = Date.now(),
-        schemaVersion = null
+        schemaVersion = null,
+        scope = undefined
     } = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.saveWithEmployees');
+        if (isProjectsEnabled()) {
+            if (!closure?.projectId) {
+                assertTandaBBlockedWhenScoped('PayrollClosureStore.saveWithEmployees');
+            }
+            const expectedProjectId = scope?.projectId
+                ? String(scope.projectId).trim()
+                : String(closure.projectId).trim();
+            ensureNotStale(expectedProjectId);
+            validatePayrollClosureForScopedWrite(closure, expectedProjectId);
+            const opScope = { ...captureEntityProjectScope(), enabled: true, projectId: expectedProjectId };
+            for (const emp of employees) {
+                if (!entityInScope(emp, opScope)) {
+                    throw new Error(`Empleado ${emp.id} no pertenece al proyecto ${expectedProjectId}`);
+                }
+            }
+        }
         assertClosure(closure);
         assertPayrollClosureSize(closure);
         if (enqueueCloud && Number(schemaVersion) < PAYROLL_EMPLOYEE_SCHEMA_MIN) {
@@ -145,16 +179,25 @@ export class PayrollClosureStore {
                     employees: clone(employees || []),
                     schemaVersion: Number(schemaVersion),
                     ts: Number(queuedAt) || Date.now(),
-                    status: 'pending'
+                    status: 'pending',
+                    ...(closure.projectId ? { projectId: closure.projectId } : {})
                 }]
             });
         }
         const saved = await this.db.atomicMutateWithBatches(
             PAYROLL_CLOSURE_STORE,
             incoming.id,
-            existing => resolvePayrollClosureMutation(existing, incoming),
+            existing => {
+                if (isProjectsEnabled() && closure?.projectId) {
+                    ensureNotStale(String(closure.projectId).trim());
+                }
+                return resolvePayrollClosureMutation(existing, incoming);
+            },
             batches
         );
+        if (isProjectsEnabled() && closure?.projectId) {
+            ensureNotStale(String(closure.projectId).trim());
+        }
         return clone(saved);
     }
 
@@ -171,11 +214,13 @@ export class PayrollClosureStore {
         return clone(record);
     }
 
-    async void(id, audit = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.void');
+    async void(id, audit = {}, options = {}) {
         const existing = await this.getById(id);
+        if (isProjectsEnabled() && !existing?.projectId) {
+            assertTandaBBlockedWhenScoped('PayrollClosureStore.void');
+        }
         if (!existing) throw new Error(`Payroll closure not found: ${id}`);
-        return this.save(voidPayrollClosure(existing, audit));
+        return this.save(voidPayrollClosure(existing, audit), options);
     }
 
     async getByPeriod(periodStart, periodEnd) {

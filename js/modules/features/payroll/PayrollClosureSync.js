@@ -74,12 +74,18 @@ export class PayrollClosureSync {
 
     /** Closure, affected employees, and cloud intent share one local transaction. */
     async record(closure, { employees = [], schemaVersion = null, queuedAt = Date.now() } = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureSync.record');
+        if (isProjectsEnabled() && !closure?.projectId) {
+            assertTandaBBlockedWhenScoped('PayrollClosureSync.record');
+        }
         const scope = isProjectsEnabled() ? captureScopedScope() : null;
+        if (scope && closure?.projectId) {
+            validatePayrollClosureForScopedWrite(closure, scope.projectId);
+        }
         const result = await this.localStore.saveWithEmployees(closure, employees, {
             enqueueCloud: true,
             schemaVersion,
-            queuedAt
+            queuedAt,
+            scope: scope || undefined
         });
         if (scope) ensureNotStale(scope);
         return result;
