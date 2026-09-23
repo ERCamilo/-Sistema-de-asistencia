@@ -12,6 +12,7 @@ import {
 } from './ProjectCreateUI.js';
 import { mountProjectOnboarding } from './ProjectOnboarding.js';
 import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
+import { openProjectReconciliation } from './ProjectReconciliationUI.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 
 const MODAL_ID = 'project-setup-modal';
@@ -110,7 +111,26 @@ async function renderState() {
             </div>
             <div data-project-create-slot style="display:none;margin-bottom:14px"></div>
             <div data-project-list-container></div>
+        </section>
+        <section class="project-section" aria-label="Asignaciones de obra">
+            <div class="project-section-head"><h3 class="project-section-title">Asignaciones de obra</h3></div>
+            <p class="project-help">Comprueba si hay empleados sin obra o relaciones que requieren revisión.</p>
+            <div class="project-actions is-stacked">${primary('Revisar asignaciones', 'data-project-review-assignments')}</div>
         </section>`;
+    body().querySelector('[data-project-review-assignments]').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        if (button.disabled) return;
+        button.disabled = true;
+        closeProjectSetupModal();
+        try {
+            await openProjectReconciliation({
+                onClose: () => setTimeout(openProjectSetupModal, 320)
+            });
+        } catch (error) {
+            notify(`No se pudieron revisar las asignaciones: ${error.message || error}`, 'error');
+            await openProjectSetupModal();
+        }
+    });
     body().querySelector('[data-project-rename]').addEventListener('click', renameProject);
     const listContainer = body()?.querySelector('[data-project-list-container]');
     const createSlot = body()?.querySelector('[data-project-create-slot]');

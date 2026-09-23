@@ -836,7 +836,7 @@ function rerenderModal() {
     }
 }
 
-export async function openProjectReconciliation() {
+export async function openProjectReconciliation({ onClose } = {}) {
     await refreshProjectReconciliationSnapshot();
     modalState = initialModalState();
     modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
@@ -856,6 +856,7 @@ export async function openProjectReconciliation() {
                 if (fallback) this._previouslyFocused = fallback;
             }
             activeModal = null;
+            onClose?.();
         }
     });
     activeModal.open();
