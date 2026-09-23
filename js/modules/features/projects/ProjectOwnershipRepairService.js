@@ -76,6 +76,7 @@ export const REPAIR_ACTION = Object.freeze({
     MAP_TO_EXISTING:        'MAP_TO_EXISTING',
     CREATE_PROJECT_AND_MAP: 'CREATE_PROJECT_AND_MAP',
     QUARANTINE:             'QUARANTINE',
+    MAP_CATALOG_ENTITIES:  'MAP_CATALOG_ENTITIES',
     RESOLVE_LATER:          'QUARANTINE', // alias
 });
 
@@ -784,7 +785,21 @@ function applyFieldScopedMemoryUpdate(memoryUpdate) {
     const employeeLeaderPatches = memoryUpdate.employeeLeaderPatches;
     const positionLeaderPatches = memoryUpdate.positionLeaderPatches;
     const positionCopies = memoryUpdate.positionCopies;
+    const positionProjectIds = memoryUpdate.positionProjectIds;
+    const leaderProjectIds = memoryUpdate.leaderProjectIds;
     const repairTimestamp = memoryUpdate.repairTimestamp;
+    if (positionProjectIds?.size) {
+        stateManager.setState({ positions: (stateManager._state.positions || []).map(position => {
+            const target = positionProjectIds.get(trimId(position?.id));
+            return target === undefined ? position : { ...position, projectId: target, updatedAt: repairTimestamp };
+        }) });
+    }
+    if (leaderProjectIds?.size) {
+        stateManager.setState({ leaders: (stateManager._state.leaders || []).map(leader => {
+            const target = leaderProjectIds.get(trimId(leader?.id));
+            return target === undefined ? leader : { ...leader, projectId: target, updatedAt: repairTimestamp };
+        }) });
+    }
 
     if ((employeeProjectIds && employeeProjectIds.size) || (employeePositionPatches && employeePositionPatches.size) || (employeeLeaderPatches && employeeLeaderPatches.size)) {
         const newEmployees = (stateManager._state.employees || []).map(e => {
@@ -1913,15 +1928,170 @@ function computeQuarantine(reads, tx, p) {
     };
 }
 
+/** Assign explicitly selected position/leader definitions in one durable transaction.
+ * Resolve employees first: a definition cannot be assigned while its current
+ * users have unknown ownership or belong to another project. */
+function computeCatalogEntityMap(reads, tx, p) {
+    const target = trimId(p.targetProjectId);
+    const projects = indexById(reads.projects);
+    if (!projects.has(target) || projects.get(target)?.status !== 'active') {
+        return { result: conflictResult('Select an active destination project') };
+    }
+    const positionIds = [...new Set((p.positionIds || []).map(trimId).filter(Boolean))];
+    const leaderIds = [...new Set((p.leaderIds || []).map(trimId).filter(Boolean))];
+    if (!positionIds.length && !leaderIds.length) return { result: conflictResult('Select positions or leaders') };
+    const positions = indexById(reads.positions);
+    const leaders = indexById(reads.leaders);
+    const selectedPositions = new Set(positionIds);
+    const selectedLeaders = new Set(leaderIds);
+    const valid = id => projects.has(trimId(id));
+    const selectedEmployees = new Set((p.employees || []).map(employee => trimId(employee?.id)));
+    const employeeProject = employee => selectedEmployees.has(trimId(employee?.id))
+        && !valid(employee?.projectId) ? target : trimId(employee?.projectId);
+    const effectiveProject = (record, selected) => selected.has(trimId(record?.id)) ? target : trimId(record?.projectId);
+    const conflicts = [];
+    const writePositions = [];
+    const writeLeaders = [];
+    for (const id of positionIds) {
+        const position = positions.get(id);
+        if (!position || valid(position.projectId)) {
+            conflicts.push({ kind: 'CATALOG_POSITION_STALE', entityId: id }); continue;
+        }
+        for (const employee of reads.employees || []) {
+            if (![...(employee.positions || []), employee.positionId].map(trimId).includes(id)) continue;
+            if (employeeProject(employee) !== target) {
+                conflicts.push({ kind: 'CATALOG_POSITION_EMPLOYEE_PROJECT', entityId: id, employeeId: employee.id });
+            }
+        }
+        for (const record of reads.attendance || []) {
+            const referenced = trimId(record.selectedPosition) === id
+                || (record.positionHours || []).some(entry => trimId(entry?.positionId) === id);
+            if (referenced && valid(record.projectId) && trimId(record.projectId) !== target) {
+                conflicts.push({ kind: 'CATALOG_POSITION_ATTENDANCE_PROJECT', entityId: id });
+                break;
+            }
+        }
+        const leader = leaders.get(trimId(position.leaderId));
+        if (leader && effectiveProject(leader, selectedLeaders) !== target) {
+            conflicts.push({ kind: 'CATALOG_POSITION_LEADER_PROJECT', entityId: id, leaderId: leader.id });
+        }
+        writePositions.push({ ...position, projectId: target, updatedAt: p.repairTimestamp });
+    }
+    for (const id of leaderIds) {
+        const leader = leaders.get(id);
+        if (!leader || valid(leader.projectId)) {
+            conflicts.push({ kind: 'CATALOG_LEADER_STALE', entityId: id }); continue;
+        }
+        for (const position of reads.positions || []) {
+            if (trimId(position.leaderId) !== id) continue;
+            if (effectiveProject(position, selectedPositions) !== target) {
+                conflicts.push({ kind: 'CATALOG_LEADER_POSITION_PROJECT', entityId: id, positionId: position.id });
+            }
+        }
+        for (const employee of reads.employees || []) {
+            if (trimId(employee.leaderId) === id && employeeProject(employee) !== target) {
+                conflicts.push({ kind: 'CATALOG_LEADER_EMPLOYEE_PROJECT', entityId: id, employeeId: employee.id });
+            }
+        }
+        writeLeaders.push({ ...leader, projectId: target, updatedAt: p.repairTimestamp });
+    }
+    if (conflicts.length) return { result: conflictResult('Resolve linked employees, positions and leaders first', { conflicts }) };
+    const updatedMeta = buildUpdatedMeta(reads.settings, {
+        action: REPAIR_ACTION.MAP_CATALOG_ENTITIES, targetProjectId: target,
+        positionIds, leaderIds
+    });
+    for (const position of writePositions) txPut(tx, 'positions', position);
+    for (const leader of writeLeaders) txPut(tx, 'leaders', leader);
+    txPut(tx, 'settings', updatedMeta);
+    return {
+        result: { status: REPAIR_STATUS.OK, action: REPAIR_ACTION.MAP_CATALOG_ENTITIES,
+            targetProjectId: target, positionIds, leaderIds, durableCommitted: true },
+        memoryUpdate: { positionProjectIds: new Map(positionIds.map(id => [id, target])),
+            leaderProjectIds: new Map(leaderIds.map(id => [id, target])), repairTimestamp: p.repairTimestamp },
+        repairAttendanceRecords: []
+    };
+}
+
+/** Plan the catalog and personnel changes against one durable snapshot, then
+ * issue their writes together. A failed second plan leaves the transaction
+ * untouched. Dependency checks see ownership selected in the same operation. */
+function computeCombinedAssignment(reads, tx, p, createProject) {
+    const target = trimId(createProject ? p.projectId : p.targetProjectId);
+    const projects = createProject && !indexById(reads.projects).has(target)
+        ? [...reads.projects, { id: target, name: p.projectName, status: p.projectStatus || 'active' }]
+        : reads.projects;
+    const queued = new Map();
+    const stagingTx = {
+        objectStore(name) {
+            return { put(record) {
+                if (!queued.has(name)) queued.set(name, new Map());
+                queued.get(name).set(trimId(record?.key || record?.id), record);
+            } };
+        }
+    };
+    const catalog = computeCatalogEntityMap({ ...reads, projects }, stagingTx,
+        { ...p, targetProjectId: target });
+    if (catalog.result.status !== REPAIR_STATUS.OK) return catalog;
+    const selectedPositions = new Set(p.positionIds || []);
+    const selectedLeaders = new Set(p.leaderIds || []);
+    const virtualReads = {
+        ...reads,
+        positions: reads.positions.map(position => selectedPositions.has(trimId(position?.id))
+            ? { ...position, projectId: target } : position),
+        leaders: reads.leaders.map(leader => selectedLeaders.has(trimId(leader?.id))
+            ? { ...leader, projectId: target } : leader),
+        settings: queued.get('settings')?.get(RECONCILIATION_META_KEY) || reads.settings
+    };
+    const personnel = createProject
+        ? computeCreateProjectAndMap(virtualReads, stagingTx, p)
+        : computeMapToExisting(virtualReads, stagingTx, p);
+    if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(personnel.result.status)) return personnel;
+    for (const [store, records] of queued) {
+        for (const record of records.values()) txPut(tx, store, record);
+    }
+    const merged = store => {
+        const records = new Map((reads[store] || []).map(record => [
+            trimId(record?.key || record?.id), record
+        ]));
+        for (const [id, record] of queued.get(store) || []) records.set(id, record);
+        return [...records.values()];
+    };
+    const before = analyzeCounts(reads.employees, buildDurableAttendanceMap(reads.attendance),
+        reads.positions, reads.leaders, reads.projects);
+    const after = analyzeCounts(merged('employees'), buildDurableAttendanceMap(merged('attendance')),
+        merged('positions'), merged('leaders'), merged('projects'));
+    return {
+        ...personnel,
+        result: {
+            ...personnel.result, status: REPAIR_STATUS.OK, before, after,
+            positionIds: p.positionIds, leaderIds: p.leaderIds,
+            durableCommitted: true
+        },
+        memoryUpdate: {
+            ...personnel.memoryUpdate,
+            ...catalog.memoryUpdate,
+            repairTimestamp: p.repairTimestamp
+        }
+    };
+}
+
 /** Dispatch to the correct in-transaction planner for the given action. */
 function computeRepair(action, reads, tx, p) {
     switch (action) {
         case REPAIR_ACTION.MAP_TO_EXISTING:
+            if ((p.positionIds || []).length || (p.leaderIds || []).length) {
+                return computeCombinedAssignment(reads, tx, p, false);
+            }
             return computeMapToExisting(reads, tx, p);
         case REPAIR_ACTION.CREATE_PROJECT_AND_MAP:
+            if ((p.positionIds || []).length || (p.leaderIds || []).length) {
+                return computeCombinedAssignment(reads, tx, p, true);
+            }
             return computeCreateProjectAndMap(reads, tx, p);
         case REPAIR_ACTION.QUARANTINE:
             return computeQuarantine(reads, tx, p);
+        case REPAIR_ACTION.MAP_CATALOG_ENTITIES:
+            return computeCatalogEntityMap(reads, tx, p);
         default:
             return { result: conflictResult(`Action "${action}" is not supported`) };
     }
@@ -2073,11 +2243,13 @@ export async function applyOwnershipRepair(params = {}) {
         positionRemaps = [],
         positionCopies = [],
         assignUnpositionedHistory = false,
+        positionIds = [],
+        leaderIds = [],
         _db = indexedDBService
     } = params;
 
     // --- Input guard: employees must be an explicit non-empty array.
-    if (!Array.isArray(employees) || employees.length === 0) {
+    if (action !== REPAIR_ACTION.MAP_CATALOG_ENTITIES && (!Array.isArray(employees) || employees.length === 0)) {
         return {
             status: REPAIR_STATUS.CONFLICT,
             reason: 'employees must be a non-empty explicit array; global repair is not supported',
@@ -2124,6 +2296,8 @@ export async function applyOwnershipRepair(params = {}) {
         attendance,
         positions,
         leaders,
+        positionIds,
+        leaderIds,
         allEmployees: effectiveAllEmployees,
         catalog,
         skipDependencyCheck,
