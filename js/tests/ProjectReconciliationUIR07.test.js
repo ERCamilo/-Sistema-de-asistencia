@@ -73,14 +73,16 @@ describe('ProjectReconciliationUIR07 view model', () => {
         expect(vm.employeeRows[0].attendanceIssueCount).toBe(1);
     });
 
-    test('legacy unscoped employee resolved by valid default is not persistent pending', () => {
-        const unscoped = employee('legacy-1', 7, undefined);
+    test('one valid default does not hide legacy unscoped ownership or mutate the record', () => {
+        const unscoped = { id: 'legacy-1', number: '7', name: 'Empleado 7', active: true };
         const vm = buildLocalReconciliationViewModel(
             appState({ employees: [unscoped] }),
             projectState()
         );
-        expect(vm.pendingEmployeeCount).toBe(0);
-        expect(vm.validEmployeeCount).toBe(1);
+        expect(vm.pendingEmployeeCount).toBe(1);
+        expect(vm.employeeRows[0].status).toBe('LEGACY_UNSCOPED');
+        expect(vm.validEmployeeCount).toBe(0);
+        expect(unscoped).not.toHaveProperty('projectId');
     });
     test('pending rows use numeric employee order', () => {
         const rows = [

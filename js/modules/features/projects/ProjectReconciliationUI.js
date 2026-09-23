@@ -27,7 +27,7 @@ import {
 import { collectPositionDays } from '../../services/AttendancePositionAudit.js';
 import { slugify, generateUUID } from '../../utils/Helpers.js';
 
-const ACTIONABLE = new Set([CLASSIFICATION.EXPLICIT_ORPHAN, CLASSIFICATION.PENDING]);
+const ACTIONABLE = new Set([CLASSIFICATION.LEGACY_UNSCOPED, CLASSIFICATION.EXPLICIT_ORPHAN, CLASSIFICATION.PENDING]);
 let snapshot = emptySnapshot();
 let activeModal = null;
 let registered = false;
@@ -346,11 +346,13 @@ function renderPersonRows(preflight = { ok: false }) {
     return snapshot.employeeRows.map(row => {
         const employee = row.employee || {};
         const checked = modalState.selectedIds.has(row.id);
-        const refs = row.status === CLASSIFICATION.PENDING
-            ? 'Pendiente de asignación'
-            : (row.employeeIssue
-                ? 'Obra de origen no disponible'
-                : 'Asistencia vinculada a una obra no disponible');
+        const refs = row.status === CLASSIFICATION.LEGACY_UNSCOPED
+            ? 'Sin obra asignada'
+            : (row.status === CLASSIFICATION.PENDING
+                ? 'Pendiente de asignación'
+                : (row.employeeIssue
+                    ? 'Obra de origen no disponible'
+                    : 'Asistencia vinculada a una obra no disponible'));
         const targetProject = modalState.action === 'map'
             ? snapshot.projects.find(project => String(project?.id || '') === String(modalState.targetProjectId || ''))
             : null;
@@ -359,12 +361,12 @@ function renderPersonRows(preflight = { ok: false }) {
             : '';
         const statusText = readyTarget
             ? 'Listo para asignar a ' + readyTarget
-            : (row.status === CLASSIFICATION.PENDING
+            : (row.status === CLASSIFICATION.PENDING || row.status === CLASSIFICATION.LEGACY_UNSCOPED
                 ? 'Pendiente'
                 : (row.employeeIssue ? 'Obra no disponible' : 'Asistencia pendiente'));
         const statusClass = readyTarget
             ? 'r07-recon-status is-ready'
-            : (row.status === CLASSIFICATION.PENDING
+            : (row.status === CLASSIFICATION.PENDING || row.status === CLASSIFICATION.LEGACY_UNSCOPED
                 ? 'r07-recon-status is-pending'
                 : (row.employeeIssue ? 'r07-recon-status is-orphan' : 'r07-recon-status'));
         return '<label class="r07-recon-person ' + (checked ? 'is-selected' : '') + '">'
