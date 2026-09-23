@@ -220,11 +220,11 @@ describe('ProjectReconciliationDirectionUIR07', () => {
         selectTargetProject(P2.id);
 
         let createButtons = [...document.querySelectorAll('[data-r07-action="create-similar-position"]')];
-        expect(createButtons).toHaveLength(2);
-        createButtons[0].click();
-        createButtons = [...document.querySelectorAll('[data-r07-action="create-similar-position"]')];
         expect(createButtons).toHaveLength(1);
         createButtons[0].click();
+        createButtons = [...document.querySelectorAll('[data-r07-action="create-similar-position"]')];
+        expect(createButtons).toHaveLength(0);
+        expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(false);
 
         const summary = document.querySelector('.r07-preflight-summary');
         const updateList = summary.querySelector('.r07-preflight-section ul');

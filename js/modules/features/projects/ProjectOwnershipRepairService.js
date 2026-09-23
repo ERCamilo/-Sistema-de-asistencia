@@ -67,6 +67,7 @@ import {
 import { Project, PROJECT_STATUS } from './Project.js';
 import { Position } from '../employees/Position.js';
 import { remapPositionInAttendanceRecord } from '../../services/AttendancePositionAudit.js';
+import { stampAttendanceWrite } from '../attendance/AttendanceRecordWriter.js';
 import { slugify } from '../../utils/Helpers.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -375,6 +376,29 @@ function preparePositionRemaps({ selectedEmployees, durablePositions, targetProj
         byEmployeeId.set(employeeId, list);
     }
 
+    // A single destination position can store only one special salary and
+    // schedule per employee. Reject incompatible merges instead of silently
+    // keeping the first value and losing another custom rate.
+    for (const employee of selectedEmployees) {
+        const id = trimId(employee?.id);
+        const remaps = byEmployeeId.get(id) || [];
+        for (const field of ['positionSalaries', 'positionSalaryModes', 'customWorkingDays']) {
+            const values = employee?.[field] || {};
+            const byTarget = new Map();
+            for (const remap of remaps) {
+                const to = remap.toPositionId;
+                const candidates = [
+                    ...(Object.prototype.hasOwnProperty.call(values, to) ? [values[to]] : []),
+                    ...(Object.prototype.hasOwnProperty.call(values, remap.fromPositionId) ? [values[remap.fromPositionId]] : []),
+                    ...(byTarget.has(to) ? [byTarget.get(to)] : [])
+                ];
+                if (candidates.some(value => JSON.stringify(value) !== JSON.stringify(candidates[0]))) {
+                    conflicts.push({ kind: 'POSITION_SPECIAL_SETTING_CONFLICT', employeeId: id, field, toPositionId: to });
+                }
+                if (candidates.length) byTarget.set(to, candidates[0]);
+            }
+        }
+    }
     if (conflicts.length) {
         return { ok: false, conflicts, byEmployeeId: new Map(), previewEmployees: selectedEmployees };
     }
@@ -950,6 +974,7 @@ function planEmployeeRepair({
     planCatalog,
     repairTimestamp,
     positionRemaps = [],
+    assignUnpositionedHistory = false,
     leadersById = new Map()
 }) {
     const empId = trimId(freshest.id);
@@ -1014,6 +1039,28 @@ function planEmployeeRepair({
             }
         }
 
+        // For the existing-account recovery flow, put unclassified worked days
+        // on the employee's first resulting position. Preserve every recorded
+        // hour; only fill the portion not already attributed by positionHours.
+        const primaryPosition = plan.employee?.positions?.[0] || plan.employee?.positionId;
+        if (assignUnpositionedHistory && primaryPosition && record?.present === true
+            && record?.deletedAt == null && !record?.selectedPosition
+            && !isRecordOwnedByOtherValidProject(original, planCatalogIds, targetProjectId)) {
+            const entries = Array.isArray(record.positionHours) ? record.positionHours.map(entry => ({ ...entry })) : [];
+            const remainingHours = Math.max(0, (Number(record.hoursWorked) || 0)
+                - entries.reduce((sum, entry) => sum + (Number(entry.hours) || 0), 0));
+            const remainingOvertime = Math.max(0, (Number(record.overtimeHours) || 0)
+                - entries.reduce((sum, entry) => sum + (Number(entry.overtimeHours) || 0), 0));
+            const existing = entries.find(entry => String(entry?.positionId || '') === String(primaryPosition));
+            if (existing) {
+                existing.hours = (Number(existing.hours) || 0) + remainingHours;
+                existing.overtimeHours = (Number(existing.overtimeHours) || 0) + remainingOvertime;
+            } else if (remainingHours || remainingOvertime || !entries.length) {
+                entries.push({ positionId: primaryPosition, hours: remainingHours, overtimeHours: remainingOvertime });
+            }
+            record = stampAttendanceWrite({ ...record, selectedPosition: primaryPosition, positionHours: entries }, repairTimestamp);
+            positionChanged = true;
+        }
         const projectChanged = trimId(original?.projectId) !== trimId(record?.projectId);
         if (projectChanged || positionChanged) {
             // Solo los campos que realmente cambian reciben un timestamp fresco.
@@ -1238,6 +1285,7 @@ function computeMapToExisting(reads, tx, p) {
             planCatalog: durableProjects,
             repairTimestamp: p.repairTimestamp,
             positionRemaps: employeeRemaps,
+            assignUnpositionedHistory: p.assignUnpositionedHistory === true,
             leadersById
         });
         if (!r.ok) {
@@ -1572,6 +1620,7 @@ function computeCreateProjectAndMap(reads, tx, p) {
             planCatalog,
             repairTimestamp: p.repairTimestamp,
             positionRemaps: employeeRemaps,
+            assignUnpositionedHistory: p.assignUnpositionedHistory === true,
             leadersById
         });
         if (!r.ok) {
@@ -2023,6 +2072,7 @@ export async function applyOwnershipRepair(params = {}) {
         skipDependencyCheck = false,
         positionRemaps = [],
         positionCopies = [],
+        assignUnpositionedHistory = false,
         _db = indexedDBService
     } = params;
 
@@ -2079,6 +2129,7 @@ export async function applyOwnershipRepair(params = {}) {
         skipDependencyCheck,
         positionRemaps,
         positionCopies,
+        assignUnpositionedHistory,
         repairTimestamp
     };
 

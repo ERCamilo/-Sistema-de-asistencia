@@ -396,6 +396,7 @@ function dependencyConflictText(conflict = {}) {
         SHARED_POSITION_CONFLICT: 'El puesto "' + name + '" también lo usan personas de otra obra y no puede moverse automáticamente.',
         UNRESOLVED_POSITION_OWNERSHIP: 'El puesto "' + name + '" todavía no tiene una obra válida asignada.',
         MISSING_POSITION_DEFINITION: 'No se encontró la definición del puesto "' + name + '".',
+        POSITION_SPECIAL_SETTING_CONFLICT: 'Un empleado tiene sueldos o jornadas especiales distintos en puestos que intentas unir. Selecciona puestos destino distintos para conservar ambos valores.',
         LEADER_PROJECT_CONFLICT: 'El líder "' + name + '" pertenece a otra obra.',
         SHARED_LEADER_CONFLICT: 'El líder "' + name + '" también está relacionado con personas de otra obra y no puede moverse automáticamente.',
         UNRESOLVED_LEADER_OWNERSHIP: 'El líder "' + name + '" todavía no tiene una obra válida asignada.',
@@ -454,42 +455,40 @@ function findQueuedSimilarCopy(fromPositionId, name) {
 }
 
 function renderPositionRemapControls(preflight) {
-    if (!['map', 'create'].includes(modalState.action)) {
-        return renderDependencyBlocker(preflight);
-    }
+    if (!['map', 'create'].includes(modalState.action)) return renderDependencyBlocker(preflight);
     const targetProjectId = currentTargetProjectId();
     if (!targetProjectId) return renderDependencyBlocker(preflight);
-
     const needs = selectedPositionRemapNeeds();
     if (!needs.length) return renderDependencyBlocker(preflight);
     const targetPositions = targetPositionsForProject(targetProjectId);
     const targetProject = snapshot.projects.find(p => String(p?.id || '') === String(targetProjectId));
     const targetName = targetProject?.name || (modalState.action === 'create' ? modalState.createName.trim() : targetProjectId);
     const remainingConflicts = (preflight.conflicts || []).filter(conflict => !POSITION_DEPENDENCY_KINDS.has(conflict.kind));
-
+    const groups = new Map();
+    for (const need of needs) {
+        const key = String(need.fromPositionId);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(need);
+    }
     let html = '<section class="r07-position-remap" aria-labelledby="r07-position-remap-title">'
-        + '<div class="r07-position-remap-head"><div><strong id="r07-position-remap-title">Puesto en la obra destino</strong>'
-        + '<span>Antes de mover a estas personas, resuelve los puestos que pertenecen a otra obra.</span></div>'
+        + '<div class="r07-position-remap-head"><div><strong id="r07-position-remap-title">3. Resuelve los puestos</strong>'
+        + '<span>Una decisión por puesto se aplicará a todas las personas seleccionadas que lo usan.</span></div>'
         + '<span class="r07-position-remap-project">' + escapeHTML(targetName) + '</span></div>';
-
-    html += needs.map((need, index) => {
-        const key = positionRemapKey(need.employeeId, need.fromPositionId);
-        const selected = modalState.positionRemaps[key] || {};
-        const copyEntry = modalState.positionCopies[key] || null;
-        const sourceName = need.fromPosition?.name || need.fromPositionId || 'Puesto no disponible';
+    html += [...groups].map(([fromPositionId, members], index) => {
+        const first = members[0];
+        const selected = modalState.positionRemaps[positionRemapKey(first.employeeId, fromPositionId)] || {};
+        const copyEntry = modalState.positionCopies[positionRemapKey(first.employeeId, fromPositionId)] || null;
+        const sourceName = first.fromPosition?.name || fromPositionId || 'Puesto no disponible';
         const equivalent = findEquivalentDestinationPosition(sourceName, targetPositions);
         const options = targetPositions.map(position =>
             '<option value="' + escapeHTML(position.id) + '"'
             + (String(selected.toPositionId || '') === String(position.id) ? ' selected' : '') + '>'
             + escapeHTML(position.name || position.id) + '</option>'
         ).join('');
-        const audit = need.audit || {};
-        const impact = audit.count > 0
-            ? audit.count + ' día' + (audit.count === 1 ? '' : 's') + ' · '
-                + audit.totalHours + 'h · ' + (audit.firstDate || '—') + ' a ' + (audit.lastDate || '—')
-            : 'Sin días trabajados registrados con este puesto';
+        const totalDays = members.reduce((sum, item) => sum + (item.audit?.count || 0), 0);
+        const totalHours = members.reduce((sum, item) => sum + (item.audit?.totalHours || 0), 0);
+        const impact = totalDays ? totalDays + ' días · ' + totalHours + 'h' : 'Sin días registrados con este puesto';
         const selectId = 'r07-remap-target-' + index;
-
         let similarAction = '';
         if (copyEntry) {
             similarAction = '<span class="r07-position-similar-note is-queued">Se creará el puesto "'
@@ -498,36 +497,28 @@ function renderPositionRemapControls(preflight) {
             similarAction = '<span class="r07-position-similar-note">Ya existe un puesto equivalente: <strong>'
                 + escapeHTML(equivalent.name || equivalent.id) + '</strong>.</span>'
                 + '<button type="button" class="btn-secondary r07-recon-note-action"'
-                + ' data-r07-action="use-equivalent-position"'
-                + ' data-employee-id="' + escapeHTML(need.employeeId) + '"'
-                + ' data-from-position-id="' + escapeHTML(need.fromPositionId) + '"'
-                + ' data-to-position-id="' + escapeHTML(equivalent.id) + '">Usar este puesto</button>';
+                + ' data-r07-action="use-equivalent-position" data-from-position-id="' + escapeHTML(fromPositionId) + '"'
+                + ' data-to-position-id="' + escapeHTML(equivalent.id) + '">Usar este puesto para todos</button>';
         } else {
             similarAction = '<button type="button" class="btn-secondary r07-recon-note-action"'
-                + ' data-r07-action="create-similar-position"'
-                + ' data-employee-id="' + escapeHTML(need.employeeId) + '"'
-                + ' data-from-position-id="' + escapeHTML(need.fromPositionId) + '">Crear puesto similar</button>';
+                + ' data-r07-action="create-similar-position" data-from-position-id="' + escapeHTML(fromPositionId)
+                + '">Crear puesto similar para todos</button>';
         }
-
+        const people = members.map(item => escapeHTML(item.employee?.number || '—')).join(', ');
         return '<div class="r07-position-remap-card">'
-            + '<div class="r07-position-remap-person"><strong>' + escapeHTML(need.employee?.number || '—')
-            + ' · ' + escapeHTML(need.employee?.name || 'Empleado') + '</strong>'
-            + '<span>Actual: ' + escapeHTML(sourceName) + '</span></div>'
-            + '<div class="r07-recon-control"><label for="' + selectId + '">Nuevo puesto en la obra destino</label>'
-            + '<select id="' + selectId + '" data-r07-position-target'
-            + ' data-employee-id="' + escapeHTML(need.employeeId) + '" data-from-position-id="' + escapeHTML(need.fromPositionId) + '"'
+            + '<div class="r07-position-remap-person"><strong>' + escapeHTML(sourceName) + '</strong>'
+            + '<span>' + members.length + ' empleado(s): ' + people + '</span></div>'
+            + '<div class="r07-recon-control"><label for="' + selectId + '">Puesto en la obra destino</label>'
+            + '<select id="' + selectId + '" data-r07-position-target data-from-position-id="' + escapeHTML(fromPositionId) + '"'
             + (targetPositions.length ? '' : ' disabled') + '>'
             + '<option value="">Selecciona un puesto</option>' + options + '</select></div>'
             + '<div class="r07-position-remap-similar">' + similarAction + '</div>'
-            + '<div class="r07-position-remap-impact is-preserved"><strong>Historial conservado</strong><span>' + escapeHTML(impact) + '</span>'
-            + '<small>Solo cambia el puesto actual. Los días ya trabajados conservan el puesto y los valores históricos registrados.</small></div>'
+            + '<div class="r07-position-remap-impact is-preserved"><strong>Días que se reasignarán</strong><span>' + escapeHTML(impact) + '</span>'
+            + '<small>Se conservan horas y sueldos especiales de cada empleado; los días con este puesto pasarán al elegido.</small></div>'
             + '</div>';
     }).join('');
-
     html += '</section>';
-    if (remainingConflicts.length) {
-        html += renderDependencyBlocker({ ok: false, conflicts: remainingConflicts });
-    }
+    if (remainingConflicts.length) html += renderDependencyBlocker({ ok: false, conflicts: remainingConflicts });
     return html;
 }
 
@@ -610,6 +601,15 @@ function renderPreflightSummary(preflight) {
     }
     if (positionLines.length) {
         updateItems.push('Puesto: ' + positionLines.join(', ') + '.');
+    }
+    const unpositionedDays = attendanceEntries.filter(([, record]) =>
+        employeeOwnershipRows.some(row => String(row.id) === String(record?.employeeId))
+        && record?.present === true && record?.deletedAt == null && !record?.selectedPosition
+        && (!record?.projectId || !catalogProjectNames.has(String(record.projectId))
+            || String(record.projectId) === String(targetProjectId))
+    ).length;
+    if (unpositionedDays) {
+        updateItems.push(unpositionedDays + ' día(s) sin puesto explícito se asignarán al primer puesto resultante de cada empleado; se conservarán sus horas.');
     }
     const keepItems = [
         'Identidad y datos propios de cada empleado (número, nombre y salarios).',
@@ -811,7 +811,7 @@ function rerenderModal() {
         } else if (active.dataset?.r07PositionTarget !== undefined) {
             const emp = active.dataset.employeeId || '';
             const from = active.dataset.fromPositionId || '';
-            focusTarget = () => body.querySelector('[data-r07-position-target][data-employee-id="' + cssEscape(emp) + '"][data-from-position-id="' + cssEscape(from) + '"]');
+            focusTarget = () => body.querySelector('[data-r07-position-target][data-from-position-id="' + cssEscape(from) + '"]');
         } else if (active.dataset?.r07Action === 'toggle-all') {
             focusTarget = () => body.querySelector('[data-r07-action="toggle-all"]');
         } else if (active.dataset?.r07Action === 'create-similar-position'
@@ -820,8 +820,7 @@ function rerenderModal() {
             const fromPositionId = active.dataset.fromPositionId || '';
             focusTarget = () => {
                 const positionTarget = body.querySelector(
-                    '[data-r07-position-target][data-employee-id="' + cssEscape(employeeId)
-                    + '"][data-from-position-id="' + cssEscape(fromPositionId) + '"]'
+                    '[data-r07-position-target][data-from-position-id="' + cssEscape(fromPositionId) + '"]'
                 );
                 if (positionTarget && !positionTarget.disabled) return positionTarget;
                 return body.querySelector('[data-r07-action="apply"]:not([disabled])')
@@ -930,7 +929,8 @@ async function applyLocalResolution() {
                 action: REPAIR_ACTION.MAP_TO_EXISTING,
                 targetProjectId: modalState.targetProjectId,
                 positionRemaps: currentPositionRemaps(),
-                positionCopies: currentPositionCopies()
+                positionCopies: currentPositionCopies(),
+                assignUnpositionedHistory: true
             };
         } else if (appliedAction === 'create') {
             params = {
@@ -939,7 +939,8 @@ async function applyLocalResolution() {
                 projectId: ensureCreateProjectId(),
                 projectName: modalState.createName.trim(),
                 positionRemaps: currentPositionRemaps(),
-                positionCopies: currentPositionCopies()
+                positionCopies: currentPositionCopies(),
+                assignUnpositionedHistory: true
             };
         } else {
             params = { ...base, action: REPAIR_ACTION.QUARANTINE };
@@ -999,42 +1000,35 @@ async function applyLocalResolution() {
     }
 }
 
-function createSimilarPosition(employeeId, fromPositionId) {
-    if (!employeeId || !fromPositionId || modalState.busy) return;
-    const source = (state.positions || []).find(p => String(p?.id || '') === String(fromPositionId));
-    const sourceName = source?.name || fromPositionId;
-    const key = positionRemapKey(employeeId, fromPositionId);
-    // F6: reuse an already-queued destination id for the same source position +
-    // target + normalized name so the batch creates the position once.
-    const queued = findQueuedSimilarCopy(fromPositionId, sourceName);
-    const newPositionId = queued ? queued.newPositionId : generateUUID();
-    // Destination-owned copy: a new unique id, never the source project/leader
-    // or cross-project relations (the service drops those on commit).
-    modalState.positionCopies[key] = {
-        fromPositionId: String(fromPositionId),
-        newPositionId,
-        name: sourceName
-    };
-    modalState.positionRemaps[key] = {
-        employeeId: String(employeeId),
-        fromPositionId: String(fromPositionId),
-        toPositionId: newPositionId,
-        migrateHistory: false
-    };
+function setGroupPosition(fromPositionId, toPositionId, copy = null) {
+    if (!fromPositionId || modalState.busy) return;
+    for (const need of selectedPositionRemapNeeds().filter(item => item.fromPositionId === fromPositionId)) {
+        const key = positionRemapKey(need.employeeId, fromPositionId);
+        if (copy) modalState.positionCopies[key] = { ...copy };
+        else delete modalState.positionCopies[key];
+        if (toPositionId) {
+            modalState.positionRemaps[key] = {
+                employeeId: String(need.employeeId), fromPositionId: String(fromPositionId),
+                toPositionId: String(toPositionId), migrateHistory: true
+            };
+        } else delete modalState.positionRemaps[key];
+    }
     rerenderModal();
 }
 
-function useEquivalentPosition(employeeId, fromPositionId, toPositionId) {
-    if (!employeeId || !fromPositionId || !toPositionId || modalState.busy) return;
-    const key = positionRemapKey(employeeId, fromPositionId);
-    delete modalState.positionCopies[key];
-    modalState.positionRemaps[key] = {
-        employeeId: String(employeeId),
-        fromPositionId: String(fromPositionId),
-        toPositionId: String(toPositionId),
-        migrateHistory: false
-    };
-    rerenderModal();
+function createSimilarPosition(_employeeId, fromPositionId) {
+    if (!fromPositionId || modalState.busy) return;
+    const source = (state.positions || []).find(p => String(p?.id || '') === String(fromPositionId));
+    const sourceName = source?.name || fromPositionId;
+    const queued = findQueuedSimilarCopy(fromPositionId, sourceName);
+    const newPositionId = queued ? queued.newPositionId : generateUUID();
+    setGroupPosition(fromPositionId, newPositionId, {
+        fromPositionId: String(fromPositionId), newPositionId, name: sourceName
+    });
+}
+
+function useEquivalentPosition(_employeeId, fromPositionId, toPositionId) {
+    setGroupPosition(fromPositionId, toPositionId);
 }
 
 function handleClick(event) {
@@ -1136,24 +1130,7 @@ function handleChange(event) {
         return;
     }
     if (event.target?.dataset?.r07PositionTarget !== undefined) {
-        const employeeId = String(event.target.dataset.employeeId || '');
-        const fromPositionId = String(event.target.dataset.fromPositionId || '');
-        const key = positionRemapKey(employeeId, fromPositionId);
-        const toPositionId = String(event.target.value || '');
-        if (!toPositionId) {
-            delete modalState.positionRemaps[key];
-        } else {
-            // Choosing an existing destination position replaces any queued
-            // "similar position" copy for the same source.
-            delete modalState.positionCopies[key];
-            modalState.positionRemaps[key] = {
-                employeeId,
-                fromPositionId,
-                toPositionId,
-                migrateHistory: false
-            };
-        }
-        rerenderModal();
+        setGroupPosition(String(event.target.dataset.fromPositionId || ''), String(event.target.value || ''));
         return;
     }
 
