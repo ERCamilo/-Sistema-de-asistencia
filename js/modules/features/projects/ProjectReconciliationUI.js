@@ -9,6 +9,7 @@ import { analyzeProjectOwnership, CLASSIFICATION } from './ProjectOwnershipRecon
 import {
     applyOwnershipRepair,
     preflightDependencies,
+    previewOwnershipRepair,
     REPAIR_ACTION,
     REPAIR_STATUS
 } from './ProjectOwnershipRepairService.js';
@@ -46,6 +47,7 @@ function emptySnapshot() {
 }
 function initialModalState() {
     return {
+        step: 0, leaderRemaps: {}, leaderCopies: {},
         selectedIds: new Set(), action: '', targetProjectId: '',
         createName: '', createProjectId: null,
         positionRemaps: {},
@@ -277,7 +279,7 @@ function targetPositionsForProject(projectId) {
         .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { numeric: true }));
 }
 
-function selectedPositionRemapNeeds() {
+function selectedPositionRemapNeeds(includeAssigned = false) {
     if (!['map', 'create'].includes(modalState.action)) return [];
     const target = currentTargetProjectId();
     if (!target) return [];
@@ -293,7 +295,7 @@ function selectedPositionRemapNeeds() {
         for (const fromPositionId of ids) {
             const position = (state.positions || []).find(item => String(item?.id || '') === fromPositionId);
             if (position && (String(position.projectId || '') === target
-                || modalState.entitySelectedIds.has('positions:' + fromPositionId))) continue;
+                || (!includeAssigned && modalState.entitySelectedIds.has('positions:' + fromPositionId)))) continue;
             needs.push({
                 employeeId: row.id,
                 employee,
@@ -313,20 +315,39 @@ function currentPreflight() {
     if (!['map', 'create'].includes(modalState.action)) return { ok: true, conflicts: [] };
     const targetProjectId = currentTargetProjectId();
     if (!targetProjectId) return { ok: false, conflicts: [] };
-    return preflightDependencies({
+    const leaderMap = modalState.leaderRemaps || {};
+    const dependency = preflightDependencies({
         // Target-project position/leader dependencies apply only to employees
         // whose own ownership is being repaired. Attendance-only rows repair
         // related records while the employee remains in its valid project.
-        employees: selectedEmployeesNeedingOwnershipRepair(),
+        employees: selectedEmployeesNeedingOwnershipRepair().map(employee => ({ ...employee,
+            leaderId: leaderMap[employee.leaderId]?.toLeaderId || employee.leaderId })),
         allEmployees: state.employees || [],
-        positions: (state.positions || []).map(item => modalState.entitySelectedIds.has('positions:' + item.id)
+        positions: (state.positions || []).map(item => ({ ...item,
+            projectId: modalState.entitySelectedIds.has('positions:' + item.id) ? targetProjectId : item.projectId,
+            leaderId: leaderMap[item.leaderId]?.toLeaderId || item.leaderId })),
+        leaders: [...(state.leaders || []).map(item => modalState.entitySelectedIds.has('leaders:' + item.id)
             ? { ...item, projectId: targetProjectId } : item),
-        leaders: (state.leaders || []).map(item => modalState.entitySelectedIds.has('leaders:' + item.id)
-            ? { ...item, projectId: targetProjectId } : item),
+            ...Object.values(modalState.leaderCopies).map(item => ({ id: item.newLeaderId, name: item.name, projectId: targetProjectId, active: true }))],
         targetProjectId,
         positionRemaps: currentPositionRemaps(),
         positionCopies: currentPositionCopies()
     });
+    if (!dependency.ok || modalState.step < 3) return dependency;
+    const planned = previewOwnershipRepair({
+        action: modalState.action === 'create' ? REPAIR_ACTION.CREATE_PROJECT_AND_MAP : REPAIR_ACTION.MAP_TO_EXISTING,
+        employees: selectedEmployees(), allEmployees: state.employees || [],
+        attendance: state.attendance || {}, positions: state.positions || [], leaders: state.leaders || [],
+        catalog: snapshot.projects, targetProjectId, projectId: modalState.createProjectId,
+        projectName: modalState.createName.trim(), positionIds: selectedCatalogIds('positions'),
+        leaderIds: selectedCatalogIds('leaders'), leaderRemaps: Object.values(modalState.leaderRemaps),
+        leaderCopies: Object.values(modalState.leaderCopies), positionRemaps: currentPositionRemaps(),
+        positionCopies: currentPositionCopies(), assignUnpositionedHistory: true
+    });
+    if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(planned.status)) {
+        return { ...dependency, ok: false, conflicts: planned.conflicts || [] };
+    }
+    return dependency;
 }
 function checkSvg() {
     return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4 10-10"></path></svg>';
@@ -394,8 +415,16 @@ function renderChoice(value, title, detail) {
         + '<span class="r07-recon-choice-copy"><strong>' + escapeHTML(title) + '</strong><small>' + escapeHTML(detail) + '</small></span></label>';
 }
 function dependencyConflictText(conflict = {}) {
-    const name = conflict.entityName || conflict.entityId || 'La relación';
+    const definition = [...(state.positions || []), ...(state.leaders || [])].find(item => item.id === conflict.entityId);
+    const name = conflict.entityName || definition?.name || 'La relación';
     const messages = {
+        CATALOG_POSITION_EMPLOYEE_PROJECT: 'El puesto "' + name + '" también lo usa un empleado fuera de esta selección. Inclúyelo si pertenece a esta obra o crea un puesto nuevo.',
+        CATALOG_POSITION_ATTENDANCE_PROJECT: 'El puesto "' + name + '" tiene asistencia en otra obra. Usa un puesto de destino o crea uno nuevo.',
+        CATALOG_POSITION_LEADER_PROJECT: 'Resuelve el líder del puesto "' + name + '" antes de continuar.',
+        CATALOG_LEADER_POSITION_PROJECT: 'El líder "' + name + '" tiene puestos fuera de esta asignación. Incluye sus puestos sin obra o elige otro líder.',
+        CATALOG_LEADER_EMPLOYEE_PROJECT: 'El líder "' + name + '" tiene empleados fuera de esta asignación. Inclúyelos o elige otro líder.',
+        CATALOG_POSITION_STALE: 'El puesto "' + name + '" ya cambió de obra. Revisa su asignación.',
+        CATALOG_LEADER_STALE: 'El líder "' + name + '" ya cambió de obra. Revisa su asignación.',
         POSITION_PROJECT_CONFLICT: 'El puesto "' + name + '" pertenece a otra obra.',
         SHARED_POSITION_CONFLICT: 'El puesto "' + name + '" también lo usan personas de otra obra y no puede moverse automáticamente.',
         UNRESOLVED_POSITION_OWNERSHIP: 'El puesto "' + name + '" todavía no tiene una obra válida asignada.',
@@ -462,7 +491,7 @@ function renderPositionRemapControls(preflight) {
     if (!['map', 'create'].includes(modalState.action)) return renderDependencyBlocker(preflight);
     const targetProjectId = currentTargetProjectId();
     if (!targetProjectId) return renderDependencyBlocker(preflight);
-    const needs = selectedPositionRemapNeeds();
+    const needs = selectedPositionRemapNeeds(true);
     if (!needs.length) return renderDependencyBlocker(preflight);
     const targetPositions = targetPositionsForProject(targetProjectId);
     const targetProject = snapshot.projects.find(p => String(p?.id || '') === String(targetProjectId));
@@ -475,14 +504,16 @@ function renderPositionRemapControls(preflight) {
         groups.get(key).push(need);
     }
     let html = '<section class="r07-position-remap" aria-labelledby="r07-position-remap-title">'
-        + '<div class="r07-position-remap-head"><div><strong id="r07-position-remap-title">3. Resuelve los puestos</strong>'
+        + '<div class="r07-position-remap-head"><div><strong id="r07-position-remap-title">Resuelve los puestos</strong>'
         + '<span>Una decisión por puesto se aplicará a todas las personas seleccionadas que lo usan.</span></div>'
         + '<span class="r07-position-remap-project">' + escapeHTML(targetName) + '</span></div>';
     html += [...groups].map(([fromPositionId, members], index) => {
         const first = members[0];
         const selected = modalState.positionRemaps[positionRemapKey(first.employeeId, fromPositionId)] || {};
         const copyEntry = modalState.positionCopies[positionRemapKey(first.employeeId, fromPositionId)] || null;
-        const sourceName = first.fromPosition?.name || fromPositionId || 'Puesto no disponible';
+        const assigned = modalState.entitySelectedIds.has('positions:' + fromPositionId);
+        const sourceUnscoped = first.fromPosition && !snapshot.projects.some(project => project.id === first.fromPosition.projectId);
+        const sourceName = first.fromPosition?.name || 'Puesto no disponible';
         const equivalent = findEquivalentDestinationPosition(sourceName, targetPositions);
         const options = targetPositions.map(position =>
             '<option value="' + escapeHTML(position.id) + '"'
@@ -506,19 +537,30 @@ function renderPositionRemapControls(preflight) {
         } else {
             similarAction = '<button type="button" class="btn-secondary r07-recon-note-action"'
                 + ' data-r07-action="create-similar-position" data-from-position-id="' + escapeHTML(fromPositionId)
-                + '">Crear puesto similar para todos</button>';
+                + '">Crear un puesto nuevo</button>';
+        }
+        if (equivalent && !copyEntry) {
+            similarAction += '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="create-similar-position" data-from-position-id="'
+                + escapeHTML(fromPositionId) + '">Crear un puesto nuevo</button>';
+        }
+        if (copyEntry) {
+            similarAction += '<div class="r07-recon-control"><label for="r07-copy-name-' + index + '">Nombre del nuevo puesto</label>'
+                + '<input id="r07-copy-name-' + index + '" type="text" maxlength="100" data-r07-position-name="' + escapeHTML(fromPositionId)
+                + '" value="' + escapeHTML(copyEntry.name) + '"></div>';
         }
         const people = members.map(item => escapeHTML(item.employee?.number || '—')).join(', ');
         return '<div class="r07-position-remap-card">'
             + '<div class="r07-position-remap-person"><strong>' + escapeHTML(sourceName) + '</strong>'
-            + '<span>' + members.length + ' empleado(s): ' + people + '</span></div>'
+            + '<span>' + members.length + ' empleado(s): ' + people + '</span>'
+            + ((assigned || selected.toPositionId) ? '<span class="r07-wizard-resolved" role="img" aria-label="Resuelto">' + checkSvg() + '</span>' : '') + '</div>'
+            + (sourceUnscoped ? '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="assign-source-position" data-from-position-id="' + escapeHTML(fromPositionId) + '" aria-pressed="' + assigned + '">' + (assigned ? 'Asignado a esta obra' : 'Asignar este puesto a la obra') + '</button>' : '')
             + '<div class="r07-recon-control"><label for="' + selectId + '">Puesto en la obra destino</label>'
             + '<select id="' + selectId + '" data-r07-position-target data-from-position-id="' + escapeHTML(fromPositionId) + '"'
             + (targetPositions.length ? '' : ' disabled') + '>'
             + '<option value="">Selecciona un puesto</option>' + options + '</select></div>'
             + '<div class="r07-position-remap-similar">' + similarAction + '</div>'
             + '<div class="r07-position-remap-impact is-preserved"><strong>Días que se reasignarán</strong><span>' + escapeHTML(impact) + '</span>'
-            + '<small>Se conservan horas y sueldos especiales de cada empleado; los días con este puesto pasarán al elegido.</small></div>'
+            + '<small>Se conservan horas y sueldos especiales de cada empleado.</small></div>'
             + '</div>';
     }).join('');
     html += '</section>';
@@ -604,7 +646,18 @@ function renderPreflightSummary(preflight) {
         );
     }
     if (positionLines.length) {
-        updateItems.push('Puesto: ' + positionLines.join(', ') + '.');
+        updateItems.push('Puesto: ' + [...new Set(positionLines)].join(', ') + '.');
+    }
+    for (const collection of ['leaders', 'positions']) {
+        const names = (state[collection] || []).filter(item => modalState.entitySelectedIds.has(collection + ':' + item.id))
+            .map(item => item.name || 'Sin nombre');
+        if (names.length) updateItems.push((collection === 'leaders' ? 'Líderes' : 'Puestos') + ' que se asignarán: ' + names.join(', ') + '.');
+    }
+    for (const remap of Object.values(modalState.leaderRemaps)) {
+        const source = (state.leaders || []).find(item => item.id === remap.fromLeaderId);
+        const target = (state.leaders || []).find(item => item.id === remap.toLeaderId);
+        const copy = modalState.leaderCopies[remap.fromLeaderId];
+        updateItems.push('Líder: ' + (source?.name || 'Sin nombre') + ' → ' + (copy?.name || target?.name || 'Sin nombre') + (copy ? ' (nuevo).' : '.'));
     }
     const unpositionedDays = attendanceEntries.filter(([, record]) =>
         employeeOwnershipRows.some(row => String(row.id) === String(record?.employeeId))
@@ -688,7 +741,7 @@ function renderActionControl(preflight) {
         return '<div class="r07-recon-control"><label for="r07-target-project">Obra de destino</label>'
             + '<select id="r07-target-project" data-r07-control="target-project">'
             + '<option value="">Selecciona una obra activa</option>' + options + '</select></div>'
-            + renderPositionRemapControls(preflight);
+            ;
     }
     if (modalState.action === 'create') {
         const duplicate = duplicateCreateProject();
@@ -703,7 +756,7 @@ function renderActionControl(preflight) {
             + '<small id="r07-create-project-help">Se creará una única obra nueva, sin duplicados.</small>'
             + '<small id="r07-create-project-error" class="r07-recon-inline-error" role="status"'
             + (duplicate ? '' : ' hidden') + '>' + escapeHTML(errorText) + '</small></div>'
-            + renderPositionRemapControls(preflight);
+            ;
     }
     if (modalState.action === 'later' && selectedRows().some(row => !row.employeeIssue)) {
         return '<div class="r07-recon-blocker" role="alert">'
@@ -760,75 +813,155 @@ function catalogIssueKey(issue) {
     return issue.collection + ':' + String(issue.record?.id || issue.recordKey || '');
 }
 
-function renderCatalogIssues() {
-    const hasEmployeeFlow = snapshot.employeeRows.length > 0;
-    const issues = catalogIssues();
+function renderCatalogIssues(collection = 'positions') {
+    const used = new Set(selectedPositionRemapNeeds(true).map(item => item.fromPositionId));
+    const issues = catalogIssues().filter(issue => issue.collection === collection
+        && !(collection === 'positions' && used.has(String(issue.record?.id))));
     if (!issues.length) return '';
-    const options = snapshot.activeProjects.map(project => '<option value="' + escapeHTML(project.id)
-        + '"' + (modalState.entityTargetProjectId === project.id ? ' selected' : '') + '>'
-        + escapeHTML(project.name || project.id) + '</option>').join('');
-    const rows = issues.map(issue => {
-        const key = catalogIssueKey(issue);
-        return '<label class="r07-recon-choice"><input type="checkbox" data-r07-entity-select="' + escapeHTML(key) + '"'
-            + (modalState.entitySelectedIds.has(key) ? ' checked' : '') + '>'
-            + '<span class="r07-recon-choice-copy"><strong>' + escapeHTML(otherIssueLabel(issue)) + '</strong>'
-            + '<small>' + escapeHTML(issue.status === CLASSIFICATION.LEGACY_UNSCOPED ? 'Sin obra' : 'Obra no válida')
-            + '</small></span></label>';
+    return '<section class="r07-recon-section"><h3>Otros puestos sin obra</h3>'
+        + '<p class="r07-recon-hint">Puedes incluirlos en esta asignación.</p>'
+        + issues.map(issue => {
+            const key = catalogIssueKey(issue);
+            const checked = modalState.entitySelectedIds.has(key);
+            return '<label class="r07-recon-choice ' + (checked ? 'is-selected' : '') + '">'
+                + '<input type="checkbox" data-r07-entity-select="' + escapeHTML(key) + '"' + (checked ? ' checked' : '') + '>'
+                + '<span class="r07-recon-choice-copy"><strong>' + escapeHTML(otherIssueLabel(issue)) + '</strong>'
+                + '<small>' + (checked ? 'Se asignará a esta obra' : 'Sin obra válida') + '</small></span></label>';
+        }).join('') + '</section>';
+}
+
+function leaderNeeds() {
+    const ids = new Set();
+    for (const employee of selectedEmployeesNeedingOwnershipRepair()) {
+        if (employee.leaderId) ids.add(String(employee.leaderId));
+        for (const id of [...(employee.positions || []), employee.positionId].filter(Boolean)) {
+            const position = (state.positions || []).find(item => String(item.id) === String(id));
+            if (position?.leaderId) ids.add(String(position.leaderId));
+        }
+    }
+    const target = currentTargetProjectId();
+    return (state.leaders || []).filter(leader => String(leader.projectId || '') !== target
+        && (ids.has(String(leader.id)) || catalogIssues().some(issue => issue.collection === 'leaders'
+            && String(issue.record?.id) === String(leader.id))))
+        .map(leader => ({ leader, required: ids.has(String(leader.id)) }));
+}
+
+function leaderResolved(id) {
+    return modalState.entitySelectedIds.has('leaders:' + id) || !!modalState.leaderRemaps[id]?.toLeaderId;
+}
+
+function renderLeaderChoices() {
+    const needs = leaderNeeds();
+    if (!needs.length) return '<div class="r07-recon-empty">Los líderes ya están listos.</div>';
+    const destinations = (state.leaders || []).filter(leader => leader.active !== false
+        && String(leader.projectId || '') === currentTargetProjectId());
+    return needs.map(({ leader, required }, index) => {
+        const assigned = modalState.entitySelectedIds.has('leaders:' + leader.id);
+        const chosen = modalState.leaderRemaps[leader.id]?.toLeaderId || '';
+        const copy = modalState.leaderCopies[leader.id];
+        const unscoped = !snapshot.projects.some(project => project.id === leader.projectId);
+        return '<section class="r07-position-remap-card">'
+            + '<div class="r07-position-remap-person"><strong>' + escapeHTML(leader.name || 'Líder sin nombre') + '</strong>'
+            + '<span>' + (required ? 'Relacionado con los empleados seleccionados' : 'Sin obra · inclusión opcional') + '</span>'
+            + (leaderResolved(leader.id) ? '<span class="r07-wizard-resolved" role="img" aria-label="Resuelto">' + checkSvg() + '</span>' : '') + '</div>'
+            + (unscoped ? '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="assign-source-leader" data-leader-id="' + escapeHTML(leader.id)
+                + '" aria-pressed="' + assigned + '">' + (assigned ? 'Asignado a esta obra' : 'Asignar este líder a la obra') + '</button>' : '')
+            + '<div class="r07-recon-control"><label for="r07-leader-' + index + '">Usar un líder de esta obra</label>'
+            + '<select id="r07-leader-' + index + '" data-r07-leader-target="' + escapeHTML(leader.id) + '"><option value="">Selecciona un líder</option>'
+            + destinations.map(item => '<option value="' + escapeHTML(item.id) + '"' + (chosen === item.id ? ' selected' : '') + '>' + escapeHTML(item.name) + '</option>').join('')
+            + '</select></div>'
+            + (copy ? '<div class="r07-recon-control"><label for="r07-new-leader-' + index + '">Nombre del nuevo líder</label><input id="r07-new-leader-' + index
+                + '" type="text" maxlength="100" data-r07-leader-name="' + escapeHTML(leader.id) + '" value="' + escapeHTML(copy.name) + '"></div>'
+                : '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="create-leader" data-leader-id="' + escapeHTML(leader.id) + '">Crear un líder nuevo</button>')
+            + '</section>';
     }).join('');
-    return '<section class="r07-recon-section" aria-labelledby="r07-catalog-title">'
-        + '<div class="r07-recon-section-head"><div><h3 id="r07-catalog-title">Puestos y líderes pendientes</h3>'
-        + '<p>Selecciona los puestos y líderes de esta obra; se guardarán junto con los empleados y su asistencia.</p></div>'
-        + '<button type="button" class="r07-recon-link-button" data-r07-action="catalog-toggle-all">'
-        + (issues.every(issue => modalState.entitySelectedIds.has(catalogIssueKey(issue))) ? 'Deseleccionar todos' : 'Seleccionar todos')
-        + '</button></div><div class="r07-recon-people">' + rows + '</div>'
-        + (hasEmployeeFlow ? '' : '<div class="r07-recon-control"><label for="r07-catalog-project">Obra de destino</label>'
-        + '<select id="r07-catalog-project" data-r07-catalog-project><option value="">Selecciona una obra activa</option>'
-        + options + '</select></div>')
-        + (modalState.entityMessage ? '<div class="r07-recon-message" role="status">' + escapeHTML(modalState.entityMessage) + '</div>' : '')
-        + (hasEmployeeFlow ? '' : '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="catalog-apply"'
-        + (modalState.entityBusy || !modalState.entityTargetProjectId || !modalState.entitySelectedIds.size ? ' disabled' : '')
-        + '>Asignar puestos y líderes seleccionados</button>') + '</section>';
+}
+
+const WIZARD_STEPS = ['Obra', 'Empleados', 'Líderes', 'Puestos', 'Resumen'];
+
+function wizardHint(preflight) {
+    if (modalState.busy) return 'Guardando cambios…';
+    if (modalState.step === 0) {
+        if (!modalState.action) return 'Elige una obra existente o crea una nueva.';
+        if (modalState.action === 'map' && !modalState.targetProjectId) return 'Selecciona una obra.';
+        if (modalState.action === 'create' && !modalState.createName.trim()) return 'Escribe el nombre de la obra.';
+        if (modalState.action === 'create' && duplicateCreateProject()) return 'Ya existe una obra con ese nombre.';
+        return '';
+    }
+    if (modalState.step === 1 && snapshot.employeeRows.length && !modalState.selectedIds.size) return 'Selecciona al menos un empleado.';
+    if (modalState.step === 2 && leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id))) return 'Resuelve los líderes relacionados para continuar.';
+    if (Object.values(modalState.leaderCopies).some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo líder.';
+    if (modalState.step >= 3 && currentPositionCopies().some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo puesto.';
+    if (modalState.step >= 3 && !preflight.ok) return 'Resuelve los puestos pendientes para continuar.';
+    if (modalState.step === 4 && !canApply(preflight)) return 'Selecciona empleados, puestos o líderes para asignar.';
+    return '';
+}
+
+function changeWizardStep(direction) {
+    if (modalState.busy || (direction > 0 && wizardHint(currentPreflight()))) return;
+    let next = modalState.step + direction;
+    while (next > 0 && next < 4 && (
+        (next === 1 && !snapshot.employeeRows.length)
+        || (next === 2 && !leaderNeeds().length)
+        || (next === 3 && !selectedPositionRemapNeeds(true).length
+            && !catalogIssues().some(issue => issue.collection === 'positions'))
+    )) next += direction;
+    modalState.step = Math.max(0, Math.min(4, next));
+    modalState.message = '';
+    const shell = activeModal?.element?.querySelector('.modal-container');
+    const from = shell?.getBoundingClientRect();
+    rerenderModal();
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (shell?.animate && from && !reduced) {
+        const to = shell.getBoundingClientRect();
+        shell.animate([{ height: from.height + 'px' }, { height: to.height + 'px' }],
+            { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    }
+    const body = activeModal?.element?.querySelector('.modal-body');
+    if (body) body.scrollTop = 0;
+    activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
 }
 
 function modalContent() {
     const preflight = currentPreflight();
-    const hasEmployeeFlow = snapshot.employeeRows.length > 0;
-    const allSelected = hasEmployeeFlow
-        && snapshot.employeeRows.every(row => modalState.selectedIds.has(row.id));
-    const hint = hasEmployeeFlow ? resolutionHint(preflight) : '';
-    const employeeFlow = hasEmployeeFlow
-        ? '<section class="r07-recon-section" aria-labelledby="r07-select-title">'
-            + '<div class="r07-recon-section-head"><div><h3 id="r07-select-title">1. Selecciona las personas</h3>'
-            + '<p>Solo se modificarán las personas seleccionadas y su asistencia relacionada.</p></div>'
-            + '<button type="button" class="r07-recon-link-button" data-r07-action="toggle-all">'
-            + (allSelected ? 'Deseleccionar todos' : 'Seleccionar todos') + '</button></div>'
-            + '<div class="r07-recon-people">' + renderPersonRows(preflight) + '</div></section>'
-            + '<fieldset class="r07-recon-section r07-recon-fieldset"><legend>2. Elige cómo resolverlo</legend>'
-            + '<div class="r07-recon-choices">'
-            + renderChoice('map', 'Asignar a una obra existente', 'Usa una obra activa que ya existe en SA.')
-            + renderChoice('create', 'Crear una obra y asignar', 'Crea una obra nueva y mueve allí las personas seleccionadas.')
-            + renderChoice('later', 'Resolver más tarde', 'Mantiene estas personas fuera del flujo normal hasta revisarlas.')
-            + '</div>' + renderActionControl(preflight) + '</fieldset>'
-            + renderPersonnelManagementLink()
-        : '';
-    const primary = hasEmployeeFlow
-        ? '<button type="button" class="btn-primary r07-recon-footer-btn r07-recon-footer-primary" data-r07-action="apply"'
-            + (canApply(preflight) ? '' : ' disabled') + '>' + primaryActionLabel() + '</button>'
-        : '';
-    return '<div class="r07-recon-shell">'
-        + '<div class="r07-recon-kicker">CONCILIACIÓN</div>'
-        + '<div class="r07-recon-summary" aria-live="polite">'
-        + '<div><strong>' + snapshot.pendingEmployeeCount + '</strong><span>empleados pendientes</span></div>'
-        + '<div><strong>' + snapshot.validEmployeeCount + '</strong><span>empleados asignados</span></div>'
-        + '<div><strong>' + snapshot.otherIssues.length + '</strong><span>otros avisos</span></div>'
-        + '</div>' + employeeFlow + renderPreflightSummary(preflight) + renderCatalogIssues() + renderOtherIssuesNote()
+    const step = modalState.step;
+    const allSelected = snapshot.employeeRows.length > 0 && snapshot.employeeRows.every(row => modalState.selectedIds.has(row.id));
+    const selectedCatalog = selectedCatalogIds('positions').length + selectedCatalogIds('leaders').length;
+    const stages = [
+        '<fieldset class="r07-recon-fieldset"><legend>Elige la obra de destino</legend><div class="r07-recon-choices">'
+            + renderChoice('map', 'Usar una obra existente', 'Asigna los datos a una obra activa.')
+            + renderChoice('create', 'Crear una obra', 'Define el nombre de la nueva obra.')
+            + '</div>' + renderActionControl(preflight) + '</fieldset>',
+        '<div class="r07-recon-section-head"><p>' + modalState.selectedIds.size + ' empleados seleccionados</p>'
+            + '<button type="button" class="r07-recon-link-button" data-r07-action="toggle-all">' + (allSelected ? 'Deseleccionar todos' : 'Seleccionar todos')
+            + '</button></div><div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink(),
+        renderLeaderChoices(),
+        renderPositionRemapControls(preflight) + renderCatalogIssues('positions'),
+        '<div class="r07-recon-summary"><div><strong>' + modalState.selectedIds.size + '</strong><span>empleados</span></div>'
+            + '<div><strong>' + selectedCatalog + '</strong><span>puestos y líderes asignados</span></div>'
+            + '<div><strong>' + (new Set(currentPositionCopies().map(copy => copy.newPositionId)).size + Object.keys(modalState.leaderCopies).length) + '</strong><span>registros nuevos</span></div></div>'
+            + renderPreflightSummary(preflight) + renderOtherIssuesNote()
+            + '<p class="r07-recon-hint">Se guardarán todas las decisiones juntas. Se conservan los sueldos especiales, las horas y los préstamos.</p>'
+    ];
+    const hints = ['Elige dónde quedarán los datos.', 'Selecciona las personas de esta obra.',
+        'Resuelve cada líder una sola vez.', 'Una decisión por puesto para todos sus empleados.', 'Revisa las decisiones antes de guardar.'];
+    const hint = wizardHint(preflight);
+    return '<div class="r07-recon-shell r07-wizard" aria-busy="' + modalState.busy + '">'
+        + '<nav aria-label="Progreso de asignación"><ol class="r07-wizard-steps">'
+        + WIZARD_STEPS.map((name, index) => '<li' + (index === step ? ' aria-current="step"' : '')
+            + ' class="' + (index < step ? 'is-complete' : '') + '"><span>' + (index + 1) + '</span><small>' + name + '</small></li>').join('')
+        + '</ol><progress max="5" value="' + (step + 1) + '" aria-label="Paso ' + (step + 1) + ' de 5"></progress></nav>'
+        + '<div class="r07-wizard-heading"><span class="r07-recon-kicker">PASO ' + (step + 1) + ' DE 5</span>'
+        + '<h2 id="r07-wizard-title" tabindex="-1">' + WIZARD_STEPS[step] + '</h2><p>' + hints[step] + '</p></div>'
+        + stages.map((content, index) => '<section data-r07-step="' + index + '"' + (index !== step ? ' hidden' : '') + '>' + content + '</section>').join('')
         + (modalState.message ? '<div class="r07-recon-message" role="status">' + escapeHTML(modalState.message) + '</div>' : '')
         + '<div class="r07-recon-footer">'
-        + '<button type="button" class="btn-secondary r07-recon-footer-btn r07-recon-footer-secondary" data-r07-action="close">Cerrar</button>'
+        + '<button type="button" class="btn-secondary r07-recon-footer-btn" data-r07-action="' + (step ? 'wizard-back' : 'close') + '"' + (modalState.busy ? ' disabled' : '') + '>' + (step ? 'Atrás' : 'Cancelar') + '</button>'
         + '<div class="r07-recon-footer-hint" aria-live="polite">' + escapeHTML(hint) + '</div>'
-        + primary + '</div></div>';
+        + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="wizard-next"' + (step === 4 ? ' hidden' : '') + (hint || modalState.busy ? ' disabled' : '') + '>Continuar</button>'
+        + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="apply"' + (step !== 4 ? ' hidden' : '') + (!canApply(preflight) || hint || modalState.busy ? ' disabled' : '') + '>' + (modalState.busy ? 'Aplicando…' : 'Aplicar todo') + '</button>'
+        + '</div></div>';
 }
-
 function cssEscape(value) {
     if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value);
     return String(value ?? '').replace(/["\\]/g, '\\$&');
@@ -841,6 +974,10 @@ function rerenderModal() {
     // Preserve focus across the innerHTML swap (design.md §7 keyboard flow):
     // remember the focused control and restore the equivalent node afterwards.
     const active = document.activeElement;
+    const scrollTop = body.scrollTop;
+    const focusId = active?.id;
+    const genericAction = active?.getAttribute?.('data-r07-action');
+    const selection = active?.tagName === 'INPUT' ? [active.selectionStart, active.selectionEnd] : null;
     let focusTarget = null;
     if (active && body.contains(active)) {
         if (active.dataset?.r07Select !== undefined) {
@@ -872,10 +1009,13 @@ function rerenderModal() {
         }
     }
     body.innerHTML = modalContent();
-    if (focusTarget) {
-        const el = focusTarget();
-        if (el) el.focus();
+    const el = focusTarget?.() || (focusId ? body.querySelector('#' + cssEscape(focusId)) : null)
+        || (genericAction ? body.querySelector('[data-r07-action="' + cssEscape(genericAction) + '"]:not([hidden])') : null);
+    el?.focus();
+    if (selection && el?.setSelectionRange && selection[0] !== null) {
+        try { el.setSelectionRange(...selection); } catch (_) {}
     }
+    body.scrollTop = scrollTop;
 }
 
 export async function openProjectReconciliation({ onClose } = {}) {
@@ -885,10 +1025,8 @@ export async function openProjectReconciliation({ onClose } = {}) {
     if (activeModal?.isOpen) activeModal.close();
     const hasEmployeeFlow = snapshot.employeeRows.length > 0;
     activeModal = new Modal({
-        title: hasEmployeeFlow ? 'Pendientes de asignación' : 'Relaciones entre obras',
-        subtitle: hasEmployeeFlow
-            ? 'Asigna cada persona a una obra sin perder su historial.'
-            : 'Revisa los avisos pendientes de asignación entre obras.',
+        title: 'Asignar datos a una obra',
+        subtitle: 'Organiza empleados, líderes y puestos paso a paso.',
         size: 'large',
         content: modalContent(),
         buttons: null,
@@ -902,6 +1040,25 @@ export async function openProjectReconciliation({ onClose } = {}) {
         }
     });
     activeModal.open();
+    activeModal.element.addEventListener('keydown', event => {
+        if (modalState.busy) {
+            if (event.key === 'Escape') event.stopPropagation();
+            return;
+        }
+        if (event.key === 'Escape' && modalState.step > 0) {
+            event.preventDefault();
+            event.stopPropagation();
+            changeWizardStep(-1);
+        } else if (!['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(event.target.tagName)) {
+            if (event.key === 'ArrowRight' && modalState.step < 4) {
+                event.preventDefault();
+                changeWizardStep(1);
+            } else if (event.key === 'ArrowLeft' && modalState.step > 0) {
+                event.preventDefault();
+                changeWizardStep(-1);
+            }
+        }
+    });
     return activeModal;
 }
 
@@ -930,7 +1087,7 @@ export function closeProjectReconciliation() {
 async function applyLocalResolution() {
     if (modalState.busy) return;
     const employees = selectedEmployees();
-    if (!employees.length || !modalState.action) return;
+    if ((!employees.length && !modalState.entitySelectedIds.size) || !modalState.action) return;
     const preflight = currentPreflight();
     if (['map', 'create'].includes(modalState.action) && !preflight.ok) {
         modalState.message = 'Hay relaciones de puesto o líder que deben revisarse antes de aplicar este cambio.';
@@ -963,7 +1120,9 @@ async function applyLocalResolution() {
             attendance: state.attendance || {},
             positions: state.positions || [],
             leaders: state.leaders || [],
-            catalog: snapshot.projects
+            catalog: snapshot.projects,
+            leaderRemaps: Object.values(modalState.leaderRemaps),
+            leaderCopies: Object.values(modalState.leaderCopies)
         };
         let params;
         if (appliedAction === 'map') {
@@ -1016,6 +1175,9 @@ async function applyLocalResolution() {
 
         modalState.busy = false;
         modalState.message = '';
+        modalState.step = 0;
+        modalState.leaderRemaps = {};
+        modalState.leaderCopies = {};
         modalState.action = '';
         modalState.targetProjectId = '';
         modalState.createName = '';
@@ -1048,6 +1210,7 @@ async function applyLocalResolution() {
 
 function setGroupPosition(fromPositionId, toPositionId, copy = null) {
     if (!fromPositionId || modalState.busy) return;
+    modalState.entitySelectedIds.delete('positions:' + fromPositionId);
     for (const need of selectedPositionRemapNeeds().filter(item => item.fromPositionId === fromPositionId)) {
         const key = positionRemapKey(need.employeeId, fromPositionId);
         if (copy) modalState.positionCopies[key] = { ...copy };
@@ -1126,6 +1289,32 @@ function handleClick(event) {
     const target = event.target.closest?.('[data-r07-action]');
     if (!target) return;
     const action = target.dataset.r07Action;
+    if (modalState.busy) return;
+    if (action === 'wizard-next') return changeWizardStep(1);
+    if (action === 'wizard-back') return changeWizardStep(-1);
+    if (action === 'assign-source-position') {
+        const id = target.dataset.fromPositionId;
+        setGroupPosition(id, '');
+        modalState.entitySelectedIds.add('positions:' + id);
+        rerenderModal();
+        return;
+    }
+    if (action === 'assign-source-leader' || action === 'create-leader') {
+        const id = target.dataset.leaderId;
+        delete modalState.leaderRemaps[id];
+        delete modalState.leaderCopies[id];
+        modalState.entitySelectedIds.delete('leaders:' + id);
+        if (action === 'assign-source-leader') {
+            modalState.entitySelectedIds.add('leaders:' + id);
+        } else {
+            const leader = (state.leaders || []).find(item => item.id === id);
+            const newLeaderId = generateUUID();
+            modalState.leaderCopies[id] = { fromLeaderId: id, newLeaderId, name: leader?.name || '' };
+            modalState.leaderRemaps[id] = { fromLeaderId: id, toLeaderId: newLeaderId };
+        }
+        rerenderModal();
+        return;
+    }
     if (action === 'close') return closeProjectReconciliation();
     if (action === 'apply') return applyLocalResolution();
     if (action === 'create-similar-position') {
@@ -1185,6 +1374,16 @@ function handleClick(event) {
 }
 
 function handleChange(event) {
+    if (activeModal?.isOpen && modalState.busy) return;
+    if (event.target?.dataset?.r07LeaderTarget !== undefined) {
+        const id = event.target.dataset.r07LeaderTarget;
+        modalState.entitySelectedIds.delete('leaders:' + id);
+        delete modalState.leaderCopies[id];
+        if (event.target.value) modalState.leaderRemaps[id] = { fromLeaderId: id, toLeaderId: event.target.value };
+        else delete modalState.leaderRemaps[id];
+        rerenderModal();
+        return;
+    }
     if (event.target?.name === 'r07-import-project') {
         importModalState.chosenProjectId = event.target.value;
         rerenderImportModal();
@@ -1221,6 +1420,9 @@ function handleChange(event) {
     }
     if (event.target?.name === 'r07-recon-action') {
         modalState.action = event.target.value;
+        modalState.entitySelectedIds.clear();
+        modalState.leaderRemaps = {};
+        modalState.leaderCopies = {};
         modalState.positionRemaps = {};
         modalState.positionCopies = {};
         if (modalState.action === 'create') ensureCreateProjectId();
@@ -1229,6 +1431,9 @@ function handleChange(event) {
     }
     if (event.target?.dataset?.r07Control === 'target-project') {
         modalState.targetProjectId = event.target.value;
+        modalState.entitySelectedIds.clear();
+        modalState.leaderRemaps = {};
+        modalState.leaderCopies = {};
         modalState.positionRemaps = {};
         modalState.positionCopies = {};
         rerenderModal();
@@ -1241,7 +1446,33 @@ function handleChange(event) {
 
 }
 
+function updateWizardFooter() {
+    const preflight = currentPreflight();
+    const hint = wizardHint(preflight);
+    const body = activeModal?.element?.querySelector('.modal-body');
+    const next = body?.querySelector('[data-r07-action="wizard-next"]');
+    const apply = body?.querySelector('[data-r07-action="apply"]');
+    if (next) next.disabled = !!hint || modalState.busy;
+    if (apply) apply.disabled = !!hint || !canApply(preflight) || modalState.busy;
+    const hintNode = body?.querySelector('.r07-recon-footer-hint');
+    if (hintNode) hintNode.textContent = hint;
+}
+
 function handleInput(event) {
+    if (event.target?.dataset?.r07PositionName !== undefined) {
+        const fromId = event.target.dataset.r07PositionName;
+        for (const copy of Object.values(modalState.positionCopies)) {
+            if (copy.fromPositionId === fromId) copy.name = event.target.value;
+        }
+        updateWizardFooter();
+        return;
+    }
+    if (event.target?.dataset?.r07LeaderName !== undefined) {
+        const copy = modalState.leaderCopies[event.target.dataset.r07LeaderName];
+        if (copy) copy.name = event.target.value;
+        updateWizardFooter();
+        return;
+    }
     if (event.target?.dataset?.r07Control !== 'create-name') return;
     modalState.createName = event.target.value;
     const duplicate = duplicateCreateProject();
@@ -1269,6 +1500,7 @@ function handleInput(event) {
     const preflight = currentPreflight();
     if (button) button.disabled = !canApply(preflight);
     if (hint) hint.textContent = resolutionHint(preflight);
+    updateWizardFooter();
 }
 
 async function refreshAndRenderIfChanged() {

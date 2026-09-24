@@ -124,6 +124,59 @@ describe('batch assignment for unresolved positions and leaders', () => {
         expect((await db.getAll('attendance')).every(r => r.projectId === A.id)).toBe(true);
         expect((await db.getAll('positions')).every(p => p.projectId === A.id)).toBe(true);
     });
+    test.each([false, true])('leader choice applies atomically to employee and assigned position (new=%s)', async create => {
+        const employee = { id: 'EMP-leader-choice', positions: [position.id], leaderId: leader.id };
+        await db.update('employees', employee);
+        const destination = { id: 'LDR-target', name: 'Nuevo líder', projectId: A.id, active: true };
+        if (!create) await db.update('leaders', destination);
+        stateManager.setState({ employees: [employee], leaders: create ? [leader] : [leader, destination] }, { silent: true });
+        const result = await applyOwnershipRepair({
+            ...params(db), action: REPAIR_ACTION.MAP_TO_EXISTING,
+            employees: [{ id: employee.id }], leaderIds: [],
+            leaderRemaps: [{ fromLeaderId: leader.id, toLeaderId: destination.id }],
+            leaderCopies: create ? [{ fromLeaderId: leader.id, newLeaderId: destination.id, name: destination.name }] : []
+        });
+        expect(result.status).toBe(REPAIR_STATUS.OK);
+        expect((await db.getAll('employees'))[0].leaderId).toBe(destination.id);
+        expect((await db.getAll('positions'))[0].leaderId).toBe(destination.id);
+        expect((await db.getAll('leaders')).find(item => item.id === leader.id).projectId).toBeUndefined();
+        expect(stateManager._state.employees[0].leaderId).toBe(destination.id);
+        expect(stateManager._state.positions[0].leaderId).toBe(destination.id);
+        expect(stateManager._state.leaders.some(item => item.id === destination.id)).toBe(true);
+    });
+    test('a new position retains the newly chosen leader and migrates its special salary', async () => {
+        const employee = { id: 'EMP-new-links', positions: [position.id], leaderId: leader.id,
+            positionSalaries: { [position.id]: 240 } };
+        await db.update('employees', employee);
+        const result = await applyOwnershipRepair({
+            ...params(db), action: REPAIR_ACTION.MAP_TO_EXISTING,
+            employees: [{ id: employee.id }], positionIds: [], leaderIds: [],
+            leaderRemaps: [{ fromLeaderId: leader.id, toLeaderId: 'LDR-new-links' }],
+            leaderCopies: [{ fromLeaderId: leader.id, newLeaderId: 'LDR-new-links', name: 'Líder nuevo' }],
+            positionCopies: [{ fromPositionId: position.id, newPositionId: 'POS-new-links', name: 'Puesto nuevo' }],
+            positionRemaps: [{ employeeId: employee.id, fromPositionId: position.id, toPositionId: 'POS-new-links', migrateHistory: true }]
+        });
+        expect(result.status).toBe(REPAIR_STATUS.OK);
+        const copied = (await db.getAll('positions')).find(item => item.id === 'POS-new-links');
+        expect(copied.leaderId).toBe('LDR-new-links');
+        expect(copied.projectId).toBe(A.id);
+        expect((await db.getAll('employees'))[0].positionSalaries['POS-new-links']).toBe(240);
+        expect((await db.getAll('positions')).find(item => item.id === position.id).leaderId).toBe(leader.id);
+    });
+    test('a rejected personnel plan writes neither new leaders nor catalog changes', async () => {
+        const employee = { id: 'EMP-bad-position', positions: [position.id, 'missing-position'], leaderId: leader.id };
+        await db.update('employees', employee);
+        const result = await applyOwnershipRepair({
+            ...params(db), action: REPAIR_ACTION.MAP_TO_EXISTING,
+            employees: [{ id: employee.id }], leaderIds: [],
+            leaderRemaps: [{ fromLeaderId: leader.id, toLeaderId: 'LDR-unused' }],
+            leaderCopies: [{ fromLeaderId: leader.id, newLeaderId: 'LDR-unused', name: 'Copia' }]
+        });
+        expect(result.status).toBe(REPAIR_STATUS.CONFLICT);
+        expect((await db.getAll('leaders')).some(item => item.id === 'LDR-unused')).toBe(false);
+        expect((await db.getAll('positions'))[0].projectId).toBeUndefined();
+        expect((await db.getAll('employees'))[0].leaderId).toBe(leader.id);
+    });
     test('a catalog conflict rolls back the employee and its worked days', async () => {
         const employee = { id: 'EMP-catalog-unscoped', positions: [position.id] };
         const other = { id: 'EMP-catalog-other', projectId: B.id, positions: [position.id] };

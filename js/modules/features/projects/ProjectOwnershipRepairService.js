@@ -788,6 +788,12 @@ function applyFieldScopedMemoryUpdate(memoryUpdate) {
     const positionProjectIds = memoryUpdate.positionProjectIds;
     const leaderProjectIds = memoryUpdate.leaderProjectIds;
     const repairTimestamp = memoryUpdate.repairTimestamp;
+    if (memoryUpdate.leaderCopies?.length) {
+        const current = stateManager._state.leaders || [];
+        const ids = new Set(current.map(leader => trimId(leader.id)));
+        stateManager.setState({ leaders: [...current, ...memoryUpdate.leaderCopies.filter(leader => !ids.has(trimId(leader.id)))] });
+    }
+
     if (positionProjectIds?.size) {
         stateManager.setState({ positions: (stateManager._state.positions || []).map(position => {
             const target = positionProjectIds.get(trimId(position?.id));
@@ -2012,6 +2018,66 @@ function computeCatalogEntityMap(reads, tx, p) {
     };
 }
 
+/** Leader choices are scoped to the selected personnel and source positions.
+ * Original definitions in other projects remain untouched. */
+function prepareWizardLeaders(reads, p, target, projects, tx) {
+    const leaders = indexById(reads.leaders);
+    const projectIds = new Set(projects.map(project => trimId(project.id)));
+    const selected = new Set((p.employees || []).map(employee => trimId(employee.id)));
+    const ownedPositions = new Set(p.positionIds || []);
+    const copiedPositions = new Set((p.positionCopies || []).map(copy => trimId(copy.fromPositionId)));
+    const employeePatches = new Map();
+    const positionPatches = new Map();
+    const copies = [];
+    const remaps = new Map();
+    for (const copy of p.leaderCopies || []) {
+        const source = leaders.get(trimId(copy.fromLeaderId));
+        const id = trimId(copy.newLeaderId);
+        const name = String(copy.name || '').trim();
+        if (!source || !id || !name || leaders.has(id)) {
+            return { ok: false, conflicts: [{ kind: 'LEADER_COPY_INVALID', entityId: id }] };
+        }
+        const leader = { ...deepCopy(source), id, name, projectId: target, active: true,
+            createdDate: new Date(p.repairTimestamp).toISOString(), updatedAt: p.repairTimestamp,
+            lastStatusChange: null, statusHistory: [] };
+        leaders.set(id, leader);
+        copies.push(leader);
+    }
+    for (const remap of p.leaderRemaps || []) {
+        const from = trimId(remap.fromLeaderId);
+        const to = trimId(remap.toLeaderId);
+        const destination = leaders.get(to);
+        if (!leaders.has(from) || !destination || destination.active === false
+            || trimId(destination.projectId) !== target || from === to || remaps.has(from)) {
+            return { ok: false, conflicts: [{ kind: 'LEADER_REMAP_INVALID', entityId: from }] };
+        }
+        remaps.set(from, to);
+    }
+    if (copies.some(copy => ![...remaps.values()].includes(copy.id))) {
+        return { ok: false, conflicts: [{ kind: 'LEADER_COPY_UNUSED' }] };
+    }
+    const employees = reads.employees.map(employee => {
+        const to = remaps.get(trimId(employee.leaderId));
+        if (!to || !selected.has(trimId(employee.id))
+            || (projectIds.has(trimId(employee.projectId)) && trimId(employee.projectId) !== target)) return employee;
+        const patched = { ...employee, leaderId: to, updatedAt: p.repairTimestamp };
+        employeePatches.set(trimId(employee.id), to);
+        txPut(tx, 'employees', patched);
+        return patched;
+    });
+    const positions = reads.positions.map(position => {
+        const id = trimId(position.id);
+        const to = remaps.get(trimId(position.leaderId));
+        if (!to || (!ownedPositions.has(id) && !copiedPositions.has(id))) return position;
+        const patched = { ...position, leaderId: to, updatedAt: p.repairTimestamp };
+        if (ownedPositions.has(id)) positionPatches.set(id, { leaderId: to });
+        return patched;
+    });
+    for (const leader of copies) txPut(tx, 'leaders', leader);
+    return { ok: true, reads: { ...reads, employees, positions, leaders: [...leaders.values()] },
+        employeePatches, positionPatches, copies };
+}
+
 /** Plan the catalog and personnel changes against one durable snapshot, then
  * issue their writes together. A failed second plan leaves the transaction
  * untouched. Dependency checks see ownership selected in the same operation. */
@@ -2029,22 +2095,37 @@ function computeCombinedAssignment(reads, tx, p, createProject) {
             } };
         }
     };
-    const catalog = computeCatalogEntityMap({ ...reads, projects }, stagingTx,
-        { ...p, targetProjectId: target });
+    const leaderPlan = prepareWizardLeaders(reads, p, target, projects, stagingTx);
+    if (!leaderPlan.ok) return { result: conflictResult('Revisa las decisiones de líderes.', { conflicts: leaderPlan.conflicts }) };
+    const plannedReads = leaderPlan.reads;
+    const hasCatalog = (p.positionIds || []).length || (p.leaderIds || []).length;
+    const catalog = hasCatalog ? computeCatalogEntityMap({ ...plannedReads, projects }, stagingTx,
+        { ...p, targetProjectId: target }) : { result: { status: REPAIR_STATUS.OK }, memoryUpdate: {} };
     if (catalog.result.status !== REPAIR_STATUS.OK) return catalog;
     const selectedPositions = new Set(p.positionIds || []);
     const selectedLeaders = new Set(p.leaderIds || []);
     const virtualReads = {
-        ...reads,
-        positions: reads.positions.map(position => selectedPositions.has(trimId(position?.id))
+        ...plannedReads,
+        positions: plannedReads.positions.map(position => selectedPositions.has(trimId(position?.id))
             ? { ...position, projectId: target } : position),
-        leaders: reads.leaders.map(leader => selectedLeaders.has(trimId(leader?.id))
+        leaders: plannedReads.leaders.map(leader => selectedLeaders.has(trimId(leader?.id))
             ? { ...leader, projectId: target } : leader),
         settings: queued.get('settings')?.get(RECONCILIATION_META_KEY) || reads.settings
     };
+    const effectivePositions = indexById(virtualReads.positions);
+    const effectiveLeaders = indexById(virtualReads.leaders);
+    const personnelParams = {
+        ...p,
+        positionCopies: (p.positionCopies || []).map(copy => {
+            const source = effectivePositions.get(trimId(copy.fromPositionId));
+            const leader = effectiveLeaders.get(trimId(source?.leaderId));
+            return { ...copy, leaderId: leader && trimId(leader.projectId) === target
+                ? trimId(leader.id) : copy.leaderId };
+        })
+    };
     const personnel = createProject
-        ? computeCreateProjectAndMap(virtualReads, stagingTx, p)
-        : computeMapToExisting(virtualReads, stagingTx, p);
+        ? computeCreateProjectAndMap(virtualReads, stagingTx, personnelParams)
+        : computeMapToExisting(virtualReads, stagingTx, personnelParams);
     if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(personnel.result.status)) return personnel;
     for (const [store, records] of queued) {
         for (const record of records.values()) txPut(tx, store, record);
@@ -2070,6 +2151,9 @@ function computeCombinedAssignment(reads, tx, p, createProject) {
         memoryUpdate: {
             ...personnel.memoryUpdate,
             ...catalog.memoryUpdate,
+            leaderCopies: leaderPlan.copies,
+            employeeLeaderPatches: new Map([...leaderPlan.employeePatches, ...(personnel.memoryUpdate?.employeeLeaderPatches || [])]),
+            positionLeaderPatches: new Map([...leaderPlan.positionPatches, ...(personnel.memoryUpdate?.positionLeaderPatches || [])]),
             repairTimestamp: p.repairTimestamp
         }
     };
@@ -2079,12 +2163,12 @@ function computeCombinedAssignment(reads, tx, p, createProject) {
 function computeRepair(action, reads, tx, p) {
     switch (action) {
         case REPAIR_ACTION.MAP_TO_EXISTING:
-            if ((p.positionIds || []).length || (p.leaderIds || []).length) {
+            if ((p.positionIds || []).length || (p.leaderIds || []).length || (p.leaderRemaps || []).length || (p.leaderCopies || []).length) {
                 return computeCombinedAssignment(reads, tx, p, false);
             }
             return computeMapToExisting(reads, tx, p);
         case REPAIR_ACTION.CREATE_PROJECT_AND_MAP:
-            if ((p.positionIds || []).length || (p.leaderIds || []).length) {
+            if ((p.positionIds || []).length || (p.leaderIds || []).length || (p.leaderRemaps || []).length || (p.leaderCopies || []).length) {
                 return computeCombinedAssignment(reads, tx, p, true);
             }
             return computeCreateProjectAndMap(reads, tx, p);
@@ -2226,6 +2310,22 @@ async function enqueueRepairCloudPropagation(txOutcome) {
  * @returns {Promise<object>} result with status, affected, before/after counts,
  *   durableCommitted, and phase-B UI hooks.
  */
+/** Read-only UI preview. The commit always repeats this plan with durable reads. */
+export function previewOwnershipRepair(params = {}) {
+    const attendance = collectCallerAttendanceMap(params.attendance);
+    const reads = {
+        projects: params.catalog || [], employees: params.allEmployees || params.employees || [],
+        positions: params.positions || [], leaders: params.leaders || [],
+        attendance: Object.entries(attendance).map(([key, record]) => ({ ...record, key: record.key || key })),
+        settings: null
+    };
+    const outcome = computeRepair(params.action, reads, { objectStore: () => ({ put() {} }) }, {
+        employees: [], positionIds: [], leaderIds: [], leaderRemaps: [], leaderCopies: [],
+        positionRemaps: [], positionCopies: [], ...params, repairTimestamp: Date.now()
+    });
+    return outcome.result;
+}
+
 export async function applyOwnershipRepair(params = {}) {
     const {
         action,
@@ -2245,11 +2345,15 @@ export async function applyOwnershipRepair(params = {}) {
         assignUnpositionedHistory = false,
         positionIds = [],
         leaderIds = [],
+        leaderRemaps = [],
+        leaderCopies = [],
         _db = indexedDBService
     } = params;
 
     // --- Input guard: employees must be an explicit non-empty array.
-    if (action !== REPAIR_ACTION.MAP_CATALOG_ENTITIES && (!Array.isArray(employees) || employees.length === 0)) {
+    const catalogOnly = [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)
+        && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length);
+    if (action !== REPAIR_ACTION.MAP_CATALOG_ENTITIES && !catalogOnly && (!Array.isArray(employees) || employees.length === 0)) {
         return {
             status: REPAIR_STATUS.CONFLICT,
             reason: 'employees must be a non-empty explicit array; global repair is not supported',
@@ -2298,6 +2402,8 @@ export async function applyOwnershipRepair(params = {}) {
         leaders,
         positionIds,
         leaderIds,
+        leaderRemaps,
+        leaderCopies,
         allEmployees: effectiveAllEmployees,
         catalog,
         skipDependencyCheck,

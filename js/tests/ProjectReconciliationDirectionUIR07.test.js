@@ -3,7 +3,7 @@
  *
  * Covers the Direction addendum at the rendered-DOM level:
  *   1. "Resolver más tarde" is a true no-op (byte-equivalence across state).
- *   2. MAP flow offers an inline "Crear puesto similar" that never exits the
+ *   2. MAP flow offers an inline "Crear un puesto nuevo" that never exits the
  *      reconciliation modal or switches project context.
  *   3. Duplicate guard suggests an equivalent existing destination position.
  *   4. CREATE flow exposes inline position resolution too.
@@ -93,7 +93,7 @@ describe('ProjectReconciliationDirectionUIR07', () => {
         select.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    test('Resolver más tarde is a true no-op (byte-equivalence across all stores)', async () => {
+    test('Cancelling the wizard is a true no-op (byte-equivalence across all stores)', async () => {
         const emp = { id: 'emp-dir-later', number: '34', name: 'Andres', active: true, positions: [], loans: [{ id: 'loan-1', balance: 275 }], projectId: 'PRJ-missing-999' };
         const attKey = emp.id + '-2026-09-18';
         state.employees = [emp];
@@ -121,20 +121,14 @@ describe('ProjectReconciliationDirectionUIR07', () => {
         const before = capture();
         const durableBefore = await dumpDurableState();
 
-        pickAction('later');
-        const apply = document.querySelector('[data-r07-action="apply"]');
-        expect(apply.disabled).toBe(false);
-        apply.click();
+        document.querySelector('[data-r07-action="close"]').click();
 
         expect(capture()).toBe(before);
         expect(await dumpDurableState()).toEqual(durableBefore);
-        expect(window.showNotification).toHaveBeenCalledWith(
-            'La selección se mantuvo pendiente para revisarla después.',
-            'success'
-        );
+        expect(window.showNotification).not.toHaveBeenCalled();
     });
 
-    test('map flow offers inline "Crear puesto similar" and never exits the modal', async () => {
+    test('map flow offers inline "Crear un puesto nuevo" and never exits the modal', async () => {
         const oldPos = { id: 'POS-dir-old', name: 'Albañil origen', active: true, projectId: P1.id, hourlyRate: 120 };
         state.employees = [orphan('emp-dir-copy', 34, {
             positions: [oldPos.id],
@@ -160,7 +154,7 @@ describe('ProjectReconciliationDirectionUIR07', () => {
         expect(apply.disabled).toBe(false);
     });
 
-    test('duplicate guard suggests an equivalent existing destination position instead of creating one', async () => {
+    test('suggests an equivalent destination and also allows an explicit new position', async () => {
         const sourcePos = { id: 'POS-dir-same', name: 'Albañil', active: true, projectId: P1.id, hourlyRate: 120 };
         const equivPos = { id: 'POS-dir-equiv', name: 'Albañil', active: true, projectId: P2.id, hourlyRate: 130 };
         state.employees = [orphan('emp-dir-equiv', 34, {
@@ -176,7 +170,7 @@ describe('ProjectReconciliationDirectionUIR07', () => {
         selectTargetProject(P2.id);
 
         expect(document.querySelector('[data-r07-action="use-equivalent-position"]')).toBeTruthy();
-        expect(document.querySelector('[data-r07-action="create-similar-position"]')).toBeNull();
+        expect(document.querySelector('[data-r07-action="create-similar-position"]')).toBeTruthy();
         expect(document.querySelector('.r07-position-remap').textContent).toContain('Ya existe un puesto equivalente');
     });
 
