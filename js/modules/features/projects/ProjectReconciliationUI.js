@@ -1,3 +1,4 @@
+import { diagnoseExtendedProjectData } from './ProjectExtendedDiagnostics.js';
 import indexedDBService from '../../services/IndexedDBService.js';
 import { state, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { eventBus } from '../../core/Events.js';
@@ -42,7 +43,7 @@ let importModalState = initialImportModalState();
 function emptySnapshot() {
     return {
         enabled: false, projects: [], activeProjects: [], employeeRows: [],
-        otherIssues: [], pettyCashRows: [], pettyCashProjects: [], pendingEmployeeCount: 0,
+        otherIssues: [], diagnosticIssues: [], diagnosticReadErrors: [], pettyCashRows: [], pettyCashProjects: [], pendingEmployeeCount: 0,
         totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0
     };
 }
@@ -79,6 +80,7 @@ function signature(model) {
         enabled: model.enabled,
         rows: model.employeeRows.map(row => [row.id, row.status, row.projectIds, row.attendanceIssueCount]),
         other: model.otherIssues.map(issue => [issue.collection, issue.recordKey, issue.status]),
+        diagnostics: model.diagnosticIssues,
         cash: model.pettyCashRows.map(row => row.id),
         projects: model.projects.map(project => [project.id, project.name, project.status])
     });
@@ -123,8 +125,11 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
     })).sort((a, b) => numericEmployeeCompare(a.employee, b.employee));
 
     const rowIds = new Set(employeeRows.map(row => row.id));
+    const diagnosticIssues = diagnoseExtendedProjectData(appState, projects);
+    const missingEmployeeIssue = issue => issue.collection === 'attendance' && !employeeById.has(String(issue.employeeId || ''));
     const otherIssues = analysis.issues.filter(issue =>
         actionable(issue)
+        && !missingEmployeeIssue(issue)
         && issue.collection !== 'employees'
         && !(issue.collection === 'attendance' && rowIds.has(String(issue.employeeId || '')))
     );
@@ -139,16 +144,16 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
     const pettyCashRows = pettyCashProjects.filter(record => !projectIds.has(String(record.officialProjectId || '').trim()));
     return {
         enabled: true,
-        pettyCashRows, pettyCashProjects,
+        pettyCashRows, pettyCashProjects, diagnosticIssues, diagnosticReadErrors: [],
         projects,
         defaultProjectId,
         activeProjects: projects.filter(project => project?.status === PROJECT_STATUS.ACTIVE),
         employeeRows,
         otherIssues,
         pendingEmployeeCount: employeeRows.length,
-        totalPendingCount: employeeRows.length + otherIssues.length + pettyCashRows.length,
+        totalPendingCount: employeeRows.length + otherIssues.length + pettyCashRows.length + diagnosticIssues.length,
         validEmployeeCount: employeeAnalysis.summary.counts[CLASSIFICATION.VALID] || 0,
-        issueCount: analysis.summary.issueCount + pettyCashRows.length,
+        issueCount: analysis.summary.issueCount + pettyCashRows.length + diagnosticIssues.length - analysis.issues.filter(missingEmployeeIssue).length,
         analysis
     };
 }
@@ -160,10 +165,14 @@ export async function refreshProjectReconciliationSnapshot() {
         try {
             const setup = await projectSetupService.getState();
             await indexedDBService.init();
-            const cash = await indexedDBService.getAll('pettyCashProjects');
-            next = buildLocalReconciliationViewModel({ ...state,
+            const stores = ['pettyCashProjects', 'payrollClosures', 'projectPayrollConfigs'];
+            const reads = await Promise.allSettled(stores.map(store => indexedDBService.getAll(store)));
+            const value = index => reads[index].status === 'fulfilled' ? reads[index].value : [];
+            const cash = value(0);
+            next = buildLocalReconciliationViewModel({ ...state, payrollClosures: value(1), projectPayrollConfigs: value(2),
                 pettyCash: { ...(state.pettyCash || {}), projects: Array.isArray(cash) ? cash : (state.pettyCash?.projects || []) }
             }, setup);
+            next.diagnosticReadErrors = stores.filter((store, index) => reads[index].status === 'rejected');
         } catch (error) {
             console.warn('No se pudo actualizar Pendientes de asignación:', error);
         }
@@ -176,7 +185,11 @@ export function getProjectReconciliationSnapshot() {
 }
 
 export function renderProjectReconciliationBanner() {
-    if (!snapshot.enabled || snapshot.totalPendingCount <= 0) return '';
+    if (!snapshot.enabled || snapshot.totalPendingCount <= 0 && !snapshot.diagnosticReadErrors.length) return '';
+    if (snapshot.diagnosticReadErrors.length && !snapshot.totalPendingCount) {
+        return '<section class="r07-recon-banner" role="status"><span>No se pudo completar la revisión de datos.</span>'
+            + '<button type="button" data-app-fn="openProjectReconciliation">Reintentar</button></section>';
+    }
     const n = snapshot.totalPendingCount;
     const title = n === snapshot.pendingEmployeeCount ? (n === 1 ? 'Empleado pendiente de asignación' : 'Empleados pendientes de asignación') : 'Datos pendientes de asignación';
     const ariaLabel = n !== snapshot.pendingEmployeeCount ? n + ' datos pendientes de asignación' : n + ' ' + (n === 1 ? 'empleado pendiente de asignación' : 'empleados pendientes de asignación');
@@ -191,7 +204,8 @@ export function renderProjectReconciliationBanner() {
 export function renderProjectReconciliationSettingsAction() {
     if (!snapshot.enabled) return '';
     let html = '';
-    if (snapshot.totalPendingCount <= 0) {
+    if (snapshot.diagnosticReadErrors.length && !snapshot.totalPendingCount) return renderProjectReconciliationBanner();
+    if (snapshot.totalPendingCount <= 0 && !snapshot.diagnosticReadErrors.length) {
         html += '<div class="r07-recon-health-ok" role="status">'
             + '<span class="r07-recon-health-dot" aria-hidden="true"></span>'
             + '<span><strong>Asignación por obra al día</strong>'
@@ -948,6 +962,27 @@ function changeWizardStep(direction) {
     activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
 }
 
+function renderExtendedDiagnostics() {
+    const groups = [
+        ['closures', 'Cierres de nómina', 'Conserva el cierre original. Recupera la obra de origen antes de revisar su vínculo.'],
+        ['configs', 'Configuraciones de nómina', 'Revisa las reglas de origen y destino antes de recuperar una configuración.'],
+        ['plans', 'Planes de ajustes', 'Revisa el empleado, la obra y las cuotas aplicadas antes de resolver el plan.'],
+        ['attendance', 'Asistencias sin empleado', 'Recupera o identifica al empleado antes de asignar estas asistencias.']
+    ];
+    const warning = snapshot.diagnosticReadErrors.length
+        ? '<p role="status">Revisión incompleta: no se pudieron leer algunas colecciones. Cierra y vuelve a abrir para reintentar.</p>' : '';
+    if (!snapshot.diagnosticIssues.length && !warning) return '';
+    return '<section class="r07-wizard-diagnostics" aria-label="Pendientes de revisión especial">'
+        + '<strong>Revisión especial</strong><p>Estos datos se conservan y quedan fuera de «Asignar todo».</p>'
+        + warning + groups.map(([kind, title, hint]) => {
+            const rows = snapshot.diagnosticIssues.filter(issue => issue.kind === kind);
+            if (!rows.length) return '';
+            return '<details class="r07-wizard-details"><summary>' + rows.length + ' · ' + title + '</summary>'
+                + '<p>' + hint + '</p><ul>' + rows.map(row => '<li><strong>' + escapeHTML(row.label)
+                    + '</strong> · ' + escapeHTML(row.reason) + '</li>').join('') + '</ul></details>';
+        }).join('') + '</section>';
+}
+
 function renderCashChoices() {
     if (!snapshot.pettyCashRows.length) return '';
     return '<fieldset class="r07-recon-fieldset"><legend>Caja chica sin obra</legend>'
@@ -961,11 +996,17 @@ function renderCashChoices() {
 
 function modalContent() {
     const preflight = currentPreflight();
+    if (!snapshot.employeeRows.length && !catalogIssues().length && !snapshot.pettyCashRows.length
+        && (snapshot.diagnosticIssues.length || snapshot.diagnosticReadErrors.length)) {
+        return '<div class="r07-recon-shell r07-wizard"><div class="r07-wizard-content">'
+            + renderExtendedDiagnostics() + '</div><div class="r07-recon-footer">'
+            + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="close">Cerrar</button></div></div>';
+    }
     const step = modalState.step;
     const allSelected = snapshot.employeeRows.length > 0 && snapshot.employeeRows.every(row => modalState.selectedIds.has(row.id));
     const selectedCatalog = selectedCatalogIds('positions').length + selectedCatalogIds('leaders').length;
     const stages = [
-        '<fieldset class="r07-recon-fieldset"><legend>Elige la obra de destino</legend><div class="r07-recon-choices">'
+        renderExtendedDiagnostics() + '<fieldset class="r07-recon-fieldset"><legend>Elige la obra de destino</legend><div class="r07-recon-choices">'
             + renderChoice('map', 'Usar una obra existente', 'Asigna los datos a una obra activa.')
             + renderChoice('create', 'Crear una obra', 'Define el nombre de la nueva obra.')
             + '</div>' + renderActionControl(preflight) + '</fieldset>'
@@ -982,7 +1023,7 @@ function modalContent() {
             + '<div><strong>' + (new Set(currentPositionCopies().map(copy => copy.newPositionId)).size + Object.keys(modalState.leaderCopies).length) + '</strong><span>registros nuevos</span></div></div>'
             + '<div class="r07-preflight-destiny"><span>Obra destino</span><strong>' + escapeHTML(snapshot.projects.find(project => project.id === currentTargetProjectId())?.name || modalState.createName.trim()) + '</strong></div>'
             + '<details class="r07-wizard-details"><summary>Ver decisiones y datos conservados</summary>' + renderPreflightSummary(preflight) + '</details>'
-            + renderOtherIssuesNote()
+            + renderOtherIssuesNote() + renderExtendedDiagnostics()
             + (modalState.pettyCashIds.size ? '<p class="r07-recon-hint">' + modalState.pettyCashIds.size + ' cajas seleccionadas. Se conservan períodos, movimientos y comprobantes.</p>' : '')
             + '<p class="r07-recon-hint">Se guardarán todas las decisiones juntas. Se conservan los sueldos especiales, las horas y los préstamos.</p>'
     ];

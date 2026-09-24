@@ -1414,3 +1414,8 @@
     .r07-wizard .r07-position-remap-card { grid-template-columns: 1fr; padding: 12px; }
     .r07-wizard-quick { flex-direction: column; align-items: stretch; gap: 6px; }
 }
+
+.r07-wizard-diagnostics { display: grid; gap: 10px; }
+.r07-wizard-diagnostics > p { margin: 0; color: var(--text-dim); font-size: 13px; }
+.r07-wizard-diagnostics details p, .r07-wizard-diagnostics details li { font-size: 13px; line-height: 1.45; }
+.r07-wizard-diagnostics details ul { padding-left: 18px; }
