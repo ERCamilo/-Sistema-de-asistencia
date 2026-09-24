@@ -181,7 +181,7 @@ import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlo
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import { registerP2PRosterGlobals } from './modules/features/p2p/P2PRosterUI.js';
 import { registerProjectSetupGlobals } from './modules/features/projects/ProjectsUI.js';
-import { registerProjectReconciliationGlobals, renderProjectReconciliationBanner, refreshProjectReconciliationSnapshot } from './modules/features/projects/ProjectReconciliationUI.js';
+import { registerProjectReconciliationGlobals, renderProjectReconciliationBanner, refreshProjectReconciliationSnapshot, getProjectReconciliationSnapshot } from './modules/features/projects/ProjectReconciliationUI.js';
 import { EmployeeProfileModal, syncProfileToMaster, registerLegacyGlobals as registerProfileGlobals } from './modules/features/profile/index.js';
 import { migrateAllAdvances, registerLegacyGlobals as registerLoansGlobals } from './modules/features/loans/index.js';
 import {
@@ -7602,6 +7602,9 @@ function _initOutgoingConflictGuard() {
         // el default existe antes de que cualquier código post-hydrate pregunte
         // por el proyecto activo.
         await initProjectsInfrastructure();
+        // La cuenta existente ya tiene roster local: mostrar su asignación
+        // pendiente antes del primer render, aunque M2 tenga un marker viejo.
+        await refreshProjectReconciliationSnapshot();
         // F1 R02: prime Header obra pill (never-throw, async refresh re-renders).
         try { refreshHeaderActiveProjectName(); } catch (_) {}
 
@@ -8122,6 +8125,15 @@ function _initOutgoingConflictGuard() {
                         }
                     }, 500);
 
+                    // El roster cloud puede llegar después del boot local.
+                    // Recalcular sin persistencia y actualizar la vista si cambió
+                    // el conjunto de empleados pendientes en una sync posterior.
+                    const beforePending = getProjectReconciliationSnapshot().employeeRows
+                        .map(row => row.id + ':' + row.status).join('|');
+                    await refreshProjectReconciliationSnapshot();
+                    const afterPending = getProjectReconciliationSnapshot().employeeRows
+                        .map(row => row.id + ':' + row.status).join('|');
+                    if (!isInitialLoad && beforePending !== afterPending) render();
                     if (isInitialLoad) {
                         isInitialLoad = false;
                         // Forzar render inicial con datos de la nube

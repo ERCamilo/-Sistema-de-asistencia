@@ -65,7 +65,7 @@ describe('ProjectReconciliationCreateIdR07', () => {
         dialog = pickAction(dialog, 'create');
         expect(createSpy).toHaveBeenCalledTimes(1);
 
-        dialog = pickAction(dialog, 'later');
+        dialog = pickAction(dialog, 'map');
         dialog = pickAction(dialog, 'create');
         expect(createSpy).toHaveBeenCalledTimes(1);
 

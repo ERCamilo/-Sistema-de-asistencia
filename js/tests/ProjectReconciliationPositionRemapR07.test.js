@@ -164,6 +164,104 @@ describe('ProjectReconciliationPositionRemapR07', () => {
         ]);
     });
 
+    test('attributes an unclassified worked day to the resulting first position without changing its total hours', async () => {
+        const emp = { ...employee(), positions: [OLD_POSITION.id, TARGET_POSITION.id] };
+        const key = emp.id + '-2026-09-19';
+        const att = {
+            [key]: { key, employeeId: emp.id, date: '2026-09-19', present: true,
+                hoursWorked: 8, overtimeHours: 2, selectedPosition: null,
+                positionHours: [], updatedAt: 10 }
+        };
+        await seed(emp, att);
+        const result = await applyOwnershipRepair({
+            action: REPAIR_ACTION.MAP_TO_EXISTING, employees: [emp], allEmployees: [emp],
+            attendance: att, positions: [OLD_POSITION, TARGET_POSITION], leaders: [],
+            catalog: [TARGET_PROJECT], targetProjectId: TARGET_PROJECT.id,
+            positionRemaps: [{ employeeId: emp.id, fromPositionId: OLD_POSITION.id,
+                toPositionId: TARGET_POSITION.id, migrateHistory: true }],
+            assignUnpositionedHistory: true, _db: db
+        });
+        expect(result.status).toBe(REPAIR_STATUS.OK);
+        const rec = (await db.getAll('attendance')).find(x => x.employeeId === emp.id);
+        expect(rec.selectedPosition).toBe(TARGET_POSITION.id);
+        expect(rec.positionHours).toEqual([{ positionId: TARGET_POSITION.id, hours: 8, overtimeHours: 2 }]);
+        expect(rec.hoursWorked).toBe(8);
+        expect(rec.overtimeHours).toBe(2);
+    });
+
+    test('attributes only the unclassified remainder of a partly positioned day to the first role', async () => {
+        const emp = employee();
+        const key = emp.id + '-2026-09-19';
+        const att = { [key]: { key, employeeId: emp.id, date: '2026-09-19', present: true,
+            hoursWorked: 8, overtimeHours: 0, selectedPosition: null,
+            positionHours: [{ positionId: OLD_POSITION.id, hours: 3, overtimeHours: 0 }], updatedAt: 10 } };
+        await seed(emp, att);
+        const result = await applyOwnershipRepair({
+            action: REPAIR_ACTION.MAP_TO_EXISTING, employees: [emp], allEmployees: [emp],
+            attendance: att, positions: [OLD_POSITION, TARGET_POSITION], leaders: [],
+            catalog: [TARGET_PROJECT], targetProjectId: TARGET_PROJECT.id,
+            positionRemaps: [{ employeeId: emp.id, fromPositionId: OLD_POSITION.id,
+                toPositionId: TARGET_POSITION.id, migrateHistory: true }],
+            assignUnpositionedHistory: true, _db: db
+        });
+        expect(result.status).toBe(REPAIR_STATUS.OK);
+        const rec = (await db.getAll('attendance')).find(x => x.employeeId === emp.id);
+        expect(rec.positionHours).toEqual([{ positionId: TARGET_POSITION.id, hours: 8, overtimeHours: 0 }]);
+        expect(rec.hoursWorked).toBe(8);
+    });
+
+    test('maps both roles and their worked days while retaining the special salary of the second role', async () => {
+        const second = { id: 'POS-second', name: 'Segundo', active: true, projectId: ORPHAN_PROJECT };
+        const secondTarget = { id: 'POS-second-target', name: 'Segundo destino', active: true, projectId: TARGET_PROJECT.id };
+        const emp = { ...employee(), positions: [OLD_POSITION.id, second.id],
+            positionSalaries: { [OLD_POSITION.id]: 150, [second.id]: 112.5 },
+            positionSalaryModes: { [OLD_POSITION.id]: 'hourly', [second.id]: 'daily' } };
+        const firstDay = attendance(emp);
+        const secondKey = emp.id + '-2026-09-19';
+        const att = { ...firstDay, [secondKey]: { key: secondKey, employeeId: emp.id, date: '2026-09-19',
+            present: true, hoursWorked: 8, overtimeHours: 0, selectedPosition: second.id,
+            positionHours: [{ positionId: second.id, hours: 8 }], updatedAt: 10 } };
+        await db.update('positions', second);
+        await db.update('positions', secondTarget);
+        await seed(emp, att);
+        const result = await applyOwnershipRepair({
+            action: REPAIR_ACTION.MAP_TO_EXISTING, employees: [emp], allEmployees: [emp],
+            attendance: att, positions: [OLD_POSITION, second, TARGET_POSITION, secondTarget], leaders: [],
+            catalog: [TARGET_PROJECT], targetProjectId: TARGET_PROJECT.id,
+            positionRemaps: [[OLD_POSITION.id, TARGET_POSITION.id], [second.id, secondTarget.id]]
+                .map(([fromPositionId, toPositionId]) => ({ employeeId: emp.id, fromPositionId,
+                    toPositionId, migrateHistory: true })), _db: db
+        });
+        expect(result.status).toBe(REPAIR_STATUS.OK);
+        const durableEmp = (await db.getAll('employees')).find(x => x.id === emp.id);
+        expect(durableEmp.positions).toEqual([TARGET_POSITION.id, secondTarget.id]);
+        expect(durableEmp.positionSalaries).toEqual({ [TARGET_POSITION.id]: 150, [secondTarget.id]: 112.5 });
+        expect(durableEmp.positionSalaryModes[secondTarget.id]).toBe('daily');
+        const days = (await db.getAll('attendance')).filter(x => x.employeeId === emp.id);
+        expect(days.map(x => x.selectedPosition).sort()).toEqual([TARGET_POSITION.id, secondTarget.id].sort());
+        expect(days.reduce((sum, x) => sum + x.hoursWorked, 0)).toBe(16);
+    });
+
+    test('refuses to merge different special salaries into one destination position', async () => {
+        const emp = { ...employee(), positions: [OLD_POSITION.id, 'POS-second'],
+            positionSalaries: { [OLD_POSITION.id]: 150, 'POS-second': 175 } };
+        const second = { id: 'POS-second', name: 'Segundo', active: true, projectId: ORPHAN_PROJECT };
+        await db.update('positions', second);
+        await seed(emp, {});
+        const before = JSON.stringify(await db.getAll('employees'));
+        const result = await applyOwnershipRepair({
+            action: REPAIR_ACTION.MAP_TO_EXISTING, employees: [emp], allEmployees: [emp],
+            attendance: {}, positions: [OLD_POSITION, second, TARGET_POSITION], leaders: [],
+            catalog: [TARGET_PROJECT], targetProjectId: TARGET_PROJECT.id,
+            positionRemaps: [OLD_POSITION.id, second.id].map(fromPositionId => ({
+                employeeId: emp.id, fromPositionId, toPositionId: TARGET_POSITION.id,
+                migrateHistory: true
+            })), _db: db
+        });
+        expect(result.status).toBe(REPAIR_STATUS.CONFLICT);
+        expect(JSON.stringify(await db.getAll('employees'))).toBe(before);
+    });
+
     test('rejects a target position from another project without mutating durable records', async () => {
         const { emp, att } = await seed();
         const wrong = { ...TARGET_POSITION, id: 'POS-wrong', projectId: 'PRJ-other' };

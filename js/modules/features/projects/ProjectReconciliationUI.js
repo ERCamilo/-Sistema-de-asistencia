@@ -9,6 +9,7 @@ import { analyzeProjectOwnership, CLASSIFICATION } from './ProjectOwnershipRecon
 import {
     applyOwnershipRepair,
     preflightDependencies,
+    previewOwnershipRepair,
     REPAIR_ACTION,
     REPAIR_STATUS
 } from './ProjectOwnershipRepairService.js';
@@ -27,7 +28,7 @@ import {
 import { collectPositionDays } from '../../services/AttendancePositionAudit.js';
 import { slugify, generateUUID } from '../../utils/Helpers.js';
 
-const ACTIONABLE = new Set([CLASSIFICATION.EXPLICIT_ORPHAN, CLASSIFICATION.PENDING]);
+const ACTIONABLE = new Set([CLASSIFICATION.LEGACY_UNSCOPED, CLASSIFICATION.EXPLICIT_ORPHAN, CLASSIFICATION.PENDING]);
 let snapshot = emptySnapshot();
 let activeModal = null;
 let registered = false;
@@ -46,10 +47,12 @@ function emptySnapshot() {
 }
 function initialModalState() {
     return {
+        step: 0, leaderRemaps: {}, leaderCopies: {},
         selectedIds: new Set(), action: '', targetProjectId: '',
         createName: '', createProjectId: null,
         positionRemaps: {},
         positionCopies: {},
+        entitySelectedIds: new Set(), entityTargetProjectId: '', entityBusy: false, entityMessage: '',
         busy: false, message: ''
     };
 }
@@ -276,7 +279,7 @@ function targetPositionsForProject(projectId) {
         .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { numeric: true }));
 }
 
-function selectedPositionRemapNeeds() {
+function selectedPositionRemapNeeds(includeAssigned = false) {
     if (!['map', 'create'].includes(modalState.action)) return [];
     const target = currentTargetProjectId();
     if (!target) return [];
@@ -291,7 +294,8 @@ function selectedPositionRemapNeeds() {
         ].map(String).filter(Boolean));
         for (const fromPositionId of ids) {
             const position = (state.positions || []).find(item => String(item?.id || '') === fromPositionId);
-            if (position && String(position.projectId || '') === target) continue;
+            if (position && (String(position.projectId || '') === target
+                || (!includeAssigned && modalState.entitySelectedIds.has('positions:' + fromPositionId)))) continue;
             needs.push({
                 employeeId: row.id,
                 employee,
@@ -311,18 +315,39 @@ function currentPreflight() {
     if (!['map', 'create'].includes(modalState.action)) return { ok: true, conflicts: [] };
     const targetProjectId = currentTargetProjectId();
     if (!targetProjectId) return { ok: false, conflicts: [] };
-    return preflightDependencies({
+    const leaderMap = modalState.leaderRemaps || {};
+    const dependency = preflightDependencies({
         // Target-project position/leader dependencies apply only to employees
         // whose own ownership is being repaired. Attendance-only rows repair
         // related records while the employee remains in its valid project.
-        employees: selectedEmployeesNeedingOwnershipRepair(),
+        employees: selectedEmployeesNeedingOwnershipRepair().map(employee => ({ ...employee,
+            leaderId: leaderMap[employee.leaderId]?.toLeaderId || employee.leaderId })),
         allEmployees: state.employees || [],
-        positions: state.positions || [],
-        leaders: state.leaders || [],
+        positions: (state.positions || []).map(item => ({ ...item,
+            projectId: modalState.entitySelectedIds.has('positions:' + item.id) ? targetProjectId : item.projectId,
+            leaderId: leaderMap[item.leaderId]?.toLeaderId || item.leaderId })),
+        leaders: [...(state.leaders || []).map(item => modalState.entitySelectedIds.has('leaders:' + item.id)
+            ? { ...item, projectId: targetProjectId } : item),
+            ...Object.values(modalState.leaderCopies).map(item => ({ id: item.newLeaderId, name: item.name, projectId: targetProjectId, active: true }))],
         targetProjectId,
         positionRemaps: currentPositionRemaps(),
         positionCopies: currentPositionCopies()
     });
+    if (!dependency.ok || modalState.step < 3) return dependency;
+    const planned = previewOwnershipRepair({
+        action: modalState.action === 'create' ? REPAIR_ACTION.CREATE_PROJECT_AND_MAP : REPAIR_ACTION.MAP_TO_EXISTING,
+        employees: selectedEmployees(), allEmployees: state.employees || [],
+        attendance: state.attendance || {}, positions: state.positions || [], leaders: state.leaders || [],
+        catalog: snapshot.projects, targetProjectId, projectId: modalState.createProjectId,
+        projectName: modalState.createName.trim(), positionIds: selectedCatalogIds('positions'),
+        leaderIds: selectedCatalogIds('leaders'), leaderRemaps: Object.values(modalState.leaderRemaps),
+        leaderCopies: Object.values(modalState.leaderCopies), positionRemaps: currentPositionRemaps(),
+        positionCopies: currentPositionCopies(), assignUnpositionedHistory: true
+    });
+    if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(planned.status)) {
+        return { ...dependency, ok: false, conflicts: planned.conflicts || [] };
+    }
+    return dependency;
 }
 function checkSvg() {
     return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4 10-10"></path></svg>';
@@ -346,11 +371,13 @@ function renderPersonRows(preflight = { ok: false }) {
     return snapshot.employeeRows.map(row => {
         const employee = row.employee || {};
         const checked = modalState.selectedIds.has(row.id);
-        const refs = row.status === CLASSIFICATION.PENDING
-            ? 'Pendiente de asignación'
-            : (row.employeeIssue
-                ? 'Obra de origen no disponible'
-                : 'Asistencia vinculada a una obra no disponible');
+        const refs = row.status === CLASSIFICATION.LEGACY_UNSCOPED
+            ? 'Sin obra asignada'
+            : (row.status === CLASSIFICATION.PENDING
+                ? 'Pendiente de asignación'
+                : (row.employeeIssue
+                    ? 'Obra de origen no disponible'
+                    : 'Asistencia vinculada a una obra no disponible'));
         const targetProject = modalState.action === 'map'
             ? snapshot.projects.find(project => String(project?.id || '') === String(modalState.targetProjectId || ''))
             : null;
@@ -359,12 +386,12 @@ function renderPersonRows(preflight = { ok: false }) {
             : '';
         const statusText = readyTarget
             ? 'Listo para asignar a ' + readyTarget
-            : (row.status === CLASSIFICATION.PENDING
+            : (row.status === CLASSIFICATION.PENDING || row.status === CLASSIFICATION.LEGACY_UNSCOPED
                 ? 'Pendiente'
                 : (row.employeeIssue ? 'Obra no disponible' : 'Asistencia pendiente'));
         const statusClass = readyTarget
             ? 'r07-recon-status is-ready'
-            : (row.status === CLASSIFICATION.PENDING
+            : (row.status === CLASSIFICATION.PENDING || row.status === CLASSIFICATION.LEGACY_UNSCOPED
                 ? 'r07-recon-status is-pending'
                 : (row.employeeIssue ? 'r07-recon-status is-orphan' : 'r07-recon-status'));
         return '<label class="r07-recon-person ' + (checked ? 'is-selected' : '') + '">'
@@ -388,12 +415,21 @@ function renderChoice(value, title, detail) {
         + '<span class="r07-recon-choice-copy"><strong>' + escapeHTML(title) + '</strong><small>' + escapeHTML(detail) + '</small></span></label>';
 }
 function dependencyConflictText(conflict = {}) {
-    const name = conflict.entityName || conflict.entityId || 'La relación';
+    const definition = [...(state.positions || []), ...(state.leaders || [])].find(item => item.id === conflict.entityId);
+    const name = conflict.entityName || definition?.name || 'La relación';
     const messages = {
+        CATALOG_POSITION_EMPLOYEE_PROJECT: 'El puesto "' + name + '" también lo usa un empleado fuera de esta selección. Inclúyelo si pertenece a esta obra o crea un puesto nuevo.',
+        CATALOG_POSITION_ATTENDANCE_PROJECT: 'El puesto "' + name + '" tiene asistencia en otra obra. Usa un puesto de destino o crea uno nuevo.',
+        CATALOG_POSITION_LEADER_PROJECT: 'Resuelve el líder del puesto "' + name + '" antes de continuar.',
+        CATALOG_LEADER_POSITION_PROJECT: 'El líder "' + name + '" tiene puestos fuera de esta asignación. Incluye sus puestos sin obra o elige otro líder.',
+        CATALOG_LEADER_EMPLOYEE_PROJECT: 'El líder "' + name + '" tiene empleados fuera de esta asignación. Inclúyelos o elige otro líder.',
+        CATALOG_POSITION_STALE: 'El puesto "' + name + '" ya cambió de obra. Revisa su asignación.',
+        CATALOG_LEADER_STALE: 'El líder "' + name + '" ya cambió de obra. Revisa su asignación.',
         POSITION_PROJECT_CONFLICT: 'El puesto "' + name + '" pertenece a otra obra.',
         SHARED_POSITION_CONFLICT: 'El puesto "' + name + '" también lo usan personas de otra obra y no puede moverse automáticamente.',
         UNRESOLVED_POSITION_OWNERSHIP: 'El puesto "' + name + '" todavía no tiene una obra válida asignada.',
         MISSING_POSITION_DEFINITION: 'No se encontró la definición del puesto "' + name + '".',
+        POSITION_SPECIAL_SETTING_CONFLICT: 'Un empleado tiene sueldos o jornadas especiales distintos en puestos que intentas unir. Selecciona puestos destino distintos para conservar ambos valores.',
         LEADER_PROJECT_CONFLICT: 'El líder "' + name + '" pertenece a otra obra.',
         SHARED_LEADER_CONFLICT: 'El líder "' + name + '" también está relacionado con personas de otra obra y no puede moverse automáticamente.',
         UNRESOLVED_LEADER_OWNERSHIP: 'El líder "' + name + '" todavía no tiene una obra válida asignada.',
@@ -452,42 +488,42 @@ function findQueuedSimilarCopy(fromPositionId, name) {
 }
 
 function renderPositionRemapControls(preflight) {
-    if (!['map', 'create'].includes(modalState.action)) {
-        return renderDependencyBlocker(preflight);
-    }
+    if (!['map', 'create'].includes(modalState.action)) return renderDependencyBlocker(preflight);
     const targetProjectId = currentTargetProjectId();
     if (!targetProjectId) return renderDependencyBlocker(preflight);
-
-    const needs = selectedPositionRemapNeeds();
+    const needs = selectedPositionRemapNeeds(true);
     if (!needs.length) return renderDependencyBlocker(preflight);
     const targetPositions = targetPositionsForProject(targetProjectId);
     const targetProject = snapshot.projects.find(p => String(p?.id || '') === String(targetProjectId));
     const targetName = targetProject?.name || (modalState.action === 'create' ? modalState.createName.trim() : targetProjectId);
     const remainingConflicts = (preflight.conflicts || []).filter(conflict => !POSITION_DEPENDENCY_KINDS.has(conflict.kind));
-
+    const groups = new Map();
+    for (const need of needs) {
+        const key = String(need.fromPositionId);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(need);
+    }
     let html = '<section class="r07-position-remap" aria-labelledby="r07-position-remap-title">'
-        + '<div class="r07-position-remap-head"><div><strong id="r07-position-remap-title">Puesto en la obra destino</strong>'
-        + '<span>Antes de mover a estas personas, resuelve los puestos que pertenecen a otra obra.</span></div>'
+        + '<div class="r07-position-remap-head"><div><strong id="r07-position-remap-title">Resuelve los puestos</strong>'
+        + '<span>Una decisión por puesto se aplicará a todas las personas seleccionadas que lo usan.</span></div>'
         + '<span class="r07-position-remap-project">' + escapeHTML(targetName) + '</span></div>';
-
-    html += needs.map((need, index) => {
-        const key = positionRemapKey(need.employeeId, need.fromPositionId);
-        const selected = modalState.positionRemaps[key] || {};
-        const copyEntry = modalState.positionCopies[key] || null;
-        const sourceName = need.fromPosition?.name || need.fromPositionId || 'Puesto no disponible';
+    html += [...groups].map(([fromPositionId, members], index) => {
+        const first = members[0];
+        const selected = modalState.positionRemaps[positionRemapKey(first.employeeId, fromPositionId)] || {};
+        const copyEntry = modalState.positionCopies[positionRemapKey(first.employeeId, fromPositionId)] || null;
+        const assigned = modalState.entitySelectedIds.has('positions:' + fromPositionId);
+        const sourceUnscoped = first.fromPosition && !snapshot.projects.some(project => project.id === first.fromPosition.projectId);
+        const sourceName = first.fromPosition?.name || 'Puesto no disponible';
         const equivalent = findEquivalentDestinationPosition(sourceName, targetPositions);
         const options = targetPositions.map(position =>
             '<option value="' + escapeHTML(position.id) + '"'
             + (String(selected.toPositionId || '') === String(position.id) ? ' selected' : '') + '>'
             + escapeHTML(position.name || position.id) + '</option>'
         ).join('');
-        const audit = need.audit || {};
-        const impact = audit.count > 0
-            ? audit.count + ' día' + (audit.count === 1 ? '' : 's') + ' · '
-                + audit.totalHours + 'h · ' + (audit.firstDate || '—') + ' a ' + (audit.lastDate || '—')
-            : 'Sin días trabajados registrados con este puesto';
+        const totalDays = members.reduce((sum, item) => sum + (item.audit?.count || 0), 0);
+        const totalHours = members.reduce((sum, item) => sum + (item.audit?.totalHours || 0), 0);
+        const impact = totalDays ? totalDays + ' días · ' + totalHours + 'h' : 'Sin días registrados con este puesto';
         const selectId = 'r07-remap-target-' + index;
-
         let similarAction = '';
         if (copyEntry) {
             similarAction = '<span class="r07-position-similar-note is-queued">Se creará el puesto "'
@@ -496,36 +532,38 @@ function renderPositionRemapControls(preflight) {
             similarAction = '<span class="r07-position-similar-note">Ya existe un puesto equivalente: <strong>'
                 + escapeHTML(equivalent.name || equivalent.id) + '</strong>.</span>'
                 + '<button type="button" class="btn-secondary r07-recon-note-action"'
-                + ' data-r07-action="use-equivalent-position"'
-                + ' data-employee-id="' + escapeHTML(need.employeeId) + '"'
-                + ' data-from-position-id="' + escapeHTML(need.fromPositionId) + '"'
+                + ' data-r07-action="use-equivalent-position" data-from-position-id="' + escapeHTML(fromPositionId) + '"'
                 + ' data-to-position-id="' + escapeHTML(equivalent.id) + '">Usar este puesto</button>';
         } else {
             similarAction = '<button type="button" class="btn-secondary r07-recon-note-action"'
-                + ' data-r07-action="create-similar-position"'
-                + ' data-employee-id="' + escapeHTML(need.employeeId) + '"'
-                + ' data-from-position-id="' + escapeHTML(need.fromPositionId) + '">Crear puesto similar</button>';
+                + ' data-r07-action="create-similar-position" data-from-position-id="' + escapeHTML(fromPositionId)
+                + '">Crear puesto</button>';
         }
-
+        if (equivalent && !copyEntry) {
+            similarAction += '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="create-similar-position" data-from-position-id="'
+                + escapeHTML(fromPositionId) + '">Crear puesto</button>';
+        }
+        if (copyEntry) {
+            similarAction += '<div class="r07-recon-control"><label for="r07-copy-name-' + index + '">Nombre del nuevo puesto</label>'
+                + '<input id="r07-copy-name-' + index + '" type="text" maxlength="100" data-r07-position-name="' + escapeHTML(fromPositionId)
+                + '" value="' + escapeHTML(copyEntry.name) + '"></div>';
+        }
         return '<div class="r07-position-remap-card">'
-            + '<div class="r07-position-remap-person"><strong>' + escapeHTML(need.employee?.number || '—')
-            + ' · ' + escapeHTML(need.employee?.name || 'Empleado') + '</strong>'
-            + '<span>Actual: ' + escapeHTML(sourceName) + '</span></div>'
-            + '<div class="r07-recon-control"><label for="' + selectId + '">Nuevo puesto en la obra destino</label>'
-            + '<select id="' + selectId + '" data-r07-position-target'
-            + ' data-employee-id="' + escapeHTML(need.employeeId) + '" data-from-position-id="' + escapeHTML(need.fromPositionId) + '"'
+            + '<div class="r07-position-remap-person"><strong>' + escapeHTML(sourceName) + '</strong>'
+            + '<span>' + members.length + (members.length === 1 ? ' empleado' : ' empleados') + '</span>'
+            + ((assigned || selected.toPositionId) ? '<span class="r07-wizard-resolved" role="img" aria-label="Resuelto">' + checkSvg() + '</span>' : '') + '</div>'
+            + (sourceUnscoped ? '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="assign-source-position" data-from-position-id="' + escapeHTML(fromPositionId) + '" aria-pressed="' + assigned + '">' + (assigned ? 'Asignado a esta obra' : 'Asignar a esta obra') + '</button>' : '')
+            + '<div class="r07-recon-control"><label for="' + selectId + '">Puesto en la obra destino</label>'
+            + '<select id="' + selectId + '" data-r07-position-target data-from-position-id="' + escapeHTML(fromPositionId) + '"'
             + (targetPositions.length ? '' : ' disabled') + '>'
             + '<option value="">Selecciona un puesto</option>' + options + '</select></div>'
             + '<div class="r07-position-remap-similar">' + similarAction + '</div>'
-            + '<div class="r07-position-remap-impact is-preserved"><strong>Historial conservado</strong><span>' + escapeHTML(impact) + '</span>'
-            + '<small>Solo cambia el puesto actual. Los días ya trabajados conservan el puesto y los valores históricos registrados.</small></div>'
+            + '<div class="r07-position-remap-impact is-preserved"><strong>Asistencia</strong><span>' + escapeHTML(impact) + '</span>'
+            + '<small>Se conservan horas y sueldos especiales de cada empleado.</small></div>'
             + '</div>';
     }).join('');
-
     html += '</section>';
-    if (remainingConflicts.length) {
-        html += renderDependencyBlocker({ ok: false, conflicts: remainingConflicts });
-    }
+    if (remainingConflicts.length) html += renderDependencyBlocker({ ok: false, conflicts: remainingConflicts });
     return html;
 }
 
@@ -581,13 +619,6 @@ function renderPreflightSummary(preflight) {
         })
         .map(([recordKey, record]) => ({ recordKey, record }));
 
-    function attendanceItemLabel(item, fallbackProject = 'sin obra válida') {
-        const record = item?.record || {};
-        const date = String(record.date || item?.recordKey || 'registro sin fecha');
-        const projectId = String(record.projectId || '').trim();
-        return date + ' (' + (catalogProjectNames.get(projectId) || fallbackProject) + ')';
-    }
-
     const detached = (preflight?.dependencySummary?.detachedLeaders) || [];
 
     const updateItems = [];
@@ -602,12 +633,31 @@ function renderPreflightSummary(preflight) {
         updateItems.push(
             orphanAttendance.length + ' asistencia' + (orphanAttendance.length === 1 ? '' : 's')
             + ' huérfana' + (orphanAttendance.length === 1 ? '' : 's')
-            + ' se asociará' + (orphanAttendance.length === 1 ? '' : 'n') + ' a ' + targetName + ': '
-            + orphanAttendance.map(item => attendanceItemLabel(item)).join(', ') + '.'
+            + ' se asociará' + (orphanAttendance.length === 1 ? '' : 'n') + ' a ' + targetName + '.'
         );
     }
     if (positionLines.length) {
-        updateItems.push('Puesto: ' + positionLines.join(', ') + '.');
+        updateItems.push('Puesto: ' + [...new Set(positionLines)].join(', ') + '.');
+    }
+    for (const collection of ['leaders', 'positions']) {
+        const names = (state[collection] || []).filter(item => modalState.entitySelectedIds.has(collection + ':' + item.id))
+            .map(item => item.name || 'Sin nombre');
+        if (names.length) updateItems.push((collection === 'leaders' ? 'Líderes' : 'Puestos') + ' que se asignarán: ' + names.join(', ') + '.');
+    }
+    for (const remap of Object.values(modalState.leaderRemaps)) {
+        const source = (state.leaders || []).find(item => item.id === remap.fromLeaderId);
+        const target = (state.leaders || []).find(item => item.id === remap.toLeaderId);
+        const copy = modalState.leaderCopies[remap.fromLeaderId];
+        updateItems.push('Líder: ' + (source?.name || 'Sin nombre') + ' → ' + (copy?.name || target?.name || 'Sin nombre') + (copy ? ' (nuevo).' : '.'));
+    }
+    const unpositionedDays = attendanceEntries.filter(([, record]) =>
+        employeeOwnershipRows.some(row => String(row.id) === String(record?.employeeId))
+        && record?.present === true && record?.deletedAt == null && !record?.selectedPosition
+        && (!record?.projectId || !catalogProjectNames.has(String(record.projectId))
+            || String(record.projectId) === String(targetProjectId))
+    ).length;
+    if (unpositionedDays) {
+        updateItems.push(unpositionedDays + ' día(s) sin puesto explícito se asignarán al primer puesto resultante de cada empleado; se conservarán sus horas.');
     }
     const keepItems = [
         'Identidad y datos propios de cada empleado (número, nombre y salarios).',
@@ -618,8 +668,7 @@ function renderPreflightSummary(preflight) {
             preservedValidOtherProjectAttendance.length + ' asistencia'
             + (preservedValidOtherProjectAttendance.length === 1 ? '' : 's')
             + ' válida' + (preservedValidOtherProjectAttendance.length === 1 ? '' : 's')
-            + ' en otras obras se conservará' + (preservedValidOtherProjectAttendance.length === 1 ? '' : 'n') + ': '
-            + preservedValidOtherProjectAttendance.map(item => attendanceItemLabel(item, 'obra válida')).join(', ') + '.'
+            + ' en otras obras se conservará' + (preservedValidOtherProjectAttendance.length === 1 ? '' : 'n') + '.'
         );
     }
 
@@ -682,7 +731,7 @@ function renderActionControl(preflight) {
         return '<div class="r07-recon-control"><label for="r07-target-project">Obra de destino</label>'
             + '<select id="r07-target-project" data-r07-control="target-project">'
             + '<option value="">Selecciona una obra activa</option>' + options + '</select></div>'
-            + renderPositionRemapControls(preflight);
+            ;
     }
     if (modalState.action === 'create') {
         const duplicate = duplicateCreateProject();
@@ -697,7 +746,7 @@ function renderActionControl(preflight) {
             + '<small id="r07-create-project-help">Se creará una única obra nueva, sin duplicados.</small>'
             + '<small id="r07-create-project-error" class="r07-recon-inline-error" role="status"'
             + (duplicate ? '' : ' hidden') + '>' + escapeHTML(errorText) + '</small></div>'
-            + renderPositionRemapControls(preflight);
+            ;
     }
     if (modalState.action === 'later' && selectedRows().some(row => !row.employeeIssue)) {
         return '<div class="r07-recon-blocker" role="alert">'
@@ -731,13 +780,14 @@ function otherIssueLabel(issue = {}) {
 }
 
 function renderOtherIssuesNote() {
-    if (!snapshot.otherIssues.length) return '';
-    const rows = snapshot.otherIssues.slice(0, 4).map(issue =>
+    const remainingIssues = snapshot.otherIssues.filter(issue => !['positions', 'leaders'].includes(issue.collection));
+    if (!remainingIssues.length) return '';
+    const rows = remainingIssues.slice(0, 4).map(issue =>
         '<li>' + escapeHTML(otherIssueLabel(issue)) + '</li>'
     ).join('');
-    const remaining = snapshot.otherIssues.length - Math.min(snapshot.otherIssues.length, 4);
+    const remaining = remainingIssues.length - Math.min(remainingIssues.length, 4);
     return '<section class="r07-recon-note r07-recon-other-issues">'
-        + '<strong>' + snapshot.otherIssues.length + ' ' + (snapshot.otherIssues.length === 1 ? 'registro adicional requiere revisión' : 'registros adicionales requieren revisión') + '</strong>'
+        + '<strong>' + remainingIssues.length + ' ' + (remainingIssues.length === 1 ? 'registro adicional requiere revisión' : 'registros adicionales requieren revisión') + '</strong>'
         + '<span>No se modificarán automáticamente. Revisa su obra antes de continuar con esos registros.</span>'
         + '<ul class="r07-recon-note-list">' + rows
         + (remaining > 0 ? '<li>Y ' + remaining + ' más</li>' : '') + '</ul>'
@@ -745,45 +795,191 @@ function renderOtherIssuesNote() {
         + '</section>';
 }
 
-function modalContent() {
-    const preflight = currentPreflight();
-    const hasEmployeeFlow = snapshot.employeeRows.length > 0;
-    const allSelected = hasEmployeeFlow
-        && snapshot.employeeRows.every(row => modalState.selectedIds.has(row.id));
-    const hint = hasEmployeeFlow ? resolutionHint(preflight) : '';
-    const employeeFlow = hasEmployeeFlow
-        ? '<section class="r07-recon-section" aria-labelledby="r07-select-title">'
-            + '<div class="r07-recon-section-head"><div><h3 id="r07-select-title">1. Selecciona las personas</h3>'
-            + '<p>Solo se modificarán las personas seleccionadas y su asistencia relacionada.</p></div>'
-            + '<button type="button" class="r07-recon-link-button" data-r07-action="toggle-all">'
-            + (allSelected ? 'Deseleccionar todos' : 'Seleccionar todos') + '</button></div>'
-            + '<div class="r07-recon-people">' + renderPersonRows(preflight) + '</div></section>'
-            + '<fieldset class="r07-recon-section r07-recon-fieldset"><legend>2. Elige cómo resolverlo</legend>'
-            + '<div class="r07-recon-choices">'
-            + renderChoice('map', 'Asignar a una obra existente', 'Usa una obra activa que ya existe en SA.')
-            + renderChoice('create', 'Crear una obra y asignar', 'Crea una obra nueva y mueve allí las personas seleccionadas.')
-            + renderChoice('later', 'Resolver más tarde', 'Mantiene estas personas fuera del flujo normal hasta revisarlas.')
-            + '</div>' + renderActionControl(preflight) + '</fieldset>'
-            + renderPersonnelManagementLink()
-        : '';
-    const primary = hasEmployeeFlow
-        ? '<button type="button" class="btn-primary r07-recon-footer-btn r07-recon-footer-primary" data-r07-action="apply"'
-            + (canApply(preflight) ? '' : ' disabled') + '>' + primaryActionLabel() + '</button>'
-        : '';
-    return '<div class="r07-recon-shell">'
-        + '<div class="r07-recon-kicker">CONCILIACIÓN</div>'
-        + '<div class="r07-recon-summary" aria-live="polite">'
-        + '<div><strong>' + snapshot.pendingEmployeeCount + '</strong><span>empleados pendientes</span></div>'
-        + '<div><strong>' + snapshot.validEmployeeCount + '</strong><span>empleados asignados</span></div>'
-        + '<div><strong>' + snapshot.otherIssues.length + '</strong><span>otros avisos</span></div>'
-        + '</div>' + employeeFlow + renderPreflightSummary(preflight) + renderOtherIssuesNote()
-        + (modalState.message ? '<div class="r07-recon-message" role="status">' + escapeHTML(modalState.message) + '</div>' : '')
-        + '<div class="r07-recon-footer">'
-        + '<button type="button" class="btn-secondary r07-recon-footer-btn r07-recon-footer-secondary" data-r07-action="close">Cerrar</button>'
-        + '<div class="r07-recon-footer-hint" aria-live="polite">' + escapeHTML(hint) + '</div>'
-        + primary + '</div></div>';
+function catalogIssues() {
+    return snapshot.otherIssues.filter(issue => ['positions', 'leaders'].includes(issue.collection));
 }
 
+function catalogIssueKey(issue) {
+    return issue.collection + ':' + String(issue.record?.id || issue.recordKey || '');
+}
+
+function renderCatalogIssues(collection = 'positions') {
+    const used = new Set(selectedPositionRemapNeeds(true).map(item => item.fromPositionId));
+    const issues = catalogIssues().filter(issue => issue.collection === collection
+        && !(collection === 'positions' && used.has(String(issue.record?.id))));
+    if (!issues.length) return '';
+    return '<section class="r07-recon-section"><h3>Otros puestos sin obra</h3>'
+        + '<p class="r07-recon-hint">Puedes incluirlos en esta asignación.</p>'
+        + issues.map(issue => {
+            const key = catalogIssueKey(issue);
+            const checked = modalState.entitySelectedIds.has(key);
+            return '<label class="r07-recon-choice ' + (checked ? 'is-selected' : '') + '">'
+                + '<input type="checkbox" data-r07-entity-select="' + escapeHTML(key) + '"' + (checked ? ' checked' : '') + '>'
+                + '<span class="r07-recon-choice-copy"><strong>' + escapeHTML(otherIssueLabel(issue)) + '</strong>'
+                + '<small>' + (checked ? 'Se asignará a esta obra' : 'Sin obra válida') + '</small></span></label>';
+        }).join('') + '</section>';
+}
+
+function leaderNeeds() {
+    const ids = new Set();
+    for (const employee of selectedEmployeesNeedingOwnershipRepair()) {
+        if (employee.leaderId) ids.add(String(employee.leaderId));
+        for (const id of [...(employee.positions || []), employee.positionId].filter(Boolean)) {
+            const position = (state.positions || []).find(item => String(item.id) === String(id));
+            if (position?.leaderId) ids.add(String(position.leaderId));
+        }
+    }
+    const target = currentTargetProjectId();
+    return (state.leaders || []).filter(leader => String(leader.projectId || '') !== target
+        && (ids.has(String(leader.id)) || catalogIssues().some(issue => issue.collection === 'leaders'
+            && String(issue.record?.id) === String(leader.id))))
+        .map(leader => ({ leader, required: ids.has(String(leader.id)) }));
+}
+
+function leaderResolved(id) {
+    return modalState.entitySelectedIds.has('leaders:' + id) || !!modalState.leaderRemaps[id]?.toLeaderId;
+}
+
+function renderLeaderChoices() {
+    const needs = leaderNeeds();
+    if (!needs.length) return '<div class="r07-recon-empty">Los líderes ya están listos.</div>';
+    const destinations = (state.leaders || []).filter(leader => leader.active !== false
+        && String(leader.projectId || '') === currentTargetProjectId());
+    return needs.map(({ leader, required }, index) => {
+        const assigned = modalState.entitySelectedIds.has('leaders:' + leader.id);
+        const chosen = modalState.leaderRemaps[leader.id]?.toLeaderId || '';
+        const copy = modalState.leaderCopies[leader.id];
+        const unscoped = !snapshot.projects.some(project => project.id === leader.projectId);
+        return '<section class="r07-position-remap-card">'
+            + '<div class="r07-position-remap-person"><strong>' + escapeHTML(leader.name || 'Líder sin nombre') + '</strong>'
+            + '<span>' + (required ? 'Relacionado con los empleados seleccionados' : 'Sin obra · inclusión opcional') + '</span>'
+            + (leaderResolved(leader.id) ? '<span class="r07-wizard-resolved" role="img" aria-label="Resuelto">' + checkSvg() + '</span>' : '') + '</div>'
+            + (unscoped ? '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="assign-source-leader" data-leader-id="' + escapeHTML(leader.id)
+                + '" aria-pressed="' + assigned + '">' + (assigned ? 'Asignado a esta obra' : 'Asignar a esta obra') + '</button>' : '')
+            + '<div class="r07-recon-control"><label for="r07-leader-' + index + '">Usar un líder de esta obra</label>'
+            + '<select id="r07-leader-' + index + '" data-r07-leader-target="' + escapeHTML(leader.id) + '"><option value="">Selecciona un líder</option>'
+            + destinations.map(item => '<option value="' + escapeHTML(item.id) + '"' + (chosen === item.id ? ' selected' : '') + '>' + escapeHTML(item.name) + '</option>').join('')
+            + '</select></div>'
+            + (copy ? '<div class="r07-recon-control"><label for="r07-new-leader-' + index + '">Nombre del nuevo líder</label><input id="r07-new-leader-' + index
+                + '" type="text" maxlength="100" data-r07-leader-name="' + escapeHTML(leader.id) + '" value="' + escapeHTML(copy.name) + '"></div>'
+                : '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="create-leader" data-leader-id="' + escapeHTML(leader.id) + '">Crear líder</button>')
+            + '</section>';
+    }).join('');
+}
+
+const WIZARD_STEPS = ['Obra', 'Empleados', 'Líderes', 'Puestos', 'Resumen'];
+
+function wizardHint(preflight) {
+    if (modalState.busy) return 'Guardando cambios…';
+    if (modalState.step === 0) {
+        if (!modalState.action) return 'Elige una obra existente o crea una nueva.';
+        if (modalState.action === 'map' && !modalState.targetProjectId) return 'Selecciona una obra.';
+        if (modalState.action === 'create' && !modalState.createName.trim()) return 'Escribe el nombre de la obra.';
+        if (modalState.action === 'create' && duplicateCreateProject()) return 'Ya existe una obra con ese nombre.';
+        return '';
+    }
+    if (modalState.step === 1 && snapshot.employeeRows.length && !modalState.selectedIds.size) return 'Selecciona al menos un empleado.';
+    if (modalState.step === 2 && leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id))) return 'Resuelve los líderes relacionados para continuar.';
+    if (Object.values(modalState.leaderCopies).some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo líder.';
+    if (modalState.step >= 3 && currentPositionCopies().some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo puesto.';
+    if (modalState.step >= 3 && !preflight.ok) return 'Resuelve los puestos pendientes para continuar.';
+    if (modalState.step === 4 && !canApply(preflight)) return 'Selecciona empleados, puestos o líderes para asignar.';
+    return '';
+}
+
+function quickAssignAll() {
+    if (modalState.busy || modalState.step !== 0 || wizardHint(currentPreflight())) return;
+    modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
+    modalState.entitySelectedIds = new Set(catalogIssues().map(catalogIssueKey));
+    modalState.positionRemaps = {};
+    modalState.positionCopies = {};
+    modalState.leaderRemaps = {};
+    modalState.leaderCopies = {};
+    // Preview every relationship before allowing the final confirmation.
+    modalState.step = 4;
+    const preflight = currentPreflight();
+    const unresolvedLeaders = leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id));
+    if (!preflight.ok || unresolvedLeaders) {
+        modalState.step = unresolvedLeaders ? 2 : 3;
+        modalState.message = 'Hay relaciones que necesitan una elección. Revisa las indicadas para continuar.';
+    } else {
+        modalState.message = '';
+    }
+    rerenderModal();
+    activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
+}
+
+function changeWizardStep(direction) {
+    if (modalState.busy || (direction > 0 && wizardHint(currentPreflight()))) return;
+    let next = modalState.step + direction;
+    while (next > 0 && next < 4 && (
+        (next === 1 && !snapshot.employeeRows.length)
+        || (next === 2 && !leaderNeeds().length)
+        || (next === 3 && !selectedPositionRemapNeeds(true).length
+            && !catalogIssues().some(issue => issue.collection === 'positions'))
+    )) next += direction;
+    modalState.step = Math.max(0, Math.min(4, next));
+    modalState.message = '';
+    const shell = activeModal?.element?.querySelector('.modal-container');
+    const from = shell?.getBoundingClientRect();
+    rerenderModal();
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (shell?.animate && from && !reduced) {
+        const to = shell.getBoundingClientRect();
+        shell.animate([{ height: from.height + 'px' }, { height: to.height + 'px' }],
+            { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    }
+    const body = activeModal?.element?.querySelector('.modal-body');
+    const content = body?.querySelector('.r07-wizard-content');
+    if (content) content.scrollTop = 0;
+    activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
+}
+
+function modalContent() {
+    const preflight = currentPreflight();
+    const step = modalState.step;
+    const allSelected = snapshot.employeeRows.length > 0 && snapshot.employeeRows.every(row => modalState.selectedIds.has(row.id));
+    const selectedCatalog = selectedCatalogIds('positions').length + selectedCatalogIds('leaders').length;
+    const stages = [
+        '<fieldset class="r07-recon-fieldset"><legend>Elige la obra de destino</legend><div class="r07-recon-choices">'
+            + renderChoice('map', 'Usar una obra existente', 'Asigna los datos a una obra activa.')
+            + renderChoice('create', 'Crear una obra', 'Define el nombre de la nueva obra.')
+            + '</div>' + renderActionControl(preflight) + '</fieldset>'
+            + '<div class="r07-wizard-quick"><button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="quick-assign"'
+            + (wizardHint(preflight) ? ' disabled' : '') + '>Asignar todo a esta obra</button>'
+            + '<small>Incluye los datos pendientes y revisa el resumen antes de guardar.</small></div>',
+        '<div class="r07-recon-section-head"><p>' + modalState.selectedIds.size + ' empleados seleccionados</p>'
+            + '<button type="button" class="r07-recon-link-button" data-r07-action="toggle-all">' + (allSelected ? 'Deseleccionar todos' : 'Seleccionar todos')
+            + '</button></div><div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink(),
+        renderLeaderChoices(),
+        renderPositionRemapControls(preflight) + renderCatalogIssues('positions'),
+        '<div class="r07-recon-summary"><div><strong>' + modalState.selectedIds.size + '</strong><span>empleados</span></div>'
+            + '<div><strong>' + selectedCatalog + '</strong><span>puestos y líderes asignados</span></div>'
+            + '<div><strong>' + (new Set(currentPositionCopies().map(copy => copy.newPositionId)).size + Object.keys(modalState.leaderCopies).length) + '</strong><span>registros nuevos</span></div></div>'
+            + '<div class="r07-preflight-destiny"><span>Obra destino</span><strong>' + escapeHTML(snapshot.projects.find(project => project.id === currentTargetProjectId())?.name || modalState.createName.trim()) + '</strong></div>'
+            + '<details class="r07-wizard-details"><summary>Ver decisiones y datos conservados</summary>' + renderPreflightSummary(preflight) + '</details>'
+            + renderOtherIssuesNote()
+            + '<p class="r07-recon-hint">Se guardarán todas las decisiones juntas. Se conservan los sueldos especiales, las horas y los préstamos.</p>'
+    ];
+    const hints = ['Elige dónde quedarán los datos.', 'Selecciona las personas de esta obra.',
+        'Resuelve cada líder una sola vez.', 'Una decisión por puesto para todos sus empleados.', 'Revisa las decisiones antes de guardar.'];
+    const hint = wizardHint(preflight);
+    return '<div class="r07-recon-shell r07-wizard" aria-busy="' + modalState.busy + '">'
+        + '<div class="r07-wizard-content"><nav aria-label="Progreso de asignación"><ol class="r07-wizard-steps">'
+        + WIZARD_STEPS.map((name, index) => '<li' + (index === step ? ' aria-current="step"' : '')
+            + ' class="' + (index < step ? 'is-complete' : '') + '"><span>' + (index + 1) + '</span><small>' + name + '</small></li>').join('')
+        + '</ol><progress max="5" value="' + (step + 1) + '" aria-label="Paso ' + (step + 1) + ' de 5"></progress></nav>'
+        + '<div class="r07-wizard-heading"><span class="r07-recon-kicker">PASO ' + (step + 1) + ' DE 5</span>'
+        + '<h2 id="r07-wizard-title" tabindex="-1">' + WIZARD_STEPS[step] + '</h2><p>' + hints[step] + '</p></div>'
+        + stages.map((content, index) => '<section data-r07-step="' + index + '"' + (index !== step ? ' hidden' : '') + '>' + content + '</section>').join('')
+        + (modalState.message ? '<div class="r07-recon-message" role="status">' + escapeHTML(modalState.message) + '</div>' : '')
+        + '</div><div class="r07-recon-footer">'
+        + '<button type="button" class="btn-secondary r07-recon-footer-btn" data-r07-action="' + (step ? 'wizard-back' : 'close') + '"' + (modalState.busy ? ' disabled' : '') + '>' + (step ? 'Atrás' : 'Cancelar') + '</button>'
+        + '<div class="r07-recon-footer-hint" aria-live="polite">' + escapeHTML(hint) + '</div>'
+        + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="wizard-next"' + (step === 4 ? ' hidden' : '') + (hint || modalState.busy ? ' disabled' : '') + '>Continuar</button>'
+        + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="apply"' + (step !== 4 ? ' hidden' : '') + (!canApply(preflight) || hint || modalState.busy ? ' disabled' : '') + '>' + (modalState.busy ? 'Aplicando…' : 'Aplicar todo') + '</button>'
+        + '</div></div>';
+}
 function cssEscape(value) {
     if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value);
     return String(value ?? '').replace(/["\\]/g, '\\$&');
@@ -796,6 +992,10 @@ function rerenderModal() {
     // Preserve focus across the innerHTML swap (design.md §7 keyboard flow):
     // remember the focused control and restore the equivalent node afterwards.
     const active = document.activeElement;
+    const scrollTop = body.querySelector('.r07-wizard-content')?.scrollTop || 0;
+    const focusId = active?.id;
+    const genericAction = active?.getAttribute?.('data-r07-action');
+    const selection = active?.tagName === 'INPUT' ? [active.selectionStart, active.selectionEnd] : null;
     let focusTarget = null;
     if (active && body.contains(active)) {
         if (active.dataset?.r07Select !== undefined) {
@@ -809,7 +1009,7 @@ function rerenderModal() {
         } else if (active.dataset?.r07PositionTarget !== undefined) {
             const emp = active.dataset.employeeId || '';
             const from = active.dataset.fromPositionId || '';
-            focusTarget = () => body.querySelector('[data-r07-position-target][data-employee-id="' + cssEscape(emp) + '"][data-from-position-id="' + cssEscape(from) + '"]');
+            focusTarget = () => body.querySelector('[data-r07-position-target][data-from-position-id="' + cssEscape(from) + '"]');
         } else if (active.dataset?.r07Action === 'toggle-all') {
             focusTarget = () => body.querySelector('[data-r07-action="toggle-all"]');
         } else if (active.dataset?.r07Action === 'create-similar-position'
@@ -818,8 +1018,7 @@ function rerenderModal() {
             const fromPositionId = active.dataset.fromPositionId || '';
             focusTarget = () => {
                 const positionTarget = body.querySelector(
-                    '[data-r07-position-target][data-employee-id="' + cssEscape(employeeId)
-                    + '"][data-from-position-id="' + cssEscape(fromPositionId) + '"]'
+                    '[data-r07-position-target][data-from-position-id="' + cssEscape(fromPositionId) + '"]'
                 );
                 if (positionTarget && !positionTarget.disabled) return positionTarget;
                 return body.querySelector('[data-r07-action="apply"]:not([disabled])')
@@ -828,23 +1027,25 @@ function rerenderModal() {
         }
     }
     body.innerHTML = modalContent();
-    if (focusTarget) {
-        const el = focusTarget();
-        if (el) el.focus();
+    const el = focusTarget?.() || (focusId ? body.querySelector('#' + cssEscape(focusId)) : null)
+        || (genericAction ? body.querySelector('[data-r07-action="' + cssEscape(genericAction) + '"]:not([hidden])') : null);
+    el?.focus();
+    if (selection && el?.setSelectionRange && selection[0] !== null) {
+        try { el.setSelectionRange(...selection); } catch (_) {}
     }
+    const scrollArea = body.querySelector('.r07-wizard-content');
+    if (scrollArea) scrollArea.scrollTop = scrollTop;
 }
 
-export async function openProjectReconciliation() {
+export async function openProjectReconciliation({ onClose } = {}) {
     await refreshProjectReconciliationSnapshot();
     modalState = initialModalState();
     modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
     if (activeModal?.isOpen) activeModal.close();
     const hasEmployeeFlow = snapshot.employeeRows.length > 0;
     activeModal = new Modal({
-        title: hasEmployeeFlow ? 'Pendientes de asignación' : 'Relaciones entre obras',
-        subtitle: hasEmployeeFlow
-            ? 'Asigna cada persona a una obra sin perder su historial.'
-            : 'Revisa los avisos pendientes de asignación entre obras.',
+        title: 'Asignar datos a una obra',
+        subtitle: 'Organiza empleados, líderes y puestos paso a paso.',
         size: 'large',
         content: modalContent(),
         buttons: null,
@@ -854,9 +1055,30 @@ export async function openProjectReconciliation() {
                 if (fallback) this._previouslyFocused = fallback;
             }
             activeModal = null;
+            onClose?.();
         }
     });
     activeModal.open();
+    activeModal.element.querySelector('.modal-container')?.classList.add('r07-wizard-modal');
+    activeModal.element.addEventListener('keydown', event => {
+        if (modalState.busy) {
+            if (event.key === 'Escape') event.stopPropagation();
+            return;
+        }
+        if (event.key === 'Escape' && modalState.step > 0) {
+            event.preventDefault();
+            event.stopPropagation();
+            changeWizardStep(-1);
+        } else if (!['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(event.target.tagName)) {
+            if (event.key === 'ArrowRight' && modalState.step < 4) {
+                event.preventDefault();
+                changeWizardStep(1);
+            } else if (event.key === 'ArrowLeft' && modalState.step > 0) {
+                event.preventDefault();
+                changeWizardStep(-1);
+            }
+        }
+    });
     return activeModal;
 }
 
@@ -885,7 +1107,7 @@ export function closeProjectReconciliation() {
 async function applyLocalResolution() {
     if (modalState.busy) return;
     const employees = selectedEmployees();
-    if (!employees.length || !modalState.action) return;
+    if ((!employees.length && !modalState.entitySelectedIds.size) || !modalState.action) return;
     const preflight = currentPreflight();
     if (['map', 'create'].includes(modalState.action) && !preflight.ok) {
         modalState.message = 'Hay relaciones de puesto o líder que deben revisarse antes de aplicar este cambio.';
@@ -918,7 +1140,9 @@ async function applyLocalResolution() {
             attendance: state.attendance || {},
             positions: state.positions || [],
             leaders: state.leaders || [],
-            catalog: snapshot.projects
+            catalog: snapshot.projects,
+            leaderRemaps: Object.values(modalState.leaderRemaps),
+            leaderCopies: Object.values(modalState.leaderCopies)
         };
         let params;
         if (appliedAction === 'map') {
@@ -927,7 +1151,9 @@ async function applyLocalResolution() {
                 action: REPAIR_ACTION.MAP_TO_EXISTING,
                 targetProjectId: modalState.targetProjectId,
                 positionRemaps: currentPositionRemaps(),
-                positionCopies: currentPositionCopies()
+                positionCopies: currentPositionCopies(),
+                assignUnpositionedHistory: true,
+                positionIds: selectedCatalogIds('positions'), leaderIds: selectedCatalogIds('leaders')
             };
         } else if (appliedAction === 'create') {
             params = {
@@ -936,7 +1162,9 @@ async function applyLocalResolution() {
                 projectId: ensureCreateProjectId(),
                 projectName: modalState.createName.trim(),
                 positionRemaps: currentPositionRemaps(),
-                positionCopies: currentPositionCopies()
+                positionCopies: currentPositionCopies(),
+                assignUnpositionedHistory: true,
+                positionIds: selectedCatalogIds('positions'), leaderIds: selectedCatalogIds('leaders')
             };
         } else {
             params = { ...base, action: REPAIR_ACTION.QUARANTINE };
@@ -967,15 +1195,19 @@ async function applyLocalResolution() {
 
         modalState.busy = false;
         modalState.message = '';
+        modalState.step = 0;
+        modalState.leaderRemaps = {};
+        modalState.leaderCopies = {};
         modalState.action = '';
         modalState.targetProjectId = '';
         modalState.createName = '';
         modalState.createProjectId = null;
         modalState.positionRemaps = {};
         modalState.positionCopies = {};
+        modalState.entitySelectedIds = new Set();
         modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
 
-        if (snapshot.pendingEmployeeCount === 0 || appliedAction === 'later') {
+        if ((snapshot.pendingEmployeeCount === 0 && !catalogIssues().length) || appliedAction === 'later') {
             closeProjectReconciliation();
         } else {
             rerenderModal();
@@ -996,42 +1228,74 @@ async function applyLocalResolution() {
     }
 }
 
-function createSimilarPosition(employeeId, fromPositionId) {
-    if (!employeeId || !fromPositionId || modalState.busy) return;
-    const source = (state.positions || []).find(p => String(p?.id || '') === String(fromPositionId));
-    const sourceName = source?.name || fromPositionId;
-    const key = positionRemapKey(employeeId, fromPositionId);
-    // F6: reuse an already-queued destination id for the same source position +
-    // target + normalized name so the batch creates the position once.
-    const queued = findQueuedSimilarCopy(fromPositionId, sourceName);
-    const newPositionId = queued ? queued.newPositionId : generateUUID();
-    // Destination-owned copy: a new unique id, never the source project/leader
-    // or cross-project relations (the service drops those on commit).
-    modalState.positionCopies[key] = {
-        fromPositionId: String(fromPositionId),
-        newPositionId,
-        name: sourceName
-    };
-    modalState.positionRemaps[key] = {
-        employeeId: String(employeeId),
-        fromPositionId: String(fromPositionId),
-        toPositionId: newPositionId,
-        migrateHistory: false
-    };
+function setGroupPosition(fromPositionId, toPositionId, copy = null) {
+    if (!fromPositionId || modalState.busy) return;
+    modalState.entitySelectedIds.delete('positions:' + fromPositionId);
+    for (const need of selectedPositionRemapNeeds().filter(item => item.fromPositionId === fromPositionId)) {
+        const key = positionRemapKey(need.employeeId, fromPositionId);
+        if (copy) modalState.positionCopies[key] = { ...copy };
+        else delete modalState.positionCopies[key];
+        if (toPositionId) {
+            modalState.positionRemaps[key] = {
+                employeeId: String(need.employeeId), fromPositionId: String(fromPositionId),
+                toPositionId: String(toPositionId), migrateHistory: true
+            };
+        } else delete modalState.positionRemaps[key];
+    }
     rerenderModal();
 }
 
-function useEquivalentPosition(employeeId, fromPositionId, toPositionId) {
-    if (!employeeId || !fromPositionId || !toPositionId || modalState.busy) return;
-    const key = positionRemapKey(employeeId, fromPositionId);
-    delete modalState.positionCopies[key];
-    modalState.positionRemaps[key] = {
-        employeeId: String(employeeId),
-        fromPositionId: String(fromPositionId),
-        toPositionId: String(toPositionId),
-        migrateHistory: false
-    };
+function selectedCatalogIds(collection) {
+    return catalogIssues().filter(issue => issue.collection === collection
+        && modalState.entitySelectedIds.has(catalogIssueKey(issue)))
+        .map(issue => issue.record?.id).filter(Boolean);
+}
+
+async function applyCatalogResolution() {
+    if (modalState.entityBusy || !modalState.entityTargetProjectId || !modalState.entitySelectedIds.size) return;
+    const selected = catalogIssues().filter(issue => modalState.entitySelectedIds.has(catalogIssueKey(issue)));
+    modalState.entityBusy = true;
+    modalState.entityMessage = '';
     rerenderModal();
+    try {
+        const result = await applyOwnershipRepair({
+            action: REPAIR_ACTION.MAP_CATALOG_ENTITIES,
+            employees: [], targetProjectId: modalState.entityTargetProjectId,
+            positionIds: selected.filter(issue => issue.collection === 'positions').map(issue => issue.record?.id),
+            leaderIds: selected.filter(issue => issue.collection === 'leaders').map(issue => issue.record?.id)
+        });
+        if (result.status !== REPAIR_STATUS.OK) {
+            modalState.entityMessage = result.conflicts?.length
+                ? 'Hay relaciones con empleados, puestos o asistencias de otra obra. Resuelve esas relaciones antes de asignar este grupo.'
+                : (result.reason || 'No se pudo asignar la selección.');
+        } else {
+            invalidateAllStats();
+            await refreshProjectReconciliationSnapshot();
+            modalState.entitySelectedIds = new Set();
+            window.render?.();
+            window.showNotification?.('Puestos y líderes asignados a la obra.', 'success');
+        }
+    } catch (error) {
+        modalState.entityMessage = error?.message || 'No se pudo guardar la asignación.';
+    } finally {
+        modalState.entityBusy = false;
+        if (activeModal?.isOpen) rerenderModal();
+    }
+}
+
+function createSimilarPosition(_employeeId, fromPositionId) {
+    if (!fromPositionId || modalState.busy) return;
+    const source = (state.positions || []).find(p => String(p?.id || '') === String(fromPositionId));
+    const sourceName = source?.name || fromPositionId;
+    const queued = findQueuedSimilarCopy(fromPositionId, sourceName);
+    const newPositionId = queued ? queued.newPositionId : generateUUID();
+    setGroupPosition(fromPositionId, newPositionId, {
+        fromPositionId: String(fromPositionId), newPositionId, name: sourceName
+    });
+}
+
+function useEquivalentPosition(_employeeId, fromPositionId, toPositionId) {
+    setGroupPosition(fromPositionId, toPositionId);
 }
 
 function handleClick(event) {
@@ -1045,6 +1309,33 @@ function handleClick(event) {
     const target = event.target.closest?.('[data-r07-action]');
     if (!target) return;
     const action = target.dataset.r07Action;
+    if (modalState.busy) return;
+    if (action === 'quick-assign') return quickAssignAll();
+    if (action === 'wizard-next') return changeWizardStep(1);
+    if (action === 'wizard-back') return changeWizardStep(-1);
+    if (action === 'assign-source-position') {
+        const id = target.dataset.fromPositionId;
+        setGroupPosition(id, '');
+        modalState.entitySelectedIds.add('positions:' + id);
+        rerenderModal();
+        return;
+    }
+    if (action === 'assign-source-leader' || action === 'create-leader') {
+        const id = target.dataset.leaderId;
+        delete modalState.leaderRemaps[id];
+        delete modalState.leaderCopies[id];
+        modalState.entitySelectedIds.delete('leaders:' + id);
+        if (action === 'assign-source-leader') {
+            modalState.entitySelectedIds.add('leaders:' + id);
+        } else {
+            const leader = (state.leaders || []).find(item => item.id === id);
+            const newLeaderId = generateUUID();
+            modalState.leaderCopies[id] = { fromLeaderId: id, newLeaderId, name: leader?.name || '' };
+            modalState.leaderRemaps[id] = { fromLeaderId: id, toLeaderId: newLeaderId };
+        }
+        rerenderModal();
+        return;
+    }
     if (action === 'close') return closeProjectReconciliation();
     if (action === 'apply') return applyLocalResolution();
     if (action === 'create-similar-position') {
@@ -1053,6 +1344,14 @@ function handleClick(event) {
     if (action === 'use-equivalent-position') {
         return useEquivalentPosition(target.dataset.employeeId, target.dataset.fromPositionId, target.dataset.toPositionId);
     }
+    if (action === 'catalog-toggle-all') {
+        const issues = catalogIssues();
+        const all = issues.every(issue => modalState.entitySelectedIds.has(catalogIssueKey(issue)));
+        modalState.entitySelectedIds = all ? new Set() : new Set(issues.map(catalogIssueKey));
+        rerenderModal();
+        return;
+    }
+    if (action === 'catalog-apply') return applyCatalogResolution();
     if (action === 'review-other-issues') {
         const first = snapshot.otherIssues[0] || null;
         closeProjectReconciliation();
@@ -1096,9 +1395,32 @@ function handleClick(event) {
 }
 
 function handleChange(event) {
+    if (activeModal?.isOpen && modalState.busy) return;
+    if (event.target?.dataset?.r07LeaderTarget !== undefined) {
+        const id = event.target.dataset.r07LeaderTarget;
+        modalState.entitySelectedIds.delete('leaders:' + id);
+        delete modalState.leaderCopies[id];
+        if (event.target.value) modalState.leaderRemaps[id] = { fromLeaderId: id, toLeaderId: event.target.value };
+        else delete modalState.leaderRemaps[id];
+        rerenderModal();
+        return;
+    }
     if (event.target?.name === 'r07-import-project') {
         importModalState.chosenProjectId = event.target.value;
         rerenderImportModal();
+        return;
+    }
+    const entityKey = event.target?.dataset?.r07EntitySelect;
+    if (entityKey !== undefined) {
+        if (event.target.checked) modalState.entitySelectedIds.add(entityKey);
+        else modalState.entitySelectedIds.delete(entityKey);
+        rerenderModal();
+        return;
+    }
+    if (event.target?.dataset?.r07CatalogProject !== undefined) {
+        modalState.entityTargetProjectId = event.target.value;
+        modalState.entityMessage = '';
+        rerenderModal();
         return;
     }
     const selectId = event.target?.dataset?.r07Select;
@@ -1119,6 +1441,9 @@ function handleChange(event) {
     }
     if (event.target?.name === 'r07-recon-action') {
         modalState.action = event.target.value;
+        modalState.entitySelectedIds.clear();
+        modalState.leaderRemaps = {};
+        modalState.leaderCopies = {};
         modalState.positionRemaps = {};
         modalState.positionCopies = {};
         if (modalState.action === 'create') ensureCreateProjectId();
@@ -1127,36 +1452,50 @@ function handleChange(event) {
     }
     if (event.target?.dataset?.r07Control === 'target-project') {
         modalState.targetProjectId = event.target.value;
+        modalState.entitySelectedIds.clear();
+        modalState.leaderRemaps = {};
+        modalState.leaderCopies = {};
         modalState.positionRemaps = {};
         modalState.positionCopies = {};
         rerenderModal();
         return;
     }
     if (event.target?.dataset?.r07PositionTarget !== undefined) {
-        const employeeId = String(event.target.dataset.employeeId || '');
-        const fromPositionId = String(event.target.dataset.fromPositionId || '');
-        const key = positionRemapKey(employeeId, fromPositionId);
-        const toPositionId = String(event.target.value || '');
-        if (!toPositionId) {
-            delete modalState.positionRemaps[key];
-        } else {
-            // Choosing an existing destination position replaces any queued
-            // "similar position" copy for the same source.
-            delete modalState.positionCopies[key];
-            modalState.positionRemaps[key] = {
-                employeeId,
-                fromPositionId,
-                toPositionId,
-                migrateHistory: false
-            };
-        }
-        rerenderModal();
+        setGroupPosition(String(event.target.dataset.fromPositionId || ''), String(event.target.value || ''));
         return;
     }
 
 }
 
+function updateWizardFooter() {
+    const preflight = currentPreflight();
+    const hint = wizardHint(preflight);
+    const body = activeModal?.element?.querySelector('.modal-body');
+    const next = body?.querySelector('[data-r07-action="wizard-next"]');
+    const apply = body?.querySelector('[data-r07-action="apply"]');
+    if (next) next.disabled = !!hint || modalState.busy;
+    const quick = body?.querySelector('[data-r07-action="quick-assign"]');
+    if (quick) quick.disabled = !!hint || modalState.busy;
+    if (apply) apply.disabled = !!hint || !canApply(preflight) || modalState.busy;
+    const hintNode = body?.querySelector('.r07-recon-footer-hint');
+    if (hintNode) hintNode.textContent = hint;
+}
+
 function handleInput(event) {
+    if (event.target?.dataset?.r07PositionName !== undefined) {
+        const fromId = event.target.dataset.r07PositionName;
+        for (const copy of Object.values(modalState.positionCopies)) {
+            if (copy.fromPositionId === fromId) copy.name = event.target.value;
+        }
+        updateWizardFooter();
+        return;
+    }
+    if (event.target?.dataset?.r07LeaderName !== undefined) {
+        const copy = modalState.leaderCopies[event.target.dataset.r07LeaderName];
+        if (copy) copy.name = event.target.value;
+        updateWizardFooter();
+        return;
+    }
     if (event.target?.dataset?.r07Control !== 'create-name') return;
     modalState.createName = event.target.value;
     const duplicate = duplicateCreateProject();
@@ -1184,6 +1523,7 @@ function handleInput(event) {
     const preflight = currentPreflight();
     if (button) button.disabled = !canApply(preflight);
     if (hint) hint.textContent = resolutionHint(preflight);
+    updateWizardFooter();
 }
 
 async function refreshAndRenderIfChanged() {

@@ -473,16 +473,14 @@ describe('F1.4 end-to-end isolation battery (M2 stamping + A/B isolation)', () =
         raw.forEach(r => expect(g.inScope(r, scope)).toBe(true)); // legacy parity
     });
 
-    test('boot hook: initProjectsInfrastructure fires M2 fire-and-forget when scope enabled', async () => {
+    test('boot preserves legacy ownership for explicit reconciliation rather than auto-stamping', async () => {
         const g = await freshGraph('f14-battery-hook');
         g.setFlag(true);
-        const def = await g.ensureDefault();
+        await g.ensureDefault();
         await g.db.batchUpdate('employees', [emp('E-HOOK', '7', 'Hook')]);
 
-        await g.boot(); // must NOT throw nor block; migration runs in background
-        const done = await waitFor(async () =>
-            ((await g.db.getAll('employees'))[0]?.projectId) === def.id);
-        expect(done).toBe(true);
-        expect(g.marker().done.employees).toBe(true);
+        await g.boot();
+        expect((await g.db.getAll('employees'))[0]).not.toHaveProperty('projectId');
+        expect(localStorage.getItem(g.MARKER)).toBeNull();
     });
 });

@@ -17,7 +17,6 @@
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { defaultProjectService } from './DefaultProject.js';
 import { projectContext, getEntityScope } from './ProjectContext.js';
-import { migrateEntityProjectStamps } from './EntityProjectMigration.js';
 import { ensureCanonicalProject } from './ProjectRegistry.js';
 import { adoptProject } from './ProjectAdoption.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
@@ -75,19 +74,9 @@ export async function initProjectsInfrastructure({
         // Sólo con los singletons por defecto: con deps inyectadas (tests)
         // el snapshot del módulo no se toca.
         if (defaults === defaultProjectService && context === projectContext) {
-            const scope = await getEntityScope();
-            // F1.4/M2: sello local de projectId, fire-and-forget. Sólo corre
-            // con el scope resuelto (flag OFF nunca llega acá — corta arriba —
-            // y la migración re-verifica el flag internamente). El .catch
-            // mantiene intacto el contrato never-throw del boot.
-            if (scope.enabled && scope.projectId) {
-                Promise.resolve()
-                    .then(() => migrateEntityProjectStamps())
-                    .catch(error => console.warn(
-                        '⚠️ ProjectsBoot: M2 sello local falló (arranque no afectado):',
-                        error?.message || error
-                    ));
-            }
+            await getEntityScope();
+            // R07: M2 no se dispara en boot. Su sello al default podía asignar
+            // empleados y asistencia a la obra equivocada antes del banner.
             // F1.7 (DEP-SA-001): backfill idempotente del vínculo oficial de
             // caja chica con el default canónico ya resuelto. Local-only, sin
             // outbox ni nube, fire-and-forget; el .catch preserva never-throw.

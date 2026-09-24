@@ -81,7 +81,7 @@ describe('ProjectReconciliationAccessibilityR07', () => {
         expect(dialog.getAttribute('aria-modal')).toBe('true');
         const titleId = dialog.getAttribute('aria-labelledby');
         expect(titleId).toBeTruthy();
-        expect(document.getElementById(titleId).textContent).toContain('Pendientes de asignación');
+        expect(document.getElementById(titleId).textContent).toContain('Asignar datos a una obra');
 
         // Fieldset + legend group the explicit action choice.
         const fieldset = dialog.querySelector('fieldset');
@@ -90,7 +90,7 @@ describe('ProjectReconciliationAccessibilityR07', () => {
 
         // Semantic checkboxes (person rows) and radios (map/create/later).
         expect(dialog.querySelectorAll('input[type="checkbox"][data-r07-select]').length).toBe(1);
-        expect(dialog.querySelectorAll('input[type="radio"][name="r07-recon-action"]').length).toBe(3);
+        expect(dialog.querySelectorAll('input[type="radio"][name="r07-recon-action"]').length).toBe(2);
 
         // The footer only offers close + apply; apply is disabled until an
         // explicit action is chosen (no silent mapping).

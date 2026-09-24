@@ -70,7 +70,7 @@ describe('ProjectReconciliationPositionFlowUIR07', () => {
         const apply = document.querySelector('[data-r07-action="apply"]');
         expect(apply.disabled).toBe(true);
     });
-    test('position remap preserves history by default and enables the move once a target position is chosen', async () => {
+    test('guided position choice reassigns worked-day history and enables the move', async () => {
         await openProjectReconciliation();
         document.querySelector('input[name="r07-recon-action"][value="map"]').click();
 
@@ -82,10 +82,7 @@ describe('ProjectReconciliationPositionFlowUIR07', () => {
         positionSelect.value = TARGET_POS.id;
         positionSelect.dispatchEvent(new Event('change', { bubbles: true }));
 
-        // R07 repair is not a future transfer A->B: history is preserved by
-        // default and no extra consent gate is required. Apply enables once the
-        // destination position is chosen.
-        expect(document.querySelector('.r07-position-remap').textContent).toContain('Historial conservado');
+        expect(document.querySelector('.r07-position-remap').textContent).toContain('Asistencia');
         expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(false);
     });
 });

@@ -199,8 +199,8 @@ describe('ProjectReconciliationH2CorrectionR07', () => {
         expect(summary.textContent).toMatch(/1 asistencia huérfana.*se asociará/i);
         expect(summary.textContent).toMatch(/1 asistencia válida en otras obras.*se conservará/i);
         expect(summary.textContent).not.toContain('Asignar las personas seleccionadas');
-        expect(summary.textContent).toContain('2026-09-20');
-        expect(summary.textContent).toContain('2026-09-19');
+        expect(summary.textContent).not.toContain('2026-09-20');
+        expect(summary.textContent).not.toContain('2026-09-19');
     });
 
     test('H3 close after a trigger replacement restores focus to the connected current trigger', async () => {

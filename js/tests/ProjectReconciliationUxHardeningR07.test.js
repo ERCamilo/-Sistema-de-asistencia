@@ -78,14 +78,15 @@ describe('ProjectReconciliationUxHardeningR07', () => {
         expect(document.querySelector('.modal-body').textContent).toMatch(/obra (de origen )?no disponible/i);
     });
 
-    test('other ownership issues are listed with a review action', async () => {
+    test('positions without a valid project can be selected for a batch assignment', async () => {
         state.positions = [{ id: 'pos-orphan', name: 'Ayudante especial', active: true, projectId: 'PRJ-missing-pos' }];
         await openProjectReconciliation();
         const body = document.querySelector('.modal-body');
         expect(body.textContent).toContain('Ayudante especial');
-        const action = body.querySelector('[data-r07-action="review-other-issues"]');
-        expect(action).toBeTruthy();
-        expect(action.textContent).toMatch(/revisar/i);
+        expect(body.querySelector('[data-r07-entity-select="positions:pos-orphan"]')).toBeTruthy();
+        expect(body.querySelector('[data-r07-catalog-project]')).toBeNull();
+        expect(body.querySelector('[data-r07-action="catalog-apply"]')).toBeNull();
+        expect(body.querySelector('[data-r07-action="apply"]')).toBeTruthy();
     });
 
     test('FULL modal cannot be closed while the atomic FULL-import boundary is active', () => {
