@@ -1,6 +1,6 @@
 import { diagnoseExtendedProjectData } from '../modules/features/projects/ProjectExtendedDiagnostics.js';
 import { buildLocalReconciliationViewModel, openProjectReconciliation, closeProjectReconciliation,
-    renderProjectReconciliationSettingsAction } from '../modules/features/projects/ProjectReconciliationUI.js';
+    renderProjectReconciliationSettingsAction, registerProjectReconciliationGlobals } from '../modules/features/projects/ProjectReconciliationUI.js';
 import { state } from '../modules/core/AppState.js';
 import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
@@ -49,6 +49,7 @@ test('detects unscoped closures, configurations and modern plans without inventi
 });
 describe('diagnostic-only UI', () => {
     beforeEach(() => {
+        registerProjectReconciliationGlobals();
         setProjectsEnabled(true);
         document.body.innerHTML = '';
         state.employees = fixture().employees; state.attendance = fixture().attendance;
@@ -69,6 +70,31 @@ describe('diagnostic-only UI', () => {
         document.querySelector('[data-r07-action="close"]').click();
         expect(apply).not.toHaveBeenCalled();
         expect(writes).not.toHaveBeenCalled();
+    });
+
+    test('financial proposal requires confirmation and back performs no writes', async () => {
+        state.employees = [{ id: 'e', name: 'Ana', projectId: 'A', deductions: [{
+            id: 'p', employeeId: 'e', recordType: 'payroll-adjustment-installment-plan', version: 1,
+            kind: 'deductions', type: 'fixed', status: 'active', projectId: 'missing',
+            name: 'Descuento', totalAmount: 100, balance: 100, appliedAmount: 0, appliedInstallments: 0,
+            history: [], installmentCount: 1, updatedAt: 10,
+            installments: [{ id: 'i', amount: 100, appliedAmount: 0, status: 'pending' }]
+        }] }];
+        state.attendance = {};
+        const apply = jest.spyOn(repair, 'applyOwnershipRepair').mockResolvedValue({ status: repair.REPAIR_STATUS.OK });
+        await openProjectReconciliation();
+        document.querySelector('[data-r07-action="review-plan"]').click();
+        expect(document.body.textContent).toContain('Asignar plan sin pagos');
+        expect(apply).not.toHaveBeenCalled();
+        document.querySelector('[data-r07-action="cancel-plan"]').click();
+        expect(apply).not.toHaveBeenCalled();
+        document.querySelector('[data-r07-action="review-plan"]').click();
+        document.querySelector('[data-r07-action="apply-plan"]').click();
+        expect(apply).toHaveBeenCalledWith(expect.objectContaining({
+            action: repair.REPAIR_ACTION.MAP_FINANCIAL_PLAN,
+            financialPlan: expect.objectContaining({ employeeId: 'e', planId: 'p', targetProjectId: 'A', expectedUpdatedAt: 10 })
+        }));
+        await Promise.resolve(); await Promise.resolve();
     });
     test('failed store read is visible and cannot claim everything is up to date', async () => {
         state.employees = []; state.attendance = {};

@@ -29,9 +29,12 @@ export function diagnoseExtendedProjectData(data = {}, projects = []) {
                 let reason = ownershipReason(plan);
                 if (!reason && id(plan.projectId) !== id(employee.projectId)) reason = 'La obra del plan no coincide con la del empleado';
                 if (id(plan.employeeId) && id(plan.employeeId) !== id(employee.id)) reason = 'El empleado del plan no coincide con su registro';
-                if (reason) add('plans', id(employee.id) + ':' + kind + ':' + (plan.id || index),
-                    [employee.number, employee.name, plan.name || (kind === 'bonuses' ? 'Bonificación' : 'Deducción')].filter(Boolean).join(' · '),
-                    reason, plan.projectId);
+                if (reason) {
+                    add('plans', id(employee.id) + ':' + kind + ':' + (plan.id || index),
+                        [employee.number, employee.name, plan.name || (kind === 'bonuses' ? 'Bonificación' : 'Deducción')].filter(Boolean).join(' · '),
+                        reason, plan.projectId);
+                    issues[issues.length - 1].planSelection = { employeeId: id(employee.id), kind, planId: id(plan.id) };
+                }
             }
         }
     }

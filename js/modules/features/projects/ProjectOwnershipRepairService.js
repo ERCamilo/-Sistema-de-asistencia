@@ -1,3 +1,4 @@
+import { reviewFinancialPlanRepair } from './ProjectFinancialPlanRepair.js';
 /**
  * 🔧 ProjectOwnershipRepairService.js — R07 A2b (application service)
  *
@@ -77,6 +78,7 @@ export const REPAIR_ACTION = Object.freeze({
     CREATE_PROJECT_AND_MAP: 'CREATE_PROJECT_AND_MAP',
     QUARANTINE:             'QUARANTINE',
     MAP_CATALOG_ENTITIES:  'MAP_CATALOG_ENTITIES',
+    MAP_FINANCIAL_PLAN: 'MAP_FINANCIAL_PLAN',
     RESOLVE_LATER:          'QUARANTINE', // alias
 });
 
@@ -784,6 +786,15 @@ function applyFieldScopedMemoryUpdate(memoryUpdate) {
             const target = memoryUpdate.pettyCashProjectIds.get(trimId(record.id));
             return target === undefined ? record : { ...record, officialProjectId: target, updatedAt: memoryUpdate.repairTimestamp };
         }) } });
+    }
+    if (memoryUpdate.financialPlanPatch) {
+        const patch = memoryUpdate.financialPlanPatch;
+        stateManager.setState({ employees: (stateManager._state.employees || []).map(employee => {
+            if (trimId(employee.id) !== trimId(patch.employeeId)) return employee;
+            return { ...employee, updatedAt: memoryUpdate.repairTimestamp,
+                [patch.kind]: (employee[patch.kind] || []).map(plan => trimId(plan.id) === trimId(patch.planId)
+                    ? { ...plan, projectId: patch.targetProjectId, updatedAt: memoryUpdate.repairTimestamp } : plan) };
+        }) });
     }
     const employeeProjectIds = memoryUpdate.employeeProjectIds;
     const attendanceProjectIds = memoryUpdate.attendanceProjectIds;
@@ -2206,10 +2217,39 @@ function computeCashAssignment(action, reads, tx, p) {
     };
 }
 
+function computeFinancialPlanMap(reads, tx, p) {
+    const choice = p.financialPlan;
+    const employee = (reads.employees || []).find(item => trimId(item.id) === trimId(choice?.employeeId));
+    if (!choice || !(p.employees || []).some(item => trimId(item.id) === trimId(choice.employeeId))) {
+        return { result: conflictResult('Selecciona explícitamente el empleado y el plan.') };
+    }
+    const review = reviewFinancialPlanRepair(employee, choice.kind, choice.planId, reads.projects);
+    if (!review.ok) return { result: conflictResult(review.reason) };
+    if (review.noOp) return { result: { status: REPAIR_STATUS.NO_OP } };
+    if (trimId(choice.expectedProjectId) !== trimId(review.plan.projectId)
+        || trimId(choice.targetProjectId) !== trimId(review.target.id)
+        || Number(choice.expectedUpdatedAt) !== Number(review.plan.updatedAt)) {
+        return { result: conflictResult('El plan o la obra del empleado cambió. Vuelve a revisar la propuesta.') };
+    }
+    const patched = deepCopy(employee);
+    const target = trimId(review.target.id);
+    patched[choice.kind] = patched[choice.kind].map(plan => trimId(plan.id) === trimId(choice.planId)
+        ? { ...plan, projectId: target, updatedAt: p.repairTimestamp } : plan);
+    patched.updatedAt = p.repairTimestamp;
+    txPut(tx, 'employees', patched);
+    return {
+        result: { status: REPAIR_STATUS.OK, durableCommitted: true, targetProjectId: target },
+        memoryUpdate: { financialPlanPatch: { ...choice, targetProjectId: target }, repairTimestamp: p.repairTimestamp },
+        repairAttendanceRecords: []
+    };
+}
+
 /** Dispatch to the correct in-transaction planner for the given action. */
 function computeRepair(action, reads, tx, p) {
     if (p.pettyCashIds?.length && [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)) return computeCashAssignment(action, reads, tx, p);
     switch (action) {
+        case REPAIR_ACTION.MAP_FINANCIAL_PLAN:
+            return computeFinancialPlanMap(reads, tx, p);
         case REPAIR_ACTION.MAP_TO_EXISTING:
             if ((p.positionIds || []).length || (p.leaderIds || []).length || (p.leaderRemaps || []).length || (p.leaderCopies || []).length) {
                 return computeCombinedAssignment(reads, tx, p, false);
@@ -2396,6 +2436,7 @@ export async function applyOwnershipRepair(params = {}) {
         leaderRemaps = [],
         leaderCopies = [],
         pettyCashIds = [],
+        financialPlan = null,
         _db = indexedDBService
     } = params;
 
@@ -2454,6 +2495,7 @@ export async function applyOwnershipRepair(params = {}) {
         leaderRemaps,
         leaderCopies,
         pettyCashIds,
+        financialPlan,
         allEmployees: effectiveAllEmployees,
         catalog,
         skipDependencyCheck,

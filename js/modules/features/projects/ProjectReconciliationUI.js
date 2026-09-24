@@ -1,3 +1,4 @@
+import { reviewFinancialPlanRepair } from './ProjectFinancialPlanRepair.js';
 import { diagnoseExtendedProjectData } from './ProjectExtendedDiagnostics.js';
 import indexedDBService from '../../services/IndexedDBService.js';
 import { state, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
@@ -49,7 +50,7 @@ function emptySnapshot() {
 }
 function initialModalState() {
     return {
-        step: 0, pettyCashIds: new Set(), leaderRemaps: {}, leaderCopies: {},
+        step: 0, financialReview: null, pettyCashIds: new Set(), leaderRemaps: {}, leaderCopies: {},
         selectedIds: new Set(), action: '', targetProjectId: '',
         createName: '', createProjectId: null,
         positionRemaps: {},
@@ -962,6 +963,58 @@ function changeWizardStep(direction) {
     activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
 }
 
+function financialReviewFor(selection) {
+    const employee = (state.employees || []).find(item => String(item.id) === selection?.employeeId);
+    return { employee, ...reviewFinancialPlanRepair(employee, selection?.kind, selection?.planId, snapshot.projects) };
+}
+function renderFinancialReviewAction(row) {
+    if (!row.planSelection) return '';
+    const review = financialReviewFor(row.planSelection);
+    if (!review.ok || review.noOp) return '<p class="r07-recon-hint">' + escapeHTML(review.reason || 'El vínculo ya está actualizado.') + '</p>';
+    return '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="review-plan" data-plan-key="'
+        + escapeHTML(row.key) + '">Revisar asignación</button>';
+}
+function renderFinancialConfirmation() {
+    const proposal = modalState.financialReview;
+    const review = financialReviewFor(proposal);
+    return '<div class="r07-recon-shell r07-wizard" aria-busy="' + modalState.busy + '"><div class="r07-wizard-content">'
+        + '<h2 id="r07-wizard-title" tabindex="-1">Asignar plan sin pagos</h2>'
+        + '<p>' + escapeHTML(review.employee?.name || 'Empleado') + ' · ' + escapeHTML(review.plan?.name || 'Plan') + '</p>'
+        + '<p>Obra destino: <strong>' + escapeHTML(review.target?.name || '') + '</strong></p>'
+        + (review.ok ? '<p>' + review.plan.installments.length + ' cuotas · Total ' + escapeHTML(String(review.plan.totalAmount))
+            + '</p><p>Se conservan los importes, las fechas y las cuotas. Solo cambia la obra del plan.</p>'
+            : '<p role="alert">' + escapeHTML(review.reason) + '</p>')
+        + (modalState.message ? '<p role="status">' + escapeHTML(modalState.message) + '</p>' : '')
+        + '</div><div class="r07-recon-footer"><button type="button" class="btn-secondary r07-recon-footer-btn" data-r07-action="cancel-plan"'
+        + (modalState.busy ? ' disabled' : '') + '>Atrás</button>'
+        + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="apply-plan"'
+        + (modalState.busy || !review.ok ? ' disabled' : '') + '>' + (modalState.busy ? 'Guardando…' : 'Confirmar asignación') + '</button></div></div>';
+}
+async function applyFinancialPlanResolution() {
+    if (modalState.busy || !modalState.financialReview) return;
+    const financialPlan = { ...modalState.financialReview };
+    modalState.busy = true;
+    modalState.message = '';
+    rerenderModal();
+    try {
+        const result = await applyOwnershipRepair({ action: REPAIR_ACTION.MAP_FINANCIAL_PLAN,
+            employees: [{ id: financialPlan.employeeId }], financialPlan });
+        if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(result.status)) throw new Error(result.reason || 'No se pudo asignar el plan.');
+        await refreshProjectReconciliationSnapshot();
+        modalState.financialReview = null;
+        invalidateAllStats();
+        window.render?.();
+        window.showNotification?.(result.cloudQueued === false
+            ? 'Plan guardado localmente. Sincronización pendiente.' : 'Obra del plan actualizada.',
+            result.cloudQueued === false ? 'warning' : 'success');
+    } catch (error) {
+        modalState.message = error.message || 'No se pudo guardar. Revisa el plan nuevamente.';
+    } finally {
+        modalState.busy = false;
+        rerenderModal();
+    }
+}
+
 function renderExtendedDiagnostics() {
     const groups = [
         ['payments', 'Pagos de préstamos', 'Conserva los importes y abonos. Comprueba la obra original y el cierre antes de modificar cualquier vínculo.'],
@@ -981,7 +1034,7 @@ function renderExtendedDiagnostics() {
             if (!rows.length) return '';
             return '<details class="r07-wizard-details"><summary>' + rows.length + ' · ' + title + '</summary>'
                 + '<p>' + hint + '</p><ul>' + rows.map(row => '<li><strong>' + escapeHTML(row.label)
-                    + '</strong> · ' + escapeHTML(row.reason) + '</li>').join('') + '</ul></details>';
+                    + '</strong> · ' + escapeHTML(row.reason) + renderFinancialReviewAction(row) + '</li>').join('') + '</ul></details>';
         }).join('') + '</section>';
 }
 
@@ -997,6 +1050,7 @@ function renderCashChoices() {
 }
 
 function modalContent() {
+    if (modalState.financialReview) return renderFinancialConfirmation();
     const preflight = currentPreflight();
     if (!snapshot.employeeRows.length && !catalogIssues().length && !snapshot.pettyCashRows.length
         && (snapshot.diagnosticIssues.length || snapshot.diagnosticReadErrors.length)) {
@@ -1379,6 +1433,24 @@ function handleClick(event) {
     if (!target) return;
     const action = target.dataset.r07Action;
     if (modalState.busy) return;
+    if (action === 'review-plan') {
+        const row = snapshot.diagnosticIssues.find(item => item.key === target.dataset.planKey);
+        const review = financialReviewFor(row?.planSelection);
+        if (!row?.planSelection || !review.ok || review.noOp) return;
+        modalState.financialReview = { ...row.planSelection, expectedProjectId: review.plan.projectId || '',
+            targetProjectId: review.target.id, expectedUpdatedAt: review.plan.updatedAt };
+        modalState.message = '';
+        rerenderModal();
+        activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
+        return;
+    }
+    if (action === 'cancel-plan') {
+        modalState.financialReview = null;
+        modalState.message = '';
+        rerenderModal();
+        return;
+    }
+    if (action === 'apply-plan') return applyFinancialPlanResolution();
     if (action === 'quick-assign') return quickAssignAll();
     if (action === 'wizard-next') return changeWizardStep(1);
     if (action === 'wizard-back') return changeWizardStep(-1);
