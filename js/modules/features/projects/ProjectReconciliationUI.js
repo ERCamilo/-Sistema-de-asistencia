@@ -199,7 +199,7 @@ export function renderProjectReconciliationSettingsAction() {
     } else {
         const n = snapshot.totalPendingCount;
         const title = n === snapshot.pendingEmployeeCount ? (n === 1 ? 'Revisar empleado pendiente de asignación' : 'Revisar empleados pendientes de asignación') : 'Revisar datos pendientes de asignación';
-        html += '<button type="button" class="stg-action r07-recon-settings-action" data-settings-action="open-project-reconciliation" aria-label="' + escapeHTML(title) + ': ' + n + '">'
+        html += '<button type="button" class="stg-action r07-recon-settings-action" data-settings-action="open-project-reconciliation" aria-label="' + n + ' ' + (n !== snapshot.pendingEmployeeCount ? 'datos pendientes de asignación' : (n === 1 ? 'empleado pendiente de asignación' : 'empleados pendientes de asignación')) + '">'
             + '<span class="r07-recon-settings-count" aria-hidden="true">' + n + '</span>'
             + '<span class="stg-action-copy"><strong>' + escapeHTML(title) + '</strong>'
             + '<small>Revisa la obra de los datos pendientes.</small></span></button>';
