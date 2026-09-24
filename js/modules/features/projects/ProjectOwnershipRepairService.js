@@ -2223,7 +2223,7 @@ function computeFinancialPlanMap(reads, tx, p) {
     if (!choice || !(p.employees || []).some(item => trimId(item.id) === trimId(choice.employeeId))) {
         return { result: conflictResult('Selecciona explícitamente el empleado y el plan.') };
     }
-    const review = reviewFinancialPlanRepair(employee, choice.kind, choice.planId, reads.projects);
+    const review = reviewFinancialPlanRepair(employee, choice.kind, choice.planId, reads.projects, reads.payrollClosures);
     if (!review.ok) return { result: conflictResult(review.reason) };
     if (review.noOp) return { result: { status: REPAIR_STATUS.NO_OP } };
     if (trimId(choice.expectedProjectId) !== trimId(review.plan.projectId)
@@ -2402,7 +2402,7 @@ async function enqueueRepairCloudPropagation(txOutcome) {
 export function previewOwnershipRepair(params = {}) {
     const attendance = collectCallerAttendanceMap(params.attendance);
     const reads = {
-        projects: params.catalog || [], employees: params.allEmployees || params.employees || [],
+        payrollClosures: params.payrollClosures || [], projects: params.catalog || [], employees: params.allEmployees || params.employees || [],
         positions: params.positions || [], leaders: params.leaders || [],
         attendance: Object.entries(attendance).map(([key, record]) => ({ ...record, key: record.key || key })),
         settings: null, pettyCashProjects: params.pettyCashProjects || []
@@ -2509,8 +2509,9 @@ export async function applyOwnershipRepair(params = {}) {
         const rawDb = _db.db || _db;
         let txOutcome = null;
 
-        await runReadWriteTransaction(rawDb, pettyCashIds.length ? [...REPAIR_STORES, 'pettyCashProjects', 'pettyCashOutbox'] : REPAIR_STORES, (reads, tx) => {
+        await runReadWriteTransaction(rawDb, action === REPAIR_ACTION.MAP_FINANCIAL_PLAN ? [...REPAIR_STORES, 'payrollClosures'] : pettyCashIds.length ? [...REPAIR_STORES, 'pettyCashProjects', 'pettyCashOutbox'] : REPAIR_STORES, (reads, tx) => {
             const durable = {
+                payrollClosures: reads.payrollClosures || [],
                 projects: reads.projects || [],
                 employees: reads.employees || [],
                 attendance: reads.attendance || [],

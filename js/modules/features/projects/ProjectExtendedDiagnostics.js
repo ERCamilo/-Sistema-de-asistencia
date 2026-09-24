@@ -8,6 +8,7 @@ export function diagnoseExtendedProjectData(data = {}, projects = []) {
     const employees = list(data.employees);
     const employeeIds = new Set(employees.map(employee => id(employee.id)).filter(Boolean));
     const issues = [];
+    const closures = new Map(list(data.payrollClosures).map(closure => [id(closure.id), closure]));
     const ownershipReason = record => !id(record.projectId) ? 'Sin obra asignada'
         : !known.has(id(record.projectId)) ? 'La obra de origen no está disponible' : '';
     const add = (kind, key, label, reason, projectId) =>
@@ -29,6 +30,15 @@ export function diagnoseExtendedProjectData(data = {}, projects = []) {
                 let reason = ownershipReason(plan);
                 if (!reason && id(plan.projectId) !== id(employee.projectId)) reason = 'La obra del plan no coincide con la del empleado';
                 if (id(plan.employeeId) && id(plan.employeeId) !== id(employee.id)) reason = 'El empleado del plan no coincide con su registro';
+                const historicalReasons = new Set();
+                for (const movement of list(plan.history)) {
+                    if (movement.source !== 'payroll' && !id(movement.payrollClosureId)) continue;
+                    const closure = closures.get(id(movement.payrollClosureId));
+                    if (!id(movement.payrollClosureId)) historicalReasons.add('Un movimiento de nómina no identifica su cierre');
+                    else if (!closure) historicalReasons.add('Un cierre del historial no está disponible localmente; comprueba la sincronización o el respaldo');
+                    else if (id(closure.projectId) !== id(plan.projectId)) historicalReasons.add('La obra de un cierre del historial no coincide con la del plan');
+                }
+                reason = [reason, ...historicalReasons].filter(Boolean).join('. ');
                 if (reason) {
                     add('plans', id(employee.id) + ':' + kind + ':' + (plan.id || index),
                         [employee.number, employee.name, plan.name || (kind === 'bonuses' ? 'Bonificación' : 'Deducción')].filter(Boolean).join(' · '),

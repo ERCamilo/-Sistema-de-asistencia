@@ -53,6 +53,18 @@ describe('financial plan ownership recovery', () => {
         expect(result.status).toBe(REPAIR_STATUS.CONFLICT);
         expect((await db.getAll('employees'))[0]).toEqual(before);
     });
+    test.each(['closed', 'voided'])('rejects a seemingly unused plan referenced by a %s closure', async status => {
+        const closure = { id: 'closure', projectId: 'missing', status, rows: [{ employeeId: 'e', deductionDetails: [{
+            recordType: 'payroll-adjustment-installment-application', planId: 'plan', installmentId: 'i1', amount: 50
+        }] }] };
+        await db.update('payrollClosures', closure);
+        const before = (await db.getAll('employees'))[0];
+        const result = await applyOwnershipRepair(params());
+        expect(result.status).toBe(REPAIR_STATUS.CONFLICT);
+        expect(result.reason).toContain('cierres');
+        expect((await db.getAll('employees'))[0]).toEqual(before);
+        expect((await db.getAll('payrollClosures'))[0]).toEqual(closure);
+    });
     test('a changed employee destination invalidates an earlier confirmation', async () => {
         const before = { ...employee(virginPlan()), projectId: 'B' };
         await db.update('employees', before);

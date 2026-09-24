@@ -137,3 +137,28 @@ test('cash internal ids are distinct from official work ids and bad links are on
     expect(issues.every(issue => issue.kind === 'cashLinks')).toBe(true);
     expect(JSON.stringify(pettyCash)).toBe(before);
 });
+
+
+describe('financial history provenance', () => {
+    const input = history => ({ employees: [{ id: 'e', projectId: 'A', deductions: [{
+        ...plan, projectId: 'A', history
+    }] }] });
+    test.each([
+        [{ source: 'payroll', payrollClosureId: 'gone' }, [], 'no está disponible localmente'],
+        [{ source: 'payroll' }, [], 'no identifica su cierre'],
+        [{ source: 'payroll', payrollClosureId: 'c' }, [{ id: 'c', projectId: 'B' }], 'no coincide'],
+        [{ source: 'payroll', payrollClosureId: 'gone', voided: true }, [], 'no está disponible localmente']
+    ])('detects broken history without changing it: %j', (movement, payrollClosures, message) => {
+        const data = { ...input([movement]), payrollClosures };
+        const before = JSON.stringify(data);
+        const issues = diagnoseExtendedProjectData(data, projects);
+        expect(issues).toHaveLength(1);
+        expect(issues[0].kind).toBe('plans');
+        expect(issues[0].reason).toContain(message);
+        expect(JSON.stringify(data)).toBe(before);
+    });
+    test('manual movements and matching historical closures need no repair', () => {
+        expect(diagnoseExtendedProjectData({ ...input([{ source: 'manual' }, { source: 'payroll', payrollClosureId: 'c' }]),
+            payrollClosures: [{ id: 'c', projectId: 'A' }] }, projects)).toEqual([]);
+    });
+});

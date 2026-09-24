@@ -43,7 +43,7 @@ let importModalState = initialImportModalState();
 
 function emptySnapshot() {
     return {
-        enabled: false, projects: [], activeProjects: [], employeeRows: [],
+        enabled: false, payrollClosures: [], projects: [], activeProjects: [], employeeRows: [],
         otherIssues: [], diagnosticIssues: [], diagnosticReadErrors: [], pettyCashRows: [], pettyCashProjects: [], pendingEmployeeCount: 0,
         totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0
     };
@@ -145,7 +145,7 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
     const pettyCashRows = pettyCashProjects.filter(record => !projectIds.has(String(record.officialProjectId || '').trim()));
     return {
         enabled: true,
-        pettyCashRows, pettyCashProjects, diagnosticIssues, diagnosticReadErrors: [],
+        pettyCashRows, pettyCashProjects, diagnosticIssues, diagnosticReadErrors: [], payrollClosures: appState?.payrollClosures || [],
         projects,
         defaultProjectId,
         activeProjects: projects.filter(project => project?.status === PROJECT_STATUS.ACTIVE),
@@ -965,12 +965,14 @@ function changeWizardStep(direction) {
 
 function financialReviewFor(selection) {
     const employee = (state.employees || []).find(item => String(item.id) === selection?.employeeId);
-    return { employee, ...reviewFinancialPlanRepair(employee, selection?.kind, selection?.planId, snapshot.projects) };
+    if (snapshot.diagnosticReadErrors.includes('payrollClosures')) return { employee, ok: false, reason: 'No se pudieron leer los cierres. Reintenta la revisión antes de asignar el plan.' };
+    return { employee, ...reviewFinancialPlanRepair(employee, selection?.kind, selection?.planId, snapshot.projects, snapshot.payrollClosures) };
 }
 function renderFinancialReviewAction(row) {
     if (!row.planSelection) return '';
     const review = financialReviewFor(row.planSelection);
-    if (!review.ok || review.noOp) return '<p class="r07-recon-hint">' + escapeHTML(review.reason || 'El vínculo ya está actualizado.') + '</p>';
+    if (review.noOp) return '';
+    if (!review.ok) return '<p class="r07-recon-hint">' + escapeHTML(review.reason || 'El vínculo ya está actualizado.') + '</p>';
     return '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="review-plan" data-plan-key="'
         + escapeHTML(row.key) + '">Revisar asignación</button>';
 }
