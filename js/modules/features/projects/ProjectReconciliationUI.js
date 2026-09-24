@@ -1,3 +1,4 @@
+import indexedDBService from '../../services/IndexedDBService.js';
 import { state, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { eventBus } from '../../core/Events.js';
 import { Modal } from '../../components/Modal.js';
@@ -41,13 +42,13 @@ let importModalState = initialImportModalState();
 function emptySnapshot() {
     return {
         enabled: false, projects: [], activeProjects: [], employeeRows: [],
-        otherIssues: [], pendingEmployeeCount: 0,
+        otherIssues: [], pettyCashRows: [], pettyCashProjects: [], pendingEmployeeCount: 0,
         totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0
     };
 }
 function initialModalState() {
     return {
-        step: 0, leaderRemaps: {}, leaderCopies: {},
+        step: 0, pettyCashIds: new Set(), leaderRemaps: {}, leaderCopies: {},
         selectedIds: new Set(), action: '', targetProjectId: '',
         createName: '', createProjectId: null,
         positionRemaps: {},
@@ -78,6 +79,7 @@ function signature(model) {
         enabled: model.enabled,
         rows: model.employeeRows.map(row => [row.id, row.status, row.projectIds, row.attendanceIssueCount]),
         other: model.otherIssues.map(issue => [issue.collection, issue.recordKey, issue.status]),
+        cash: model.pettyCashRows.map(row => row.id),
         projects: model.projects.map(project => [project.id, project.name, project.status])
     });
 }
@@ -132,17 +134,21 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
         { enabled: true, defaultProjectId, collections: ['employees'] }
     );
 
+    const projectIds = new Set(projects.map(project => String(project.id)));
+    const pettyCashProjects = (Array.isArray(appState?.pettyCash?.projects) ? appState.pettyCash.projects : []).filter(record => record?.id);
+    const pettyCashRows = pettyCashProjects.filter(record => !projectIds.has(String(record.officialProjectId || '').trim()));
     return {
         enabled: true,
+        pettyCashRows, pettyCashProjects,
         projects,
         defaultProjectId,
         activeProjects: projects.filter(project => project?.status === PROJECT_STATUS.ACTIVE),
         employeeRows,
         otherIssues,
         pendingEmployeeCount: employeeRows.length,
-        totalPendingCount: employeeRows.length + otherIssues.length,
+        totalPendingCount: employeeRows.length + otherIssues.length + pettyCashRows.length,
         validEmployeeCount: employeeAnalysis.summary.counts[CLASSIFICATION.VALID] || 0,
-        issueCount: analysis.summary.issueCount,
+        issueCount: analysis.summary.issueCount + pettyCashRows.length,
         analysis
     };
 }
@@ -152,7 +158,12 @@ export async function refreshProjectReconciliationSnapshot() {
     let next = emptySnapshot();
     if (isProjectsEnabled()) {
         try {
-            next = buildLocalReconciliationViewModel(state, await projectSetupService.getState());
+            const setup = await projectSetupService.getState();
+            await indexedDBService.init();
+            const cash = await indexedDBService.getAll('pettyCashProjects');
+            next = buildLocalReconciliationViewModel({ ...state,
+                pettyCash: { ...(state.pettyCash || {}), projects: Array.isArray(cash) ? cash : (state.pettyCash?.projects || []) }
+            }, setup);
         } catch (error) {
             console.warn('No se pudo actualizar Pendientes de asignación:', error);
         }
@@ -165,14 +176,14 @@ export function getProjectReconciliationSnapshot() {
 }
 
 export function renderProjectReconciliationBanner() {
-    if (!snapshot.enabled || snapshot.pendingEmployeeCount <= 0) return '';
-    const n = snapshot.pendingEmployeeCount;
-    const title = n === 1 ? 'Empleado pendiente de asignación' : 'Empleados pendientes de asignación';
-    const ariaLabel = n + ' ' + (n === 1 ? 'empleado pendiente de asignación' : 'empleados pendientes de asignación');
+    if (!snapshot.enabled || snapshot.totalPendingCount <= 0) return '';
+    const n = snapshot.totalPendingCount;
+    const title = n === snapshot.pendingEmployeeCount ? (n === 1 ? 'Empleado pendiente de asignación' : 'Empleados pendientes de asignación') : 'Datos pendientes de asignación';
+    const ariaLabel = n !== snapshot.pendingEmployeeCount ? n + ' datos pendientes de asignación' : n + ' ' + (n === 1 ? 'empleado pendiente de asignación' : 'empleados pendientes de asignación');
     return '<section class="r07-recon-banner" aria-label="' + escapeHTML(ariaLabel) + '">'
         + '<span class="r07-recon-banner-count" aria-hidden="true">' + n + '</span>'
         + '<span class="r07-recon-banner-copy"><strong>' + escapeHTML(title) + '</strong>'
-        + '<span>Revisa a qué obra pertenece cada persona antes de continuar.</span></span>'
+        + '<span>Revisa la obra de los datos pendientes.</span></span>'
         + '<button type="button" class="r07-recon-banner-action" data-app-fn="openProjectReconciliation">Revisar ' + n + ' ' + (n === 1 ? 'problema' : 'problemas') + '</button>'
         + '</section>';
 }
@@ -180,18 +191,18 @@ export function renderProjectReconciliationBanner() {
 export function renderProjectReconciliationSettingsAction() {
     if (!snapshot.enabled) return '';
     let html = '';
-    if (snapshot.pendingEmployeeCount <= 0) {
+    if (snapshot.totalPendingCount <= 0) {
         html += '<div class="r07-recon-health-ok" role="status">'
             + '<span class="r07-recon-health-dot" aria-hidden="true"></span>'
             + '<span><strong>Asignación por obra al día</strong>'
-            + '<small>No hay personas pendientes de asignación.</small></span></div>';
+            + '<small>No hay datos pendientes de asignación.</small></span></div>';
     } else {
-        const n = snapshot.pendingEmployeeCount;
-        const title = n === 1 ? 'Revisar empleado pendiente de asignación' : 'Revisar empleados pendientes de asignación';
-        html += '<button type="button" class="stg-action r07-recon-settings-action" data-settings-action="open-project-reconciliation" aria-label="' + n + ' ' + (n === 1 ? 'empleado pendiente de asignación' : 'empleados pendientes de asignación') + '">'
+        const n = snapshot.totalPendingCount;
+        const title = n === snapshot.pendingEmployeeCount ? (n === 1 ? 'Revisar empleado pendiente de asignación' : 'Revisar empleados pendientes de asignación') : 'Revisar datos pendientes de asignación';
+        html += '<button type="button" class="stg-action r07-recon-settings-action" data-settings-action="open-project-reconciliation" aria-label="' + escapeHTML(title) + ': ' + n + '">'
             + '<span class="r07-recon-settings-count" aria-hidden="true">' + n + '</span>'
             + '<span class="stg-action-copy"><strong>' + escapeHTML(title) + '</strong>'
-            + '<small>Revisa a qué obra pertenece cada persona.</small></span></button>';
+            + '<small>Revisa la obra de los datos pendientes.</small></span></button>';
     }
     return html;
 }
@@ -338,6 +349,7 @@ function currentPreflight() {
         action: modalState.action === 'create' ? REPAIR_ACTION.CREATE_PROJECT_AND_MAP : REPAIR_ACTION.MAP_TO_EXISTING,
         employees: selectedEmployees(), allEmployees: state.employees || [],
         attendance: state.attendance || {}, positions: state.positions || [], leaders: state.leaders || [],
+        pettyCashProjects: snapshot.pettyCashProjects, pettyCashIds: [...modalState.pettyCashIds],
         catalog: snapshot.projects, targetProjectId, projectId: modalState.createProjectId,
         projectName: modalState.createName.trim(), positionIds: selectedCatalogIds('positions'),
         leaderIds: selectedCatalogIds('leaders'), leaderRemaps: Object.values(modalState.leaderRemaps),
@@ -689,7 +701,7 @@ function renderPreflightSummary(preflight) {
 }
 
 function canApply(preflight) {
-    if (modalState.busy || modalState.selectedIds.size === 0 || !modalState.action) return false;
+    if (modalState.busy || (!modalState.selectedIds.size && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size) || !modalState.action) return false;
     if (modalState.action === 'map' && !modalState.targetProjectId) return false;
     if (modalState.action === 'create' && !modalState.createName.trim()) return false;
     if (modalState.action === 'create' && duplicateCreateProject()) return false;
@@ -867,7 +879,7 @@ function renderLeaderChoices() {
     }).join('');
 }
 
-const WIZARD_STEPS = ['Obra', 'Empleados', 'Líderes', 'Puestos', 'Resumen'];
+const WIZARD_STEPS = ['Obra', 'Datos', 'Líderes', 'Puestos', 'Resumen'];
 
 function wizardHint(preflight) {
     if (modalState.busy) return 'Guardando cambios…';
@@ -878,12 +890,12 @@ function wizardHint(preflight) {
         if (modalState.action === 'create' && duplicateCreateProject()) return 'Ya existe una obra con ese nombre.';
         return '';
     }
-    if (modalState.step === 1 && snapshot.employeeRows.length && !modalState.selectedIds.size) return 'Selecciona al menos un empleado.';
+
     if (modalState.step === 2 && leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id))) return 'Resuelve los líderes relacionados para continuar.';
     if (Object.values(modalState.leaderCopies).some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo líder.';
     if (modalState.step >= 3 && currentPositionCopies().some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo puesto.';
-    if (modalState.step >= 3 && !preflight.ok) return 'Resuelve los puestos pendientes para continuar.';
-    if (modalState.step === 4 && !canApply(preflight)) return 'Selecciona empleados, puestos o líderes para asignar.';
+    if (modalState.step >= 3 && !preflight.ok) return 'Revisa las relaciones pendientes para continuar.';
+    if (modalState.step === 4 && !canApply(preflight)) return 'Selecciona personas, puestos, líderes o cajas para asignar.';
     return '';
 }
 
@@ -891,6 +903,7 @@ function quickAssignAll() {
     if (modalState.busy || modalState.step !== 0 || wizardHint(currentPreflight())) return;
     modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
     modalState.entitySelectedIds = new Set(catalogIssues().map(catalogIssueKey));
+    modalState.pettyCashIds = new Set(snapshot.pettyCashRows.map(record => record.id));
     modalState.positionRemaps = {};
     modalState.positionCopies = {};
     modalState.leaderRemaps = {};
@@ -913,7 +926,7 @@ function changeWizardStep(direction) {
     if (modalState.busy || (direction > 0 && wizardHint(currentPreflight()))) return;
     let next = modalState.step + direction;
     while (next > 0 && next < 4 && (
-        (next === 1 && !snapshot.employeeRows.length)
+        (next === 1 && !snapshot.employeeRows.length && !snapshot.pettyCashRows.length)
         || (next === 2 && !leaderNeeds().length)
         || (next === 3 && !selectedPositionRemapNeeds(true).length
             && !catalogIssues().some(issue => issue.collection === 'positions'))
@@ -935,6 +948,17 @@ function changeWizardStep(direction) {
     activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
 }
 
+function renderCashChoices() {
+    if (!snapshot.pettyCashRows.length) return '';
+    return '<fieldset class="r07-recon-fieldset"><legend>Caja chica sin obra</legend>'
+        + '<p class="r07-recon-hint">Cada caja conserva sus períodos, movimientos y comprobantes.</p>'
+        + snapshot.pettyCashRows.map(record => '<label class="r07-recon-person">'
+            + '<input type="checkbox" id="r07-cash-' + escapeHTML(record.id) + '" data-r07-cash-id="' + escapeHTML(record.id) + '"'
+            + (modalState.pettyCashIds.has(record.id) ? ' checked' : '') + '>'
+            + '<span><strong>' + escapeHTML(record.name || 'Caja sin nombre') + '</strong></span></label>').join('')
+        + '</fieldset>';
+}
+
 function modalContent() {
     const preflight = currentPreflight();
     const step = modalState.step;
@@ -950,7 +974,7 @@ function modalContent() {
             + '<small>Incluye los datos pendientes y revisa el resumen antes de guardar.</small></div>',
         '<div class="r07-recon-section-head"><p>' + modalState.selectedIds.size + ' empleados seleccionados</p>'
             + '<button type="button" class="r07-recon-link-button" data-r07-action="toggle-all">' + (allSelected ? 'Deseleccionar todos' : 'Seleccionar todos')
-            + '</button></div><div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink(),
+            + '</button></div><div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink() + renderCashChoices(),
         renderLeaderChoices(),
         renderPositionRemapControls(preflight) + renderCatalogIssues('positions'),
         '<div class="r07-recon-summary"><div><strong>' + modalState.selectedIds.size + '</strong><span>empleados</span></div>'
@@ -959,9 +983,10 @@ function modalContent() {
             + '<div class="r07-preflight-destiny"><span>Obra destino</span><strong>' + escapeHTML(snapshot.projects.find(project => project.id === currentTargetProjectId())?.name || modalState.createName.trim()) + '</strong></div>'
             + '<details class="r07-wizard-details"><summary>Ver decisiones y datos conservados</summary>' + renderPreflightSummary(preflight) + '</details>'
             + renderOtherIssuesNote()
+            + (modalState.pettyCashIds.size ? '<p class="r07-recon-hint">' + modalState.pettyCashIds.size + ' cajas seleccionadas. Se conservan períodos, movimientos y comprobantes.</p>' : '')
             + '<p class="r07-recon-hint">Se guardarán todas las decisiones juntas. Se conservan los sueldos especiales, las horas y los préstamos.</p>'
     ];
-    const hints = ['Elige dónde quedarán los datos.', 'Selecciona las personas de esta obra.',
+    const hints = ['Elige dónde quedarán los datos.', 'Selecciona personas y cajas de esta obra.',
         'Resuelve cada líder una sola vez.', 'Una decisión por puesto para todos sus empleados.', 'Revisa las decisiones antes de guardar.'];
     const hint = wizardHint(preflight);
     return '<div class="r07-recon-shell r07-wizard" aria-busy="' + modalState.busy + '">'
@@ -1045,7 +1070,7 @@ export async function openProjectReconciliation({ onClose } = {}) {
     const hasEmployeeFlow = snapshot.employeeRows.length > 0;
     activeModal = new Modal({
         title: 'Asignar datos a una obra',
-        subtitle: 'Organiza empleados, líderes y puestos paso a paso.',
+        subtitle: 'Organiza los datos pendientes de tu obra.',
         size: 'large',
         content: modalContent(),
         buttons: null,
@@ -1107,7 +1132,7 @@ export function closeProjectReconciliation() {
 async function applyLocalResolution() {
     if (modalState.busy) return;
     const employees = selectedEmployees();
-    if ((!employees.length && !modalState.entitySelectedIds.size) || !modalState.action) return;
+    if ((!employees.length && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size) || !modalState.action) return;
     const preflight = currentPreflight();
     if (['map', 'create'].includes(modalState.action) && !preflight.ok) {
         modalState.message = 'Hay relaciones de puesto o líder que deben revisarse antes de aplicar este cambio.';
@@ -1141,6 +1166,7 @@ async function applyLocalResolution() {
             positions: state.positions || [],
             leaders: state.leaders || [],
             catalog: snapshot.projects,
+            pettyCashIds: [...modalState.pettyCashIds],
             leaderRemaps: Object.values(modalState.leaderRemaps),
             leaderCopies: Object.values(modalState.leaderCopies)
         };
@@ -1395,6 +1421,14 @@ function handleClick(event) {
 }
 
 function handleChange(event) {
+    if (event.target?.dataset?.r07CashId) {
+        if (modalState.busy) return;
+        const id = event.target.dataset.r07CashId;
+        if (event.target.checked) modalState.pettyCashIds.add(id);
+        else modalState.pettyCashIds.delete(id);
+        rerenderModal();
+        return;
+    }
     if (activeModal?.isOpen && modalState.busy) return;
     if (event.target?.dataset?.r07LeaderTarget !== undefined) {
         const id = event.target.dataset.r07LeaderTarget;

@@ -416,7 +416,8 @@ describe('F1.7 UI — vínculo visible sin filtrar', () => {
         });
         const html = PettyCashTab();
         expect(html).toContain('data-petty-official-orphan');
-        expect(html).toContain('huérfano');
+        expect(html).toContain('Caja sin obra asignada');
+        expect(html).toContain('data-app-fn="openProjectReconciliation"');
         // Sin filtrado: ambas opciones siguen en el selector y el periodo
         // del proyecto huérfano sigue renderizado.
         expect(html).toContain('Obra huérfana');

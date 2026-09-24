@@ -1,3 +1,4 @@
+import indexedDBService from '../modules/services/IndexedDBService.js';
 import { state } from '../modules/core/AppState.js';
 import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
 import { projectSetupService } from '../modules/features/projects/ProjectSetupService.js';
@@ -16,9 +17,10 @@ const click = action => document.querySelector('[data-r07-action="' + action + '
 const visibleStep = () => document.querySelector('[data-r07-step]:not([hidden])').dataset.r07Step;
 
 describe('project assignment wizard', () => {
-    let setup, apply;
+    let setup, apply, cashRead;
     beforeEach(() => {
         document.body.innerHTML = '';
+        cashRead = jest.spyOn(indexedDBService, 'getAll').mockResolvedValue([]);
         setProjectsEnabled(true);
         setup = jest.spyOn(projectSetupService, 'getState').mockResolvedValue({
             enabled: true, ready: true, activeProjectId: project.id, defaultProjectId: project.id, projects: [project]
@@ -32,6 +34,7 @@ describe('project assignment wizard', () => {
     });
     afterEach(() => {
         closeProjectReconciliation();
+        cashRead.mockRestore();
         setup.mockRestore();
         apply.mockRestore();
     });
@@ -129,6 +132,42 @@ describe('project assignment wizard', () => {
         expect(visibleStep()).toBe('3');
         expect(apply).not.toHaveBeenCalled();
         expect(document.querySelector('[data-r07-action="wizard-next"]').disabled).toBe(true);
+    });
+
+    test('catalog-only quick assignment remains actionable without employees', async () => {
+        state.employees = [];
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="map"]');
+        change('[data-r07-control="target-project"]', project.id);
+        click('quick-assign');
+        expect(visibleStep()).toBe('4');
+        expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(false);
+        expect(apply).not.toHaveBeenCalled();
+    });
+    test.each(['map', 'create'])('cash-only quick assignment to %s reaches final review', async action => {
+        state.employees = []; state.positions = []; state.leaders = [];
+        cashRead.mockResolvedValue([
+            { id: 'cash-orphan', name: 'Gastos', officialProjectId: 'missing' },
+            { id: 'cash-valid', name: 'Caja válida', officialProjectId: project.id }
+        ]);
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="' + action + '"]');
+        if (action === 'map') change('[data-r07-control="target-project"]', project.id);
+        else {
+            const input = document.querySelector('[data-r07-control="create-name"]');
+            input.value = 'Obra Sur';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        expect(document.querySelector('[data-r07-cash-id="cash-valid"]')).toBeNull();
+        click('quick-assign');
+        expect(visibleStep()).toBe('4');
+        expect(apply).not.toHaveBeenCalled();
+        expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(false);
+        click('apply');
+        expect(apply).toHaveBeenCalledWith(expect.objectContaining({
+            employees: [], pettyCashIds: ['cash-orphan']
+        }));
+        await Promise.resolve(); await Promise.resolve();
     });
 
 });
