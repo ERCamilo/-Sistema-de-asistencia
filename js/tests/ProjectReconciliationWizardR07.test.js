@@ -94,4 +94,41 @@ describe('project assignment wizard', () => {
         expect(document.querySelector('[data-r07-leader-name]')).toBeNull();
         expect(apply).not.toHaveBeenCalled();
     });
+    test.each(['map', 'create'])('quick assignment to %s previews all entities without saving', async action => {
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="' + action + '"]');
+        if (action === 'map') change('[data-r07-control="target-project"]', project.id);
+        else {
+            const input = document.querySelector('[data-r07-control="create-name"]');
+            input.value = 'Obra Sur';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        click('quick-assign');
+        expect(visibleStep()).toBe('4');
+        expect(apply).not.toHaveBeenCalled();
+        expect(document.querySelector('.r07-wizard-details').open).toBe(false);
+        expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(false);
+        click('apply');
+        expect(apply).toHaveBeenCalledWith(expect.objectContaining({
+            positionIds: ['pos-w'], leaderIds: ['lead-w'],
+            employees: [expect.objectContaining({ id: 'emp-w' })]
+        }));
+        await Promise.resolve();
+        await Promise.resolve();
+    });
+    test('quick assignment stops for positions that belong to another project', async () => {
+        state.positions[0].projectId = 'PRJ-other';
+        setup.mockResolvedValue({
+            enabled: true, ready: true, activeProjectId: project.id, defaultProjectId: project.id,
+            projects: [project, { id: 'PRJ-other', name: 'Otra obra', status: 'active' }]
+        });
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="map"]');
+        change('[data-r07-control="target-project"]', project.id);
+        click('quick-assign');
+        expect(visibleStep()).toBe('3');
+        expect(apply).not.toHaveBeenCalled();
+        expect(document.querySelector('[data-r07-action="wizard-next"]').disabled).toBe(true);
+    });
+
 });

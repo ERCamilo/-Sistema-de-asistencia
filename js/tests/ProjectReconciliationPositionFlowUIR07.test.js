@@ -82,7 +82,7 @@ describe('ProjectReconciliationPositionFlowUIR07', () => {
         positionSelect.value = TARGET_POS.id;
         positionSelect.dispatchEvent(new Event('change', { bubbles: true }));
 
-        expect(document.querySelector('.r07-position-remap').textContent).toContain('Días que se reasignarán');
+        expect(document.querySelector('.r07-position-remap').textContent).toContain('Asistencia');
         expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(false);
     });
 });

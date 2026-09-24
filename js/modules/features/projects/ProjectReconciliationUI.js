@@ -533,33 +533,32 @@ function renderPositionRemapControls(preflight) {
                 + escapeHTML(equivalent.name || equivalent.id) + '</strong>.</span>'
                 + '<button type="button" class="btn-secondary r07-recon-note-action"'
                 + ' data-r07-action="use-equivalent-position" data-from-position-id="' + escapeHTML(fromPositionId) + '"'
-                + ' data-to-position-id="' + escapeHTML(equivalent.id) + '">Usar este puesto para todos</button>';
+                + ' data-to-position-id="' + escapeHTML(equivalent.id) + '">Usar este puesto</button>';
         } else {
             similarAction = '<button type="button" class="btn-secondary r07-recon-note-action"'
                 + ' data-r07-action="create-similar-position" data-from-position-id="' + escapeHTML(fromPositionId)
-                + '">Crear un puesto nuevo</button>';
+                + '">Crear puesto</button>';
         }
         if (equivalent && !copyEntry) {
             similarAction += '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="create-similar-position" data-from-position-id="'
-                + escapeHTML(fromPositionId) + '">Crear un puesto nuevo</button>';
+                + escapeHTML(fromPositionId) + '">Crear puesto</button>';
         }
         if (copyEntry) {
             similarAction += '<div class="r07-recon-control"><label for="r07-copy-name-' + index + '">Nombre del nuevo puesto</label>'
                 + '<input id="r07-copy-name-' + index + '" type="text" maxlength="100" data-r07-position-name="' + escapeHTML(fromPositionId)
                 + '" value="' + escapeHTML(copyEntry.name) + '"></div>';
         }
-        const people = members.map(item => escapeHTML(item.employee?.number || '—')).join(', ');
         return '<div class="r07-position-remap-card">'
             + '<div class="r07-position-remap-person"><strong>' + escapeHTML(sourceName) + '</strong>'
-            + '<span>' + members.length + ' empleado(s): ' + people + '</span>'
+            + '<span>' + members.length + (members.length === 1 ? ' empleado' : ' empleados') + '</span>'
             + ((assigned || selected.toPositionId) ? '<span class="r07-wizard-resolved" role="img" aria-label="Resuelto">' + checkSvg() + '</span>' : '') + '</div>'
-            + (sourceUnscoped ? '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="assign-source-position" data-from-position-id="' + escapeHTML(fromPositionId) + '" aria-pressed="' + assigned + '">' + (assigned ? 'Asignado a esta obra' : 'Asignar este puesto a la obra') + '</button>' : '')
+            + (sourceUnscoped ? '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="assign-source-position" data-from-position-id="' + escapeHTML(fromPositionId) + '" aria-pressed="' + assigned + '">' + (assigned ? 'Asignado a esta obra' : 'Asignar a esta obra') + '</button>' : '')
             + '<div class="r07-recon-control"><label for="' + selectId + '">Puesto en la obra destino</label>'
             + '<select id="' + selectId + '" data-r07-position-target data-from-position-id="' + escapeHTML(fromPositionId) + '"'
             + (targetPositions.length ? '' : ' disabled') + '>'
             + '<option value="">Selecciona un puesto</option>' + options + '</select></div>'
             + '<div class="r07-position-remap-similar">' + similarAction + '</div>'
-            + '<div class="r07-position-remap-impact is-preserved"><strong>Días que se reasignarán</strong><span>' + escapeHTML(impact) + '</span>'
+            + '<div class="r07-position-remap-impact is-preserved"><strong>Asistencia</strong><span>' + escapeHTML(impact) + '</span>'
             + '<small>Se conservan horas y sueldos especiales de cada empleado.</small></div>'
             + '</div>';
     }).join('');
@@ -620,13 +619,6 @@ function renderPreflightSummary(preflight) {
         })
         .map(([recordKey, record]) => ({ recordKey, record }));
 
-    function attendanceItemLabel(item, fallbackProject = 'sin obra válida') {
-        const record = item?.record || {};
-        const date = String(record.date || item?.recordKey || 'registro sin fecha');
-        const projectId = String(record.projectId || '').trim();
-        return date + ' (' + (catalogProjectNames.get(projectId) || fallbackProject) + ')';
-    }
-
     const detached = (preflight?.dependencySummary?.detachedLeaders) || [];
 
     const updateItems = [];
@@ -641,8 +633,7 @@ function renderPreflightSummary(preflight) {
         updateItems.push(
             orphanAttendance.length + ' asistencia' + (orphanAttendance.length === 1 ? '' : 's')
             + ' huérfana' + (orphanAttendance.length === 1 ? '' : 's')
-            + ' se asociará' + (orphanAttendance.length === 1 ? '' : 'n') + ' a ' + targetName + ': '
-            + orphanAttendance.map(item => attendanceItemLabel(item)).join(', ') + '.'
+            + ' se asociará' + (orphanAttendance.length === 1 ? '' : 'n') + ' a ' + targetName + '.'
         );
     }
     if (positionLines.length) {
@@ -677,8 +668,7 @@ function renderPreflightSummary(preflight) {
             preservedValidOtherProjectAttendance.length + ' asistencia'
             + (preservedValidOtherProjectAttendance.length === 1 ? '' : 's')
             + ' válida' + (preservedValidOtherProjectAttendance.length === 1 ? '' : 's')
-            + ' en otras obras se conservará' + (preservedValidOtherProjectAttendance.length === 1 ? '' : 'n') + ': '
-            + preservedValidOtherProjectAttendance.map(item => attendanceItemLabel(item, 'obra válida')).join(', ') + '.'
+            + ' en otras obras se conservará' + (preservedValidOtherProjectAttendance.length === 1 ? '' : 'n') + '.'
         );
     }
 
@@ -865,14 +855,14 @@ function renderLeaderChoices() {
             + '<span>' + (required ? 'Relacionado con los empleados seleccionados' : 'Sin obra · inclusión opcional') + '</span>'
             + (leaderResolved(leader.id) ? '<span class="r07-wizard-resolved" role="img" aria-label="Resuelto">' + checkSvg() + '</span>' : '') + '</div>'
             + (unscoped ? '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="assign-source-leader" data-leader-id="' + escapeHTML(leader.id)
-                + '" aria-pressed="' + assigned + '">' + (assigned ? 'Asignado a esta obra' : 'Asignar este líder a la obra') + '</button>' : '')
+                + '" aria-pressed="' + assigned + '">' + (assigned ? 'Asignado a esta obra' : 'Asignar a esta obra') + '</button>' : '')
             + '<div class="r07-recon-control"><label for="r07-leader-' + index + '">Usar un líder de esta obra</label>'
             + '<select id="r07-leader-' + index + '" data-r07-leader-target="' + escapeHTML(leader.id) + '"><option value="">Selecciona un líder</option>'
             + destinations.map(item => '<option value="' + escapeHTML(item.id) + '"' + (chosen === item.id ? ' selected' : '') + '>' + escapeHTML(item.name) + '</option>').join('')
             + '</select></div>'
             + (copy ? '<div class="r07-recon-control"><label for="r07-new-leader-' + index + '">Nombre del nuevo líder</label><input id="r07-new-leader-' + index
                 + '" type="text" maxlength="100" data-r07-leader-name="' + escapeHTML(leader.id) + '" value="' + escapeHTML(copy.name) + '"></div>'
-                : '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="create-leader" data-leader-id="' + escapeHTML(leader.id) + '">Crear un líder nuevo</button>')
+                : '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="create-leader" data-leader-id="' + escapeHTML(leader.id) + '">Crear líder</button>')
             + '</section>';
     }).join('');
 }
@@ -897,6 +887,28 @@ function wizardHint(preflight) {
     return '';
 }
 
+function quickAssignAll() {
+    if (modalState.busy || modalState.step !== 0 || wizardHint(currentPreflight())) return;
+    modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
+    modalState.entitySelectedIds = new Set(catalogIssues().map(catalogIssueKey));
+    modalState.positionRemaps = {};
+    modalState.positionCopies = {};
+    modalState.leaderRemaps = {};
+    modalState.leaderCopies = {};
+    // Preview every relationship before allowing the final confirmation.
+    modalState.step = 4;
+    const preflight = currentPreflight();
+    const unresolvedLeaders = leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id));
+    if (!preflight.ok || unresolvedLeaders) {
+        modalState.step = unresolvedLeaders ? 2 : 3;
+        modalState.message = 'Hay relaciones que necesitan una elección. Revisa las indicadas para continuar.';
+    } else {
+        modalState.message = '';
+    }
+    rerenderModal();
+    activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
+}
+
 function changeWizardStep(direction) {
     if (modalState.busy || (direction > 0 && wizardHint(currentPreflight()))) return;
     let next = modalState.step + direction;
@@ -918,7 +930,8 @@ function changeWizardStep(direction) {
             { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' });
     }
     const body = activeModal?.element?.querySelector('.modal-body');
-    if (body) body.scrollTop = 0;
+    const content = body?.querySelector('.r07-wizard-content');
+    if (content) content.scrollTop = 0;
     activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
 }
 
@@ -931,7 +944,10 @@ function modalContent() {
         '<fieldset class="r07-recon-fieldset"><legend>Elige la obra de destino</legend><div class="r07-recon-choices">'
             + renderChoice('map', 'Usar una obra existente', 'Asigna los datos a una obra activa.')
             + renderChoice('create', 'Crear una obra', 'Define el nombre de la nueva obra.')
-            + '</div>' + renderActionControl(preflight) + '</fieldset>',
+            + '</div>' + renderActionControl(preflight) + '</fieldset>'
+            + '<div class="r07-wizard-quick"><button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="quick-assign"'
+            + (wizardHint(preflight) ? ' disabled' : '') + '>Asignar todo a esta obra</button>'
+            + '<small>Incluye los datos pendientes y revisa el resumen antes de guardar.</small></div>',
         '<div class="r07-recon-section-head"><p>' + modalState.selectedIds.size + ' empleados seleccionados</p>'
             + '<button type="button" class="r07-recon-link-button" data-r07-action="toggle-all">' + (allSelected ? 'Deseleccionar todos' : 'Seleccionar todos')
             + '</button></div><div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink(),
@@ -940,14 +956,16 @@ function modalContent() {
         '<div class="r07-recon-summary"><div><strong>' + modalState.selectedIds.size + '</strong><span>empleados</span></div>'
             + '<div><strong>' + selectedCatalog + '</strong><span>puestos y líderes asignados</span></div>'
             + '<div><strong>' + (new Set(currentPositionCopies().map(copy => copy.newPositionId)).size + Object.keys(modalState.leaderCopies).length) + '</strong><span>registros nuevos</span></div></div>'
-            + renderPreflightSummary(preflight) + renderOtherIssuesNote()
+            + '<div class="r07-preflight-destiny"><span>Obra destino</span><strong>' + escapeHTML(snapshot.projects.find(project => project.id === currentTargetProjectId())?.name || modalState.createName.trim()) + '</strong></div>'
+            + '<details class="r07-wizard-details"><summary>Ver decisiones y datos conservados</summary>' + renderPreflightSummary(preflight) + '</details>'
+            + renderOtherIssuesNote()
             + '<p class="r07-recon-hint">Se guardarán todas las decisiones juntas. Se conservan los sueldos especiales, las horas y los préstamos.</p>'
     ];
     const hints = ['Elige dónde quedarán los datos.', 'Selecciona las personas de esta obra.',
         'Resuelve cada líder una sola vez.', 'Una decisión por puesto para todos sus empleados.', 'Revisa las decisiones antes de guardar.'];
     const hint = wizardHint(preflight);
     return '<div class="r07-recon-shell r07-wizard" aria-busy="' + modalState.busy + '">'
-        + '<nav aria-label="Progreso de asignación"><ol class="r07-wizard-steps">'
+        + '<div class="r07-wizard-content"><nav aria-label="Progreso de asignación"><ol class="r07-wizard-steps">'
         + WIZARD_STEPS.map((name, index) => '<li' + (index === step ? ' aria-current="step"' : '')
             + ' class="' + (index < step ? 'is-complete' : '') + '"><span>' + (index + 1) + '</span><small>' + name + '</small></li>').join('')
         + '</ol><progress max="5" value="' + (step + 1) + '" aria-label="Paso ' + (step + 1) + ' de 5"></progress></nav>'
@@ -955,7 +973,7 @@ function modalContent() {
         + '<h2 id="r07-wizard-title" tabindex="-1">' + WIZARD_STEPS[step] + '</h2><p>' + hints[step] + '</p></div>'
         + stages.map((content, index) => '<section data-r07-step="' + index + '"' + (index !== step ? ' hidden' : '') + '>' + content + '</section>').join('')
         + (modalState.message ? '<div class="r07-recon-message" role="status">' + escapeHTML(modalState.message) + '</div>' : '')
-        + '<div class="r07-recon-footer">'
+        + '</div><div class="r07-recon-footer">'
         + '<button type="button" class="btn-secondary r07-recon-footer-btn" data-r07-action="' + (step ? 'wizard-back' : 'close') + '"' + (modalState.busy ? ' disabled' : '') + '>' + (step ? 'Atrás' : 'Cancelar') + '</button>'
         + '<div class="r07-recon-footer-hint" aria-live="polite">' + escapeHTML(hint) + '</div>'
         + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="wizard-next"' + (step === 4 ? ' hidden' : '') + (hint || modalState.busy ? ' disabled' : '') + '>Continuar</button>'
@@ -974,7 +992,7 @@ function rerenderModal() {
     // Preserve focus across the innerHTML swap (design.md §7 keyboard flow):
     // remember the focused control and restore the equivalent node afterwards.
     const active = document.activeElement;
-    const scrollTop = body.scrollTop;
+    const scrollTop = body.querySelector('.r07-wizard-content')?.scrollTop || 0;
     const focusId = active?.id;
     const genericAction = active?.getAttribute?.('data-r07-action');
     const selection = active?.tagName === 'INPUT' ? [active.selectionStart, active.selectionEnd] : null;
@@ -1015,7 +1033,8 @@ function rerenderModal() {
     if (selection && el?.setSelectionRange && selection[0] !== null) {
         try { el.setSelectionRange(...selection); } catch (_) {}
     }
-    body.scrollTop = scrollTop;
+    const scrollArea = body.querySelector('.r07-wizard-content');
+    if (scrollArea) scrollArea.scrollTop = scrollTop;
 }
 
 export async function openProjectReconciliation({ onClose } = {}) {
@@ -1040,6 +1059,7 @@ export async function openProjectReconciliation({ onClose } = {}) {
         }
     });
     activeModal.open();
+    activeModal.element.querySelector('.modal-container')?.classList.add('r07-wizard-modal');
     activeModal.element.addEventListener('keydown', event => {
         if (modalState.busy) {
             if (event.key === 'Escape') event.stopPropagation();
@@ -1290,6 +1310,7 @@ function handleClick(event) {
     if (!target) return;
     const action = target.dataset.r07Action;
     if (modalState.busy) return;
+    if (action === 'quick-assign') return quickAssignAll();
     if (action === 'wizard-next') return changeWizardStep(1);
     if (action === 'wizard-back') return changeWizardStep(-1);
     if (action === 'assign-source-position') {
@@ -1453,6 +1474,8 @@ function updateWizardFooter() {
     const next = body?.querySelector('[data-r07-action="wizard-next"]');
     const apply = body?.querySelector('[data-r07-action="apply"]');
     if (next) next.disabled = !!hint || modalState.busy;
+    const quick = body?.querySelector('[data-r07-action="quick-assign"]');
+    if (quick) quick.disabled = !!hint || modalState.busy;
     if (apply) apply.disabled = !!hint || !canApply(preflight) || modalState.busy;
     const hintNode = body?.querySelector('.r07-recon-footer-hint');
     if (hintNode) hintNode.textContent = hint;
