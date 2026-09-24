@@ -165,12 +165,12 @@ export async function refreshProjectReconciliationSnapshot() {
         try {
             const setup = await projectSetupService.getState();
             await indexedDBService.init();
-            const stores = ['pettyCashProjects', 'payrollClosures', 'projectPayrollConfigs'];
+            const stores = ['pettyCashProjects', 'payrollClosures', 'projectPayrollConfigs', 'pettyCashPeriods', 'pettyCashMovements'];
             const reads = await Promise.allSettled(stores.map(store => indexedDBService.getAll(store)));
             const value = index => reads[index].status === 'fulfilled' ? reads[index].value : [];
             const cash = value(0);
             next = buildLocalReconciliationViewModel({ ...state, payrollClosures: value(1), projectPayrollConfigs: value(2),
-                pettyCash: { ...(state.pettyCash || {}), projects: Array.isArray(cash) ? cash : (state.pettyCash?.projects || []) }
+                pettyCash: { ...(state.pettyCash || {}), projects: Array.isArray(cash) ? cash : (state.pettyCash?.projects || []), periods: value(3), movements: value(4) }
             }, setup);
             next.diagnosticReadErrors = stores.filter((store, index) => reads[index].status === 'rejected');
         } catch (error) {
@@ -964,6 +964,8 @@ function changeWizardStep(direction) {
 
 function renderExtendedDiagnostics() {
     const groups = [
+        ['payments', 'Pagos de préstamos', 'Conserva los importes y abonos. Comprueba la obra original y el cierre antes de modificar cualquier vínculo.'],
+        ['cashLinks', 'Relaciones de caja chica', 'Verifica la caja y el período de origen. Un registro no disponible localmente puede requerir sincronización; no lo recrees ni lo borres sin comprobarlo.'],
         ['closures', 'Cierres de nómina', 'Conserva el cierre original. Recupera la obra de origen antes de revisar su vínculo.'],
         ['configs', 'Configuraciones de nómina', 'Revisa las reglas de origen y destino antes de recuperar una configuración.'],
         ['plans', 'Planes de ajustes', 'Revisa el empleado, la obra y las cuotas aplicadas antes de resolver el plan.'],

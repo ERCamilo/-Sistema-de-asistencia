@@ -950,6 +950,43 @@ export class IndexedDBService {
         });
     }
 
+    /** Read local cash + pending writes and replace only after a synchronous merge.
+     * A read/merge/write failure aborts the transaction, preserving the old collection. */
+    async reconcilePettyCashSnapshot(storeName, merge) {
+        if (!['pettyCashProjects', 'pettyCashPeriods', 'pettyCashMovements'].includes(storeName)) {
+            throw new TypeError('Unsupported cash collection');
+        }
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction([storeName, 'pettyCashOutbox'], 'readwrite');
+            const store = tx.objectStore(storeName);
+            let local, queued, result, failure;
+            let pending = 2;
+            const abort = error => {
+                failure = error;
+                try { tx.abort(); } catch (_) {}
+            };
+            const ready = () => {
+                if (--pending) return;
+                try {
+                    result = merge(local, queued);
+                    if (!Array.isArray(result)) throw new TypeError('Cash merge must return an array');
+                    store.clear();
+                    for (const record of result) store.put(record);
+                } catch (error) { abort(error); }
+            };
+            const records = store.getAll();
+            const outbox = tx.objectStore('pettyCashOutbox').getAll();
+            records.onsuccess = () => { local = records.result; ready(); };
+            outbox.onsuccess = () => { queued = outbox.result; ready(); };
+            records.onerror = () => abort(records.error);
+            outbox.onerror = () => abort(outbox.error);
+            tx.oncomplete = () => resolve(result);
+            tx.onabort = () => reject(failure || tx.error || new Error('Cash merge aborted'));
+            tx.onerror = () => { failure = failure || tx.error; };
+        });
+    }
+
     _isDatasetEpochStale() {
         if (this._fullReplacementTxInFlight) return true;
         const guard = this._epochFlightGuard;

@@ -29,10 +29,8 @@ describe('PettyCashStore — mezcla segura de snapshots remotos', () => {
             expect.objectContaining({ id: 'remote-1' }),
             expect.objectContaining({ id: 'draft-1', localDraft: true })
         ]));
-        expect(indexedDBService.batchUpdate).toHaveBeenCalledWith(
-            'pettyCashMovements',
-            expect.arrayContaining([expect.objectContaining({ id: 'draft-1' })])
-        );
+        expect(indexedDBService.reconcilePettyCashSnapshot).toHaveBeenCalledWith('pettyCashMovements', expect.any(Function));
+        expect(indexedDBService.clear).not.toHaveBeenCalled();
     });
 
     test('una escritura pendiente local prevalece sobre el snapshot anterior', async () => {

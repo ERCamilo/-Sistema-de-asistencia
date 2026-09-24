@@ -35,6 +35,31 @@ export function diagnoseExtendedProjectData(data = {}, projects = []) {
             }
         }
     }
+    // Payroll payments retain their historical work; never infer it from the employee's current work.
+    for (const employee of employees) {
+        for (const loan of list(employee.loans)) {
+            for (const [index, payment] of list(loan.payments).entries()) {
+                if (payment.source !== 'payroll' && !payment.payrollProjectId && !payment.payrollBatchId) continue;
+                const projectId = id(payment.payrollProjectId || payment.payrollBatchSnapshot?.projectId);
+                if (!known.has(projectId)) add('payments', id(employee.id) + ':' + id(loan.id) + ':' + (payment.id || index),
+                    [employee.number, employee.name, payment.date || 'Pago de préstamo'].filter(Boolean).join(' · '),
+                    projectId ? 'La obra original del pago no está disponible' : 'El pago de nómina no identifica su obra',
+                    projectId);
+            }
+        }
+    }
+    const cashProjects = new Set(list(data.pettyCash?.projects).map(record => id(record.id)));
+    const periods = new Map(list(data.pettyCash?.periods).map(record => [id(record.id), record]));
+    for (const [key, period] of periods) {
+        if (!cashProjects.has(id(period.projectId))) add('cashLinks', 'period:' + key,
+            period.name || 'Período de caja chica', 'La caja del período no está disponible localmente', '');
+    }
+    for (const [index, movement] of list(data.pettyCash?.movements).entries()) {
+        const period = periods.get(id(movement.periodId));
+        const reason = !period ? 'El período del movimiento no está disponible localmente'
+            : id(movement.projectId) !== id(period.projectId) ? 'La caja del movimiento no coincide con la de su período' : '';
+        if (reason) add('cashLinks', 'movement:' + (movement.id || index), movement.description || movement.date || 'Movimiento de caja chica', reason, '');
+    }
     const attendance = Array.isArray(data.attendance)
         ? data.attendance.map((record, index) => [String(record?.key || index), record])
         : Object.entries(data.attendance || {});

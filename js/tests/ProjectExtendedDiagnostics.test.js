@@ -82,3 +82,32 @@ describe('diagnostic-only UI', () => {
         expect(document.querySelector('[data-r07-action="apply"]')).toBeNull();
     });
 });
+
+test('payroll payment follows its historical work, not the employee current work', () => {
+    const employees = [{ id: 'e', projectId: 'A', loans: [{ id: 'loan', payments: [
+        { id: 'manual', amount: 10 },
+        { id: 'valid-history', source: 'payroll', payrollProjectId: 'B', amount: 20 },
+        { id: 'orphan-history', source: 'payroll', payrollProjectId: 'missing', amount: 30 }
+    ] }] }];
+    const before = JSON.stringify(employees);
+    const issues = diagnoseExtendedProjectData({ employees }, projects);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ kind: 'payments', key: 'e:loan:orphan-history' });
+    expect(JSON.stringify(employees)).toBe(before);
+});
+test('cash internal ids are distinct from official work ids and bad links are only diagnosed', () => {
+    const pettyCash = {
+        projects: [{ id: 'cash-a', officialProjectId: 'A' }],
+        periods: [{ id: 'period-ok', projectId: 'cash-a' }, { id: 'period-bad', projectId: 'missing-cash' }],
+        movements: [
+            { id: 'ok', periodId: 'period-ok', projectId: 'cash-a', amount: 10 },
+            { id: 'missing', periodId: 'missing-period', projectId: 'cash-a', amount: 20 },
+            { id: 'wrong-cash', periodId: 'period-ok', projectId: 'other-cash', amount: 30 }
+        ]
+    };
+    const before = JSON.stringify(pettyCash);
+    const issues = diagnoseExtendedProjectData({ pettyCash }, projects);
+    expect(issues).toHaveLength(3);
+    expect(issues.every(issue => issue.kind === 'cashLinks')).toBe(true);
+    expect(JSON.stringify(pettyCash)).toBe(before);
+});
