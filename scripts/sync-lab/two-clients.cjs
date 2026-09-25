@@ -24,6 +24,11 @@ const server = http.createServer((req, res) => {
                 .replace('const auth = getAuth(app);', "connectFirestoreEmulator(db, '127.0.0.1', 9180);\nconst auth = getAuth(app);\nconnectAuthEmulator(auth, 'http://127.0.0.1:9199', {disableWarnings: true});")
                 + '\nexport { createUserWithEmailAndPassword, signInWithEmailAndPassword, disableNetwork, enableNetwork, getDocFromServer };\n';
         }
+        if (pathname === '/js/modules/services/EmployeeRepository.js') {
+            // Test-only scheduling barrier: pause after each client's first read.
+            body = body.replace(/const snap = await (getDoc\(ref\)|transaction.get\(ref\));/g,
+                '$&\nif (globalThis.labAfterRead) await globalThis.labAfterRead();');
+        }
         res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : 'text/plain');
         res.end(body);
     } catch { res.writeHead(404); res.end(); }
@@ -98,6 +103,36 @@ const server = http.createServer((req, res) => {
         });
         const hours=await A.evaluate(async()=> (await f.getDocFromServer(f.doc(f.db,'users',f.auth.currentUser.uid,'attendance','2026-09-01'))).data().records['employee-2026-09-01'].hoursWorked);
         results.push({case:'stale attendance preserves 10 hours',pass:hours===10,actual:hours});
+        const raceBase={...employee,id:'race-employee',loans:[{id:'race-loan',amount:1000,updatedAt:100,payments:[]}]};
+        await A.evaluate(e=>repo.saveOne(e,{mergeRemote:true}),raceBase);
+        let arrivals=0, release;
+        const barrier=new Promise(resolve=>{release=resolve;});
+        let timer;
+        const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Both clients did not reach the read barrier')),15000);});
+        for (const page of [A,B]) {
+            await page.exposeFunction('labBarrier',async()=>{arrivals++;if(arrivals===2)release();await Promise.race([barrier,deadline]);});
+            await page.evaluate(()=>{window.labAfterRead=async()=>{window.labAfterRead=null;await window.labBarrier();};});
+        }
+        const edits=[200,300].map((amount,index)=>{
+            const e=structuredClone(raceBase);e.updatedAt=200+index;e.loans[0].updatedAt=e.updatedAt;
+            e.loans[0].payments=[{id:'concurrent-'+index,amount,updatedAt:e.updatedAt}];return e;
+        });
+        try {await Promise.all([A.evaluate(e=>repo.saveOne(e,{mergeRemote:true}),edits[0]),B.evaluate(e=>repo.saveOne(e,{mergeRemote:true}),edits[1])]);}
+        finally {clearTimeout(timer);}
+        const raced=await A.evaluate(async()=> (await f.getDocFromServer(f.doc(f.db,'users',f.auth.currentUser.uid,'employees','race-employee'))).data());
+        results.push({case:'simultaneous payments survive on the same employee',pass:raced.loans[0].payments.length===2,expectedPaid:500,actualPaid:raced.loans[0].payments.reduce((n,p)=>n+p.amount,0)});
+        await A.evaluate(()=>repo.tombstoneOne('employee',500));
+        await B.evaluate(e=>repo.saveOne(e,{mergeRemote:true}),employee);
+        const deleted=await A.evaluate(async()=> (await f.getDocFromServer(f.doc(f.db,'users',f.auth.currentUser.uid,'employees','employee'))).data());
+        results.push({case:'stale client cannot resurrect a deleted employee',pass:deleted.deletedAt===500 && deleted.active===false});
+        results.push({case:'soft deletion preserves loan payments for recovery',pass:deleted.loans[0].payments.length===2});
+        await A.evaluate(e=>repo.saveOne({...e,active:true,updatedAt:600},{mergeRemote:true}),saved);
+        const restored=await B.evaluate(async()=> (await f.getDocFromServer(f.doc(f.db,'users',f.auth.currentUser.uid,'employees','employee'))).data());
+        results.push({case:'newer recovery clears deletion marker and preserves payments',pass:!Number.isFinite(restored.deletedAt) && restored.active===true && restored.loans[0].payments.length===2});
+        let deletionRejected=false;
+        try {await B.evaluate(()=>repo.tombstoneOne('employee',500));} catch {deletionRejected=true;}
+        const afterOldDelete=await A.evaluate(async()=> (await f.getDocFromServer(f.doc(f.db,'users',f.auth.currentUser.uid,'employees','employee'))).data());
+        results.push({case:'stale deletion cannot hide a newer recovered employee',pass:deletionRejected && !Number.isFinite(afterOldDelete.deletedAt) && afterOldDelete.active===true});
         assert.deepEqual(blocked,[]);
         console.log(JSON.stringify({project,synthetic:true,productionRequests:0,results},null,2));
         if (results.some(result=>!result.pass)) process.exitCode=1;

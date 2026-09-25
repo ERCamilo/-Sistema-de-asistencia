@@ -1,3 +1,4 @@
+import { runTransaction } from '../modules/data/firebase.js';
 import {
     Employee,
     normalizeEmployeePhoto
@@ -213,5 +214,14 @@ describe('Employee photo signal merge', () => {
 
         expect(merged.phone).toBe('555-0100');
         expect(merged.photo).toEqual(deleted);
+    });
+});
+
+beforeEach(() => {
+    runTransaction.mockImplementation(async (_db, operation) => {
+        const writes = [];
+        const result = await operation({ get: (...args) => getDoc(...args), set: (...args) => writes.push(args) });
+        for (const args of writes) await setDoc(...args);
+        return result;
     });
 });

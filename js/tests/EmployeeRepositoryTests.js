@@ -1,3 +1,4 @@
+import { runTransaction } from '../modules/data/firebase.js';
 /**
  * 🧪 EmployeeRepositoryTests (Fase 4.1 paso 2)
  *
@@ -430,23 +431,30 @@ testRunner.addSuite("EmployeeRepository — saveOne con merge por ID (Fase 2.2)"
         auth.currentUser = null;
     },
 
-    async "saveOne con mergeRemote y getDoc falla → fallback al write directo"() {
+    async "saveOne con mergeRemote y lectura fallida conserva el pendiente sin escribir"() {
         clearAllMocks();
         getDoc.mockClear();
         auth.currentUser = { uid: 'test-uid-merge-4' };
 
         getDoc.mockRejectedValueOnce(new Error('network'));
 
-        await EmployeeRepository.saveOne(
-            { id: 'e1', name: 'Ana' },
-            { mergeRemote: true }
-        );
-
-        testRunner.assert(setDoc.mock.calls.length >= 1,
-            "Si el read falla, igual debe escribir (no perder el save del usuario)");
+        await expect(EmployeeRepository.saveOne(
+            { id: 'e1', name: 'Ana' }, { mergeRemote: true }
+        )).rejects.toThrow('network');
+        testRunner.assertEquals(setDoc.mock.calls.length, 0,
+            "Si falla la lectura no puede reemplazar los datos remotos");
         auth.currentUser = null;
     }
 
 });
 
 console.log('🧪 EmployeeRepository tests cargados.');
+
+beforeEach(() => {
+    runTransaction.mockImplementation(async (_db, operation) => {
+        const writes = [];
+        const result = await operation({ get: (...args) => getDoc(...args), set: (...args) => writes.push(args) });
+        for (const args of writes) await setDoc(...args);
+        return result;
+    });
+});

@@ -50,8 +50,26 @@ metadata, equal timestamps and skewed device clocks need separate treatment.
 
 This is repository/outbox integration, not full application UI validation.
 Production rules, Google sign-in, real mobile devices, receipt Storage,
-simultaneous conflicting employee edits and multi-device deletion recovery
+equal-timestamp conflicts, physical deletions and device clock skew
 are not certified by this test. No user production data was used.
 
 Official emulator isolation reference:
 https://firebase.google.com/docs/emulator-suite/connect_firestore
+
+## Concurrent payments and soft-deletion recovery
+
+Extended the harness to 12 checks. A test-only scheduling hook pauses each
+client after its first employee read, forcing both to read the same base.
+The hook does not change payloads or SDK behavior and is disabled on retry.
+
+Before correction: three failures — simultaneous payments lost 200 of 500,
+a newer recovery retained the remote deletedAt marker, and a delayed deletion
+could hide the recovered employee. Nine other checks passed.
+
+After correction: all 12 pass. Employee merge-save now re-reads/merges/writes
+inside a Firestore transaction, retries against the latest state, and never
+falls back to blind writes after a read failure. Newer recovery explicitly
+clears the deletedAt field with null (non-tombstone in the existing model).
+Soft deletion checks updatedAt transactionally and rejects a stale request.
+Loans/payments remain intact. This does not provide a new recovery UI and
+does not certify simultaneous edits of arbitrary scalar fields.
