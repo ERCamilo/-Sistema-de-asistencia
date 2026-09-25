@@ -1,3 +1,4 @@
+import { reviewFinancialPlanRepair } from './ProjectFinancialPlanRepair.js';
 /**
  * 🔧 ProjectOwnershipRepairService.js — R07 A2b (application service)
  *
@@ -77,6 +78,7 @@ export const REPAIR_ACTION = Object.freeze({
     CREATE_PROJECT_AND_MAP: 'CREATE_PROJECT_AND_MAP',
     QUARANTINE:             'QUARANTINE',
     MAP_CATALOG_ENTITIES:  'MAP_CATALOG_ENTITIES',
+    MAP_FINANCIAL_PLAN: 'MAP_FINANCIAL_PLAN',
     RESOLVE_LATER:          'QUARANTINE', // alias
 });
 
@@ -778,6 +780,22 @@ function buildUpdatedMeta(existingMeta, event) {
  */
 function applyFieldScopedMemoryUpdate(memoryUpdate) {
     if (!memoryUpdate) return;
+    if (memoryUpdate.pettyCashProjectIds?.size && stateManager._state.pettyCash) {
+        const current = stateManager._state.pettyCash;
+        stateManager.setState({ pettyCash: { ...current, projects: (current.projects || []).map(record => {
+            const target = memoryUpdate.pettyCashProjectIds.get(trimId(record.id));
+            return target === undefined ? record : { ...record, officialProjectId: target, updatedAt: memoryUpdate.repairTimestamp };
+        }) } });
+    }
+    if (memoryUpdate.financialPlanPatch) {
+        const patch = memoryUpdate.financialPlanPatch;
+        stateManager.setState({ employees: (stateManager._state.employees || []).map(employee => {
+            if (trimId(employee.id) !== trimId(patch.employeeId)) return employee;
+            return { ...employee, updatedAt: memoryUpdate.repairTimestamp,
+                [patch.kind]: (employee[patch.kind] || []).map(plan => trimId(plan.id) === trimId(patch.planId)
+                    ? { ...plan, projectId: patch.targetProjectId, updatedAt: memoryUpdate.repairTimestamp } : plan) };
+        }) });
+    }
     const employeeProjectIds = memoryUpdate.employeeProjectIds;
     const attendanceProjectIds = memoryUpdate.attendanceProjectIds;
     const employeePositionPatches = memoryUpdate.employeePositionPatches;
@@ -2159,9 +2177,79 @@ function computeCombinedAssignment(reads, tx, p, createProject) {
     };
 }
 
+/** Link whole cash ledgers, preserving their internal ids and financial history.
+ * All validation precedes writes; links and cloud outbox commit with personnel. */
+function computeCashAssignment(action, reads, tx, p) {
+    const target = trimId(action === REPAIR_ACTION.CREATE_PROJECT_AND_MAP ? p.projectId : p.targetProjectId);
+    const projects = indexById(reads.projects);
+    const cash = indexById(reads.pettyCashProjects);
+    const ids = [...new Set(p.pettyCashIds.map(trimId).filter(Boolean))];
+    const patches = [];
+    for (const id of ids) {
+        const record = cash.get(id);
+        const previous = trimId(record?.officialProjectId);
+        if (!record || (previous !== target && projects.has(previous))) {
+            return { result: conflictResult('Una caja ya pertenece a otra obra o dejó de estar disponible.', {
+                conflicts: [{ kind: 'PETTY_CASH_PROJECT_CONFLICT', entityId: id }]
+            }) };
+        }
+        if (previous !== target) patches.push({ ...record, officialProjectId: target, updatedAt: p.repairTimestamp });
+    }
+    const queued = [];
+    const staging = { objectStore: name => ({ put: record => queued.push([name, record]) }) };
+    const personnel = computeRepair(action, reads, staging, { ...p, pettyCashIds: [] });
+    if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(personnel.result.status)) return personnel;
+    for (const [store, record] of queued) txPut(tx, store, record);
+    for (const record of patches) {
+        txPut(tx, 'pettyCashProjects', record);
+        txPut(tx, 'pettyCashOutbox', {
+            op: 'save', col: 'projects', id: record.id, data: record,
+            source: 'project-reconciliation', ts: p.repairTimestamp, status: 'pending'
+        });
+    }
+    return {
+        ...personnel,
+        result: { ...personnel.result, status: patches.length ? REPAIR_STATUS.OK : personnel.result.status,
+            pettyCashIds: ids, durableCommitted: true },
+        memoryUpdate: { ...personnel.memoryUpdate,
+            pettyCashProjectIds: new Map(patches.map(record => [record.id, target])),
+            repairTimestamp: p.repairTimestamp }
+    };
+}
+
+function computeFinancialPlanMap(reads, tx, p) {
+    const choice = p.financialPlan;
+    const employee = (reads.employees || []).find(item => trimId(item.id) === trimId(choice?.employeeId));
+    if (!choice || !(p.employees || []).some(item => trimId(item.id) === trimId(choice.employeeId))) {
+        return { result: conflictResult('Selecciona explícitamente el empleado y el plan.') };
+    }
+    const review = reviewFinancialPlanRepair(employee, choice.kind, choice.planId, reads.projects, reads.payrollClosures);
+    if (!review.ok) return { result: conflictResult(review.reason) };
+    if (review.noOp) return { result: { status: REPAIR_STATUS.NO_OP } };
+    if (trimId(choice.expectedProjectId) !== trimId(review.plan.projectId)
+        || trimId(choice.targetProjectId) !== trimId(review.target.id)
+        || Number(choice.expectedUpdatedAt) !== Number(review.plan.updatedAt)) {
+        return { result: conflictResult('El plan o la obra del empleado cambió. Vuelve a revisar la propuesta.') };
+    }
+    const patched = deepCopy(employee);
+    const target = trimId(review.target.id);
+    patched[choice.kind] = patched[choice.kind].map(plan => trimId(plan.id) === trimId(choice.planId)
+        ? { ...plan, projectId: target, updatedAt: p.repairTimestamp } : plan);
+    patched.updatedAt = p.repairTimestamp;
+    txPut(tx, 'employees', patched);
+    return {
+        result: { status: REPAIR_STATUS.OK, durableCommitted: true, targetProjectId: target },
+        memoryUpdate: { financialPlanPatch: { ...choice, targetProjectId: target }, repairTimestamp: p.repairTimestamp },
+        repairAttendanceRecords: []
+    };
+}
+
 /** Dispatch to the correct in-transaction planner for the given action. */
 function computeRepair(action, reads, tx, p) {
+    if (p.pettyCashIds?.length && [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)) return computeCashAssignment(action, reads, tx, p);
     switch (action) {
+        case REPAIR_ACTION.MAP_FINANCIAL_PLAN:
+            return computeFinancialPlanMap(reads, tx, p);
         case REPAIR_ACTION.MAP_TO_EXISTING:
             if ((p.positionIds || []).length || (p.leaderIds || []).length || (p.leaderRemaps || []).length || (p.leaderCopies || []).length) {
                 return computeCombinedAssignment(reads, tx, p, false);
@@ -2314,10 +2402,10 @@ async function enqueueRepairCloudPropagation(txOutcome) {
 export function previewOwnershipRepair(params = {}) {
     const attendance = collectCallerAttendanceMap(params.attendance);
     const reads = {
-        projects: params.catalog || [], employees: params.allEmployees || params.employees || [],
+        payrollClosures: params.payrollClosures || [], projects: params.catalog || [], employees: params.allEmployees || params.employees || [],
         positions: params.positions || [], leaders: params.leaders || [],
         attendance: Object.entries(attendance).map(([key, record]) => ({ ...record, key: record.key || key })),
-        settings: null
+        settings: null, pettyCashProjects: params.pettyCashProjects || []
     };
     const outcome = computeRepair(params.action, reads, { objectStore: () => ({ put() {} }) }, {
         employees: [], positionIds: [], leaderIds: [], leaderRemaps: [], leaderCopies: [],
@@ -2347,12 +2435,14 @@ export async function applyOwnershipRepair(params = {}) {
         leaderIds = [],
         leaderRemaps = [],
         leaderCopies = [],
+        pettyCashIds = [],
+        financialPlan = null,
         _db = indexedDBService
     } = params;
 
     // --- Input guard: employees must be an explicit non-empty array.
     const catalogOnly = [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)
-        && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length);
+        && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length || pettyCashIds.length);
     if (action !== REPAIR_ACTION.MAP_CATALOG_ENTITIES && !catalogOnly && (!Array.isArray(employees) || employees.length === 0)) {
         return {
             status: REPAIR_STATUS.CONFLICT,
@@ -2404,6 +2494,8 @@ export async function applyOwnershipRepair(params = {}) {
         leaderIds,
         leaderRemaps,
         leaderCopies,
+        pettyCashIds,
+        financialPlan,
         allEmployees: effectiveAllEmployees,
         catalog,
         skipDependencyCheck,
@@ -2417,13 +2509,15 @@ export async function applyOwnershipRepair(params = {}) {
         const rawDb = _db.db || _db;
         let txOutcome = null;
 
-        await runReadWriteTransaction(rawDb, REPAIR_STORES, (reads, tx) => {
+        await runReadWriteTransaction(rawDb, action === REPAIR_ACTION.MAP_FINANCIAL_PLAN ? [...REPAIR_STORES, 'payrollClosures'] : pettyCashIds.length ? [...REPAIR_STORES, 'pettyCashProjects', 'pettyCashOutbox'] : REPAIR_STORES, (reads, tx) => {
             const durable = {
+                payrollClosures: reads.payrollClosures || [],
                 projects: reads.projects || [],
                 employees: reads.employees || [],
                 attendance: reads.attendance || [],
                 positions: reads.positions || [],
                 leaders: reads.leaders || [],
+                pettyCashProjects: reads.pettyCashProjects || [],
                 settings: reads.settings || null
             };
             txOutcome = computeRepair(action, durable, tx, computeParams);
@@ -2436,6 +2530,10 @@ export async function applyOwnershipRepair(params = {}) {
 
         const result = txOutcome.result;
         if (result.status === REPAIR_STATUS.OK && txOutcome.memoryUpdate) {
+            if (txOutcome.memoryUpdate.pettyCashProjectIds?.size) {
+                import('../pettycash/PettyCashStore.js').then(({ PettyCashStore }) => PettyCashStore.flush())
+                    .catch(error => console.warn('Caja chica: sincronización pendiente', error));
+            }
             advanceDatasetEpoch();
             applyFieldScopedMemoryUpdate(txOutcome.memoryUpdate);
 
