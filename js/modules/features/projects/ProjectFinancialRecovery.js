@@ -28,10 +28,14 @@ export function planFinancialRecovery({
     const employeeMap = new Map(employees.map(e => [id(e.id), e]));
     const closures = new Map(payrollClosures.map(c => [id(c.id), c]));
     const closureMap = new Map(), newClosures = [], visiting = new Set();
-    const ensureEmployee = employeeId => {
+    const ensureEmployee = (employeeId, closureId = '') => {
         const employee = employeeMap.get(id(employeeId));
         if (!selected.has(id(employeeId)) || !employee || id(employee.projectId) !== target) {
-            throw new Error('Incluye todos los empleados del cierre y asígnalos a esta obra para recuperar sus datos financieros.');
+            const person = employee?.name ? employee.name + ' (' + id(employeeId) + ')' : id(employeeId);
+            const detail = !employee ? 'Este empleado no está disponible en los datos actuales.'
+                : id(employee.projectId) !== target ? 'Este empleado no está asignado a la obra de destino.'
+                : 'Este empleado no está incluido en la recuperación.';
+            throw new Error('Incluye todos los empleados del cierre y asígnalos a esta obra para recuperar sus datos financieros. Revisa a "' + person + '"' + (closureId ? ' en el cierre "' + closureId + '"' : '') + '. ' + detail);
         }
     };
     // A retry must reuse the recovered identity, even when its source still exists.
@@ -52,7 +56,7 @@ export function planFinancialRecovery({
         if (visiting.has(id(source.id))) throw new Error('Los cierres tienen referencias circulares.');
         visiting.add(id(source.id));
         if (!source.id || !list(source.rows).length) throw new Error('El cierre original está incompleto.');
-        source.rows.forEach(row => ensureEmployee(row.employeeId));
+        source.rows.forEach(row => ensureEmployee(row.employeeId, source.id));
         let predecessor = source.supersedesId || null;
         if (predecessor) {
             const previous = closures.get(id(predecessor));
@@ -86,8 +90,8 @@ export function planFinancialRecovery({
             recoverClosure(closure);
         }
     }
-    function rewriteReferences(value) {
-        if (Array.isArray(value)) return value.map(rewriteReferences);
+    function rewriteReferences(value, context = '') {
+        if (Array.isArray(value)) return value.map(item => rewriteReferences(item, context));
         if (!value || typeof value !== 'object') return value;
         const result = {};
         for (const [key, child] of Object.entries(value)) {
@@ -95,10 +99,12 @@ export function planFinancialRecovery({
             if (referenceKeys.has(key) && id(child)) {
                 const closure = closures.get(id(child));
                 if (!closureMap.has(id(child)) && (!closure || id(closure.projectId) !== target)) {
-                    throw new Error('Falta un cierre relacionado o pertenece a otra obra. No se modificaron sus pagos.');
+                    const reason = !closure ? 'Falta un cierre relacionado: "' + id(child) + '".'
+                        : 'El cierre "' + id(child) + '" pertenece a otra obra (' + id(closure.projectId) + ').';
+                    throw new Error(reason + (context ? ' Revisa ' + context + '.' : '') + ' No se modificaron sus pagos.');
                 }
                 result[key] = closureMap.get(id(child)) || child;
-            } else result[key] = rewriteReferences(child);
+            } else result[key] = rewriteReferences(child, context);
         }
         return result;
     }
@@ -126,7 +132,7 @@ export function planFinancialRecovery({
                 if (Array.isArray(record.payments)) next.payments = record.payments.map(payment => {
                     const previous = payment.payrollProjectId || payment.projectId || payment.payrollBatchSnapshot?.projectId;
                     if (!orphan(previous) && id(previous) !== target) return copy(payment);
-                    const patched = rewriteReferences(copy(payment));
+                    const patched = rewriteReferences(copy(payment), 'el pago "' + id(payment.id) + '" de "' + (employee.name || employee.id) + '" (' + employee.id + '), registro "' + id(record.id) + '"');
                     if (orphan(previous) || !same(patched, payment)) {
                         patched.projectRecovery = payment.projectRecovery || {
                             originalProjectId: previous ?? null, originalClosureId: payment.payrollClosureId ?? null,
@@ -144,7 +150,7 @@ export function planFinancialRecovery({
                 // Rewrite the plan and installment history, keeping the original history for audit.
                 const payments = next.payments;
                 delete next.payments;
-                const rewritten = rewriteReferences(next);
+                const rewritten = rewriteReferences(next, 'el registro "' + id(record.id) + '" de "' + (employee.name || employee.id) + '" (' + employee.id + ')');
                 if (Array.isArray(record.payments)) rewritten.payments = payments;
                 if (!same(rewritten, record)) {
                     rewritten.projectRecovery = rewritten.projectRecovery || {

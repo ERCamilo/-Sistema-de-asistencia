@@ -361,7 +361,7 @@ function financialRecoveryControls() {
     return '<fieldset class="r07-recon-fieldset"><legend>Datos financieros relacionados</legend>'
         + '<label class="r07-recon-person"><input type="checkbox" data-r07-financial-recovery'
         + (modalState.recoverFinancial ? ' checked' : '') + '><span>Recuperar préstamos, abonos, planes y cierres sin obra válida</span></label>'
-        + '<p class="r07-recon-hint">Incluye las personas seleccionadas y las ya asignadas al destino. Conserva importes, cuotas e historial. Los cierres originales quedan como respaldo.</p>'
+        + '<p class="r07-recon-hint">Incluye las personas seleccionadas y las ya asignadas al destino. Conserva importes, cuotas e historial. Los cierres originales quedan como respaldo. Si desmarcas esta opción, la recuperación financiera queda pendiente.</p>'
         + (configs.length ? '<label>Configuración de nómina<select data-r07-financial-config'
             + (hasDestinationConfig ? ' disabled' : '') + '><option value="">Conservar configuración actual</option>'
             + configs.map(c => '<option value="' + escapeHTML(c.projectId) + '"'
@@ -500,7 +500,7 @@ function dependencyConflictText(conflict = {}) {
         UNRESOLVED_LEADER_OWNERSHIP: 'El líder "' + name + '" todavía no tiene una obra válida asignada.',
         MISSING_LEADER_DEFINITION: 'No se encontró la definición del líder "' + name + '".'
     };
-    return messages[conflict.kind] || 'Revisa "' + name + '" antes de continuar.';
+    return messages[conflict.kind] || conflict.message || 'Revisa "' + name + '" antes de continuar.';
 }
 
 /** F5: accurate non-blocking per-kind label for a detached leader. */
@@ -516,15 +516,17 @@ function leaderDetachLabel(d = {}) {
 }
 
 function renderDependencyBlocker(preflight) {
-    if (preflight.ok || !preflight.conflicts?.length) return '';
-    const rows = preflight.conflicts.slice(0, 6).map(conflict =>
+    if (preflight.ok) return '';
+    const conflicts = preflight.conflicts?.length ? preflight.conflicts : (preflight.reason ? [{ message: preflight.reason }] : []);
+    if (!conflicts.length) return '';
+    const rows = conflicts.slice(0, 6).map(conflict =>
         '<li>' + escapeHTML(dependencyConflictText(conflict)) + '</li>'
     ).join('');
     return '<div class="r07-recon-blocker" role="alert">'
         + '<strong>Hay relaciones que deben revisarse antes de mover estas personas.</strong>'
         + '<ul>' + rows + '</ul>'
-        + (preflight.conflicts.length > 6
-            ? '<span>Y ' + (preflight.conflicts.length - 6) + ' conflicto(s) adicional(es).</span>'
+        + (conflicts.length > 6
+            ? '<span>Y ' + (conflicts.length - 6) + ' conflicto(s) adicional(es).</span>'
             : '')
         + '</div>';
 }
@@ -1128,7 +1130,7 @@ function modalContent() {
             + '<button type="button" class="r07-recon-link-button" data-r07-action="toggle-all">' + (allSelected ? 'Deseleccionar todos' : 'Seleccionar todos')
             + '</button></div><div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink() + renderCashChoices() + financialRecoveryControls(),
         renderLeaderChoices(),
-        renderPositionRemapControls(preflight) + renderCatalogIssues('positions'),
+        renderPositionRemapControls(preflight) + renderCatalogIssues('positions') + financialRecoveryControls(),
         '<div class="r07-recon-summary"><div><strong>' + modalState.selectedIds.size + '</strong><span>empleados</span></div>'
             + '<div><strong>' + selectedCatalog + '</strong><span>puestos y líderes asignados</span></div>'
             + '<div><strong>' + (new Set(currentPositionCopies().map(copy => copy.newPositionId)).size + Object.keys(modalState.leaderCopies).length) + '</strong><span>registros nuevos</span></div></div>'
