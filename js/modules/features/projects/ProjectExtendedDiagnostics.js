@@ -1,4 +1,5 @@
 /** Read-only diagnostics. Financial snapshots and embedded plans are never rewritten. */
+import { recoveredClosureSources } from './ProjectFinancialRecovery.js';
 import { isPayrollAdjustmentInstallmentPlan } from '../payroll/PayrollAdjustmentInstallmentPlan.js';
 
 const id = value => String(value ?? '').trim();
@@ -8,12 +9,14 @@ export function diagnoseExtendedProjectData(data = {}, projects = []) {
     const employees = list(data.employees);
     const employeeIds = new Set(employees.map(employee => id(employee.id)).filter(Boolean));
     const issues = [];
+    const recovered = recoveredClosureSources(data.payrollClosures);
     const closures = new Map(list(data.payrollClosures).map(closure => [id(closure.id), closure]));
     const ownershipReason = record => !id(record.projectId) ? 'Sin obra asignada'
         : !known.has(id(record.projectId)) ? 'La obra de origen no está disponible' : '';
     const add = (kind, key, label, reason, projectId) =>
         issues.push({ kind, key: String(key), label, reason, projectId: id(projectId) });
     for (const [index, closure] of list(data.payrollClosures).entries()) {
+        if (recovered.has(id(closure.id))) continue;
         const reason = ownershipReason(closure);
         if (reason) add('closures', closure.id || index,
             [closure.periodStart, closure.periodEnd].filter(Boolean).join(' — ') || 'Cierre de nómina',

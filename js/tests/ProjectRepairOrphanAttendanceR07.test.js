@@ -182,3 +182,22 @@ describe('ProjectRepairOrphanAttendanceR07', () => {
         expect(isQuarantineProjectId(mem.projectId)).toBe(true);
     });
 });
+
+
+test('Claude H1: attendance-only assignment never borrows a position from the employee other valid project', async () => {
+    const other = { id: 'PRJ-other', name: 'Otra', status: 'active' };
+    const employee = { id: 'e-review', number: '1', name: 'Ana', projectId: other.id, positions: ['pos-other'], loans: [] };
+    const record = { key: 'e-review-2026-09-20', employeeId: employee.id, date: '2026-09-20', present: true, hoursWorked: 8, overtimeHours: 2 };
+    await db.update('projects', other);
+    await db.update('positions', { id: 'pos-other', name: 'Ayudante', projectId: other.id });
+    await db.update('employees', employee); await db.update('attendance', record);
+    stateManager.setState({ employees: [employee], attendance: { [record.key]: record } }, { silent: true });
+    const result = await applyOwnershipRepair({ action: REPAIR_ACTION.MAP_TO_EXISTING,
+        employees: [employee], targetProjectId: VALID_PROJECT.id, assignUnpositionedHistory: true, _db: db });
+    expect(result.status).toBe(REPAIR_STATUS.OK);
+    const repaired = (await db.getAll('attendance'))[0];
+    expect(repaired).toMatchObject({ projectId: VALID_PROJECT.id, hoursWorked: 8, overtimeHours: 2 });
+    expect(repaired.selectedPosition).toBeUndefined();
+    expect(repaired.positionHours).toBeUndefined();
+    expect((await db.getAll('employees'))[0]).toEqual(employee);
+});

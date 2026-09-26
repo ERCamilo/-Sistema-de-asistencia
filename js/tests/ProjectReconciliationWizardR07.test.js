@@ -170,4 +170,28 @@ describe('project assignment wizard', () => {
         await Promise.resolve(); await Promise.resolve();
     });
 
+    test('Claude M2: deselecting people clears unused leader copies before applying', async () => {
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="map"]');
+        change('[data-r07-control="target-project"]', project.id);
+        click('wizard-next'); click('wizard-next'); click('create-leader');
+        click('wizard-back'); click('toggle-all');
+        expect(document.querySelector('[data-r07-leader-name]')).toBeNull();
+        expect(apply).not.toHaveBeenCalled();
+    });
+    test('Claude M3: final review exposes leader conflicts when the position step was skipped', async () => {
+        state.positions = [];
+        state.employees[0].positions = [];
+        state.employees.push({ id: 'unselected', number: '2', name: 'Luis', projectId: 'PRJ-other', leaderId: 'lead-w', positions: [] });
+        setup.mockResolvedValue({ enabled: true, ready: true, activeProjectId: project.id, defaultProjectId: project.id,
+            projects: [project, { id: 'PRJ-other', name: 'Otra', status: 'active' }] });
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="map"]');
+        change('[data-r07-control="target-project"]', project.id);
+        click('wizard-next'); click('wizard-next'); click('assign-source-leader'); click('wizard-next');
+        expect(visibleStep()).toBe('4');
+        expect(document.querySelector('[data-r07-step="4"] .r07-recon-blocker')).not.toBeNull();
+        expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(true);
+    });
+
 });

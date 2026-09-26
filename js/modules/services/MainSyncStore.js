@@ -97,6 +97,7 @@ function _resolveCloudCall(entry, guards) {
         // vive dentro del propio writer.
         return () => guards.saveSettings(entry.settings);
     }
+    if (entry.kind === 'payrollRecoveredClosure') return () => guards.savePayrollRecoveredClosure(entry.closure);
     if (entry.kind === 'payrollClosure') {
         return () => guards.savePayrollClosure(entry.closure);
     }

@@ -105,6 +105,10 @@ function ensureNotStale(scope) {
     if (!isProjectsEnabled()) {
         throw staleReadError('Payroll closure read stale: projects disabled mid-read');
     }
+    if (scope.recoveryUid) {
+        if (auth.currentUser?.uid !== scope.recoveryUid) throw staleReadError('La cuenta cambió durante la recuperación');
+        return;
+    }
     const current = peekEntityScope();
     if (!current?.enabled || normalizedProjectId(current.projectId) !== scope.projectId) {
         throw staleReadError('Payroll closure read stale: project switched');
@@ -202,6 +206,11 @@ async function promoteLegacyCloudClosure(legacy, scope) {
     if (!scope || scope.defaultProjectId !== scope.projectId || !isRawLegacyClosure(legacy)) {
         return null;
     }
+    const recovered = await getDocs(query(requireSessionRef(currentCollection()), where('recovery.sourceId', '==', legacy.id)));
+    ensureNotStale(scope);
+    const matches = snapshotItems(recovered).filter(c => c.projectId === scope.projectId);
+    if (matches.length > 1) throw new Error('Hay más de una recuperación para el mismo cierre');
+    if (matches.length) return validatePayrollClosureForScopedWrite(matches[0], scope.projectId);
     const ref = requireSessionRef(currentDocument(legacy.id));
     const result = await runTransaction(db, async transaction => {
         const snapshot = await transaction.get(ref);
@@ -284,6 +293,7 @@ async function loadPageScoped(options = {}, scope = captureScopedScope()) {
         }
     }
 
+    loaded = [...new Map(loaded.map(c => [c.id, c])).values()];
     loaded.sort(compareByClosedAt);
     const items = loaded.slice(0, pageSize)
         .map(item => scopedClosureSummary(item, scope.projectId));
@@ -353,6 +363,10 @@ function subscribeRecentScoped(onChange, { limit = 10, onError = null } = {}, sc
 }
 
 export const PayrollClosureRepository = {
+    async saveRecoveredClosure(closure) {
+        if (!closure?.recovery?.sourceId || !auth.currentUser?.uid) throw new Error('La recuperación requiere origen y sesión');
+        return saveOneScoped(closure, { projectId: closure.projectId, recoveryUid: auth.currentUser.uid });
+    },
     async saveOne(closure) {
         if (isProjectsEnabled()) return saveOneScoped(closure);
         assertClosure(closure);

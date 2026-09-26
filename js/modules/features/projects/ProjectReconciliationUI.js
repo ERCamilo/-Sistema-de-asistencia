@@ -43,14 +43,14 @@ let importModalState = initialImportModalState();
 
 function emptySnapshot() {
     return {
-        enabled: false, payrollClosures: [], projects: [], activeProjects: [], employeeRows: [],
+        enabled: false, projectPayrollConfigs: [], payrollClosures: [], projects: [], activeProjects: [], employeeRows: [],
         otherIssues: [], diagnosticIssues: [], diagnosticReadErrors: [], pettyCashRows: [], pettyCashProjects: [], pendingEmployeeCount: 0,
         totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0
     };
 }
 function initialModalState() {
     return {
-        step: 0, financialReview: null, pettyCashIds: new Set(), leaderRemaps: {}, leaderCopies: {},
+        step: 0, recoverFinancial: false, configurationSource: '', financialReview: null, pettyCashIds: new Set(), leaderRemaps: {}, leaderCopies: {},
         selectedIds: new Set(), action: '', targetProjectId: '',
         createName: '', createProjectId: null,
         positionRemaps: {},
@@ -145,7 +145,7 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
     const pettyCashRows = pettyCashProjects.filter(record => !projectIds.has(String(record.officialProjectId || '').trim()));
     return {
         enabled: true,
-        pettyCashRows, pettyCashProjects, diagnosticIssues, diagnosticReadErrors: [], payrollClosures: appState?.payrollClosures || [],
+        pettyCashRows, pettyCashProjects, diagnosticIssues, diagnosticReadErrors: [], payrollClosures: appState?.payrollClosures || [], projectPayrollConfigs: appState?.projectPayrollConfigs || [],
         projects,
         defaultProjectId,
         activeProjects: projects.filter(project => project?.status === PROJECT_STATUS.ACTIVE),
@@ -337,6 +337,39 @@ function selectedPositionRemapNeeds(includeAssigned = false) {
     return needs;
 }
 
+function financialEmployeeIds() {
+    const pending = new Set(snapshot.employeeRows.map(row => row.id));
+    const target = currentTargetProjectId();
+    const known = new Set(snapshot.projects.map(project => String(project.id)));
+    return (state.employees || []).filter(e =>
+        (modalState.selectedIds.has(String(e.id)) && (!known.has(String(e.projectId || '')) || String(e.projectId) === target))
+        || (!pending.has(String(e.id)) && String(e.projectId || '') === target)).map(e => String(e.id));
+}
+function hasFinancialRecoveryData() {
+    const known = new Set(snapshot.projects.map(p => String(p.id)));
+    return (state.employees || []).some(e => ['loans', 'advances', 'bonuses', 'deductions'].some(kind =>
+        (e[kind] || []).some(r => r && (!known.has(String(r.projectId || ''))
+            || (r.payments || []).some(p => !known.has(String(p.payrollProjectId || p.projectId || p.payrollBatchSnapshot?.projectId || '')))))))
+        || snapshot.payrollClosures.some(c => !known.has(String(c.projectId || '')) && c.rows?.length)
+        || snapshot.projectPayrollConfigs.some(c => !known.has(String(c.projectId || '')) && Object.keys(c).length > 1);
+}
+function financialRecoveryControls() {
+    if (!hasFinancialRecoveryData()) return '';
+    const known = new Set(snapshot.projects.map(p => String(p.id)));
+    const configs = snapshot.projectPayrollConfigs.filter(c => !known.has(String(c.projectId || '')) && c.projectId);
+    const hasDestinationConfig = snapshot.projectPayrollConfigs.some(c => c.projectId === currentTargetProjectId());
+    return '<fieldset class="r07-recon-fieldset"><legend>Datos financieros relacionados</legend>'
+        + '<label class="r07-recon-person"><input type="checkbox" data-r07-financial-recovery'
+        + (modalState.recoverFinancial ? ' checked' : '') + '><span>Recuperar préstamos, abonos, planes y cierres sin obra válida</span></label>'
+        + '<p class="r07-recon-hint">Incluye las personas seleccionadas y las ya asignadas al destino. Conserva importes, cuotas e historial. Los cierres originales quedan como respaldo.</p>'
+        + (configs.length ? '<label>Configuración de nómina<select data-r07-financial-config'
+            + (hasDestinationConfig ? ' disabled' : '') + '><option value="">Conservar configuración actual</option>'
+            + configs.map(c => '<option value="' + escapeHTML(c.projectId) + '"'
+                + (modalState.configurationSource === c.projectId ? ' selected' : '') + '>Recuperar de ' + escapeHTML(c.projectId) + '</option>').join('')
+            + '</select></label>' + (hasDestinationConfig ? '<p>El destino ya tiene reglas de nómina; no se sobrescribirán.</p>' : '') : '')
+        + '</fieldset>';
+}
+
 function currentPreflight() {
     if (!['map', 'create'].includes(modalState.action)) return { ok: true, conflicts: [] };
     const targetProjectId = currentTargetProjectId();
@@ -360,10 +393,15 @@ function currentPreflight() {
         positionCopies: currentPositionCopies()
     });
     if (!dependency.ok || modalState.step < 3) return dependency;
+    if (modalState.recoverFinancial && snapshot.diagnosticReadErrors.some(name => ['payrollClosures', 'projectPayrollConfigs'].includes(name))) {
+        return { ...dependency, ok: false, reason: 'No se pudieron leer los datos financieros. Reintenta la revisión.' };
+    }
     const planned = previewOwnershipRepair({
         action: modalState.action === 'create' ? REPAIR_ACTION.CREATE_PROJECT_AND_MAP : REPAIR_ACTION.MAP_TO_EXISTING,
         employees: selectedEmployees(), allEmployees: state.employees || [],
         attendance: state.attendance || {}, positions: state.positions || [], leaders: state.leaders || [],
+        recoverFinancial: modalState.recoverFinancial, financialEmployeeIds: financialEmployeeIds(),
+        configurationSource: modalState.configurationSource, payrollClosures: snapshot.payrollClosures, projectPayrollConfigs: snapshot.projectPayrollConfigs,
         pettyCashProjects: snapshot.pettyCashProjects, pettyCashIds: [...modalState.pettyCashIds],
         catalog: snapshot.projects, targetProjectId, projectId: modalState.createProjectId,
         projectName: modalState.createName.trim(), positionIds: selectedCatalogIds('positions'),
@@ -372,7 +410,7 @@ function currentPreflight() {
         positionCopies: currentPositionCopies(), assignUnpositionedHistory: true
     });
     if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(planned.status)) {
-        return { ...dependency, ok: false, conflicts: planned.conflicts || [] };
+        return { ...dependency, ok: false, reason: planned.reason, conflicts: planned.conflicts || [] };
     }
     return dependency;
 }
@@ -716,7 +754,7 @@ function renderPreflightSummary(preflight) {
 }
 
 function canApply(preflight) {
-    if (modalState.busy || (!modalState.selectedIds.size && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size) || !modalState.action) return false;
+    if (modalState.busy || (!modalState.selectedIds.size && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size && !modalState.recoverFinancial) || !modalState.action) return false;
     if (modalState.action === 'map' && !modalState.targetProjectId) return false;
     if (modalState.action === 'create' && !modalState.createName.trim()) return false;
     if (modalState.action === 'create' && duplicateCreateProject()) return false;
@@ -863,6 +901,20 @@ function leaderNeeds() {
         .map(leader => ({ leader, required: ids.has(String(leader.id)) }));
 }
 
+function pruneUnusedLeaderChoices() {
+    const needed = new Set(leaderNeeds().filter(item => item.required).map(item => String(item.leader.id)));
+    const positions = new Set([...selectedCatalogIds('positions'), ...currentPositionCopies().map(copy => copy.fromPositionId)]);
+    for (const position of state.positions || []) {
+        if (positions.has(String(position.id)) && position.leaderId) needed.add(String(position.leaderId));
+    }
+    for (const id of Object.keys(modalState.leaderRemaps)) {
+        if (!needed.has(id)) {
+            delete modalState.leaderRemaps[id];
+            delete modalState.leaderCopies[id];
+        }
+    }
+}
+
 function leaderResolved(id) {
     return modalState.entitySelectedIds.has('leaders:' + id) || !!modalState.leaderRemaps[id]?.toLeaderId;
 }
@@ -909,7 +961,7 @@ function wizardHint(preflight) {
     if (modalState.step === 2 && leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id))) return 'Resuelve los líderes relacionados para continuar.';
     if (Object.values(modalState.leaderCopies).some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo líder.';
     if (modalState.step >= 3 && currentPositionCopies().some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo puesto.';
-    if (modalState.step >= 3 && !preflight.ok) return 'Revisa las relaciones pendientes para continuar.';
+    if (modalState.step >= 3 && !preflight.ok) return preflight.reason || 'Revisa las relaciones pendientes para continuar.';
     if (modalState.step === 4 && !canApply(preflight)) return 'Selecciona personas, puestos, líderes o cajas para asignar.';
     return '';
 }
@@ -919,6 +971,7 @@ function quickAssignAll() {
     modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
     modalState.entitySelectedIds = new Set(catalogIssues().map(catalogIssueKey));
     modalState.pettyCashIds = new Set(snapshot.pettyCashRows.map(record => record.id));
+    modalState.recoverFinancial = hasFinancialRecoveryData();
     modalState.positionRemaps = {};
     modalState.positionCopies = {};
     modalState.leaderRemaps = {};
@@ -941,7 +994,7 @@ function changeWizardStep(direction) {
     if (modalState.busy || (direction > 0 && wizardHint(currentPreflight()))) return;
     let next = modalState.step + direction;
     while (next > 0 && next < 4 && (
-        (next === 1 && !snapshot.employeeRows.length && !snapshot.pettyCashRows.length)
+        (next === 1 && !snapshot.employeeRows.length && !snapshot.pettyCashRows.length && !hasFinancialRecoveryData())
         || (next === 2 && !leaderNeeds().length)
         || (next === 3 && !selectedPositionRemapNeeds(true).length
             && !catalogIssues().some(issue => issue.collection === 'positions'))
@@ -1021,7 +1074,7 @@ function renderExtendedDiagnostics() {
     const groups = [
         ['payments', 'Pagos de préstamos', 'Conserva los importes y abonos. Comprueba la obra original y el cierre antes de modificar cualquier vínculo.'],
         ['cashLinks', 'Relaciones de caja chica', 'Verifica la caja y el período de origen. Un registro no disponible localmente puede requerir sincronización; no lo recrees ni lo borres sin comprobarlo.'],
-        ['closures', 'Cierres de nómina', 'Conserva el cierre original. Recupera la obra de origen antes de revisar su vínculo.'],
+        ['closures', 'Cierres de nómina', 'Conserva el cierre original. La recuperación conserva el original y vincula una copia al destino.'],
         ['configs', 'Configuraciones de nómina', 'Revisa las reglas de origen y destino antes de recuperar una configuración.'],
         ['plans', 'Planes de ajustes', 'Revisa el empleado, la obra y las cuotas aplicadas antes de resolver el plan.'],
         ['attendance', 'Asistencias sin empleado', 'Recupera o identifica al empleado antes de asignar estas asistencias.']
@@ -1030,7 +1083,7 @@ function renderExtendedDiagnostics() {
         ? '<p role="status">Revisión incompleta: no se pudieron leer algunas colecciones. Cierra y vuelve a abrir para reintentar.</p>' : '';
     if (!snapshot.diagnosticIssues.length && !warning) return '';
     return '<section class="r07-wizard-diagnostics" aria-label="Pendientes de revisión especial">'
-        + '<strong>Revisión especial</strong><p>Estos datos se conservan y quedan fuera de «Asignar todo».</p>'
+        + '<strong>Revisión especial</strong><p>Los datos sin obra válida pueden recuperarse juntos. Las relaciones incompletas o de otra obra requieren revisión.</p>'
         + warning + groups.map(([kind, title, hint]) => {
             const rows = snapshot.diagnosticIssues.filter(issue => issue.kind === kind);
             if (!rows.length) return '';
@@ -1055,7 +1108,7 @@ function modalContent() {
     if (modalState.financialReview) return renderFinancialConfirmation();
     const preflight = currentPreflight();
     if (!snapshot.employeeRows.length && !catalogIssues().length && !snapshot.pettyCashRows.length
-        && (snapshot.diagnosticIssues.length || snapshot.diagnosticReadErrors.length)) {
+        && !hasFinancialRecoveryData() && (snapshot.diagnosticIssues.length || snapshot.diagnosticReadErrors.length)) {
         return '<div class="r07-recon-shell r07-wizard"><div class="r07-wizard-content">'
             + renderExtendedDiagnostics() + '</div><div class="r07-recon-footer">'
             + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="close">Cerrar</button></div></div>';
@@ -1073,7 +1126,7 @@ function modalContent() {
             + '<small>Incluye los datos pendientes y revisa el resumen antes de guardar.</small></div>',
         '<div class="r07-recon-section-head"><p>' + modalState.selectedIds.size + ' empleados seleccionados</p>'
             + '<button type="button" class="r07-recon-link-button" data-r07-action="toggle-all">' + (allSelected ? 'Deseleccionar todos' : 'Seleccionar todos')
-            + '</button></div><div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink() + renderCashChoices(),
+            + '</button></div><div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink() + renderCashChoices() + financialRecoveryControls(),
         renderLeaderChoices(),
         renderPositionRemapControls(preflight) + renderCatalogIssues('positions'),
         '<div class="r07-recon-summary"><div><strong>' + modalState.selectedIds.size + '</strong><span>empleados</span></div>'
@@ -1081,7 +1134,7 @@ function modalContent() {
             + '<div><strong>' + (new Set(currentPositionCopies().map(copy => copy.newPositionId)).size + Object.keys(modalState.leaderCopies).length) + '</strong><span>registros nuevos</span></div></div>'
             + '<div class="r07-preflight-destiny"><span>Obra destino</span><strong>' + escapeHTML(snapshot.projects.find(project => project.id === currentTargetProjectId())?.name || modalState.createName.trim()) + '</strong></div>'
             + '<details class="r07-wizard-details"><summary>Ver decisiones y datos conservados</summary>' + renderPreflightSummary(preflight) + '</details>'
-            + renderOtherIssuesNote() + renderExtendedDiagnostics()
+            + renderDependencyBlocker(preflight) + financialRecoveryControls() + renderOtherIssuesNote() + renderExtendedDiagnostics()
             + (modalState.pettyCashIds.size ? '<p class="r07-recon-hint">' + modalState.pettyCashIds.size + ' cajas seleccionadas. Se conservan períodos, movimientos y comprobantes.</p>' : '')
             + '<p class="r07-recon-hint">Se guardarán todas las decisiones juntas. Se conservan los sueldos especiales, las horas y los préstamos.</p>'
     ];
@@ -1231,7 +1284,7 @@ export function closeProjectReconciliation() {
 async function applyLocalResolution() {
     if (modalState.busy) return;
     const employees = selectedEmployees();
-    if ((!employees.length && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size) || !modalState.action) return;
+    if ((!employees.length && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size && !modalState.recoverFinancial) || !modalState.action) return;
     const preflight = currentPreflight();
     if (['map', 'create'].includes(modalState.action) && !preflight.ok) {
         modalState.message = 'Hay relaciones de puesto o líder que deben revisarse antes de aplicar este cambio.';
@@ -1265,6 +1318,8 @@ async function applyLocalResolution() {
             positions: state.positions || [],
             leaders: state.leaders || [],
             catalog: snapshot.projects,
+            recoverFinancial: modalState.recoverFinancial, financialEmployeeIds: financialEmployeeIds(),
+            configurationSource: modalState.configurationSource,
             pettyCashIds: [...modalState.pettyCashIds],
             leaderRemaps: Object.values(modalState.leaderRemaps),
             leaderCopies: Object.values(modalState.leaderCopies)
@@ -1332,7 +1387,7 @@ async function applyLocalResolution() {
         modalState.entitySelectedIds = new Set();
         modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
 
-        if ((snapshot.pendingEmployeeCount === 0 && !catalogIssues().length) || appliedAction === 'later') {
+        if ((snapshot.totalPendingCount === 0) || appliedAction === 'later') {
             closeProjectReconciliation();
         } else {
             rerenderModal();
@@ -1533,11 +1588,25 @@ function handleClick(event) {
             : new Set(snapshot.employeeRows.map(row => row.id));
         modalState.positionRemaps = {};
         modalState.positionCopies = {};
+        pruneUnusedLeaderChoices();
         rerenderModal();
     }
 }
 
 function handleChange(event) {
+    if (activeModal?.isOpen && modalState.busy) return;
+    if (event.target?.matches?.('[data-r07-financial-recovery]')) {
+        modalState.recoverFinancial = event.target.checked;
+        if (!modalState.recoverFinancial) modalState.configurationSource = '';
+        rerenderModal();
+        return;
+    }
+    if (event.target?.matches?.('[data-r07-financial-config]')) {
+        modalState.configurationSource = event.target.value;
+        if (event.target.value) modalState.recoverFinancial = true;
+        rerenderModal();
+        return;
+    }
     if (event.target?.dataset?.r07CashId) {
         if (modalState.busy) return;
         const id = event.target.dataset.r07CashId;
@@ -1587,11 +1656,13 @@ function handleChange(event) {
                 if (key.startsWith(String(selectId) + '::')) delete modalState.positionCopies[key];
             }
         }
+        pruneUnusedLeaderChoices();
         rerenderModal();
         return;
     }
     if (event.target?.name === 'r07-recon-action') {
         modalState.action = event.target.value;
+        modalState.configurationSource = '';
         modalState.entitySelectedIds.clear();
         modalState.leaderRemaps = {};
         modalState.leaderCopies = {};
@@ -1603,6 +1674,7 @@ function handleChange(event) {
     }
     if (event.target?.dataset?.r07Control === 'target-project') {
         modalState.targetProjectId = event.target.value;
+        modalState.configurationSource = '';
         modalState.entitySelectedIds.clear();
         modalState.leaderRemaps = {};
         modalState.leaderCopies = {};

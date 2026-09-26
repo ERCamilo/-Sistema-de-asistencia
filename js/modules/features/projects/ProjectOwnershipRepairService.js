@@ -1,3 +1,4 @@
+import { planFinancialRecovery } from './ProjectFinancialRecovery.js';
 import { reviewFinancialPlanRepair } from './ProjectFinancialPlanRepair.js';
 /**
  * 🔧 ProjectOwnershipRepairService.js — R07 A2b (application service)
@@ -916,6 +917,17 @@ function applyFieldScopedMemoryUpdate(memoryUpdate) {
         });
         stateManager.setState({ positions: nextPositions });
     }
+    if (memoryUpdate.financialEmployeePatches?.length) {
+        const financialById = new Map(memoryUpdate.financialEmployeePatches.map(e => [trimId(e.id), e]));
+        stateManager.setState({ employees: (stateManager._state.employees || []).map(e => {
+            const patched = financialById.get(trimId(e.id));
+            if (!patched) return e;
+            const fields = {};
+            for (const kind of ['loans','advances','bonuses','deductions']) if (Array.isArray(patched[kind])) fields[kind] = patched[kind];
+            return { ...e, ...fields, updatedAt: memoryUpdate.repairTimestamp };
+        }) });
+    }
+
 }
 
 // ─── Transaction helper ──────────────────────────────────────────────────────
@@ -1082,7 +1094,7 @@ function planEmployeeRepair({
         // on the employee's first resulting position. Preserve every recorded
         // hour; only fill the portion not already attributed by positionHours.
         const primaryPosition = plan.employee?.positions?.[0] || plan.employee?.positionId;
-        if (assignUnpositionedHistory && primaryPosition && record?.present === true
+        if (assignUnpositionedHistory && employeeUsesTargetProject && primaryPosition && record?.present === true
             && record?.deletedAt == null && !record?.selectedPosition
             && !isRecordOwnedByOtherValidProject(original, planCatalogIds, targetProjectId)) {
             const entries = Array.isArray(record.positionHours) ? record.positionHours.map(entry => ({ ...entry })) : [];
@@ -2091,6 +2103,12 @@ function prepareWizardLeaders(reads, p, target, projects, tx) {
         if (ownedPositions.has(id)) positionPatches.set(id, { leaderId: to });
         return patched;
     });
+    const usedLeaders = new Set([...employeePatches.values(),
+        ...positions.filter(position => ownedPositions.has(trimId(position.id)) || copiedPositions.has(trimId(position.id)))
+            .map(position => trimId(position.leaderId))]);
+    if (copies.some(copy => !usedLeaders.has(copy.id))) {
+        return { ok: false, conflicts: [{ kind: 'LEADER_COPY_UNUSED' }] };
+    }
     for (const leader of copies) txPut(tx, 'leaders', leader);
     return { ok: true, reads: { ...reads, employees, positions, leaders: [...leaders.values()] },
         employeePatches, positionPatches, copies };
@@ -2244,8 +2262,52 @@ function computeFinancialPlanMap(reads, tx, p) {
     };
 }
 
+function computeWholeFinancialRecovery(action, reads, tx, p) {
+    const staged = new Map();
+    const staging = { objectStore: name => ({ put(record) {
+        if (!staged.has(name)) staged.set(name, new Map());
+        staged.get(name).set(trimId(record.key || record.id || record.projectId) || Symbol(), record);
+    } }) };
+    const base = computeRepair(action, reads, staging, { ...p, recoverFinancial: false });
+    if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(base.result.status)) return base;
+    const merged = name => {
+        const rows = new Map((reads[name] || []).map(r => [trimId(r.key || r.id || r.projectId), r]));
+        for (const [key, row] of staged.get(name) || []) rows.set(key, row);
+        return [...rows.values()];
+    };
+    let financial;
+    try {
+        financial = planFinancialRecovery({ employees: merged('employees'), projects: merged('projects'),
+            payrollClosures: reads.payrollClosures, projectPayrollConfigs: reads.projectPayrollConfigs,
+            targetProjectId: action === REPAIR_ACTION.CREATE_PROJECT_AND_MAP ? p.projectId : p.targetProjectId,
+            employeeIds: p.financialEmployeeIds || p.employees.map(e => e.id),
+            timestamp: p.repairTimestamp, configurationSource: p.configurationSource });
+    } catch (error) { return { result: conflictResult(error.message, { conflicts: [{ kind: 'FINANCIAL_RECOVERY', message: error.message }] }) }; }
+    for (const employee of financial.employees) {
+        const current = p.memoryFinancialEmployees?.find(e => trimId(e.id) === trimId(employee.id));
+        const durable = (reads.employees || []).find(e => trimId(e.id) === trimId(employee.id));
+        if (current && durable && ['loans', 'advances', 'bonuses', 'deductions'].some(kind =>
+            JSON.stringify(current[kind] || []) !== JSON.stringify(durable[kind] || []))) {
+            return { result: conflictResult('Hay cambios financieros sin guardar. Guarda o recarga y vuelve a revisar antes de recuperar.') };
+        }
+    }
+    for (const [name, rows] of staged) for (const row of rows.values()) txPut(tx, name, row);
+    for (const employee of financial.employees) txPut(tx, 'employees', employee);
+    for (const config of financial.configs) txPut(tx, 'projectPayrollConfigs', config);
+    for (const closure of financial.closures) {
+        txPut(tx, 'payrollClosures', closure);
+        txPut(tx, 'mainSyncOutbox', { kind: 'payrollRecoveredClosure', closureId: closure.id, closure, ts: p.repairTimestamp, status: 'pending' });
+    }
+    const changed = financial.employees.length + financial.closures.length + financial.configs.length;
+    return { ...base,
+        result: { ...base.result, status: changed ? REPAIR_STATUS.OK : base.result.status, financialRecovered: changed, durableCommitted: true },
+        memoryUpdate: { ...base.memoryUpdate, financialEmployeePatches: financial.employees, repairTimestamp: p.repairTimestamp }
+    };
+}
+
 /** Dispatch to the correct in-transaction planner for the given action. */
 function computeRepair(action, reads, tx, p) {
+    if (p.recoverFinancial && [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)) return computeWholeFinancialRecovery(action, reads, tx, p);
     if (p.pettyCashIds?.length && [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)) return computeCashAssignment(action, reads, tx, p);
     switch (action) {
         case REPAIR_ACTION.MAP_FINANCIAL_PLAN:
@@ -2402,7 +2464,7 @@ async function enqueueRepairCloudPropagation(txOutcome) {
 export function previewOwnershipRepair(params = {}) {
     const attendance = collectCallerAttendanceMap(params.attendance);
     const reads = {
-        payrollClosures: params.payrollClosures || [], projects: params.catalog || [], employees: params.allEmployees || params.employees || [],
+        payrollClosures: params.payrollClosures || [], projectPayrollConfigs: params.projectPayrollConfigs || [], projects: params.catalog || [], employees: params.allEmployees || params.employees || [],
         positions: params.positions || [], leaders: params.leaders || [],
         attendance: Object.entries(attendance).map(([key, record]) => ({ ...record, key: record.key || key })),
         settings: null, pettyCashProjects: params.pettyCashProjects || []
@@ -2437,12 +2499,13 @@ export async function applyOwnershipRepair(params = {}) {
         leaderCopies = [],
         pettyCashIds = [],
         financialPlan = null,
+        recoverFinancial = false, configurationSource = '', financialEmployeeIds = null,
         _db = indexedDBService
     } = params;
 
     // --- Input guard: employees must be an explicit non-empty array.
     const catalogOnly = [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)
-        && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length || pettyCashIds.length);
+        && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length || pettyCashIds.length || recoverFinancial);
     if (action !== REPAIR_ACTION.MAP_CATALOG_ENTITIES && !catalogOnly && (!Array.isArray(employees) || employees.length === 0)) {
         return {
             status: REPAIR_STATUS.CONFLICT,
@@ -2495,7 +2558,8 @@ export async function applyOwnershipRepair(params = {}) {
         leaderRemaps,
         leaderCopies,
         pettyCashIds,
-        financialPlan,
+        financialPlan, recoverFinancial, configurationSource, financialEmployeeIds,
+        memoryFinancialEmployees: recoverFinancial ? deepCopy(stateManager._state.employees || []) : null,
         allEmployees: effectiveAllEmployees,
         catalog,
         skipDependencyCheck,
@@ -2509,9 +2573,9 @@ export async function applyOwnershipRepair(params = {}) {
         const rawDb = _db.db || _db;
         let txOutcome = null;
 
-        await runReadWriteTransaction(rawDb, action === REPAIR_ACTION.MAP_FINANCIAL_PLAN ? [...REPAIR_STORES, 'payrollClosures'] : pettyCashIds.length ? [...REPAIR_STORES, 'pettyCashProjects', 'pettyCashOutbox'] : REPAIR_STORES, (reads, tx) => {
+        await runReadWriteTransaction(rawDb, [...REPAIR_STORES, ...(recoverFinancial ? ['payrollClosures', 'projectPayrollConfigs', 'mainSyncOutbox'] : action === REPAIR_ACTION.MAP_FINANCIAL_PLAN ? ['payrollClosures'] : []), ...(pettyCashIds.length ? ['pettyCashProjects', 'pettyCashOutbox'] : [])], (reads, tx) => {
             const durable = {
-                payrollClosures: reads.payrollClosures || [],
+                payrollClosures: reads.payrollClosures || [], projectPayrollConfigs: reads.projectPayrollConfigs || [],
                 projects: reads.projects || [],
                 employees: reads.employees || [],
                 attendance: reads.attendance || [],
