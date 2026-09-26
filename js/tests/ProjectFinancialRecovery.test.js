@@ -64,8 +64,44 @@ test('valid foreign payments are preserved even inside an orphan loan', () => {
     const result = planFinancialRecovery(data);
     expect(result.employees[0].loans[0].payments[1]).toEqual(data.employees[0].loans[0].payments[1]);
 });
-test('missing related closure blocks the whole plan', () => {
+test('missing closure preserves orphan payments and installment history with an audit warning', () => {
+    const data = fixture(), originalClosureId = data.payrollClosures[0].id;
+    data.payrollClosures = [];
+    const before = JSON.stringify(data), result = planFinancialRecovery(data);
+    expect(JSON.stringify(data)).toBe(before);
+    expect(result.closures).toEqual([]);
+    const employee = result.employees[0];
+    expect(employee.loans[0].payments).toHaveLength(1);
+    expect(employee.loans[0].payments[0]).toMatchObject({ id: 'p', amount: 100, payrollProjectId: 'A', payrollClosureId: originalClosureId });
+    expect(employee.loans[0]).toMatchObject({ amount: 1000, balance: 900, projectRecovery: { missingClosureIds: [originalClosureId] } });
+    expect(employee.deductions[0]).toMatchObject({ appliedAmount: 50, balance: 50,
+        projectRecovery: { missingClosureIds: [originalClosureId] } });
+    expect(employee.deductions[0].installments[0]).toEqual(data.employees[0].deductions[0].installments[0]);
+    expect(employee.deductions[0].history).toEqual(data.employees[0].deductions[0].history);
+    expect(result.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ closureId: originalClosureId, employeeId: 'e' })]));
+    const retry = planFinancialRecovery({ ...data, employees: result.employees, timestamp: 600 });
+    expect(retry.employees).toEqual([]);
+    expect(retry.closures).toEqual([]);
+    expect(retry.warnings.length).toBeGreaterThan(0);
+    const late = planFinancialRecovery({ ...data, employees: result.employees, payrollClosures: [closure()], timestamp: 700 });
+    expect(late.closures).toHaveLength(1);
+    expect(late.employees[0].loans[0].payments[0].payrollClosureId).toBe(late.closures[0].id);
+    expect(late.employees[0].loans[0].projectRecovery.missingClosureIds).toBeUndefined();
+    expect(late.warnings).toEqual([]);
+});
+test('an existing foreign closure still blocks an orphan payment', () => {
+    const data = fixture(); data.payrollClosures[0].projectId = 'B';
+    expect(() => planFinancialRecovery(data)).toThrow('pertenece a otra obra');
+});
+test('missing source recovered in another project cannot be claimed', () => {
+    const data = fixture(), sourceId = data.payrollClosures[0].id;
+    data.payrollClosures = [{ id: 'recovered-elsewhere', projectId: 'B', recovery: { sourceId } }];
+    expect(() => planFinancialRecovery(data)).toThrow('otra obra');
+});
+test('missing closure of an already scoped record is not silently accepted', () => {
     const data = fixture(); data.payrollClosures = [];
+    data.employees[0].loans[0].projectId = 'A';
+    data.employees[0].loans[0].payments[0].payrollProjectId = 'A';
     expect(() => planFinancialRecovery(data)).toThrow('Falta un cierre');
 });
 test('a closure shared with an unselected employee cannot be partially recovered', () => {
@@ -108,8 +144,25 @@ describe('atomic financial assignment', () => {
         db.db.close(); db.db = null; db.isInitialized = false; await db.init();
         expect((await db.getAll('employees'))[0]).toEqual(employees[0]);
     });
-    test('missing closure leaves personnel and all financial stores unchanged', async () => {
+    test('missing closure recovery commits once and survives reload without inventing a closure', async () => {
         await db.clear('payrollClosures');
+        const result = await applyOwnershipRepair(params());
+        expect(result.status).toBe(REPAIR_STATUS.OK);
+        expect(result.financialWarnings.length).toBeGreaterThan(0);
+        const saved = (await db.getAll('employees'))[0];
+        expect(saved.projectId).toBe('A');
+        expect(saved.loans[0].payments).toHaveLength(1);
+        expect(saved.loans[0].payments[0]).toMatchObject({ id: 'p', amount: 100,
+            payrollProjectId: 'A', payrollClosureId: data.payrollClosures[0].id });
+        expect(stateManager._state.employees[0]).toEqual(saved);
+        expect(await db.getAll('payrollClosures')).toEqual([]);
+        expect(await db.getAll('mainSyncOutbox')).toEqual([]);
+        expect((await applyOwnershipRepair(params())).status).toBe(REPAIR_STATUS.NO_OP);
+        db.db.close(); db.db = null; db.isInitialized = false; await db.init();
+        expect((await db.getAll('employees'))[0]).toEqual(saved);
+    });
+    test('foreign closure conflict leaves personnel and financial stores unchanged', async () => {
+        await db.update('payrollClosures', { ...data.payrollClosures[0], projectId: 'B' });
         expect((await applyOwnershipRepair(params())).status).toBe(REPAIR_STATUS.CONFLICT);
         expect((await db.getAll('employees'))[0]).toEqual(data.employees[0]);
         expect(await db.getAll('mainSyncOutbox')).toEqual([]);

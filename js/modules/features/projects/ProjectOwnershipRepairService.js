@@ -2300,7 +2300,7 @@ function computeWholeFinancialRecovery(action, reads, tx, p) {
     }
     const changed = financial.employees.length + financial.closures.length + financial.configs.length;
     return { ...base,
-        result: { ...base.result, status: changed ? REPAIR_STATUS.OK : base.result.status, financialRecovered: changed, durableCommitted: true },
+        result: { ...base.result, status: changed ? REPAIR_STATUS.OK : base.result.status, financialRecovered: changed, financialWarnings: financial.warnings, durableCommitted: true },
         memoryUpdate: { ...base.memoryUpdate, financialEmployeePatches: financial.employees, repairTimestamp: p.repairTimestamp }
     };
 }

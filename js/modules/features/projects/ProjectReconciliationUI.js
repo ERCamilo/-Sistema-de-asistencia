@@ -412,7 +412,7 @@ function currentPreflight() {
     if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(planned.status)) {
         return { ...dependency, ok: false, reason: planned.reason, conflicts: planned.conflicts || [] };
     }
-    return dependency;
+    return { ...dependency, financialWarnings: planned.financialWarnings || [] };
 }
 function checkSvg() {
     return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4 10-10"></path></svg>';
@@ -513,6 +513,14 @@ function leaderDetachLabel(d = {}) {
         case 'LEADER_PROJECT_CONFLICT':
         default: return name + ' (líder de otra obra)';
     }
+}
+
+function renderFinancialWarnings(preflight) {
+    const warnings = preflight.financialWarnings || [];
+    if (!warnings.length) return '';
+    return '<div class="r07-recon-hint" data-r07-financial-warnings role="status">'
+        + '<strong>Se conservarán referencias a cierres no disponibles</strong>'
+        + '<ul>' + warnings.map(warning => '<li>' + escapeHTML(warning.message) + '</li>').join('') + '</ul></div>';
 }
 
 function renderDependencyBlocker(preflight) {
@@ -1136,7 +1144,7 @@ function modalContent() {
             + '<div><strong>' + (new Set(currentPositionCopies().map(copy => copy.newPositionId)).size + Object.keys(modalState.leaderCopies).length) + '</strong><span>registros nuevos</span></div></div>'
             + '<div class="r07-preflight-destiny"><span>Obra destino</span><strong>' + escapeHTML(snapshot.projects.find(project => project.id === currentTargetProjectId())?.name || modalState.createName.trim()) + '</strong></div>'
             + '<details class="r07-wizard-details"><summary>Ver decisiones y datos conservados</summary>' + renderPreflightSummary(preflight) + '</details>'
-            + renderDependencyBlocker(preflight) + financialRecoveryControls() + renderOtherIssuesNote() + renderExtendedDiagnostics()
+            + renderDependencyBlocker(preflight) + renderFinancialWarnings(preflight) + financialRecoveryControls() + renderOtherIssuesNote() + renderExtendedDiagnostics()
             + (modalState.pettyCashIds.size ? '<p class="r07-recon-hint">' + modalState.pettyCashIds.size + ' cajas seleccionadas. Se conservan períodos, movimientos y comprobantes.</p>' : '')
             + '<p class="r07-recon-hint">Se guardarán todas las decisiones juntas. Se conservan los sueldos especiales, las horas y los préstamos.</p>'
     ];

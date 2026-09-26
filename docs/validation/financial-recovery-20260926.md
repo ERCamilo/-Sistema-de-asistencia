@@ -32,3 +32,32 @@ Fuente: sesión af5a967b-bc56-4e38-b44f-1354fd5b58e1, revisión de 0cd753b en la
 - La suite y las pruebas de navegador no sustituyen la conciliación de una copia aislada del respaldo real.
 - No se certificó sincronización autenticada de esta nueva recuperación de cierres entre dos dispositivos; las pruebas de laboratorio anteriores cubren otras correcciones de la rama.
 - No se fusionó ni desplegó producción. Una publicación de la rama solo genera preview.
+
+## Corrección de cierres ausentes — 2026-09-26
+
+El reporte del usuario identificó un abono cuyo payrollClosureId apunta a un
+cierre no disponible. La revisión anterior bloqueaba toda la asignación en ese
+caso. Esta actualización sustituye exclusivamente esa regla para los registros
+financieros huérfanos.
+
+- Se conserva el pago existente, su ID, importe y referencia al cierre ausente.
+  No se recalcula dinero, se duplica el abono ni se fabrica un cierre.
+- El registro guarda projectRecovery.missingClosureIds; el resumen previo
+  muestra la advertencia, el empleado y el registro involucrados.
+- La reejecución conserva las identidades y no genera cambios adicionales.
+  Si posteriormente se incorpora el cierre original, puede recuperarse y
+  actualizar las referencias; se retira la marca de ausencia.
+- Sigue bloqueada la recuperación si el cierre existe en otra obra, si ya
+  fue recuperado en otra obra o si faltan dependencias de un cierre que sí existe.
+  Los registros ya válidamente asignados no reciben esta excepción salvo
+  referencias históricas previamente registradas por esta recuperación.
+- Las pruebas usan datos sintéticos, incluidos los identificadores reportados.
+  No se accedió a la base del navegador del usuario ni se modificó producción.
+
+Validación: 485 suites / 4702 pruebas PASS. Navegador Chromium: cuatro escenarios
+PASS (obra existente en escritorio y obra nueva en móvil, con y sin cierre);
+verifican previsualización sin escrituras, conservación de dinero/asistencia/
+sueldos especiales, advertencia visible y persistencia tras recarga.
+Comando reproducible: node scripts/check-financial-recovery.cjs.
+Para una preview: RECOVERY_TEST_ORIGIN=https://<preview>.pages.dev node scripts/check-financial-recovery.cjs.
+El script utiliza contextos aislados y bloquea llamadas a Firebase.

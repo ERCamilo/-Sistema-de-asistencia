@@ -194,12 +194,15 @@ describe('project assignment wizard', () => {
         expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(true);
     });
 
-    test('financial blocker shows the missing closure and allows reviewing recovery on the blocked step', async () => {
+    test('financial blocker shows the foreign closure and allows reviewing recovery on the blocked step', async () => {
         state.employees = [{ id: 'emp-w', number: '1', name: 'Ana', positions: [],
             loans: [{ id: 'loan-w', amount: 100, payments: [
                 { id: 'pay-w', amount: 10, source: 'payroll', payrollClosureId: 'missing-<closure>' }
             ] }] }];
         state.positions = []; state.leaders = [];
+        setup.mockResolvedValue({ enabled: true, ready: true, activeProjectId: project.id, defaultProjectId: project.id,
+            projects: [project, { id: 'foreign', name: 'Otra obra', status: 'active' }] });
+        cashRead.mockImplementation(async store => store === 'payrollClosures' ? [{ id: 'missing-<closure>', projectId: 'foreign' }] : []);
         const original = JSON.stringify(state.employees);
         await openProjectReconciliation();
         change('[name="r07-recon-action"][value="map"]');
@@ -207,7 +210,7 @@ describe('project assignment wizard', () => {
         click('quick-assign');
         const step = document.querySelector('[data-r07-step]:not([hidden])');
         const alert = step.querySelector('.r07-recon-blocker');
-        expect(alert.textContent).toContain('Falta un cierre');
+        expect(alert.textContent).toContain('pertenece a otra obra');
         expect(alert.textContent).toContain('missing-<closure>');
         expect(alert.querySelector('closure')).toBeNull();
         expect(alert.textContent).toContain('Ana');
@@ -220,6 +223,27 @@ describe('project assignment wizard', () => {
         toggle.dispatchEvent(new Event('change', { bubbles: true }));
         click('wizard-next');
         expect(visibleStep()).toBe('4');
+        expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(false);
+        expect(apply).not.toHaveBeenCalled();
+        expect(JSON.stringify(state.employees)).toBe(original);
+    });
+
+    test('missing orphan closure reaches final review with a warning and no preview writes', async () => {
+        state.employees = [{ id: 'EMP1769317082863', number: '1', name: 'Wadne Exilien', positions: [],
+            loans: [{ id: 'LOAN-msxkousx-a-8at1ve', amount: 100, payments: [
+                { id: 'PAYROLL-erodn21d0ufo0', amount: 10, source: 'payroll', payrollClosureId: 'PAYROLL-CLOSURE-127z9jc1yh3evo' }
+            ] }] }];
+        state.positions = []; state.leaders = [];
+        const original = JSON.stringify(state.employees);
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="map"]');
+        change('[data-r07-control="target-project"]', project.id);
+        click('quick-assign');
+        expect(visibleStep()).toBe('4');
+        const step = document.querySelector('[data-r07-step="4"]');
+        expect(step.querySelector('.r07-recon-blocker')).toBeNull();
+        expect(step.querySelector('[data-r07-financial-warnings]').textContent).toContain('PAYROLL-CLOSURE-127z9jc1yh3evo');
+        expect(step.querySelector('[data-r07-financial-warnings]').textContent).toContain('Wadne Exilien');
         expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(false);
         expect(apply).not.toHaveBeenCalled();
         expect(JSON.stringify(state.employees)).toBe(original);

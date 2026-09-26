@@ -12,11 +12,11 @@ const http = require('node:http');
   fs.readFile(file,(err,data)=>{if(err){res.writeHead(404).end();return;}res.setHeader('Content-Type',mime[path.extname(file)]||'text/plain');res.end(data);});
  });
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- const origin = 'http://127.0.0.1:' + server.address().port;
+ const origin = process.env.RECOVERY_TEST_ORIGIN || 'http://127.0.0.1:' + server.address().port;
  let browser;
  try {
   browser = await puppeteer.launch({executablePath:process.env.CHROMIUM_PATH || '/snap/bin/chromium',headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
-  for (const scenario of [{width:1280,height:900,action:'map'},{width:390,height:844,action:'create'}]) {
+  for (const scenario of [{width:1280,height:900,action:'map'},{width:390,height:844,action:'create'}].flatMap(s => [ {...s,missingClosure:false}, {...s,missingClosure:true} ])) {
    const context = await browser.createBrowserContext();
    const page = await context.newPage(), errors=[];
    page.on('pageerror',error=>errors.push(error.message));
@@ -28,7 +28,7 @@ const http = require('node:http');
    });
    await page.setViewport({width:scenario.width,height:scenario.height});
    await page.goto(origin+'/design.md');
-   await page.evaluate(async()=>{
+   await page.evaluate(async(missingClosure)=>{
     localStorage.setItem('onboardingCompleted','true');
     localStorage.setItem('asistencia_feature_projects','true');
     localStorage.setItem('asistencia_default_project_id','PRJ-recovery-test');
@@ -48,8 +48,8 @@ const http = require('node:http');
       installments:[{id:'i1',amount:50,appliedAmount:50,status:'applied',payrollClosureId:closure.id},{id:'i2',amount:50,appliedAmount:0,status:'pending'}],
       history:[{id:'h1',source:'payroll',amount:50,payrollClosureId:closure.id}]}]});
     await db.update('attendance',{key:'emp-recovery-2026-09-01',employeeId:'emp-recovery',date:'2026-09-01',present:true,hoursWorked:8,overtimeHours:2});
-    await db.update('payrollClosures',closure);
-   });
+    if (!missingClosure) await db.update('payrollClosures',closure);
+   }, scenario.missingClosure);
    const read=()=>page.evaluate(async()=>{
     const {default:db}=await import('/js/modules/services/IndexedDBService.js');
     return {employees:await db.getAll('employees'),attendance:await db.getAll('attendance'),closures:await db.getAll('payrollClosures'),projects:await db.getAll('projects')};
@@ -66,25 +66,37 @@ const http = require('node:http');
    assert.equal(await page.$eval('[data-r07-step]:not([hidden])',el=>el.dataset.r07Step),'4');
    assert.equal(await page.$eval('[data-r07-action="apply"]',el=>el.disabled),false);
    assert.deepEqual(await read(),before,'preview must not write');
+   if (scenario.missingClosure) {
+    const warning = await page.$eval('[data-r07-step="4"] [data-r07-financial-warnings]',el=>el.textContent);
+    assert.ok(warning.includes(before.employees[0].loans[0].payments[0].payrollClosureId));
+    assert.ok(warning.includes('Ana'));
+   }
    await page.click('[data-r07-action="wizard-back"]');
    assert.deepEqual(await read(),before,'back must not write');
    while(await page.$eval('[data-r07-step]:not([hidden])',el=>el.dataset.r07Step)!=='4') await page.click('[data-r07-action="wizard-next"]');
    const layout=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth,footer:document.querySelector('.r07-recon-footer').getBoundingClientRect().bottom,height:innerHeight}));
    assert.equal(layout.overflow,false);assert.ok(layout.footer<=layout.height+1,JSON.stringify(layout));
    await page.click('[data-r07-action="apply"]');
-   await page.waitForFunction(async()=>{const {default:db}=await import('/js/modules/services/IndexedDBService.js');return (await db.getAll('payrollClosures')).length===2;},{timeout:15000});
+   await page.waitForFunction(async()=>{const {default:db}=await import('/js/modules/services/IndexedDBService.js');const e=(await db.getAll('employees'))[0];return Boolean(e?.projectId && e.loans[0].payments[0].payrollProjectId===e.projectId);},{timeout:15000});
    const after=await read(), employee=after.employees[0], recovered=after.closures.find(c=>c.recovery);
    assert.ok(employee.projectId);
-   assert.equal(recovered.projectId,employee.projectId);
-   assert.deepEqual(after.closures.find(c=>c.id===before.closures[0].id),before.closures[0]);
-   assert.deepEqual(recovered.rows,before.closures[0].rows);
-   assert.deepEqual(recovered.totals,before.closures[0].totals);
+   const expectedClosureId = scenario.missingClosure ? before.employees[0].loans[0].payments[0].payrollClosureId : recovered.id;
+   if (scenario.missingClosure) {
+    assert.equal(after.closures.length,0);
+    assert.deepEqual(employee.loans[0].projectRecovery.missingClosureIds,[expectedClosureId]);
+    assert.deepEqual(employee.deductions[0].history,before.employees[0].deductions[0].history);
+   } else {
+    assert.equal(recovered.projectId,employee.projectId);
+    assert.deepEqual(after.closures.find(c=>c.id===before.closures[0].id),before.closures[0]);
+    assert.deepEqual(recovered.rows,before.closures[0].rows);
+    assert.deepEqual(recovered.totals,before.closures[0].totals);
+   }
    assert.equal(employee.loans[0].amount,1000);assert.equal(employee.loans[0].balance,900);
    assert.equal(employee.loans[0].payments.length,1);
-   assert.equal(employee.loans[0].payments[0].payrollClosureId,recovered.id);
+   assert.equal(employee.loans[0].payments[0].payrollClosureId,expectedClosureId);
    assert.equal(employee.loans[0].payments[0].amount,100);
    assert.equal(employee.deductions[0].appliedAmount,50);assert.equal(employee.deductions[0].balance,50);
-   assert.equal(employee.deductions[0].history[0].payrollClosureId,recovered.id);
+   assert.equal(employee.deductions[0].history[0].payrollClosureId,expectedClosureId);
    assert.equal(employee.deductions[0].installments[0].status,'applied');
    assert.equal(employee.deductions[0].installments[1].status,'pending');
    assert.deepEqual(employee.positionSalaries,before.employees[0].positionSalaries);
@@ -92,7 +104,7 @@ const http = require('node:http');
    await page.reload({waitUntil:'networkidle2'});
    assert.deepEqual(await read(),after,'reload must retain recovered data');
    assert.deepEqual(errors,[]);
-   console.log(JSON.stringify({status:'PASS',action:scenario.action,width:scenario.width,closureCount:after.closures.length,preservedMoney:true,reload:true,noRealAccount:true}));
+   console.log(JSON.stringify({status:'PASS',action:scenario.action,width:scenario.width,missingClosure:scenario.missingClosure,closureCount:after.closures.length,preservedMoney:true,reload:true,noRealAccount:true}));
    await context.close();
   }
  } finally {if(browser) await browser.close();await new Promise(resolve=>server.close(resolve));}
