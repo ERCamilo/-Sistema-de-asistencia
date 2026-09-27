@@ -75,4 +75,29 @@ describe('backup closure export and public FULL import', () => {
         const c = fixture();
         expect(() => payrollClosureRestoreOptions({payrollClosures:[c,c]})).toThrow('duplicado');
     });
+    test.each(['closed', 'voided'])('FULL restores and exports schema 1 history verbatim (%s)', async status => {
+        const c = { ...fixture(), schemaVersion: 1, status,
+            migrationSource: 'legacy-payroll-loan-batch', loanSettlementBatchId: 'legacy-batch',
+            paymentRefs: [{ employeeId: 'e', loanId: 'loan', paymentId: 'p' }],
+            ...(status === 'voided' ? { voidedAt: 120, voidedBy: 'original-actor', voidReason: 'Cierre anulado' } : {}) };
+        expect(await apply(payload(c))).toBe(true);
+        expect(await readPayrollClosuresForBackup(db)).toEqual([c]);
+        expect((await db.getAll('employees'))[0].loans[0].payments[0].payrollClosureId).toBe(c.id);
+        const retry = { ...c, status: 'closed' };
+        expect(await apply(payload(retry))).toBe(true);
+        expect(await db.getAll('payrollClosures')).toEqual([c]);
+    });
+    test.each([0, 4, '1'])('unsupported closure version %s fails before replacing data', async schemaVersion => {
+        const c = { ...fixture(), schemaVersion };
+        expect(await apply(payload(c))).toBe(false);
+        expect((await db.getAll('employees'))[0].id).toBe('old');
+        expect(await db.getAll('payrollClosures')).toEqual([]);
+    });
+    test('incomplete schema 1 still fails before replacing data', async () => {
+        const c = { ...fixture(), schemaVersion: 1 };
+        delete c.rows;
+        expect(await apply(payload(c))).toBe(false);
+        expect((await db.getAll('employees'))[0].id).toBe('old');
+    });
+
 });

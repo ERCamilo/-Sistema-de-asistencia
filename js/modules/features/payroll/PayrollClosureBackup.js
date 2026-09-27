@@ -21,7 +21,7 @@ export function payrollClosureRestoreOptions(data = {}) {
     for (const closure of payrollClosures) {
         if (!closure || typeof closure.id !== 'string' || !closure.id.trim()
             || typeof closure.fingerprint !== 'string' || !closure.fingerprint
-            || ![2, 3].includes(closure.schemaVersion)
+            || ![1, 2, 3].includes(closure.schemaVersion)
             || !['closed', 'voided'].includes(closure.status)
             || !Array.isArray(closure.rows) || !closure.totals || typeof closure.totals !== 'object'
             || typeof closure.periodStart !== 'string' || typeof closure.periodEnd !== 'string') {
@@ -29,6 +29,8 @@ export function payrollClosureRestoreOptions(data = {}) {
         }
         if (seen.has(closure.id)) throw new Error('El respaldo contiene un cierre duplicado: ' + closure.id);
         seen.add(closure.id);
+        // Historical v1/v2 closures are restored verbatim, including void audit
+        // and payment references. Import is not a promotion or a recalculation.
         if (closure.schemaVersion === 3) validatePayrollClosureForScopedWrite(closure, closure.projectId);
     }
     return { payrollClosures };

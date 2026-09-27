@@ -32,3 +32,16 @@ The private backup and reproduction script are not committed. Tests used an isol
 - Legacy closure recovery/deduplication findings from the post-merge Claude review are not addressed here.
 - Production reported a missing Firestore payroll closure index. Its definition already exists in `firestore.indexes.json`; availability in the Firebase project has not been verified or changed.
 - No authenticated cloud or multi-device validation is claimed.
+
+## Compatibility follow-up: schema 1 closure restore
+
+The private backup contains an annulled schemaVersion 1 closure. The former restore validator accepted only versions 2/3, despite the exporter including version 1 records. This rejected the file before restoration.
+
+The validator now admits versions 1/2/3 with the existing required-content checks. Versions 1/2 are restored verbatim; version 3 retains scoped-write validation. No promotion, recalculation, deletion or revival is performed.
+
+Validation of this follow-up:
+- 22 tests PASS across PayrollClosureBackupFlows and PayrollClosureBackupAtomic, including six new legacy/unsupported/incomplete cases.
+- Actual private file import using loadBackupFromFile and the visible Restore locally button: PASS after navigation/reload; 54 employees, 3110 attendance records and all three exact closures restored. Loans, deductions and salary overrides compared with the source.
+- Public browser regression script now covers schema 1 (annulled), 2 and 3 together: FILE desktop and FULL mobile PASS, including export, reload, payment references and conflict rollback.
+- Private backup/script remain excluded from git.
+- Prior reconciliation evidence loaded its fixture directly into IndexedDB. It did not exercise backup import; the new private file-import check above closes that specific coverage gap.
