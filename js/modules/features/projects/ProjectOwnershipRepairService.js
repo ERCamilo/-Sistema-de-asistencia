@@ -2031,7 +2031,7 @@ function computeCatalogEntityMap(reads, tx, p) {
         }
         writeLeaders.push({ ...leader, projectId: target, updatedAt: p.repairTimestamp });
     }
-    if (conflicts.length) return { result: conflictResult('Resolve linked employees, positions and leaders first', { conflicts }) };
+    if (conflicts.length) return { result: conflictResult('Revisa las relaciones entre empleados, puestos y líderes antes de continuar.', { conflicts }) };
     const updatedMeta = buildUpdatedMeta(reads.settings, {
         action: REPAIR_ACTION.MAP_CATALOG_ENTITIES, targetProjectId: target,
         positionIds, leaderIds
