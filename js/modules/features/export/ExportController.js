@@ -1,3 +1,4 @@
+import { payrollClosureRestoreOptions } from '../payroll/PayrollClosureBackup.js';
 /**
  * 📤 ExportController — Handlers for the export popover and import modal.
  *
@@ -24,7 +25,7 @@ import {
     isProjectRepairIsolationInProgress,
     resumeSuspendedSaveOptions
 } from '../../services/PersistenceService.js';
-import { PettyCashStore } from '../pettycash/PettyCashStore.js';
+import { preparePettyCashBackupForRestore } from '../../services/SnapshotSanitizer.js';
 
 // FULL import uses the ordinary persistence function for explicit options.
 // The no-argument call runs only after the atomic FULL commit already succeeded:
@@ -845,6 +846,7 @@ async function applyFullImport(importedData) {
     lastFullImportReconciliation = null;
     try {
         assertProjectRepairAllowed();
+        const closureOptions = payrollClosureRestoreOptions(data);
         suspendedSaveOptions = beginFullImportIsolation();
         isolationActive = true;
         projects = isProjectsEnabled() ? await prepareFullImportProjectPreflight(data) : null;
@@ -858,8 +860,8 @@ async function applyFullImport(importedData) {
             preparedPettyCash = await restorePettyCashFromImport(data.pettyCash);
         }
         let ok;
-        if (projects) ok = await saveToIndexedDB({ clearFirst: true, projectSurface: projects, entityScope: projects.incomingScope });
-        else ok = await saveToIndexedDB({ clearFirst: true });
+        if (projects) ok = await saveToIndexedDB({ clearFirst: true, ...closureOptions, projectSurface: projects, entityScope: projects.incomingScope });
+        else ok = await saveToIndexedDB({ clearFirst: true, ...closureOptions });
         if (!ok) throw new Error('no se pudo guardar en IndexedDB');
         durableCommitted = true;
         if (projects) commitProjectSurfacePointers(projects, previousState.projectPointers);
@@ -905,7 +907,7 @@ export function confirmImportFull() {
         // Real UI path: keep the exact same overlay/shell and morph its content
         // from paste -> confirmation (design.md §4.4 / §5.8).
         if (typeof document !== 'undefined' && document.querySelector('.import-full-dialog')) {
-            showImportFullConfirmStage({ employeesCount });
+            showImportFullConfirmStage({ employeesCount, closuresCount: Array.isArray(importedData.data.payrollClosures) ? importedData.data.payrollClosures.length : null });
             return;
         }
 
@@ -954,8 +956,8 @@ export async function applyConfirmedFullImport() {
 }
 
 async function restorePettyCashFromImport(pettyCashBackup) {
-    const prepared = await PettyCashStore.prepareForFullImport(pettyCashBackup);
-    if (prepared) stateManager.getState().pettyCash = prepared;
+    const prepared = preparePettyCashBackupForRestore(pettyCashBackup);
+    if (prepared) stateManager.getState().pettyCash = prepared.pettyCash;
     return prepared;
 }
 

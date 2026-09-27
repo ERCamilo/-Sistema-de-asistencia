@@ -115,8 +115,8 @@ describe('F1.9 S1 manifest counts effective ownership without mutating', () => {
     });
 });
 
-describe('F1.9 S1 OFF shape unchanged / ON additive surface', () => {
-    test('OFF export must not add meta/projects/projectPayrollConfigs keys (byte-identical base)', () => {
+describe('Project surface stays gated independently of closure backup', () => {
+    test('OFF export must not add project-surface keys', () => {
         const src = read('../app.js');
         const block = src.match(/window\.exportData\s*=\s*async\s*function[\s\S]*?showExportMenu/);
         expect(block).toBeTruthy();
@@ -142,11 +142,11 @@ describe('F1.9 S1 OFF shape unchanged / ON additive surface', () => {
         expect(beforeGuard).not.toMatch(/getAll\(['"]projects['"]\)/);
     });
 
-    test('ON export adds projects[] + projectPayrollConfigs[] + projectBackup via existing reads, never closures', () => {
+    test('project manifest helper adds project surface; closure backup is independent', () => {
         const src = read('../app.js');
         const helperStart = src.indexOf('async function maybeAttachProjectBackup');
         expect(helperStart).toBeGreaterThan(-1);
-        const helper = src.slice(helperStart, helperStart + 3000);
+        const helper = src.slice(helperStart, src.indexOf('window.exportData =', helperStart));
         const code = helper.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
         expect(code).toMatch(/getAll\(['"]projects['"]\)/);
         expect(code).toMatch(/getAll\(['"]projectPayrollConfigs['"]\)/);
@@ -154,7 +154,7 @@ describe('F1.9 S1 OFF shape unchanged / ON additive surface', () => {
         expect(code).toMatch(/exportData\.data\.projects\s*=/);
         expect(code).toMatch(/exportData\.data\.projectPayrollConfigs\s*=/);
         expect(code).toMatch(/exportData\.data\.projectBackup\s*=/);
-        // S1 file surface never includes closures
+        // This manifest helper does not own the independent closure payload
         expect(code).not.toMatch(/payrollClosures/);
         // Petty sanitized payload preserved in window.exportData
         const block = src.match(/window\.exportData\s*=\s*async\s*function[\s\S]*?showExportMenu/);
@@ -304,7 +304,7 @@ describe('F1.9 S1 diagnose: legacy, foreign A→B, gaps, no rewrite', () => {
 });
 
 describe('F1.9 S1 applyBackupData semantics preserved (default-preserve, no widened clearFirst)', () => {
-    test('applyBackupData keeps existing roster/petty semantics and ignores project surface', () => {
+    test('applyBackupData preserves roster/petty semantics and restores closures atomically', () => {
         const src = read('../app.js');
         const start = src.indexOf('async function applyBackupData');
         // Isolate to the function body only (up to its closing + next doc block),
@@ -314,13 +314,13 @@ describe('F1.9 S1 applyBackupData semantics preserved (default-preserve, no wide
         const block = endRel > 0 ? tail.slice(0, endRel) : tail.slice(0, 4500);
         expect(block).toMatch(/state\.settings\s*=\s*data\.settings/);
         expect(block).toMatch(/state\.employees\s*=\s*data\.employees/);
-        expect(block).toMatch(/saveToIndexedDB\(\{\s*clearFirst:\s*true\s*\}\)/);
+        expect(block).toMatch(/saveToIndexedDB\(\{\s*clearFirst:\s*true,\s*\.\.\.closureOptions\s*\}\)/);
         expect(block).toMatch(/PettyCashStore\.applyRemote/);
         expect(block).toMatch(/preparePettyCashBackupForRestore/);
-        // S1 must not restore projects/configs/closures or widen clearFirst
+        // Project-surface adoption remains separate; closure options join the atomic restore
         expect(block).not.toMatch(/data\.projects/);
         expect(block).not.toMatch(/projectPayrollConfigs/);
-        expect(block).not.toMatch(/payrollClosures/);
+        expect(block).toMatch(/payrollClosureRestoreOptions/);
     });
 });
 

@@ -1,3 +1,5 @@
+import { payrollClosureRestoreOptions } from '../features/payroll/PayrollClosureBackup.js';
+import { resolvePayrollClosureMutation } from '../features/payroll/PayrollClosureMerge.js';
 /**
  * 💾 INDEXEDDB SERVICE
  * Módulo para gestionar la base de datos local y asegurar integridad de datos.
@@ -1012,6 +1014,9 @@ export class IndexedDBService {
             ? ['projects', 'projectPayrollConfigs'].filter(name => this.db.objectStoreNames.contains(name))
             : [];
         const storesToReplace = [...ownStores, ...cashStores, ...projectStores];
+        const { payrollClosures = [] } = payrollClosureRestoreOptions(options);
+        // Cierres históricos: unir por identidad, nunca borrar los que faltan en el archivo.
+        const transactionStores = [...storesToReplace, ...(payrollClosures.length ? ['payrollClosures'] : [])];
 
         const empMap = new Map();
         (state.employees || []).forEach(employee => {
@@ -1064,7 +1069,7 @@ export class IndexedDBService {
         });
 
         return new Promise((resolve, reject) => {
-            const tx = this.db.transaction(storesToReplace, 'readwrite');
+            const tx = this.db.transaction(transactionStores, 'readwrite');
             let operationError = null;
             let settled = false;
             const fail = () => {
@@ -1101,6 +1106,19 @@ export class IndexedDBService {
                     const store = tx.objectStore(storeName);
                     records.forEach(record => store.put(this._serializeForIDB(record)));
                 };
+                for (const closure of payrollClosures) {
+                    const store = tx.objectStore('payrollClosures');
+                    const request = store.get(closure.id);
+                    request.onsuccess = () => {
+                        try {
+                            const merged = resolvePayrollClosureMutation(request.result, closure);
+                            if (merged.write) store.put(this._serializeForIDB(merged.value));
+                        } catch (error) {
+                            operationError = error;
+                            try { tx.abort(); } catch (_) { fail(); }
+                        }
+                    };
+                }
                 putAll('employees', [...empMap.values()]);
                 putAll('positions', state.positions || []);
                 putAll('leaders', [...leaderMap.values()]);

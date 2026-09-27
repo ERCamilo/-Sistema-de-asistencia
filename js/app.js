@@ -1,3 +1,5 @@
+import { readPayrollClosuresForBackup, payrollClosureRestoreOptions } from './modules/features/payroll/PayrollClosureBackup.js';
+import { beginFullImportIsolation, endFullImportIsolation, resumeSuspendedSaveOptions } from './modules/services/PersistenceService.js';
 import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
 import { hydrateApplicationAndInitializeWeather } from './modules/core/StartupOrchestrator.js';
@@ -5771,13 +5773,15 @@ window.updateInstallPWAButton = function () {
 // FUNCIONES DE BACKUP MANUAL (CANVAS DE CLAUDE)
 // ============================================
 
-window.downloadBackupNow = function () {
+window.downloadBackupNow = async function () {
     try {
+        const payrollClosures = await readPayrollClosuresForBackup(indexedDBService);
         const backupData = {
             version: '1.0.0',
             timestamp: new Date().toISOString(),
             appName: state.settings.companyName,
             data: {
+                payrollClosures,
                 employees: state.employees,
                 positions: state.positions,
                 leaders: state.leaders,
@@ -6093,6 +6097,7 @@ async function maybeAttachProjectBackup(exportData) {
 
 window.exportData = async function () {
     try {
+        const payrollClosures = await readPayrollClosuresForBackup(indexedDBService);
         // 💵 M3: incluir la caja chica en el backup. Se lee de PettyCashStore
         // (IndexedDB, la verdad durable) y NO de state.pettyCash, que puede
         // no estar cargado si nunca se abrió la pestaña en esta sesión.
@@ -6110,6 +6115,7 @@ window.exportData = async function () {
             exportDate: new Date().toISOString(),
             companyName: state.settings.companyName,
             data: {
+                payrollClosures,
                 settings: state.settings,
                 positions: state.positions,
                 employees: state.employees,
@@ -6168,8 +6174,15 @@ window.createFirebaseSnapshot = async function (type = 'auto', reason = null) {
  * 🛠️ Aplica los datos de un backup al estado actual y guarda localmente
  */
 async function applyBackupData(importedData) {
+    let previous = null, suspendedSaveOptions = null, isolationActive = false, durableCommitted = false;
     try {
         const data = importedData.data;
+        const closureOptions = payrollClosureRestoreOptions(data);
+        suspendedSaveOptions = beginFullImportIsolation();
+        isolationActive = true;
+        previous = { settings: state.settings, employees: state.employees, positions: state.positions,
+            leaders: state.leaders, attendance: state.attendance, tempAssignments: state.tempAssignments,
+            dayHoursConfig: state.dayHoursConfig };
         // H-05 A5: ingress legacy backup/snapshot — sanear exportConfig transitorio antes de aplicar
         if (data && typeof data === 'object') sanitizeExportConfig(data);
         if (importedData && typeof importedData === 'object') sanitizeExportConfig(importedData);
@@ -6177,7 +6190,7 @@ async function applyBackupData(importedData) {
         if (data && data.state && typeof data.state === 'object') sanitizeExportConfig(data.state);
 
         // Sobrescribir estado (Atomicity local)
-        state.settings = data.settings || state.settings;
+        state.settings = data.settings || { ...state.settings };
         state.positions = data.positions || [];
         state.employees = data.employees || [];
         state.leaders = data.leaders || [];
@@ -6204,7 +6217,12 @@ async function applyBackupData(importedData) {
         buildAttendanceIndex();
 
         // Guardar en IndexedDB
-        await saveToIndexedDB({ clearFirst: true });
+        if (!await saveToIndexedDB({ clearFirst: true, ...closureOptions })) {
+            throw new Error('No se pudo restaurar el respaldo; se conservaron los datos anteriores.');
+        }
+        durableCommitted = true;
+        endFullImportIsolation({ commit: true });
+        isolationActive = false;
 
         // 💵 M3: restaurar la caja chica si el backup la trae (formato nuevo).
         // Backups viejos sin pettyCash: los stores locales quedan intactos
@@ -6235,6 +6253,14 @@ async function applyBackupData(importedData) {
 
         return true;
     } catch (error) {
+        if (!durableCommitted && previous) {
+            stateManager.batchSetState(() => Object.assign(stateManager.getState(), previous));
+            invalidateAllStats();
+            buildAttendanceIndex();
+            render();
+        }
+        if (isolationActive) endFullImportIsolation({ commit: false });
+        if (!durableCommitted) resumeSuspendedSaveOptions(suspendedSaveOptions);
         console.error("Error aplicando backup:", error);
         logError(error, 'aplicar el backup local');
         showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');
@@ -6274,6 +6300,8 @@ window.loadBackupFromFile = function (file, hooks = {}) {
             const __preContainer = (importedData && typeof importedData === 'object' && importedData.data && typeof importedData.data === 'object')
                 ? importedData.data
                 : (importedData && typeof importedData === 'object' ? importedData : null);
+            const __hasClosures = __preContainer && Object.prototype.hasOwnProperty.call(__preContainer, 'payrollClosures');
+            const __preClosures = __hasClosures ? __preContainer.payrollClosures : undefined;
             const __preProjects = __preContainer && Array.isArray(__preContainer.projects) ? __preContainer.projects : null;
             const __preConfigs = __preContainer && Array.isArray(__preContainer.projectPayrollConfigs) ? __preContainer.projectPayrollConfigs : null;
             const __preManifest = __preContainer && __preContainer.projectBackup && typeof __preContainer.projectBackup === 'object' ? __preContainer.projectBackup : null;
@@ -6284,6 +6312,7 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                 try {
                     const __postContainer = importedData && importedData.data && typeof importedData.data === 'object' ? importedData.data : null;
                     if (__postContainer) {
+                        if (__hasClosures) __postContainer.payrollClosures = __preClosures;
                         if (__preProjects && !Array.isArray(__postContainer.projects)) __postContainer.projects = __preProjects;
                         if (__preConfigs && !Array.isArray(__postContainer.projectPayrollConfigs)) __postContainer.projectPayrollConfigs = __preConfigs;
                         if (__preManifest && typeof __postContainer.projectBackup !== 'object') __postContainer.projectBackup = __preManifest;
@@ -6341,7 +6370,7 @@ window.loadBackupFromFile = function (file, hooks = {}) {
             RestoreUI.showComparisonModal(importedData, state, {
                 // Opción 1: Restaurar Local (Offline)
                 onLocalRestore: async () => {
-                    await applyBackupData(importedData);
+                    if (!await applyBackupData(importedData)) return;
                     if (onSuccess) onSuccess();
                     setTimeout(() => location.reload(), 1200);
                 },
@@ -6350,7 +6379,7 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                 onDisconnectRestore: async () => {
                     await FirebaseService.logout();
                     window.currentUser = null;
-                    await applyBackupData(importedData);
+                    if (!await applyBackupData(importedData)) return;
                     if (onSuccess) onSuccess();
                     showNotification('🚶 Sesión cerrada y backup restaurado localmente', 'info');
                     setTimeout(() => location.reload(), 1200);
