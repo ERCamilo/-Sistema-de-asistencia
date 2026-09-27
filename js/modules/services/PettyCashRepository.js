@@ -9,12 +9,13 @@
  * Mismo patrón que EmployeeRepository: API pura de IO contra Firestore,
  * sin conocer el state global. Cada doc es plano (los niveles se enlazan
  * por id: period.projectId, movement.periodId), así que NO hay arreglos
- * anidados → no se necesita merge-por-id; basta setDoc con { merge:true }.
+ * anidados. El upsert transaccional rechaza versiones antiguas comparables
+ * y conserva el cambio local en el outbox para revisión.
  */
 
 import {
     auth, db,
-    doc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where
+    doc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where, runTransaction
 } from '../data/firebase.js';
 import { SyncStatus } from './SyncStatus.js';
 import { PettyCashPersistenceMetrics } from '../features/pettycash/PettyCashPersistenceMetrics.js';
@@ -123,7 +124,19 @@ function makeRepo(COLLECTION, metricCollection) {
                 operation: 'save', collection: metricCollection, stage: 'cloud-attempt', source
             });
             try {
-                await setDoc(ref, payload, { merge: true });
+                await runTransaction(db, async transaction => {
+                    const current = await transaction.get(ref);
+                    const remote = current.exists() ? current.data() : null;
+                    const remoteTime = Number(remote?.updatedAt);
+                    const localTime = Number(payload.updatedAt);
+                    if (remote && Number.isFinite(remoteTime) && remoteTime > 0
+                        && Number.isFinite(localTime) && localTime > 0 && remoteTime > localTime) {
+                        const conflict = new Error('Caja chica: existe una versión más reciente en la nube. Revisa el cambio pendiente antes de reintentar.');
+                        conflict.code = 'failed-precondition';
+                        throw conflict;
+                    }
+                    transaction.set(ref, payload, { merge: true });
+                });
                 PettyCashPersistenceMetrics.record({
                     operation: 'save', collection: metricCollection, stage: 'cloud-success', source,
                     durationMs: Date.now() - startedAt

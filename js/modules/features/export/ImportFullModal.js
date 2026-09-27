@@ -64,6 +64,10 @@ function confirmStage() {
                 <strong>${count}</strong>
                 <span>${count === 1 ? 'empleado en el respaldo' : 'empleados en el respaldo'}</span>
             </div>
+            <p data-backup-closures>${confirmContext.closuresCount == null
+                ? 'Este respaldo antiguo no incluye cierres de nómina.'
+                : String(Math.max(0, Number(confirmContext.closuresCount) || 0)) + ' cierres de nómina incluidos.'}
+                Los cierres existentes se conservan; no se reactivan cierres anulados.</p>
             <div class="import-full-inline-warning" role="status">
                 <strong>Se reemplazarán los datos actuales de SA.</strong>
                 <span>Si el respaldo necesita una decisión de obra, SA la pedirá antes de guardar cualquier cambio.</span>
@@ -192,9 +196,9 @@ export function showImportFullPasteStage() {
     morphVisibleShell();
 }
 
-export function showImportFullConfirmStage({ employeesCount = 0 } = {}) {
+export function showImportFullConfirmStage({ employeesCount = 0, closuresCount = null } = {}) {
     stage = 'confirm';
-    confirmContext = { employeesCount };
+    confirmContext = { employeesCount, closuresCount };
     embeddedContext = null;
     return morphVisibleShell();
 }

@@ -474,6 +474,7 @@ function _mainSyncGuards() {
             }
         },
         savePayrollClosure: (closure) => PayrollClosureRepository.saveOne(closure),
+        savePayrollRecoveredClosure: (closure) => PayrollClosureRepository.saveRecoveredClosure(closure),
         deleteEntity: (entity, id, deletedAt) => {
             const repo = REPO_BY_ENTITY[entity];
             if (!repo) return Promise.resolve();

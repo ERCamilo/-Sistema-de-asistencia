@@ -1,3 +1,4 @@
+import { getProjectReconciliationSnapshot } from '../projects/ProjectReconciliationUI.js';
 /**
  * PettyCashUI — pantalla de Caja Chica (Fase 1, integración Paso 4 · opción C).
  *
@@ -815,16 +816,22 @@ function _officialLinkDiagnostic(d, proj) {
     if (!isProjectsEnabled()) return '';
     const projects = Array.isArray(d?.projects) ? d.projects : [];
     if (!projects.length) return '';
-    if (proj) {
+    const snapshot = getProjectReconciliationSnapshot();
+    const known = snapshot.projects || [];
+    const valid = record => {
+        const link = getOfficialProjectId(record);
+        return link && (!snapshot.enabled || known.some(project => project.id === link));
+    };
+    if (proj && valid(proj)) {
         const link = getOfficialProjectId(proj);
-        if (link) {
-            return `<div data-petty-official-link="${esc(link)}" style="margin:-6px 0 14px;font-size:.72rem;color:#64748b;">Vinculado a proyecto oficial: ${esc(link)}</div>`;
-        }
-        return `<div data-petty-official-orphan style="margin:-6px 0 14px;font-size:.74rem;color:#fbbf24;background:#172033;border:1px solid #475569;border-radius:8px;padding:8px 11px;">⚠ Proyecto de caja sin vínculo oficial (huérfano) — se conserva y no se filtra.</div>`;
+        const name = known.find(project => project.id === link)?.name || 'Obra vinculada';
+        return '<div data-petty-official-link="' + esc(link) + '" class="r07-recon-hint">Obra: ' + esc(name) + '</div>';
     }
-    const orphans = projects.filter((p) => !getOfficialProjectId(p)).length;
-    if (!orphans) return '';
-    return `<div data-petty-official-orphan style="margin:-6px 0 14px;font-size:.74rem;color:#fbbf24;background:#172033;border:1px solid #475569;border-radius:8px;padding:8px 11px;">⚠ ${orphans} proyecto(s) de caja sin vínculo oficial — se conservan y no se filtran.</div>`;
+    const count = proj ? 1 : projects.filter(record => !valid(record)).length;
+    if (!count) return '';
+    return '<div data-petty-official-orphan class="r07-recon-section-head">'
+        + '<span>' + (count === 1 ? 'Caja sin obra asignada' : count + ' cajas sin obra asignada') + '</span>'
+        + '<button type="button" class="btn-secondary" data-app-fn="openProjectReconciliation">Asignar obra</button></div>';
 }
 
 function _emptyProjects() {

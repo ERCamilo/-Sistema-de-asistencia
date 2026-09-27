@@ -398,7 +398,7 @@ export class PayrollClosureStore {
             const entries = await this.db.getAll('mainSyncOutbox').catch(() => []);
             for (const entry of entries || []) {
                 const id = String(entry?.closureId || '');
-                if (!['payrollClosure', 'payrollClosureBundle'].includes(entry?.kind) || !wanted.has(id)) continue;
+                if (!['payrollClosure', 'payrollClosureBundle', 'payrollRecoveredClosure'].includes(entry?.kind) || !wanted.has(id)) continue;
                 if (entry.status === 'dead') states[id] = 'dead';
                 else if (entry.status === 'pending' && states[id] !== 'dead') states[id] = 'pending';
             }
@@ -419,7 +419,7 @@ export class PayrollClosureStore {
         for (const entry of entries || []) {
             const id = String(entry?.closureId || '');
             if (!ownedIds.has(id)) continue;
-            if (!['payrollClosure', 'payrollClosureBundle'].includes(entry?.kind)) continue;
+            if (!['payrollClosure', 'payrollClosureBundle', 'payrollRecoveredClosure'].includes(entry?.kind)) continue;
             if (entry.status === 'dead') states[id] = 'dead';
             else if (entry.status === 'pending' && states[id] !== 'dead') states[id] = 'pending';
         }

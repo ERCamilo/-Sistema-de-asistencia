@@ -1,3 +1,4 @@
+import { runTransaction } from '../modules/data/firebase.js';
 /**
  * 🧪 PettyCashRepositoryTests (Caja chica — Fase 1, Paso 2)
  *
@@ -249,3 +250,16 @@ testRunner.addSuite("PettyCashRepository — subscribe", {
 });
 
 console.log('🧪 PettyCashRepository tests cargados.');
+
+// Model transaction commit using the existing write failure fixtures.
+beforeEach(() => {
+    runTransaction.mockImplementation(async (_db, operation) => {
+        const writes = [];
+        const result = await operation({
+            get: async () => ({ exists: () => false, data: () => null }),
+            set: (...args) => writes.push(args)
+        });
+        for (const args of writes) await setDoc(...args);
+        return result;
+    });
+});

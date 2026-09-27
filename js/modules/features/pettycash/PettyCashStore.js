@@ -343,82 +343,77 @@ export const PettyCashStore = {
     async applyRemote(col, list, scope = {}) {
         if (!STORE[col]) return [];
         const remote = Array.isArray(list) ? list.filter((item) => item?.id) : [];
-        let local = [];
-        let queued = [];
-        try {
-            [local, queued] = await Promise.all([
-                indexedDBService.getAll(STORE[col]),
-                indexedDBService.getAll(OUTBOX)
+        return indexedDBService.reconcilePettyCashSnapshot(STORE[col], (local, queued) => {
+            const localById = new Map((local || []).filter((item) => item?.id).map(
+                (item) => [String(item.id), item]
+            ));
+            const scopedPeriodIds = col === 'movements' && Array.isArray(scope.periodIds)
+                ? new Set(scope.periodIds.map((id) => String(id || '').trim()).filter(Boolean))
+                : null;
+            const retainedLocal = scopedPeriodIds
+                ? (local || []).filter((item) => !scopedPeriodIds.has(String(item?.periodId || '')))
+                : [];
+            const merged = new Map([
+                ...retainedLocal.map((item) => [String(item.id), item]),
+                ...remote.map((item) => [String(item.id), item])
             ]);
-        } catch {
-            local = [];
-            queued = [];
-        }
 
-        const localById = new Map((local || []).filter((item) => item?.id).map(
-            (item) => [String(item.id), item]
-        ));
-        const scopedPeriodIds = col === 'movements' && Array.isArray(scope.periodIds)
-            ? new Set(scope.periodIds.map((id) => String(id || '').trim()).filter(Boolean))
-            : null;
-        const retainedLocal = scopedPeriodIds
-            ? (local || []).filter((item) => !scopedPeriodIds.has(String(item?.periodId || '')))
-            : [];
-        const merged = new Map([
-            ...retainedLocal.map((item) => [String(item.id), item]),
-            ...remote.map((item) => [String(item.id), item])
-        ]);
-
-        if (col === 'projects') {
-            localById.forEach((localProject, id) => {
-                const remoteProject = merged.get(id);
-                if (!remoteProject) return;
-                let next = remoteProject;
-                const localCounter = Number(localProject.nextRecordNumber) || 0;
-                const remoteCounter = Number(remoteProject.nextRecordNumber) || 0;
-                if (localCounter > remoteCounter) {
-                    next = { ...next, nextRecordNumber: localCounter };
-                }
-                // F1.7 (DEP-SA-001, narrow additive rule): un remoto legacy sin
-                // vínculo válido propio jamás borra el vínculo local. Sólo un
-                // remoto con officialProjectId válido y no-null ejerce la
-                // autoridad de merge existente. Sin tocar queries, outbox,
-                // flush, contadores (arriba) ni otros campos.
-                const localLink = normalizeOfficialProjectId(localProject?.officialProjectId);
-                const remoteLink = normalizeOfficialProjectId(remoteProject?.officialProjectId);
-                if (localLink && !remoteLink) {
-                    next = { ...next, officialProjectId: localLink };
-                }
-                if (next !== remoteProject) merged.set(id, next);
-            });
-        }
-
-        if (col === 'movements') {
+            // A remote snapshot may arrive late, after a newer local edit was acknowledged.
+            // Only comparable explicit numeric versions can establish that it is older.
             localById.forEach((item, id) => {
-                if (item.localDraft === true) merged.set(id, item);
+                const remoteItem = merged.get(id);
+                const localVersion = Number(item.updatedAt);
+                const remoteVersion = Number(remoteItem?.updatedAt);
+                if (remoteItem && Number.isFinite(localVersion) && Number.isFinite(remoteVersion)
+                    && localVersion > 0 && remoteVersion > 0 && localVersion > remoteVersion) merged.set(id, item);
             });
-        }
 
-        const latestQueued = new Map();
-        (queued || [])
-            .filter((entry) => entry?.col === col && ['pending', 'dead'].includes(entry.status))
-            .sort((left, right) => (left.key || 0) - (right.key || 0))
-            .forEach((entry) => latestQueued.set(String(entry.id), entry));
-        latestQueued.forEach((entry, id) => {
-            if (entry.op === 'delete') {
-                merged.delete(id);
-                return;
+            if (col === 'projects') {
+                localById.forEach((localProject, id) => {
+                    const remoteProject = merged.get(id);
+                    if (!remoteProject) return;
+                    let next = remoteProject;
+                    const localCounter = Number(localProject.nextRecordNumber) || 0;
+                    const remoteCounter = Number(remoteProject.nextRecordNumber) || 0;
+                    if (localCounter > remoteCounter) {
+                        next = { ...next, nextRecordNumber: localCounter };
+                    }
+                    // F1.7 (DEP-SA-001, narrow additive rule): un remoto legacy sin
+                    // vínculo válido propio jamás borra el vínculo local. Sólo un
+                    // remoto con officialProjectId válido y no-null ejerce la
+                    // autoridad de merge existente. Sin tocar queries, outbox,
+                    // flush, contadores (arriba) ni otros campos.
+                    const localLink = normalizeOfficialProjectId(localProject?.officialProjectId);
+                    const remoteLink = normalizeOfficialProjectId(remoteProject?.officialProjectId);
+                    if (localLink && !remoteLink) {
+                        next = { ...next, officialProjectId: localLink };
+                    }
+                    if (next !== remoteProject) merged.set(id, next);
+                });
             }
-            const localItem = entry.data || localById.get(id);
-            if (localItem) merged.set(id, localItem);
-        });
 
-        const mergedList = [...merged.values()];
-        try {
-            await indexedDBService.clear(STORE[col]);
-            if (mergedList.length) await indexedDBService.batchUpdate(STORE[col], mergedList);
-        } catch (e) { console.warn('pc applyRemote:', e); }
-        return mergedList;
+            if (col === 'movements') {
+                localById.forEach((item, id) => {
+                    if (item.localDraft === true) merged.set(id, item);
+                });
+            }
+
+            const latestQueued = new Map();
+            (queued || [])
+                .filter((entry) => entry?.col === col && ['pending', 'dead'].includes(entry.status))
+                .sort((left, right) => (left.key || 0) - (right.key || 0))
+                .forEach((entry) => latestQueued.set(String(entry.id), entry));
+            latestQueued.forEach((entry, id) => {
+                if (entry.op === 'delete') {
+                    merged.delete(id);
+                    return;
+                }
+                const localItem = entry.data || localById.get(id);
+                if (localItem) merged.set(id, localItem);
+            });
+
+            return [...merged.values()];
+        });
     },
 
     /**

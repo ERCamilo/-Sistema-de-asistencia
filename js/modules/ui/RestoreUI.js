@@ -73,6 +73,10 @@ export const RestoreUI = {
                         </div>
                     ` : ''}
 
+                    <p data-backup-closures style="font-size: 0.85rem; color: #cbd5e1;">
+                        ${Array.isArray(backup.payrollClosures) ? backup.payrollClosures.length + ' cierres de nómina incluidos.' : 'Este respaldo antiguo no incluye cierres de nómina.'}
+                        Los cierres existentes se conservan; no se reactivan cierres anulados.
+                    </p>
                     <!-- Tabla de Comparación -->
                     <div style="background: rgba(15, 23, 42, 0.5); border-radius: 12px; overflow: hidden; border: 1px solid rgba(51, 65, 85, 0.5); margin-bottom: 24px;">
                         <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem; color: #cbd5e1;">

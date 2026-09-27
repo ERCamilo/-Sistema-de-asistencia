@@ -14,7 +14,7 @@
 
 import {
     auth, db,
-    doc, setDoc, deleteDoc, collection, getDocs, onSnapshot, getDoc
+    doc, setDoc, deleteDoc, collection, getDocs, onSnapshot, getDoc, runTransaction
 } from '../data/firebase.js';
 import { mergeEmployees } from './EmployeeMerge.js';
 import { SyncStatus } from './SyncStatus.js';
@@ -99,7 +99,8 @@ export const EmployeeRepository = {
      * @param {boolean} [opts.mergeRemote] (Fase 2.2) Lee primero la versión
      *   remota y fusiona con la local antes de escribir, para no perder
      *   préstamos / adelantos / etc. cuando ambos lados editaron offline.
-     *   Si el read falla, cae al fast-path (write directo).
+     *   Lectura y escritura transaccionales. Si falla, conserva el pendiente;
+     *   nunca sustituye la nube con una copia local sin comprobar.
      * @returns {Promise<void>}
      */
     async saveOne(employee, opts = {}) {
@@ -117,29 +118,22 @@ export const EmployeeRepository = {
             payload.updatedAt = Date.now();
         }
 
-        // (Fase 2.2) Read-merge-write: si lo pidieron y hay versión remota,
-        // fusionamos por id en los arreglos para no perder préstamos / pagos
-        // que el otro dispositivo agregó offline.
-        if (opts.mergeRemote) {
-            try {
-                const snap = await getDoc(ref);
-                if (snap && typeof snap.exists === 'function' && snap.exists()) {
-                    const remote = typeof snap.data === 'function' ? snap.data() : null;
-                    if (remote && typeof remote === 'object') {
-                        payload = mergeEmployees(remote, payload);
-                    }
-                }
-            } catch (e) {
-                // Si el read falla (offline, permisos), fallback al fast-path.
-                // Mejor un save sin merge que perder el save del usuario.
-                console.warn(`⚠️ EmployeeRepository.saveOne(${id}): read remoto falló, escribiendo sin merge:`, e);
-            }
-        }
-
-        payload = normalizeEmployeePhotoField(payload);
-
         try {
-            await setDoc(ref, payload, { merge: true });
+            if (opts.mergeRemote) {
+                await runTransaction(db, async transaction => {
+                    const snap = await transaction.get(ref);
+                    const remote = snap.exists() ? snap.data() : null;
+                    const merged = normalizeEmployeePhotoField(remote ? mergeEmployees(remote, payload) : payload);
+                    // merge:true preserves omitted fields. Explicitly clear an old
+                    // deletion marker when the merge selected a newer recovery.
+                    if (Number.isFinite(remote?.deletedAt) && !Number.isFinite(merged.deletedAt)) {
+                        merged.deletedAt = null;
+                    }
+                    transaction.set(ref, merged, { merge: true });
+                });
+            } else {
+                await setDoc(ref, normalizeEmployeePhotoField(payload), { merge: true });
+            }
             SyncStatus.markSynced();
         } catch (e) {
             console.error(`❌ EmployeeRepository.saveOne(${id}) error:`, e);
@@ -189,7 +183,16 @@ export const EmployeeRepository = {
         if (!ref) return;
         const ts = Number.isFinite(deletedAt) ? deletedAt : Date.now();
         try {
-            await setDoc(ref, { deletedAt: ts, updatedAt: ts, active: false }, { merge: true });
+            await runTransaction(db, async transaction => {
+                const snap = await transaction.get(ref);
+                const remote = snap.exists() ? snap.data() : null;
+                if (Number.isFinite(remote?.updatedAt) && remote.updatedAt > ts) {
+                    const conflict = new Error('El empleado tiene cambios posteriores a este borrado. Revisa el pendiente antes de reintentar.');
+                    conflict.code = 'failed-precondition';
+                    throw conflict;
+                }
+                transaction.set(ref, { deletedAt: ts, updatedAt: ts, active: false }, { merge: true });
+            });
             SyncStatus.markSynced();
         } catch (e) {
             console.error(`❌ EmployeeRepository.tombstoneOne(${id}) error:`, e);

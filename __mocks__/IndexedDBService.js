@@ -38,6 +38,8 @@ const mockService = {
     update: jest.fn().mockResolvedValue(1),
     delete: jest.fn().mockResolvedValue(undefined),
     batchUpdate: jest.fn().mockResolvedValue(0),
+    reconcilePettyCashSnapshot: jest.fn().mockImplementation(async (store, merge) =>
+        merge(await mockService.getAll(store), await mockService.getAll('pettyCashOutbox'))),
     acquireLease: jest.fn().mockResolvedValue(true),
     renewLease: jest.fn().mockResolvedValue(true),
     releaseLease: jest.fn().mockResolvedValue(true),

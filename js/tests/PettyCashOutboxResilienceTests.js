@@ -1,3 +1,4 @@
+import { runTransaction } from '../modules/data/firebase.js';
 /**
  * 🧪 PettyCashOutboxResilienceTests (Auditoría 2026-06-09, hallazgo M2)
  *
@@ -140,4 +141,17 @@ testRunner.addSuite("PettyCashStore — drenado al volver la conexión (contrato
         );
     }
 
+});
+
+// Model transaction commit using the existing write failure fixtures.
+beforeEach(() => {
+    runTransaction.mockImplementation(async (_db, operation) => {
+        const writes = [];
+        const result = await operation({
+            get: async () => ({ exists: () => false, data: () => null }),
+            set: (...args) => writes.push(args)
+        });
+        for (const args of writes) await setDoc(...args);
+        return result;
+    });
 });

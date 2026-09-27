@@ -1,3 +1,5 @@
+import { planFinancialRecovery } from './ProjectFinancialRecovery.js';
+import { reviewFinancialPlanRepair } from './ProjectFinancialPlanRepair.js';
 /**
  * 🔧 ProjectOwnershipRepairService.js — R07 A2b (application service)
  *
@@ -77,6 +79,7 @@ export const REPAIR_ACTION = Object.freeze({
     CREATE_PROJECT_AND_MAP: 'CREATE_PROJECT_AND_MAP',
     QUARANTINE:             'QUARANTINE',
     MAP_CATALOG_ENTITIES:  'MAP_CATALOG_ENTITIES',
+    MAP_FINANCIAL_PLAN: 'MAP_FINANCIAL_PLAN',
     RESOLVE_LATER:          'QUARANTINE', // alias
 });
 
@@ -778,6 +781,22 @@ function buildUpdatedMeta(existingMeta, event) {
  */
 function applyFieldScopedMemoryUpdate(memoryUpdate) {
     if (!memoryUpdate) return;
+    if (memoryUpdate.pettyCashProjectIds?.size && stateManager._state.pettyCash) {
+        const current = stateManager._state.pettyCash;
+        stateManager.setState({ pettyCash: { ...current, projects: (current.projects || []).map(record => {
+            const target = memoryUpdate.pettyCashProjectIds.get(trimId(record.id));
+            return target === undefined ? record : { ...record, officialProjectId: target, updatedAt: memoryUpdate.repairTimestamp };
+        }) } });
+    }
+    if (memoryUpdate.financialPlanPatch) {
+        const patch = memoryUpdate.financialPlanPatch;
+        stateManager.setState({ employees: (stateManager._state.employees || []).map(employee => {
+            if (trimId(employee.id) !== trimId(patch.employeeId)) return employee;
+            return { ...employee, updatedAt: memoryUpdate.repairTimestamp,
+                [patch.kind]: (employee[patch.kind] || []).map(plan => trimId(plan.id) === trimId(patch.planId)
+                    ? { ...plan, projectId: patch.targetProjectId, updatedAt: memoryUpdate.repairTimestamp } : plan) };
+        }) });
+    }
     const employeeProjectIds = memoryUpdate.employeeProjectIds;
     const attendanceProjectIds = memoryUpdate.attendanceProjectIds;
     const employeePositionPatches = memoryUpdate.employeePositionPatches;
@@ -898,6 +917,17 @@ function applyFieldScopedMemoryUpdate(memoryUpdate) {
         });
         stateManager.setState({ positions: nextPositions });
     }
+    if (memoryUpdate.financialEmployeePatches?.length) {
+        const financialById = new Map(memoryUpdate.financialEmployeePatches.map(e => [trimId(e.id), e]));
+        stateManager.setState({ employees: (stateManager._state.employees || []).map(e => {
+            const patched = financialById.get(trimId(e.id));
+            if (!patched) return e;
+            const fields = {};
+            for (const kind of ['loans','advances','bonuses','deductions']) if (Array.isArray(patched[kind])) fields[kind] = patched[kind];
+            return { ...e, ...fields, updatedAt: memoryUpdate.repairTimestamp };
+        }) });
+    }
+
 }
 
 // ─── Transaction helper ──────────────────────────────────────────────────────
@@ -1064,7 +1094,7 @@ function planEmployeeRepair({
         // on the employee's first resulting position. Preserve every recorded
         // hour; only fill the portion not already attributed by positionHours.
         const primaryPosition = plan.employee?.positions?.[0] || plan.employee?.positionId;
-        if (assignUnpositionedHistory && primaryPosition && record?.present === true
+        if (assignUnpositionedHistory && employeeUsesTargetProject && primaryPosition && record?.present === true
             && record?.deletedAt == null && !record?.selectedPosition
             && !isRecordOwnedByOtherValidProject(original, planCatalogIds, targetProjectId)) {
             const entries = Array.isArray(record.positionHours) ? record.positionHours.map(entry => ({ ...entry })) : [];
@@ -2073,6 +2103,12 @@ function prepareWizardLeaders(reads, p, target, projects, tx) {
         if (ownedPositions.has(id)) positionPatches.set(id, { leaderId: to });
         return patched;
     });
+    const usedLeaders = new Set([...employeePatches.values(),
+        ...positions.filter(position => ownedPositions.has(trimId(position.id)) || copiedPositions.has(trimId(position.id)))
+            .map(position => trimId(position.leaderId))]);
+    if (copies.some(copy => !usedLeaders.has(copy.id))) {
+        return { ok: false, conflicts: [{ kind: 'LEADER_COPY_UNUSED' }] };
+    }
     for (const leader of copies) txPut(tx, 'leaders', leader);
     return { ok: true, reads: { ...reads, employees, positions, leaders: [...leaders.values()] },
         employeePatches, positionPatches, copies };
@@ -2159,9 +2195,123 @@ function computeCombinedAssignment(reads, tx, p, createProject) {
     };
 }
 
+/** Link whole cash ledgers, preserving their internal ids and financial history.
+ * All validation precedes writes; links and cloud outbox commit with personnel. */
+function computeCashAssignment(action, reads, tx, p) {
+    const target = trimId(action === REPAIR_ACTION.CREATE_PROJECT_AND_MAP ? p.projectId : p.targetProjectId);
+    const projects = indexById(reads.projects);
+    const cash = indexById(reads.pettyCashProjects);
+    const ids = [...new Set(p.pettyCashIds.map(trimId).filter(Boolean))];
+    const patches = [];
+    for (const id of ids) {
+        const record = cash.get(id);
+        const previous = trimId(record?.officialProjectId);
+        if (!record || (previous !== target && projects.has(previous))) {
+            return { result: conflictResult('Una caja ya pertenece a otra obra o dejó de estar disponible.', {
+                conflicts: [{ kind: 'PETTY_CASH_PROJECT_CONFLICT', entityId: id }]
+            }) };
+        }
+        if (previous !== target) patches.push({ ...record, officialProjectId: target, updatedAt: p.repairTimestamp });
+    }
+    const queued = [];
+    const staging = { objectStore: name => ({ put: record => queued.push([name, record]) }) };
+    const personnel = computeRepair(action, reads, staging, { ...p, pettyCashIds: [] });
+    if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(personnel.result.status)) return personnel;
+    for (const [store, record] of queued) txPut(tx, store, record);
+    for (const record of patches) {
+        txPut(tx, 'pettyCashProjects', record);
+        txPut(tx, 'pettyCashOutbox', {
+            op: 'save', col: 'projects', id: record.id, data: record,
+            source: 'project-reconciliation', ts: p.repairTimestamp, status: 'pending'
+        });
+    }
+    return {
+        ...personnel,
+        result: { ...personnel.result, status: patches.length ? REPAIR_STATUS.OK : personnel.result.status,
+            pettyCashIds: ids, durableCommitted: true },
+        memoryUpdate: { ...personnel.memoryUpdate,
+            pettyCashProjectIds: new Map(patches.map(record => [record.id, target])),
+            repairTimestamp: p.repairTimestamp }
+    };
+}
+
+function computeFinancialPlanMap(reads, tx, p) {
+    const choice = p.financialPlan;
+    const employee = (reads.employees || []).find(item => trimId(item.id) === trimId(choice?.employeeId));
+    if (!choice || !(p.employees || []).some(item => trimId(item.id) === trimId(choice.employeeId))) {
+        return { result: conflictResult('Selecciona explícitamente el empleado y el plan.') };
+    }
+    const review = reviewFinancialPlanRepair(employee, choice.kind, choice.planId, reads.projects, reads.payrollClosures);
+    if (!review.ok) return { result: conflictResult(review.reason) };
+    if (review.noOp) return { result: { status: REPAIR_STATUS.NO_OP } };
+    if (trimId(choice.expectedProjectId) !== trimId(review.plan.projectId)
+        || trimId(choice.targetProjectId) !== trimId(review.target.id)
+        || Number(choice.expectedUpdatedAt) !== Number(review.plan.updatedAt)) {
+        return { result: conflictResult('El plan o la obra del empleado cambió. Vuelve a revisar la propuesta.') };
+    }
+    const patched = deepCopy(employee);
+    const target = trimId(review.target.id);
+    patched[choice.kind] = patched[choice.kind].map(plan => trimId(plan.id) === trimId(choice.planId)
+        ? { ...plan, projectId: target, updatedAt: p.repairTimestamp } : plan);
+    patched.updatedAt = p.repairTimestamp;
+    txPut(tx, 'employees', patched);
+    return {
+        result: { status: REPAIR_STATUS.OK, durableCommitted: true, targetProjectId: target },
+        memoryUpdate: { financialPlanPatch: { ...choice, targetProjectId: target }, repairTimestamp: p.repairTimestamp },
+        repairAttendanceRecords: []
+    };
+}
+
+function computeWholeFinancialRecovery(action, reads, tx, p) {
+    const staged = new Map();
+    const staging = { objectStore: name => ({ put(record) {
+        if (!staged.has(name)) staged.set(name, new Map());
+        staged.get(name).set(trimId(record.key || record.id || record.projectId) || Symbol(), record);
+    } }) };
+    const base = computeRepair(action, reads, staging, { ...p, recoverFinancial: false });
+    if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(base.result.status)) return base;
+    const merged = name => {
+        const rows = new Map((reads[name] || []).map(r => [trimId(r.key || r.id || r.projectId), r]));
+        for (const [key, row] of staged.get(name) || []) rows.set(key, row);
+        return [...rows.values()];
+    };
+    let financial;
+    try {
+        financial = planFinancialRecovery({ employees: merged('employees'), projects: merged('projects'),
+            payrollClosures: reads.payrollClosures, projectPayrollConfigs: reads.projectPayrollConfigs,
+            targetProjectId: action === REPAIR_ACTION.CREATE_PROJECT_AND_MAP ? p.projectId : p.targetProjectId,
+            employeeIds: p.financialEmployeeIds || p.employees.map(e => e.id),
+            timestamp: p.repairTimestamp, configurationSource: p.configurationSource });
+    } catch (error) { return { result: conflictResult(error.message, { conflicts: [{ kind: 'FINANCIAL_RECOVERY', message: error.message }] }) }; }
+    for (const employee of financial.employees) {
+        const current = p.memoryFinancialEmployees?.find(e => trimId(e.id) === trimId(employee.id));
+        const durable = (reads.employees || []).find(e => trimId(e.id) === trimId(employee.id));
+        if (current && durable && ['loans', 'advances', 'bonuses', 'deductions'].some(kind =>
+            JSON.stringify(current[kind] || []) !== JSON.stringify(durable[kind] || []))) {
+            return { result: conflictResult('Hay cambios financieros sin guardar. Guarda o recarga y vuelve a revisar antes de recuperar.') };
+        }
+    }
+    for (const [name, rows] of staged) for (const row of rows.values()) txPut(tx, name, row);
+    for (const employee of financial.employees) txPut(tx, 'employees', employee);
+    for (const config of financial.configs) txPut(tx, 'projectPayrollConfigs', config);
+    for (const closure of financial.closures) {
+        txPut(tx, 'payrollClosures', closure);
+        txPut(tx, 'mainSyncOutbox', { kind: 'payrollRecoveredClosure', closureId: closure.id, closure, ts: p.repairTimestamp, status: 'pending' });
+    }
+    const changed = financial.employees.length + financial.closures.length + financial.configs.length;
+    return { ...base,
+        result: { ...base.result, status: changed ? REPAIR_STATUS.OK : base.result.status, financialRecovered: changed, financialWarnings: financial.warnings, durableCommitted: true },
+        memoryUpdate: { ...base.memoryUpdate, financialEmployeePatches: financial.employees, repairTimestamp: p.repairTimestamp }
+    };
+}
+
 /** Dispatch to the correct in-transaction planner for the given action. */
 function computeRepair(action, reads, tx, p) {
+    if (p.recoverFinancial && [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)) return computeWholeFinancialRecovery(action, reads, tx, p);
+    if (p.pettyCashIds?.length && [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)) return computeCashAssignment(action, reads, tx, p);
     switch (action) {
+        case REPAIR_ACTION.MAP_FINANCIAL_PLAN:
+            return computeFinancialPlanMap(reads, tx, p);
         case REPAIR_ACTION.MAP_TO_EXISTING:
             if ((p.positionIds || []).length || (p.leaderIds || []).length || (p.leaderRemaps || []).length || (p.leaderCopies || []).length) {
                 return computeCombinedAssignment(reads, tx, p, false);
@@ -2314,10 +2464,10 @@ async function enqueueRepairCloudPropagation(txOutcome) {
 export function previewOwnershipRepair(params = {}) {
     const attendance = collectCallerAttendanceMap(params.attendance);
     const reads = {
-        projects: params.catalog || [], employees: params.allEmployees || params.employees || [],
+        payrollClosures: params.payrollClosures || [], projectPayrollConfigs: params.projectPayrollConfigs || [], projects: params.catalog || [], employees: params.allEmployees || params.employees || [],
         positions: params.positions || [], leaders: params.leaders || [],
         attendance: Object.entries(attendance).map(([key, record]) => ({ ...record, key: record.key || key })),
-        settings: null
+        settings: null, pettyCashProjects: params.pettyCashProjects || []
     };
     const outcome = computeRepair(params.action, reads, { objectStore: () => ({ put() {} }) }, {
         employees: [], positionIds: [], leaderIds: [], leaderRemaps: [], leaderCopies: [],
@@ -2347,12 +2497,15 @@ export async function applyOwnershipRepair(params = {}) {
         leaderIds = [],
         leaderRemaps = [],
         leaderCopies = [],
+        pettyCashIds = [],
+        financialPlan = null,
+        recoverFinancial = false, configurationSource = '', financialEmployeeIds = null,
         _db = indexedDBService
     } = params;
 
     // --- Input guard: employees must be an explicit non-empty array.
     const catalogOnly = [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)
-        && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length);
+        && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length || pettyCashIds.length || recoverFinancial);
     if (action !== REPAIR_ACTION.MAP_CATALOG_ENTITIES && !catalogOnly && (!Array.isArray(employees) || employees.length === 0)) {
         return {
             status: REPAIR_STATUS.CONFLICT,
@@ -2404,6 +2557,9 @@ export async function applyOwnershipRepair(params = {}) {
         leaderIds,
         leaderRemaps,
         leaderCopies,
+        pettyCashIds,
+        financialPlan, recoverFinancial, configurationSource, financialEmployeeIds,
+        memoryFinancialEmployees: recoverFinancial ? deepCopy(stateManager._state.employees || []) : null,
         allEmployees: effectiveAllEmployees,
         catalog,
         skipDependencyCheck,
@@ -2417,13 +2573,15 @@ export async function applyOwnershipRepair(params = {}) {
         const rawDb = _db.db || _db;
         let txOutcome = null;
 
-        await runReadWriteTransaction(rawDb, REPAIR_STORES, (reads, tx) => {
+        await runReadWriteTransaction(rawDb, [...REPAIR_STORES, ...(recoverFinancial ? ['payrollClosures', 'projectPayrollConfigs', 'mainSyncOutbox'] : action === REPAIR_ACTION.MAP_FINANCIAL_PLAN ? ['payrollClosures'] : []), ...(pettyCashIds.length ? ['pettyCashProjects', 'pettyCashOutbox'] : [])], (reads, tx) => {
             const durable = {
+                payrollClosures: reads.payrollClosures || [], projectPayrollConfigs: reads.projectPayrollConfigs || [],
                 projects: reads.projects || [],
                 employees: reads.employees || [],
                 attendance: reads.attendance || [],
                 positions: reads.positions || [],
                 leaders: reads.leaders || [],
+                pettyCashProjects: reads.pettyCashProjects || [],
                 settings: reads.settings || null
             };
             txOutcome = computeRepair(action, durable, tx, computeParams);
@@ -2436,6 +2594,10 @@ export async function applyOwnershipRepair(params = {}) {
 
         const result = txOutcome.result;
         if (result.status === REPAIR_STATUS.OK && txOutcome.memoryUpdate) {
+            if (txOutcome.memoryUpdate.pettyCashProjectIds?.size) {
+                import('../pettycash/PettyCashStore.js').then(({ PettyCashStore }) => PettyCashStore.flush())
+                    .catch(error => console.warn('Caja chica: sincronización pendiente', error));
+            }
             advanceDatasetEpoch();
             applyFieldScopedMemoryUpdate(txOutcome.memoryUpdate);
 
