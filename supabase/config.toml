@@ -388,6 +388,17 @@ enabled = true
 # must remain disabled because callers do not have Supabase Auth JWTs.
 verify_jwt = false
 
+[functions.petty-cash-receipt]
+enabled = true
+# Called through n8n with a Firebase ID token that the function verifies itself.
+# Supabase JWT verification must remain disabled (production runs with it off).
+verify_jwt = false
+
+[functions.petty-cash-movement]
+enabled = true
+# Same Firebase ID token flow as petty-cash-receipt; production runs with it off.
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

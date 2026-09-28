@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 const MIGRATION = fs.readFileSync(
-    path.resolve(__dirname, '../../supabase/migrations/20260729105101_allow_pdf_petty_cash_receipts.sql'),
+    path.resolve(__dirname, '../../supabase/migrations/20260729105450_allow_pdf_petty_cash_receipts.sql'),
     'utf8'
 );
 const EDGE_FUNCTION = fs.readFileSync(
