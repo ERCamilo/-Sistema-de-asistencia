@@ -23,7 +23,7 @@ const http = require('node:http');
    await page.setRequestInterception(true);
    page.on('request',req=>{
     const host=new URL(req.url()).hostname;
-    if(host.endsWith('googleapis.com')||host.endsWith('firebaseio.com')||host.endsWith('cloudfunctions.net')) req.abort(); else req.continue();
+    if(host.endsWith('googleapis.com')||host.endsWith('firebaseio.com')||host.endsWith('cloudfunctions.net')||host.includes('n8n')) req.abort(); else req.continue();
    });
    await page.setViewport({width:scenario.width,height:900});
    await page.goto(origin+'/design.md');
@@ -39,7 +39,10 @@ const http = require('node:http');
       rows:[{_employeeId:'emp-backup',_number:'1',_employeeName:'Ana',_brutoOriginal:1000,_loans:100,monto:900}]};
      return buildPayrollClosure({...o,fingerprint:JSON.stringify(buildPayrollClosureSnapshot(o))});
     };
-    const closures=[build('PRJ-backup','2026-09-01'),build(null,'2026-09-02')];
+    const legacy={...build(null,'2026-09-03'),schemaVersion:1,status:'voided',
+     migrationSource:'legacy-payroll-loan-batch',loanSettlementBatchId:'legacy-batch',
+     voidedAt:120,voidedBy:'original-actor',voidReason:'Cierre anulado'};
+    const closures=[build('PRJ-backup','2026-09-01'),build(null,'2026-09-02'),legacy];
     await db.update('projects',{id:'PRJ-backup',name:'Obra Backup',status:'active',schemaVersion:1,createdAt:1,updatedAt:1});
     await db.update('settings',{key:'app',companyName:'Prueba Backup',regularHoursPerDay:8,schemaVersion:3,legacyNavigation:false});
     await db.update('positions',{id:'pos-backup',projectId:'PRJ-backup',name:'Ayudante',active:true,hourlyRate:100});
@@ -72,7 +75,7 @@ const http = require('node:http');
    if(scenario.route==='file') {
     await page.evaluate(payload=>window.loadBackupFromFile(new File([JSON.stringify(payload)],'backup.json',{type:'application/json'})),exported);
     await page.waitForSelector('#btn-restore-local',{visible:true});
-    assert.ok((await page.$eval('[data-backup-closures]',e=>e.textContent)).includes('2 cierres'));
+    assert.ok((await page.$eval('[data-backup-closures]',e=>e.textContent)).includes('3 cierres'));
     await Promise.all([page.waitForNavigation({waitUntil:'networkidle2',timeout:20000}),page.click('#btn-restore-local')]);
    } else {
     await page.evaluate(async()=>{
@@ -83,7 +86,7 @@ const http = require('node:http');
      const ctl=await import('/js/modules/features/export/ExportController.js');
      ctl.setImportFullText(JSON.stringify(payload));ctl.confirmImportFull();
     },exported);
-    assert.ok((await page.$eval('[data-backup-closures]',e=>e.textContent)).includes('2 cierres'));
+    assert.ok((await page.$eval('[data-backup-closures]',e=>e.textContent)).includes('3 cierres'));
     await Promise.all([page.waitForNavigation({waitUntil:'networkidle2',timeout:20000}),
      page.click('[data-app-fn="applyConfirmedFullImport"]')]).catch(async e=>{console.log('FULL_STATE',await page.evaluate(()=>document.querySelector('.import-full-dialog')?.textContent));throw e;});
    }
@@ -92,6 +95,13 @@ const http = require('node:http');
     return {closures:await db.getAll('payrollClosures'),employees:await db.getAll('employees')};
    });
    assert.deepEqual(restored.closures,exported.data.payrollClosures);
+   // M2: restaurar sin sesión deja la marca y no encola Caja Chica para ninguna cuenta.
+   const detached=await page.evaluate(async()=>{
+    const {default:db}=await import('/js/modules/services/IndexedDBService.js');
+    return {marker:JSON.parse(localStorage.getItem('asistencia_detached_restore_v1')||'null'),outbox:(await db.getAll('pettyCashOutbox')).length};
+   });
+   assert.ok(detached.marker&&detached.marker.previousUid===null,'falta la marca de restauración sin sesión');
+   assert.equal(detached.outbox,0);
    assert.deepEqual(restored.employees[0].loans,exported.data.employees[0].loans);
    if(scenario.route==='file') {
     await page.evaluate(async closure=>{
@@ -116,7 +126,7 @@ const http = require('node:http');
     assert.deepEqual(failure,{durable:'Conservar',memory:'Conservar',success:false});
    }
    assert.deepEqual(errors,[]);
-   console.log(JSON.stringify({status:'PASS',route:scenario.route,width:scenario.width,closures:restored.closures.length,preservedPayments:true,reload:true,noRealAccount:true}));
+   console.log(JSON.stringify({status:'PASS',route:scenario.route,width:scenario.width,closures:restored.closures.length,preservedPayments:true,reload:true,noRealAccount:true,detachedMarker:true}));
    await context.close();
   }
  } finally {if(browser) await browser.close();await new Promise(resolve=>server.close(resolve));}

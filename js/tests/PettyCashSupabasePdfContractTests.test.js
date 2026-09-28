@@ -9,6 +9,10 @@ const EDGE_FUNCTION = fs.readFileSync(
     path.resolve(__dirname, '../../supabase/functions/petty-cash-receipt/index.ts'),
     'utf8'
 );
+const RECEIPT_ACTIONS = fs.readFileSync(
+    path.resolve(__dirname, '../../supabase/functions/petty-cash-receipt/receipt-actions.js'),
+    'utf8'
+);
 
 describe('Petty cash PDF backup contract', () => {
     test('database and bucket accept private PDF originals up to 10 MB', () => {
@@ -23,6 +27,7 @@ describe('Petty cash PDF backup contract', () => {
         expect(EDGE_FUNCTION).toContain('["application/pdf", "pdf"]');
         expect(EDGE_FUNCTION).toContain('MAX_FILE_BYTES = 10 * 1024 * 1024');
         expect(EDGE_FUNCTION).toContain('FILE_SIGNATURE_MISMATCH');
-        expect(EDGE_FUNCTION).toContain('page_count: requestedPageCount');
+        expect(EDGE_FUNCTION).toContain('pageCount: requestedPageCount');
+        expect(RECEIPT_ACTIONS).toContain('page_count: pageCount');
     });
 });

@@ -34,6 +34,7 @@ import { attendanceRetentionStart } from './AttendanceRetentionPolicy.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject, effectiveProjectId } from '../features/projects/ProjectContext.js';
 import { employeeNumberIdentityKey, sameEmployeeNumber } from '../features/employees/EmployeeNumberIdentity.js';
 import { sanitizeExportConfig } from './ExportConfigSanitizer.js';
+import { isDetachedRestoreSyncBlocked } from './DetachedRestoreGuard.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
@@ -41,6 +42,7 @@ import { Position } from '../features/employees/Position.js';
 import { Leader } from '../features/employees/Leader.js';
 import { Attendance } from '../features/attendance/Attendance.js';
 import { getDemoSeed } from '../data/DemoSeed.js';
+import { announceDatasetReplaced } from './CrossTabDatasetGuard.js';
 
 // ⚡ Debounce de guardado: colapsa llamadas rápidas en un solo guardado
 let _saveDebounceTimer = null;
@@ -81,6 +83,9 @@ export function stampDatasetEpochOptions(options = {}) {
 
 export function advanceDatasetEpoch() {
     _datasetEpochRef.value += 1;
+    // M2: la época es por pestaña; las demás conservan en memoria el dataset
+    // anterior y deben recargar antes de volver a guardarlo.
+    announceDatasetReplaced('full-replace');
     return _datasetEpochRef.value;
 }
 
@@ -130,6 +135,9 @@ const _attendanceCachePruner = createAttendanceCachePruner({
     readAttendance: () => state.attendance || {},
     writeAttendance: attendance => stateManager.silentSetState({ attendance }),
     getProtectedDateKeys: () => MainSyncStore.getUnconfirmedDailyDateKeys(),
+    // Historial anterior al corte restaurado desde un respaldo: la memoria no
+    // conserva la marca por registro, así que se lee la lista durable.
+    getProtectedRecordKeys: () => indexedDBService.getAttendanceRecoveryProtectedKeys(),
     // F1.5 (ADR-008): la retención respeta el alcance activo — nunca evicta
     // registros de otro proyecto efectivo. peekEntityScope es sync y fail-open.
     getScope: () => peekEntityScope(),
@@ -441,7 +449,8 @@ async function _drainPendingCloudDeletes() {
 function _mainSyncGuards() {
     const REPO_BY_ENTITY = { employee: EmployeeRepository, position: PositionRepository, leader: LeaderRepository };
     return {
-        hasSession: () => !!globalThis.currentUser,
+        // M2: con una restauración desconectada sin decidir no sube nada.
+        hasSession: () => !!globalThis.currentUser && !isDetachedRestoreSyncBlocked(),
         isApplyingRemote: () => !!globalThis._isApplyingRemoteData,
         isPaused: () => SYNC_PAUSE_ENABLED && isSyncPaused(),
         cloudWatermark: () => state._lastKnownCloudUpdatedAt || 0,
@@ -1121,11 +1130,15 @@ async function _executeSave(options = {}) {
     // nube no puede re-pausar este equipo, y pausar aquí no afecta a los demás.
     // El kill-switch SYNC_PAUSE_ENABLED permite desactivar la función entera.
     const _isPausedEffective = SYNC_PAUSE_ENABLED && isSyncPaused();
+    // M2: tras «Desconectar y restaurar», nada sube hasta que el usuario decide
+    // al volver a iniciar sesión (DetachedRestoreGuard).
+    const _detachedRestorePending = isDetachedRestoreSyncBlocked();
     const _canSyncFirebase = globalThis.currentUser
         && !globalThis._isApplyingRemoteData
         && !isDataOperationInProgress()
         && !_isPausedEffective
-        && !options.localOnly;
+        && !options.localOnly
+        && !_detachedRestorePending;
     const _cloudTime = state._lastKnownCloudUpdatedAt || 0;
     // Already set in saveApplicationData(); reflects when save was requested.
     const _localTime = state.settings?.localUpdatedAt || 0;
@@ -1647,13 +1660,29 @@ export async function validateDataIntegrity() {
     //    cross-proyecto no sobrevive (F0.4 §2: ausente ⇒ predeterminado).
     //    La guardia anti-masacre de arriba sigue protegiendo ambos caminos.
     const _entityScope = peekEntityScope();
+    // Solo es "de otra obra" si ambas obras efectivas existen localmente. Una
+    // obra inexistente (p. ej. la de un respaldo restaurado) es propiedad
+    // pendiente: la decide el asistente de asignación, no esta limpieza.
+    // Sin catálogo legible no se desvincula nada.
+    let _knownProjectIds = null;
+    if (_entityScope.enabled && !leadersCatalogSuspicious) {
+        try {
+            _knownProjectIds = new Set((await indexedDBService.getAll('projects') || [])
+                .map(project => String(project?.id ?? '').trim()).filter(Boolean));
+        } catch (_) {
+            _knownProjectIds = null;
+        }
+    }
+    const _hasKnownProject = item => Boolean(_knownProjectIds)
+        && _knownProjectIds.has(String(effectiveProjectId(item, _entityScope) ?? '').trim());
     if (!leadersCatalogSuspicious) state.positions.forEach(pos => {
         if (!pos.leaderId) return;
         let orphan = !leaderIds.has(pos.leaderId);
         let crossProject = false;
         if (!orphan && _entityScope.enabled) {
             const leader = state.leaders.find(l => l.id === pos.leaderId);
-            crossProject = Boolean(leader) && !sameEffectiveProject(leader, pos, _entityScope);
+            crossProject = Boolean(leader) && !sameEffectiveProject(leader, pos, _entityScope)
+                && _hasKnownProject(leader) && _hasKnownProject(pos);
             orphan = crossProject || !leader;
         }
         if (orphan) {

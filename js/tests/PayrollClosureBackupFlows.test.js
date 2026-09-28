@@ -4,7 +4,7 @@ import mockedDB from '../modules/services/IndexedDBService.js';
 import { state, stateManager } from '../modules/core/AppState.js';
 import { confirmImportFull, setImportFullText } from '../modules/features/export/ExportController.js';
 import { readPayrollClosuresForBackup, payrollClosureRestoreOptions } from '../modules/features/payroll/PayrollClosureBackup.js';
-import { buildPayrollClosure, buildPayrollClosureSnapshot } from '../modules/features/payroll/PayrollClosure.js';
+import { buildPayrollClosure, buildPayrollClosureSnapshot, promoteLegacyPayrollClosure, voidPayrollClosure } from '../modules/features/payroll/PayrollClosure.js';
 import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
 if (!globalThis.structuredClone) globalThis.structuredClone = value => JSON.parse(JSON.stringify(value));
 function fixture(projectId) {
@@ -75,4 +75,67 @@ describe('backup closure export and public FULL import', () => {
         const c = fixture();
         expect(() => payrollClosureRestoreOptions({payrollClosures:[c,c]})).toThrow('duplicado');
     });
+    test.each(['closed', 'voided'])('FULL restores and exports schema 1 history verbatim (%s)', async status => {
+        const c = { ...fixture(), schemaVersion: 1, status,
+            migrationSource: 'legacy-payroll-loan-batch', loanSettlementBatchId: 'legacy-batch',
+            paymentRefs: [{ employeeId: 'e', loanId: 'loan', paymentId: 'p' }],
+            ...(status === 'voided' ? { voidedAt: 120, voidedBy: 'original-actor', voidReason: 'Cierre anulado' } : {}) };
+        expect(await apply(payload(c))).toBe(true);
+        expect(await readPayrollClosuresForBackup(db)).toEqual([c]);
+        expect((await db.getAll('employees'))[0].loans[0].payments[0].payrollClosureId).toBe(c.id);
+        const retry = { ...c, status: 'closed' };
+        expect(await apply(payload(retry))).toBe(true);
+        expect(await db.getAll('payrollClosures')).toEqual([c]);
+    });
+    test.each([0, 4, '1'])('unsupported closure version %s fails before replacing data', async schemaVersion => {
+        const c = { ...fixture(), schemaVersion };
+        expect(await apply(payload(c))).toBe(false);
+        expect((await db.getAll('employees'))[0].id).toBe('old');
+        expect(await db.getAll('payrollClosures')).toEqual([]);
+    });
+    test('incomplete schema 1 still fails before replacing data', async () => {
+        const c = { ...fixture(), schemaVersion: 1 };
+        delete c.rows;
+        expect(await apply(payload(c))).toBe(false);
+        expect((await db.getAll('employees'))[0].id).toBe('old');
+    });
+    describe('backup taken before a legacy closure was promoted on this device', () => {
+        const audit = { voidedAt: 150, voidedBy: 'original-actor', voidReason: 'Cierre anulado' };
+        test.each([
+            ['closed', 'closed', 'closed'],
+            ['voided', 'closed', 'voided'],
+            ['closed', 'voided', 'voided'],
+            ['voided', 'voided', 'voided']
+        ])('local promoted %s + backup schema 2 %s restores and stays promoted (%s)', async (local, incoming, expected) => {
+            const legacy = fixture();
+            let promoted = promoteLegacyPayrollClosure(legacy, 'PRJ-owner');
+            if (local === 'voided') promoted = voidPayrollClosure(promoted, audit);
+            await db.update('payrollClosures', promoted);
+            const backup = incoming === 'voided' ? voidPayrollClosure(legacy, { ...audit, voidedAt: 160 }) : legacy;
+            expect(await apply(payload(backup))).toBe(true);
+            const stored = await db.get('payrollClosures', legacy.id);
+            expect(stored).toMatchObject({ schemaVersion: 3, projectId: 'PRJ-owner', identityKind: 'promoted-legacy',
+                ownershipToken: promoted.ownershipToken, rows: legacy.rows, totals: legacy.totals, status: expected });
+            if (local === 'voided' || incoming === 'closed') expect(stored).toEqual(promoted);
+            else expect(stored).toEqual(promoteLegacyPayrollClosure(backup, 'PRJ-owner'));
+            expect((await db.getAll('employees'))[0].loans[0].payments[0].payrollClosureId).toBe(legacy.id);
+        });
+        test('changed schema 2 content with the promoted id still fails before replacing data', async () => {
+            const legacy = fixture();
+            const promoted = promoteLegacyPayrollClosure(legacy, 'PRJ-owner');
+            await db.update('payrollClosures', promoted);
+            const tampered = { ...legacy, totals: { ...legacy.totals, net: 1 } };
+            expect(await apply(payload(tampered))).toBe(false);
+            expect((await db.getAll('employees'))[0].id).toBe('old');
+            expect(await db.get('payrollClosures', legacy.id)).toEqual(promoted);
+        });
+        test('a restore never promotes a local schema 2 closure', async () => {
+            const legacy = fixture();
+            await db.update('payrollClosures', legacy);
+            expect(await apply(payload(promoteLegacyPayrollClosure(legacy, 'PRJ-owner')))).toBe(false);
+            expect((await db.getAll('employees'))[0].id).toBe('old');
+            expect(await db.get('payrollClosures', legacy.id)).toEqual(legacy);
+        });
+    });
+
 });

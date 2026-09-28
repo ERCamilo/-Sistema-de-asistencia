@@ -369,6 +369,19 @@ function mountOverlay() {
     prevFocus = document.activeElement;
     overlayEl.addEventListener('click', onOverlayClick);
     overlayEl.addEventListener('input', onOverlayInput);
+    // Atrás del sistema (AppHistory): paso anterior mientras exista; en el
+    // primero se cierra como con Escape. Durante una acción en curso no hace nada.
+    overlayEl.saHistoryBack = () => {
+        if (!st) return false;
+        if (running) return true;
+        const position = s => `${s.phase}|${s.step}|${s.setupStep}`;
+        const before = position(st);
+        navBack(st);
+        if (position(st) === before) return false;
+        saveProgress(localStorage, st);
+        renderPreview();
+        return true;
+    };
     escHandler = onOverlayKeydown;
     document.addEventListener('keydown', escHandler);
 }

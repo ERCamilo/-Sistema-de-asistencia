@@ -26,6 +26,11 @@ export class Attendance {
         if (Object.prototype.hasOwnProperty.call(data, 'projectId')) {
             this.projectId = data.projectId ?? null;
         }
+        // Auditoría de horas importadas desde Mini: se conserva tal cual para
+        // que recargar y volver a guardar no borre su procedencia.
+        if (data.miniImportAudit != null) {
+            this.miniImportAudit = data.miniImportAudit;
+        }
     }
 
     get key() {
@@ -80,6 +85,9 @@ export class Attendance {
         };
         if (Object.prototype.hasOwnProperty.call(this, 'projectId')) {
             json.projectId = this.projectId;
+        }
+        if (this.miniImportAudit != null) {
+            json.miniImportAudit = this.miniImportAudit;
         }
         return json;
     }

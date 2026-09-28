@@ -154,17 +154,44 @@ describe('EmployeeRepository photo persistence boundary', () => {
         expect(Object.prototype.hasOwnProperty.call(payload, 'photo')).toBe(false);
     });
 
+    function transactionWith(existing) {
+        const set = jest.fn();
+        runTransaction.mockImplementationOnce(async (_db, operation) => operation({
+            get: jest.fn(async () => ({ exists: () => Boolean(existing), data: () => existing })),
+            set
+        }));
+        return set;
+    }
+
     test('savePhotoSignal persists only the lightweight signal without touching employee updatedAt', async () => {
         auth.currentUser = { uid: 'user-1' };
-        setDoc.mockResolvedValueOnce();
+        const set = transactionWith({ id: 'employee-1', name: 'Ana', updatedAt: 100 });
 
-        await EmployeeRepository.savePhotoSignal('employee-1', {
+        await expect(EmployeeRepository.savePhotoSignal('employee-1', {
             ...VALID_PHOTO,
             signedUrl: 'https://storage.example/temporary'
-        });
+        })).resolves.toEqual({ skipped: false });
 
-        expect(setDoc.mock.calls[0][1]).toEqual({ photo: VALID_PHOTO });
-        expect(setDoc.mock.calls[0][1].updatedAt).toBeUndefined();
+        expect(set.mock.calls[0][1]).toEqual({ photo: VALID_PHOTO });
+        expect(set.mock.calls[0][1].updatedAt).toBeUndefined();
+        expect(set.mock.calls[0][2]).toEqual({ merge: true });
+        expect(setDoc).not.toHaveBeenCalled();
+    });
+
+    test('savePhotoSignal never creates a photo-only document for a missing employee', async () => {
+        auth.currentUser = { uid: 'user-1' };
+        // Borrado físico: la señal de borrado de la foto no tiene dónde ir y se omite.
+        const deletedSet = transactionWith(null);
+        await expect(EmployeeRepository.savePhotoSignal('gone', { ...VALID_PHOTO, state: 'deleted' }))
+            .resolves.toEqual({ skipped: true });
+        expect(deletedSet).not.toHaveBeenCalled();
+
+        // Empleado aún sin subir: la foto lista falla reintentable (backoff del servicio).
+        const readySet = transactionWith(null);
+        await expect(EmployeeRepository.savePhotoSignal('not-yet', VALID_PHOTO))
+            .rejects.toMatchObject({ code: 'EMPLOYEE_PHOTO_SIGNAL_NO_EMPLOYEE', retryable: true });
+        expect(readySet).not.toHaveBeenCalled();
+        expect(setDoc).not.toHaveBeenCalled();
     });
 
     test('merge-save preserves a remote photo when a newer Employee omitted photo', async () => {

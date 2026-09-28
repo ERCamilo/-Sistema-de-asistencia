@@ -34,20 +34,20 @@ describe('B3.4 Unit 1 Firestore Rules boundary', () => {
     test('checks server-visible legacy and canonical schema shapes without client-only claims', () => {
         expect(RULES).toContain('data.schemaVersion == 2');
         expect(RULES).toContain('data.schemaVersion == 3');
-        expect(RULES).toContain('isLegacyClosure(request.resource.data)');
-        expect(RULES).toContain('isNativeClosure(request.resource.data)');
-        expect(RULES).toContain('isCanonicalProjectId(data.projectId)');
+        expect(RULES).toContain('isLegacyVariant(request.resource.data)');
+        expect(RULES).toContain('isNativeVariant(request.resource.data)');
+        expect(RULES).toContain("isCanonicalProjectId(data.get('projectId', null))");
         expect(RULES).toContain('value is string && value.size() > 0');
         expect(RULES).toContain("!value.matches('^legacy-unresolved:.*')");
-        expect(RULES).toContain("data.identityKind == 'promoted-legacy'");
-        expect(RULES).toContain('hasNonEmptyString(data, \'ownershipToken\')');
+        expect(RULES).toContain("data.get('identityKind', null) == 'promoted-legacy'");
+        expect(RULES).toContain("nonEmptyString(data.get('ownershipToken', null))");
         expect(RULES).not.toMatch(/isProjectsEnabled|localStorage|stableToken/);
     });
 
     test('rejects downgrade, owner changes, invalid promotion mutations, and void reversal', () => {
-        expect(RULES).toContain('resource.data.schemaVersion == request.resource.data.schemaVersion');
-        expect(RULES).toContain('resource.data.id == request.resource.data.id');
-        expect(RULES).toContain('resource.data.fingerprint == request.resource.data.fingerprint');
+        expect(RULES).toContain('before.schemaVersion == after.schemaVersion');
+        expect(RULES).toContain('before.id == after.id');
+        expect(RULES).toContain('before.fingerprint == after.fingerprint');
         expect(RULES).toContain('request.resource.data.projectId == resource.data.projectId');
         expect(RULES).toContain("data.status == 'voided'");
         expect(RULES).toContain("resource.data.status == 'closed'");

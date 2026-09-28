@@ -5,9 +5,8 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
-    function hasNonEmptyString(data, field) {
-      return data.keys().hasAll([field]) &&
-        data[field] is string && data[field].size() > 0;
+    function nonEmptyString(value) {
+      return value is string && value.size() > 0;
     }
 
     function isCanonicalProjectId(value) {
@@ -17,57 +16,58 @@ service cloud.firestore {
         !value.matches('^legacy-unresolved:.*');
     }
 
-    function hasClosureShape(data) {
-      return data.keys().hasAll([
-        'schemaVersion', 'id', 'fingerprint', 'periodStart', 'periodEnd',
-        'status', 'closedAt', 'updatedAt', 'undoUntil', 'employeeCount',
-        'rows', 'totals', 'paymentRefs'
-      ]) &&
-        hasNonEmptyString(data, 'id') &&
-        hasNonEmptyString(data, 'fingerprint') &&
-        hasNonEmptyString(data, 'periodStart') &&
-        hasNonEmptyString(data, 'periodEnd') &&
-        data.closedAt is int && data.updatedAt is int &&
-        data.undoUntil is int && data.employeeCount is int &&
-        data.rows is list && data.totals is map && data.paymentRefs is list;
-    }
-
+    // Presupuesto: Firestore evalúa como máximo 1000 expresiones por petición.
+    // La forma completa de un cierre se comprueba UNA vez por documento
+    // (isShapedClosure) y las variantes (legacy/nativo/promovido) solo miran
+    // los campos que las distinguen. Repetir la forma dentro de cada variante
+    // agotaba el presupuesto al anular o actualizar un cierre (emulador).
     function hasValidStatus(data) {
       return data.status == 'closed' ||
         (data.status == 'voided' &&
           data.keys().hasAll(['voidedAt', 'voidedBy', 'voidReason']) &&
           data.voidedAt is int &&
           (data.voidedBy == null || data.voidedBy is string) &&
-          hasNonEmptyString(data, 'voidReason'));
+          nonEmptyString(data.voidReason));
     }
 
-    function isLegacyClosure(data) {
-      return hasClosureShape(data) && data.schemaVersion == 2 &&
-        !data.keys().hasAny(['projectId', 'identityKind', 'ownershipToken']) &&
+    function isShapedClosure(data) {
+      return data.keys().hasAll([
+        'schemaVersion', 'id', 'fingerprint', 'periodStart', 'periodEnd',
+        'status', 'closedAt', 'updatedAt', 'undoUntil', 'employeeCount',
+        'rows', 'totals', 'paymentRefs'
+      ]) &&
+        nonEmptyString(data.id) &&
+        nonEmptyString(data.fingerprint) &&
+        nonEmptyString(data.periodStart) &&
+        nonEmptyString(data.periodEnd) &&
+        data.closedAt is int && data.updatedAt is int &&
+        data.undoUntil is int && data.employeeCount is int &&
+        data.rows is list && data.totals is map && data.paymentRefs is list &&
         hasValidStatus(data);
     }
 
-    function isNativeClosure(data) {
-      return hasClosureShape(data) && data.schemaVersion == 3 &&
-        hasNonEmptyString(data, 'projectId') &&
-        isCanonicalProjectId(data.projectId) &&
-        !data.keys().hasAny(['identityKind', 'ownershipToken']) &&
-        hasValidStatus(data);
+    // Variantes: suponen isShapedClosure(data).
+    function isLegacyVariant(data) {
+      return data.schemaVersion == 2 &&
+        !data.keys().hasAny(['projectId', 'identityKind', 'ownershipToken']);
     }
 
-    function isPromotedLegacyClosure(data) {
-      return hasClosureShape(data) && data.schemaVersion == 3 &&
-        hasNonEmptyString(data, 'projectId') &&
-        isCanonicalProjectId(data.projectId) &&
-        hasNonEmptyString(data, 'identityKind') &&
-        data.identityKind == 'promoted-legacy' &&
-        hasNonEmptyString(data, 'ownershipToken') &&
-        hasValidStatus(data);
+    function isNativeVariant(data) {
+      return data.schemaVersion == 3 &&
+        isCanonicalProjectId(data.get('projectId', null)) &&
+        !data.keys().hasAny(['identityKind', 'ownershipToken']);
     }
 
-    function isClosure(data) {
-      return isLegacyClosure(data) || isNativeClosure(data) ||
-        isPromotedLegacyClosure(data);
+    function isPromotedVariant(data) {
+      return data.schemaVersion == 3 &&
+        isCanonicalProjectId(data.get('projectId', null)) &&
+        data.get('identityKind', null) == 'promoted-legacy' &&
+        nonEmptyString(data.get('ownershipToken', null));
+    }
+
+    function isClosureVariant(data) {
+      return isLegacyVariant(data) || isNativeVariant(data) ||
+        isPromotedVariant(data);
     }
 
     function preservesProjectOwner() {
@@ -77,12 +77,70 @@ service cloud.firestore {
           request.resource.data.projectId == resource.data.projectId;
     }
 
-    function isLegacyPromotion() {
-      return isLegacyClosure(resource.data) &&
-        isPromotedLegacyClosure(request.resource.data) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+    // M1: cerrojo por cierre de origen. Un cierre schema 2 llega a una obra por
+    // promoción (mismo id) o por copia de recuperación (recovery.sourceId). Cada
+    // camino debe crear el cerrojo en el mismo commit; como el cerrojo no se
+    // puede actualizar, solo uno de los dos puede existir.
+    function closurePath(userId, closureId) {
+      return /databases/$(database)/documents/users/$(userId)/payrollClosures/$(closureId);
+    }
+
+    function claimPath(userId, sourceId) {
+      return /databases/$(database)/documents/users/$(userId)/payrollClosureClaims/$(sourceId);
+    }
+
+    function hasClaimAfter(userId, sourceId, kind, targetId, projectId) {
+      return existsAfter(claimPath(userId, sourceId)) &&
+        getAfter(claimPath(userId, sourceId)).data.kind == kind &&
+        getAfter(claimPath(userId, sourceId)).data.targetId == targetId &&
+        getAfter(claimPath(userId, sourceId)).data.projectId == projectId;
+    }
+
+    // Supone isShapedClosure en ambos lados e isLegacyVariant(before).
+    function isLegacyPromotion(userId, closureId, before, after) {
+      return isPromotedVariant(after) &&
+        after.diff(before).affectedKeys().hasOnly([
           'schemaVersion', 'projectId', 'identityKind', 'ownershipToken'
-        ]);
+        ]) &&
+        hasClaimAfter(userId, closureId, 'promotion', closureId, after.projectId);
+    }
+
+    // Una copia de recuperación nueva solo se crea con su cerrojo.
+    function isClaimedOrPlainNativeCreate(userId, closureId) {
+      return !request.resource.data.keys().hasAny(['recovery']) ||
+        (request.resource.data.recovery is map &&
+          nonEmptyString(request.resource.data.recovery.get('sourceId', null)) &&
+          hasClaimAfter(userId, request.resource.data.recovery.sourceId,
+            'recovery-copy', closureId, request.resource.data.projectId));
+    }
+
+    function isSourceNotPromoted(userId, sourceId) {
+      return !exists(closurePath(userId, sourceId)) ||
+        get(closurePath(userId, sourceId)).data.get('identityKind', '') != 'promoted-legacy';
+    }
+
+    function isValidClosureClaim(userId, sourceId) {
+      let claim = request.resource.data;
+      let target = closurePath(userId, claim.targetId);
+      return claim.keys().hasOnly([
+          'sourceId', 'kind', 'targetId', 'projectId', 'claimedAt'
+        ]) &&
+        claim.keys().hasAll([
+          'sourceId', 'kind', 'targetId', 'projectId', 'claimedAt'
+        ]) &&
+        claim.sourceId == sourceId &&
+        nonEmptyString(claim.targetId) &&
+        isCanonicalProjectId(claim.projectId) &&
+        claim.claimedAt is int &&
+        existsAfter(target) &&
+        getAfter(target).data.get('projectId', null) == claim.projectId &&
+        ((claim.kind == 'promotion' &&
+            claim.targetId == sourceId &&
+            isShapedClosure(getAfter(target).data) &&
+            isPromotedVariant(getAfter(target).data)) ||
+          (claim.kind == 'recovery-copy' &&
+            getAfter(target).data.get('recovery', {}).get('sourceId', null) == sourceId &&
+            isSourceNotPromoted(userId, sourceId)));
     }
 
     function isClosedToVoided() {
@@ -101,13 +159,18 @@ service cloud.firestore {
         ]);
     }
 
-    function isAllowedClosureUpdate() {
-      return isClosure(resource.data) && isClosure(request.resource.data) &&
-        resource.data.schemaVersion == request.resource.data.schemaVersion &&
-        resource.data.id == request.resource.data.id &&
-        resource.data.fingerprint == request.resource.data.fingerprint &&
-        preservesProjectOwner() &&
-        (isClosedToVoided() || isStableClosedUpdate());
+    function isAllowedClosureUpdate(userId, closureId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      return isShapedClosure(before) && isShapedClosure(after) &&
+        before.id == after.id &&
+        before.fingerprint == after.fingerprint &&
+        ((isLegacyVariant(before) &&
+            isLegacyPromotion(userId, closureId, before, after)) ||
+          (before.schemaVersion == after.schemaVersion &&
+            isClosureVariant(before) && isClosureVariant(after) &&
+            preservesProjectOwner() &&
+            (isClosedToVoided() || isStableClosedUpdate())));
     }
 
     // This specific match must not overlap an account-wide allow. Rules
@@ -115,11 +178,23 @@ service cloud.firestore {
     match /users/{userId}/payrollClosures/{closureId} {
       allow read: if isAccountOwner(userId);
       allow create: if isAccountOwner(userId) &&
-        (isLegacyClosure(request.resource.data) ||
-          isNativeClosure(request.resource.data));
+        isShapedClosure(request.resource.data) &&
+        (isLegacyVariant(request.resource.data) ||
+          (isNativeVariant(request.resource.data) &&
+            isClaimedOrPlainNativeCreate(userId, closureId)));
       allow update: if isAccountOwner(userId) &&
-        (isLegacyPromotion() || isAllowedClosureUpdate());
+        isAllowedClosureUpdate(userId, closureId);
       allow delete: if isAccountOwner(userId);
+    }
+
+    // M1: inmutable. Solo se borra si su cierre destino ya no existe.
+    match /users/{userId}/payrollClosureClaims/{sourceId} {
+      allow read: if isAccountOwner(userId);
+      allow create: if isAccountOwner(userId) &&
+        isValidClosureClaim(userId, sourceId);
+      allow update: if false;
+      allow delete: if isAccountOwner(userId) &&
+        !existsAfter(closurePath(userId, resource.data.targetId));
     }
 
     // These are the application's current direct Firestore subcollections.

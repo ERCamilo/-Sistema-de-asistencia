@@ -5,6 +5,7 @@ export function createAttendanceCachePruner({
     readAttendance,
     writeAttendance,
     getProtectedDateKeys,
+    getProtectedRecordKeys = async () => new Set(),
     deleteRecords,
     getScope = () => null,
     onPruned = () => {},
@@ -13,9 +14,11 @@ export function createAttendanceCachePruner({
     return {
         async prune() {
             const protectedDateKeys = await getProtectedDateKeys();
+            const protectedRecordKeys = await getProtectedRecordKeys();
             const plan = planAttendanceEviction(readAttendance(), {
                 now: now(),
                 protectedDateKeys,
+                protectedRecordKeys,
                 scope: getScope()
             });
 

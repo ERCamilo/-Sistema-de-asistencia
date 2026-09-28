@@ -66,6 +66,9 @@ export function EmployeePhotoAcquisitionUI(employee = {}, { avatarHtml = '' } = 
                 <p class="employee-photo-sheet__error" data-employee-photo-error role="alert" hidden>
                     No se pudo guardar la foto. Inténtalo de nuevo.
                 </p>
+                <p class="employee-photo-sheet__sync" data-employee-photo-sync role="status" hidden>
+                    Esta foto está guardada en este teléfono y aún no se subió a la nube. Se reintentará sola.
+                </p>
                 <button type="button" data-employee-photo-action="camera">Tomar foto</button>
                 <button type="button" data-employee-photo-action="gallery">Elegir de la galería</button>
                 <button type="button" data-employee-photo-action="cancel">Cancelar</button>
@@ -199,6 +202,7 @@ export class EmployeePhotoAcquisitionController {
             hideError(sheet);
             setBusy(sheet, false);
             sheet.hidden = false;
+            void this.showPendingUpload(sheet);
             sheet.querySelector('[data-employee-photo-action="camera"]')?.focus();
             element.dispatchEvent(new CustomEvent('employee-photo:action-started', { bubbles: true }));
             return true;
@@ -216,6 +220,17 @@ export class EmployeePhotoAcquisitionController {
             return true;
         }
         return false;
+    }
+
+    async showPendingUpload(sheet) {
+        const line = sheet.querySelector('[data-employee-photo-sync]');
+        if (!line) return false;
+        line.hidden = true;
+        const employeeId = String(sheet.dataset.employeeId || '').trim();
+        let status = null;
+        try { status = await this.photoStore.getPendingUploadStatus?.(employeeId); } catch { status = null; }
+        line.hidden = !(status?.pending && !sheet.hidden);
+        return !line.hidden;
     }
 
     async deletePhoto(sheet, opener = null) {

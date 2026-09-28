@@ -80,7 +80,8 @@ describe('U3-D matrix through Repository+Sync+Store', () => {
         const promoted = promoteLegacyPayrollClosure(leg, DEFAULT);
         // Repository: default sees promoted, non-default does not discover schema2
         getDocs.mockResolvedValueOnce({ docs: [docSnap(nativeA)] }).mockResolvedValueOnce({ docs: [docSnap(leg)] });
-        runTransaction.mockImplementation(async (_db, op) => op({ get: jest.fn(async () => docSnap(leg)), set: jest.fn() }));
+        // M1: la segunda lectura de la transacción es el cerrojo (aún no existe).
+        runTransaction.mockImplementation(async (_db, op) => op({ get: jest.fn().mockResolvedValueOnce(docSnap(leg)).mockResolvedValue(docSnap(null)), set: jest.fn() }));
         const pageA = await _payrollClosureRepositoryInternals.loadPageScoped({ limit: 10 }, { projectId: A, defaultProjectId: DEFAULT });
         expect(pageA.items.some(i => i.id === nativeA.id)).toBe(true);
         expect(pageA.items.some(i => i.id === promoted.id)).toBe(true);

@@ -1994,6 +1994,7 @@
         }
 
         .employee-photo-sheet__status { color: #67e8f9; }
+        .employee-photo-sheet__sync { margin: 0 0 10px; font-size: 12.5px; line-height: 1.45; color: var(--warn); }
         .employee-photo-sheet__error { color: #fca5a5; }
 
         .employee-photo-sheet__panel > button {

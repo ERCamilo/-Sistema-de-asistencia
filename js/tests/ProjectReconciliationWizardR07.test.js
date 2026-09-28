@@ -249,4 +249,77 @@ describe('project assignment wizard', () => {
         expect(JSON.stringify(state.employees)).toBe(original);
     });
 
+    test.each([undefined, 'deleted-project'])('manual flow explicitly includes an omitted linked position (%s)', async projectId => {
+        state.positions.push({ id: 'pos-extra', name: 'varilla <pendiente>', leaderId: 'lead-w', projectId });
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="map"]');
+        change('[data-r07-control="target-project"]', project.id);
+        click('wizard-next'); click('wizard-next'); click('assign-source-leader');
+        click('wizard-next'); click('assign-source-position');
+        const blocker = document.querySelector('[data-r07-step="3"] .r07-recon-blocker');
+        expect(blocker.textContent).toContain('Pedro');
+        expect(blocker.textContent).toContain('varilla <pendiente>');
+        expect(blocker.querySelector('pendiente')).toBeNull();
+        expect(document.querySelector('.r07-recon-footer-hint').textContent).not.toMatch(/Resolve linked/);
+        expect(document.querySelector('[data-r07-action="wizard-next"]').disabled).toBe(true);
+        expect(apply).not.toHaveBeenCalled();
+        blocker.querySelector('[data-r07-action="include-linked-relation"]').click();
+        expect(document.querySelector('[data-r07-action="wizard-next"]').disabled).toBe(false);
+        expect(apply).not.toHaveBeenCalled();
+        click('wizard-next'); click('apply');
+        expect(apply).toHaveBeenCalledWith(expect.objectContaining({
+            positionIds: expect.arrayContaining(['pos-w', 'pos-extra']), leaderIds: ['lead-w']
+        }));
+        await Promise.resolve(); await Promise.resolve();
+    });
+
+    test('linked position in a valid foreign project cannot be included', async () => {
+        state.positions.push({ id: 'pos-extra', name: 'Puesto ajeno', leaderId: 'lead-w', projectId: 'PRJ-other' });
+        setup.mockResolvedValue({ enabled: true, ready: true, activeProjectId: project.id, defaultProjectId: project.id,
+            projects: [project, { id: 'PRJ-other', name: 'Otra', status: 'active' }] });
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="map"]');
+        change('[data-r07-control="target-project"]', project.id);
+        click('wizard-next'); click('wizard-next'); click('assign-source-leader');
+        click('wizard-next'); click('assign-source-position');
+        const blocker = document.querySelector('[data-r07-step="3"] .r07-recon-blocker');
+        expect(blocker.textContent).toContain('Puesto ajeno');
+        expect(blocker.querySelector('[data-r07-action="include-linked-relation"]')).toBeNull();
+        expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(true);
+        expect(apply).not.toHaveBeenCalled();
+    });
+
+    test('stale inclusion button is revalidated against the current ownership', async () => {
+        state.positions.push({ id: 'pos-extra', name: 'varilla', leaderId: 'lead-w' });
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="map"]');
+        change('[data-r07-control="target-project"]', project.id);
+        click('wizard-next'); click('wizard-next'); click('assign-source-leader');
+        click('wizard-next'); click('assign-source-position');
+        const button = document.querySelector('[data-r07-step="3"] [data-r07-action="include-linked-relation"]');
+        state.positions.find(p => p.id === 'pos-extra').projectId = project.id;
+        button.click();
+        expect(apply).not.toHaveBeenCalled();
+        // This definition is already scoped; the stale button must not select it for migration.
+        click('wizard-back'); click('wizard-next'); click('wizard-next'); click('apply');
+        expect(apply.mock.calls[0][0].positionIds).not.toContain('pos-extra');
+        await Promise.resolve(); await Promise.resolve();
+    });
+
+    test('durable conflict reports the related entity instead of a generic reason', async () => {
+        state.positions.push({ id: 'pos-extra', name: 'Puesto cambiado', leaderId: 'lead-w' });
+        apply.mockResolvedValue({ status: repair.REPAIR_STATUS.CONFLICT,
+            reason: 'Resolve linked employees, positions and leaders first',
+            conflicts: [{ kind: 'CATALOG_LEADER_POSITION_PROJECT', entityId: 'lead-w', positionId: 'pos-extra' }] });
+        await openProjectReconciliation();
+        change('[name="r07-recon-action"][value="map"]');
+        change('[data-r07-control="target-project"]', project.id);
+        click('quick-assign'); click('apply');
+        await Promise.resolve(); await Promise.resolve();
+        const message = document.querySelector('.r07-recon-message').textContent;
+        expect(message).toContain('Pedro');
+        expect(message).toContain('Puesto cambiado');
+        expect(message).not.toContain('Resolve linked');
+    });
+
 });

@@ -19,6 +19,7 @@ import { sendMovementMirror } from './PettyCashMovementMirror.js';
 import { PettyCashPersistenceMetrics } from './PettyCashPersistenceMetrics.js';
 import { createCrossTabLock } from '../../services/CrossTabLock.js';
 import { normalizeOfficialProjectId } from './PettyCashOfficialLink.js';
+import { isDetachedRestoreSyncBlocked } from '../../services/DetachedRestoreGuard.js';
 
 const STORE = { projects: 'pettyCashProjects', periods: 'pettyCashPeriods', movements: 'pettyCashMovements' };
 const REPO = { projects: PettyCashRepository.projects, periods: PettyCashRepository.periods, movements: PettyCashRepository.movements };
@@ -33,6 +34,30 @@ const _crossTabLock = createCrossTabLock({ leaseStore: indexedDBService });
 // deja de bloquear la cola (una entrada envenenada — rechazada por reglas,
 // payload corrupto — frenaba TODOS los demás cambios pendientes, en silencio).
 export const MAX_FLUSH_ATTEMPTS = 5;
+
+// Orígenes de las entradas que encola una restauración de respaldo.
+// - merge: la nube conserva cualquier versión más reciente; el respaldo solo
+//   aporta lo que falta o lo que en la nube es más antiguo.
+// - replace («Borrar y Reemplazar Nube»): la versión del respaldo gana.
+export const RESTORE_SOURCE = Object.freeze({
+    MERGE: 'backup-restore',
+    REPLACE: 'backup-replace'
+});
+
+function isRestoreMergeEntry(entry) {
+    return entry?.source === RESTORE_SOURCE.MERGE && entry?.op === 'save';
+}
+
+function isVersionConflict(error) {
+    return error?.code === 'failed-precondition';
+}
+
+function isNewerRemote(remoteItem, localItem) {
+    const remoteVersion = Number(remoteItem?.updatedAt);
+    const localVersion = Number(localItem?.updatedAt);
+    return Number.isFinite(remoteVersion) && remoteVersion > 0
+        && (!Number.isFinite(localVersion) || localVersion <= 0 || remoteVersion >= localVersion);
+}
 
 let _flushing = false;
 let _flushRequested = false;
@@ -264,6 +289,7 @@ export const PettyCashStore = {
         const user = auth?.currentUser;
         const url = APP_CONFIG?.PETTY_CASH_MIRROR_URL;
         if (!user || typeof user.getIdToken !== 'function' || !url) return;
+        if (isDetachedRestoreSyncBlocked()) return; // M2: igual que flush()
         _flushingMirror = true;
         try {
             await _crossTabLock.run(MIRROR_LOCK, async () => {
@@ -271,8 +297,10 @@ export const PettyCashStore = {
                 const idToken = await user.getIdToken();
                 let pending = [];
                 try { pending = (await indexedDBService.getAll(MIRROR_OUTBOX)) || []; } catch { pending = []; }
+                // Las peticiones de borrado de comprobantes (M3) comparten el store
+                // pero las drena PettyCashReceiptRemoteDelete contra otra función.
                 pending = pending
-                    .filter((entry) => entry?.status === 'pending')
+                    .filter((entry) => entry?.status === 'pending' && !entry?.kind)
                     .sort((left, right) => (Number(left.ts) || 0) - (Number(right.ts) || 0));
 
                 for (const entry of pending) {
@@ -403,11 +431,15 @@ export const PettyCashStore = {
                 .filter((entry) => entry?.col === col && ['pending', 'dead'].includes(entry.status))
                 .sort((left, right) => (left.key || 0) - (right.key || 0))
                 .forEach((entry) => latestQueued.set(String(entry.id), entry));
+            const remoteById = new Map(remote.map((item) => [String(item.id), item]));
             latestQueued.forEach((entry, id) => {
                 if (entry.op === 'delete') {
                     merged.delete(id);
                     return;
                 }
+                // Una restauración en modo fusión no pisa una versión igual o más
+                // reciente que ya está en la nube; el flush descartará esa entrada.
+                if (isRestoreMergeEntry(entry) && isNewerRemote(remoteById.get(id), entry.data)) return;
                 const localItem = entry.data || localById.get(id);
                 if (localItem) merged.set(id, localItem);
             });
@@ -431,6 +463,8 @@ export const PettyCashStore = {
             return;
         }
         if (!auth || !auth.currentUser) return; // sin sesión → reintentar luego
+        // M2: restauración desconectada sin decidir → la cola espera la elección.
+        if (isDetachedRestoreSyncBlocked()) return;
         const expectedUid = auth.currentUser.uid;
         _flushing = true;
         try {
@@ -470,11 +504,29 @@ export const PettyCashStore = {
                                 await repo.saveOne(entry.data, { source: entry.source });
                             }
                             await deleteOutboxKeys(group.keys);
+                            // El espejo de Supabase no compara versiones: un movimiento
+                            // restaurado solo se refleja cuando Firestore ya lo aceptó.
+                            if (entry.col === 'movements' && entry.op === 'save'
+                                && Object.values(RESTORE_SOURCE).includes(entry.source)) {
+                                await this.enqueueMovementMirror('save', entry.data, { source: entry.source })
+                                    .then(() => { this.flushMirror(); })
+                                    .catch((error) => console.warn('pc restore mirror enqueue:', error));
+                            }
                             // 💬 Toast honesto: si hay un guardado anunciado esperando,
                             // confirmar que la nube ya lo tiene (el notifier ignora el
                             // reporte si no hay nada pendiente).
                             saveOutcomeNotifier.recordCloudResult(true);
                         } catch (e) {
+                            if (isRestoreMergeEntry(entry) && isVersionConflict(e)) {
+                                // La nube ya tiene una versión más reciente: en modo fusión
+                                // gana la nube y la entrada del respaldo queda resuelta.
+                                await deleteOutboxKeys(group.keys);
+                                PettyCashPersistenceMetrics.record({
+                                    operation: 'flush', collection: 'outbox', stage: 'restore-superseded',
+                                    source: entry.source
+                                });
+                                continue;
+                            }
                             // Las operaciones anteriores del mismo documento ya están
                             // representadas por la última. Quitarlas evita que vuelvan
                             // a generar escrituras cuando se reintente.
@@ -515,6 +567,53 @@ export const PettyCashStore = {
                 queueMicrotask(() => this.flush());
             }
         }
+    },
+
+    /**
+     * Encola para la nube la caja chica que una restauración ya aplicó en local.
+     *
+     * Sin esto, el primer snapshot de Firestore reemplazaba la colección local y
+     * borraba lo restaurado que la nube no tenía. Los ids con trabajo local ya
+     * encolado se omiten: ese cambio pendiente sigue siendo el que manda.
+     * En modo `replace` se estampa `updatedAt` para que la versión del respaldo
+     * gane también en los demás dispositivos; nunca se borran documentos de la
+     * nube que el respaldo no trae.
+     *
+     * @returns {Promise<{queued: number, skipped: number}>}
+     */
+    async enqueueRestored(pettyCash, { mode = 'merge', now = Date.now(), awaitFlush = false } = {}) {
+        const result = { queued: 0, skipped: 0 };
+        if (!pettyCash || typeof pettyCash !== 'object') return result;
+        const replace = mode === 'replace';
+        const source = replace ? RESTORE_SOURCE.REPLACE : RESTORE_SOURCE.MERGE;
+        const outbox = (await indexedDBService.getAll(OUTBOX)) || [];
+        const queuedIds = new Set(outbox
+            .filter((entry) => ['pending', 'dead'].includes(entry?.status))
+            .map((entry) => `${entry.col}\u0000${entry.id}`));
+        for (const col of Object.keys(STORE)) {
+            const items = Array.isArray(pettyCash[col]) ? pettyCash[col] : [];
+            for (const original of items) {
+                const id = String(original?.id || '').trim();
+                if (!id || original.localDraft === true) continue;
+                if (queuedIds.has(`${col}\u0000${id}`)) {
+                    result.skipped++;
+                    continue;
+                }
+                const item = replace ? { ...original, updatedAt: now } : { ...original };
+                if (replace) await indexedDBService.update(STORE[col], item);
+                await indexedDBService.update(OUTBOX, {
+                    op: 'save', col, id: item.id, data: item, source,
+                    ts: now, status: 'pending'
+                });
+                queuedIds.add(`${col}\u0000${id}`);
+                result.queued++;
+            }
+        }
+        if (result.queued > 0) {
+            const flushing = this.flush();
+            if (awaitFlush) await flushing;
+        }
+        return result;
     },
 
     /** ¿Cuántas escrituras quedan pendientes? (para UI/diagnóstico) */

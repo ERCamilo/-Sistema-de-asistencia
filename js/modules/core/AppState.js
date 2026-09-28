@@ -34,10 +34,15 @@ class RenderOptimizer {
         requestAnimationFrame(() => {
             const callbacks = [...this._renderQueue];
             this._renderQueue = [];
-            callbacks.forEach(cb => { 
-                try { cb(); } catch (e) { console.error('❌ Error en render:', e); } 
+            callbacks.forEach(cb => {
+                try { cb(); } catch (e) { console.error('❌ Error en render:', e); }
             });
             this._rendering = false;
+            // batchSetState programa window.render, que a su vez programa el render
+            // real mientras _rendering sigue activo: sin este drenaje ese render
+            // quedaba en cola hasta el siguiente disparo (p. ej. el perfil abierto
+            // con un toque no se pintaba).
+            if (this._renderQueue.length) this._processQueue();
         });
     }
 }

@@ -482,12 +482,20 @@ function renderChoice(value, title, detail) {
 function dependencyConflictText(conflict = {}) {
     const definition = [...(state.positions || []), ...(state.leaders || [])].find(item => item.id === conflict.entityId);
     const name = conflict.entityName || definition?.name || 'La relación';
+    const linkedPosition = (state.positions || []).find(item => item.id === conflict.positionId);
+    const linkedLeader = (state.leaders || []).find(item => item.id === conflict.leaderId);
+    const linkedEmployee = (state.employees || []).find(item => item.id === conflict.employeeId);
+    const positionName = linkedPosition?.name || conflict.positionId || 'sin identificar';
+    const leaderName = linkedLeader?.name || conflict.leaderId || 'sin identificar';
+    const employeeName = linkedEmployee
+        ? [linkedEmployee.number, linkedEmployee.name].filter(Boolean).join(' · ')
+        : conflict.employeeId || 'sin identificar';
     const messages = {
-        CATALOG_POSITION_EMPLOYEE_PROJECT: 'El puesto "' + name + '" también lo usa un empleado fuera de esta selección. Inclúyelo si pertenece a esta obra o crea un puesto nuevo.',
+        CATALOG_POSITION_EMPLOYEE_PROJECT: 'El puesto "' + name + '" también lo usa "' + employeeName + '", fuera de esta selección. Inclúyelo si pertenece a esta obra o crea un puesto nuevo.',
         CATALOG_POSITION_ATTENDANCE_PROJECT: 'El puesto "' + name + '" tiene asistencia en otra obra. Usa un puesto de destino o crea uno nuevo.',
-        CATALOG_POSITION_LEADER_PROJECT: 'Resuelve el líder del puesto "' + name + '" antes de continuar.',
-        CATALOG_LEADER_POSITION_PROJECT: 'El líder "' + name + '" tiene puestos fuera de esta asignación. Incluye sus puestos sin obra o elige otro líder.',
-        CATALOG_LEADER_EMPLOYEE_PROJECT: 'El líder "' + name + '" tiene empleados fuera de esta asignación. Inclúyelos o elige otro líder.',
+        CATALOG_POSITION_LEADER_PROJECT: 'El puesto "' + name + '" está relacionado con el líder "' + leaderName + '". Inclúyelo si está sin obra o elige otro líder.',
+        CATALOG_LEADER_POSITION_PROJECT: 'El líder "' + name + '" también está relacionado con el puesto "' + positionName + '", fuera de esta asignación. Incluye ese puesto si está sin obra o elige otro líder.',
+        CATALOG_LEADER_EMPLOYEE_PROJECT: 'El líder "' + name + '" también está relacionado con "' + employeeName + '", fuera de esta asignación. Inclúyelo si pertenece a esta obra o elige otro líder.',
         CATALOG_POSITION_STALE: 'El puesto "' + name + '" ya cambió de obra. Revisa su asignación.',
         CATALOG_LEADER_STALE: 'El líder "' + name + '" ya cambió de obra. Revisa su asignación.',
         POSITION_PROJECT_CONFLICT: 'El puesto "' + name + '" pertenece a otra obra.',
@@ -501,6 +509,48 @@ function dependencyConflictText(conflict = {}) {
         MISSING_LEADER_DEFINITION: 'No se encontró la definición del líder "' + name + '".'
     };
     return messages[conflict.kind] || conflict.message || 'Revisa "' + name + '" antes de continuar.';
+}
+
+/** Only offer explicit inclusion of a pending relation; valid foreign ownership
+ * remains protected by both this UI guard and the durable repair planner. */
+function linkedConflictChoice(conflict = {}) {
+    const kinds = {
+        CATALOG_LEADER_POSITION_PROJECT: ['positions', conflict.positionId, 'puesto'],
+        CATALOG_POSITION_LEADER_PROJECT: ['leaders', conflict.leaderId, 'líder'],
+        CATALOG_POSITION_EMPLOYEE_PROJECT: ['employees', conflict.employeeId, 'empleado'],
+        CATALOG_LEADER_EMPLOYEE_PROJECT: ['employees', conflict.employeeId, 'empleado']
+    };
+    const choice = kinds[conflict.kind];
+    if (!choice) return null;
+    const [collection, rawId, label] = choice;
+    const id = String(rawId ?? '').trim();
+    const record = id && (state[collection] || []).find(item => String(item?.id ?? '').trim() === id);
+    // Same trimmed ownership rule as the analysis and the durable planner.
+    const owner = String(record?.projectId ?? '').trim();
+    if (!record || snapshot.projects.some(project => String(project?.id ?? '').trim() === owner)) return null;
+    if (collection === 'employees') {
+        // Only rows whose own ownership is pending are sent as repairable employees.
+        if (!snapshot.employeeRows.some(row => row.id === id && row.employeeIssue) || modalState.selectedIds.has(id)) return null;
+    } else {
+        // Offer only definitions that the final apply will actually send.
+        const key = collection + ':' + id;
+        if (modalState.entitySelectedIds.has(key) || !catalogIssues().some(issue => catalogIssueKey(issue) === key)) return null;
+    }
+    return { collection, id, label, name: record.name || id };
+}
+
+function renderLinkedConflictChoice(conflict) {
+    const choice = linkedConflictChoice(conflict);
+    if (!choice) return '';
+    return '<button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="include-linked-relation"'
+        + ' data-conflict-kind="' + escapeHTML(conflict.kind) + '" data-related-id="' + escapeHTML(choice.id) + '">'
+        + escapeHTML('Incluir ' + choice.label + ' "' + choice.name + '"') + '</button>';
+}
+
+function repairFailureText(result) {
+    return result.conflicts?.length
+        ? result.conflicts.map(dependencyConflictText).join(' ')
+        : result.reason || 'No se pudo completar la asignación.';
 }
 
 /** F5: accurate non-blocking per-kind label for a detached leader. */
@@ -528,7 +578,7 @@ function renderDependencyBlocker(preflight) {
     const conflicts = preflight.conflicts?.length ? preflight.conflicts : (preflight.reason ? [{ message: preflight.reason }] : []);
     if (!conflicts.length) return '';
     const rows = conflicts.slice(0, 6).map(conflict =>
-        '<li>' + escapeHTML(dependencyConflictText(conflict)) + '</li>'
+        '<li>' + escapeHTML(dependencyConflictText(conflict)) + renderLinkedConflictChoice(conflict) + '</li>'
     ).join('');
     return '<div class="r07-recon-blocker" role="alert">'
         + '<strong>Hay relaciones que deben revisarse antes de mover estas personas.</strong>'
@@ -929,6 +979,10 @@ function leaderResolved(id) {
     return modalState.entitySelectedIds.has('leaders:' + id) || !!modalState.leaderRemaps[id]?.toLeaderId;
 }
 
+function hasUnresolvedRequiredLeaders() {
+    return leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id));
+}
+
 function renderLeaderChoices() {
     const needs = leaderNeeds();
     if (!needs.length) return '<div class="r07-recon-empty">Los líderes ya están listos.</div>';
@@ -968,10 +1022,13 @@ function wizardHint(preflight) {
         return '';
     }
 
-    if (modalState.step === 2 && leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id))) return 'Resuelve los líderes relacionados para continuar.';
+    // Later steps can add people (explicit linked inclusion), so keep the gate after step 2.
+    if (modalState.step >= 2 && hasUnresolvedRequiredLeaders()) return 'Resuelve los líderes relacionados para continuar.';
     if (Object.values(modalState.leaderCopies).some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo líder.';
     if (modalState.step >= 3 && currentPositionCopies().some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo puesto.';
-    if (modalState.step >= 3 && !preflight.ok) return preflight.reason || 'Revisa las relaciones pendientes para continuar.';
+    if (modalState.step >= 3 && !preflight.ok) return preflight.conflicts?.length
+        ? 'Revisa las relaciones indicadas para continuar.'
+        : preflight.reason || 'Revisa las relaciones pendientes para continuar.';
     if (modalState.step === 4 && !canApply(preflight)) return 'Selecciona personas, puestos, líderes o cajas para asignar.';
     return '';
 }
@@ -1301,6 +1358,11 @@ async function applyLocalResolution() {
         rerenderModal();
         return;
     }
+    if (['map', 'create'].includes(modalState.action) && hasUnresolvedRequiredLeaders()) {
+        modalState.message = 'Resuelve los líderes relacionados antes de aplicar este cambio.';
+        rerenderModal();
+        return;
+    }
     if (modalState.action === 'later' && selectedRows().some(row => !row.employeeIssue)) {
         modalState.message = 'Desmarca las personas cuya única incidencia está en asistencia antes de dejarlas pendientes.';
         rerenderModal();
@@ -1363,7 +1425,7 @@ async function applyLocalResolution() {
         const result = await applyOwnershipRepair(params);
         if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(result.status)) {
             modalState.busy = false;
-            modalState.message = result.reason || 'No se pudo completar la asignación.';
+            modalState.message = repairFailureText(result);
             rerenderModal();
             return;
         }
@@ -1455,9 +1517,7 @@ async function applyCatalogResolution() {
             leaderIds: selected.filter(issue => issue.collection === 'leaders').map(issue => issue.record?.id)
         });
         if (result.status !== REPAIR_STATUS.OK) {
-            modalState.entityMessage = result.conflicts?.length
-                ? 'Hay relaciones con empleados, puestos o asistencias de otra obra. Resuelve esas relaciones antes de asignar este grupo.'
-                : (result.reason || 'No se pudo asignar la selección.');
+            modalState.entityMessage = repairFailureText(result);
         } else {
             invalidateAllStats();
             await refreshProjectReconciliationSnapshot();
@@ -1518,6 +1578,26 @@ function handleClick(event) {
         return;
     }
     if (action === 'apply-plan') return applyFinancialPlanResolution();
+    if (action === 'include-linked-relation') {
+        // Recompute the conflict instead of trusting a stale or forged DOM button.
+        const conflict = (currentPreflight().conflicts || []).find(item => {
+            const choice = linkedConflictChoice(item);
+            return item.kind === target.dataset.conflictKind && choice?.id === target.dataset.relatedId;
+        });
+        const choice = linkedConflictChoice(conflict);
+        if (!choice) return;
+        if (choice.collection === 'employees') modalState.selectedIds.add(choice.id);
+        else modalState.entitySelectedIds.add(choice.collection + ':' + choice.id);
+        modalState.message = '';
+        // A newly included person may bring a leader that still needs a decision;
+        // otherwise the durable repair would silently detach it.
+        if (hasUnresolvedRequiredLeaders()) {
+            modalState.step = 2;
+            modalState.message = 'Se incluyó "' + choice.name + '". Resuelve su líder antes de continuar.';
+        }
+        rerenderModal();
+        return;
+    }
     if (action === 'quick-assign') return quickAssignAll();
     if (action === 'wizard-next') return changeWizardStep(1);
     if (action === 'wizard-back') return changeWizardStep(-1);

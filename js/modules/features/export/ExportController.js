@@ -26,6 +26,8 @@ import {
     resumeSuspendedSaveOptions
 } from '../../services/PersistenceService.js';
 import { preparePettyCashBackupForRestore } from '../../services/SnapshotSanitizer.js';
+import { PettyCashStore } from '../pettycash/PettyCashStore.js';
+import { markDetachedRestore } from '../../services/DetachedRestoreGuard.js';
 
 // FULL import uses the ordinary persistence function for explicit options.
 // The no-argument call runs only after the atomic FULL commit already succeeded:
@@ -517,12 +519,28 @@ function rollbackFullImportState(previousState) {
     render();
 }
 
-function finalizeFullImportPettyCash(data, preparedPettyCash) {
+async function finalizeFullImportPettyCash(data, preparedPettyCash) {
+    // M2: importar sin sesión deja la marca; el próximo inicio de sesión pregunta
+    // antes de sincronizar (DetachedRestoreGuard). Con sesión, nada cambia.
+    const detached = !globalThis.currentUser;
+    if (detached && !markDetachedRestore({ hasPettyCash: Boolean(preparedPettyCash) })) {
+        notify('⚠️ No se pudo recordar la importación. Antes de iniciar sesión, guarda tu archivo de respaldo.', 'warning');
+    }
     if (preparedPettyCash?.unrecoverableReceiptCount > 0) {
         notify(`⚠️ ${preparedPettyCash.unrecoverableReceiptCount} comprobante(s) solo local(es) no se pueden recuperar desde este backup.`, 'warning');
     }
     if (data?.pettyCash) {
         console.log('💵 Caja chica restaurada desde el import FULL');
+    }
+    if (!preparedPettyCash || detached) return;
+    // Igual que el dataset principal (saveApplicationData): lo importado se
+    // sube; la nube conserva sus versiones más recientes. Sin cola, el primer
+    // snapshot de la nube borraba lo importado que la nube no tenía.
+    try {
+        await PettyCashStore.enqueueRestored(preparedPettyCash.pettyCash, { mode: 'merge' });
+    } catch (e) {
+        console.warn('⚠️ Caja chica importada solo en local; no se pudo encolar para la nube:', e);
+        notify('⚠️ Caja Chica importada en este dispositivo; su subida a la nube quedó pendiente.', 'warning');
     }
 }
 
@@ -867,7 +885,7 @@ async function applyFullImport(importedData) {
         if (projects) commitProjectSurfacePointers(projects, previousState.projectPointers);
         endFullImportIsolation({ commit: true });
         isolationActive = false;
-        finalizeFullImportPettyCash(data, preparedPettyCash);
+        await finalizeFullImportPettyCash(data, preparedPettyCash);
         const cloudSave = await saveApplicationData();
         if (cloudSave?.localOk === false) {
             notify('⚠️ Datos importados localmente; la sincronización posterior quedó pendiente.', 'warning');

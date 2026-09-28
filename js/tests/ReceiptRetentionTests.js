@@ -78,9 +78,16 @@ testRunner.addSuite("Comprobantes — conservación del original + cascada al bo
     },
 
     "eliminar un movimiento borra su comprobante (cascade, 3 sitios)"() {
-        const cascades = UI_SRC.match(/if\s*\(\s*m?o?v?\.?receiptStatus\s*\)\s*(?:await\s+)?indexedDBService\.deleteReceipt/g) || [];
+        // M3: los tres sitios pasan por discardMovementReceipt, que borra el
+        // local y encola el borrado lógico remoto (conducta probada en
+        // PettyCashReceiptRemoteDeleteM3.test.js).
+        const cascades = UI_SRC.match(/if\s*\(\s*m?o?v?\.?receiptStatus\s*\)\s*(?:await\s+)?discardMovementReceipt\(/g) || [];
         testRunner.assert(cascades.length >= 3,
-            'los handlers de borrado deben hacer cascade deleteReceipt (esperados 3)');
+            'los handlers de borrado deben hacer cascade discardMovementReceipt (esperados 3)');
+        const helper = UI_SRC.match(/async function discardMovementReceipt\([\s\S]*?\n}/);
+        testRunner.assert(!!helper && /enqueueReceiptRemoteDelete/.test(helper[0])
+            && /indexedDBService\.deleteReceipt\(txId\)/.test(helper[0]),
+            'discardMovementReceipt debe encolar el borrado remoto y borrar el local');
     },
 
     "ver comprobante prefiere el original remoto antes que la miniatura local"() {

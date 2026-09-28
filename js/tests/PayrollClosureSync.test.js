@@ -428,7 +428,8 @@ describe('Payroll closure B3.3/B3.5 scoped seams', () => {
         const set = jest.fn();
         getDocs.mockResolvedValueOnce({ docs: [docSnapshot(native)] })
             .mockResolvedValueOnce({ docs: [docSnapshot(legacy)] });
-        runTransaction.mockImplementation(async (_db, operation) => operation({ get: jest.fn(async () => docSnapshot(legacy)), set }));
+        // M1: la segunda lectura de la transacción es el cerrojo (aún no existe).
+        runTransaction.mockImplementation(async (_db, operation) => operation({ get: jest.fn().mockResolvedValueOnce(docSnapshot(legacy)).mockResolvedValue(docSnapshot(null)), set }));
 
         const page = await _payrollClosureRepositoryInternals.loadPageScoped({ limit: 10 }, scopeA);
         expect(page.items).toHaveLength(2);
@@ -437,6 +438,7 @@ describe('Payroll closure B3.3/B3.5 scoped seams', () => {
         expect(page.items.every(item => Object.prototype.hasOwnProperty.call(item, 'identityKind'))).toBe(true);
         expect(where).toHaveBeenCalledWith('projectId', '==', A);
         expect(set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ schemaVersion: 3, projectId: A, identityKind: 'promoted-legacy', id: legacy.id, fingerprint: legacy.fingerprint, rows: legacy.rows, totals: legacy.totals, supersedesId: legacy.supersedesId }));
+        expect(set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ sourceId: legacy.id, kind: 'promotion', targetId: legacy.id, projectId: A }));
     });
 
     test('strips scoped metadata from schema2 summaries', () => {

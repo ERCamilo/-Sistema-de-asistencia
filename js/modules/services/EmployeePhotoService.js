@@ -10,6 +10,11 @@ const PROFILE_COORDINATES = Object.freeze({
 });
 const PHOTO_VARIANTS = Object.freeze(['thumbnail', 'original']);
 export const DEFAULT_ORIGINAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+// Reintento de subida tras un fallo: 15 s, 30 s, 1 min... hasta 15 min. Las
+// lecturas (cada render del avatar) no vuelven a subir antes de ese plazo; un
+// reemplazo explícito del usuario siempre lo intenta de inmediato.
+const UPLOAD_RETRY_BASE_MS = 15_000;
+const UPLOAD_RETRY_MAX_MS = 15 * 60 * 1000;
 
 function normalizeEmployeeId(employeeId) {
     return String(employeeId || '').trim();
@@ -108,6 +113,35 @@ export class EmployeePhotoService {
         this.pendingSignalPublications = new Map();
         this.intentRevisions = new Map();
         this.localMutations = new Map();
+        this.uploadRetries = new Map();
+    }
+
+    /** Estado de la subida remota pendiente (diagnóstico), o null si no hay fallo. */
+    getUploadRetryState(employeeId) {
+        const retry = this.uploadRetries.get(normalizeEmployeeId(employeeId));
+        return retry ? { ...retry } : null;
+    }
+
+    /**
+     * ¿La foto local todavía no llegó a la nube? Para la UI: antes el único
+     * rastro era la consola. `retryAt` solo existe si ya hubo un fallo.
+     */
+    async getPendingUploadStatus(employeeId) {
+        const id = normalizeEmployeeId(employeeId);
+        const record = id ? await this.readLocal(id) : null;
+        if (!isUnsyncedLocalPhoto(record) || record?.pendingDelete) return { pending: false };
+        const retry = this.uploadRetries.get(id);
+        return { pending: true, retryAt: retry?.retryAt ?? null, code: retry?.code ?? null };
+    }
+
+    recordUploadFailure(employeeId, error) {
+        const attempts = (this.uploadRetries.get(employeeId)?.attempts || 0) + 1;
+        const delay = Math.min(UPLOAD_RETRY_MAX_MS, UPLOAD_RETRY_BASE_MS * (2 ** (attempts - 1)));
+        this.uploadRetries.set(employeeId, {
+            attempts,
+            code: error?.code || null,
+            retryAt: this.now() + delay
+        });
     }
 
     nextIntent(employeeId) {
@@ -230,6 +264,7 @@ export class EmployeePhotoService {
             id,
             () => this.localStore.replaceEmployeePhoto(id, value)
         );
+        this.uploadRetries.delete(id);
         this.queueRemoteUpload(id, record);
         return record;
     }
@@ -237,6 +272,8 @@ export class EmployeePhotoService {
     queueRemoteUpload(employeeId, record) {
         const id = normalizeEmployeeId(employeeId);
         if (!record || record.pendingDelete) return false;
+        const retry = this.uploadRetries.get(id);
+        if (retry && this.now() < retry.retryAt && !this.pendingSyncs.has(id)) return false;
         this.queuedRecords.set(id, record);
         if (this.pendingSyncs.has(id)) return this.pendingSyncs.get(id);
         const pending = (async () => {
@@ -274,7 +311,9 @@ export class EmployeePhotoService {
                                 });
                             }
                         });
+                        this.uploadRetries.delete(id);
                     } catch (error) {
+                        this.recordUploadFailure(id, error);
                         // Remote sync failures were previously swallowed whole, which made
                         // upload outages undiagnosable (photo showed locally, no requests).
                         console.warn('[employee-photo] remote sync failed', {

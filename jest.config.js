@@ -22,6 +22,8 @@ module.exports = {
     },
     modulePathIgnorePatterns: ['<rootDir>/\\.claude/'],
     testMatch: ['**/js/tests/**/*.test.js'],
+    // Requieren el emulador de Firestore: jest.emulator.config.cjs.
+    testPathIgnorePatterns: ['/node_modules/', '\\.emulator\\.test\\.js$'],
     testTimeout: 10000,
     verbose: true
 };

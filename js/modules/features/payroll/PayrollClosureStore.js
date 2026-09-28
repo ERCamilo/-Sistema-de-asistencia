@@ -1,10 +1,12 @@
 import indexedDBService from '../../services/IndexedDBService.js';
 import {
+    PAYROLL_CLOSURE_IDENTITY_KIND,
     PAYROLL_CLOSURE_STATUS,
     validatePayrollClosureForScopedWrite,
     voidPayrollClosure
 } from './PayrollClosure.js';
 import {
+    PayrollClosureConflictError,
     resolvePayrollClosureMutation
 } from './PayrollClosureMerge.js';
 import { assertPayrollClosureSize } from './PayrollClosureSize.js';
@@ -29,6 +31,24 @@ function clone(value) {
 
 function periodKey(periodStart, periodEnd) {
     return `${String(periodStart || '')}:${String(periodEnd || '')}`;
+}
+
+const isPromotedLegacy = closure => closure?.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY;
+const recoverySource = closure => String(closure?.recovery?.sourceId || '').trim();
+
+/**
+ * H1: un cierre legacy puede llegar por dos caminos a una obra: promovido en la
+ * nube (mismo id) o copiado por la recuperación financiera (id nuevo con
+ * recovery.sourceId). Tenerlos a los dos duplicaría la nómina, así que la
+ * importación remota falla cerrada y el conflicto queda visible.
+ */
+function recoveryDuplicate(incoming, local = []) {
+    if (isPromotedLegacy(incoming)) {
+        return local.find(closure => recoverySource(closure) === String(incoming.id)) || null;
+    }
+    const sourceId = recoverySource(incoming);
+    if (!sourceId) return null;
+    return local.find(closure => String(closure?.id) === sourceId && isPromotedLegacy(closure)) || null;
 }
 
 function assertClosure(closure) {
@@ -122,6 +142,10 @@ export class PayrollClosureStore {
         validatePayrollClosureForScopedWrite(closure, capturedPid);
         assertPayrollClosureSize(closure);
         const incoming = { ...clone(closure), periodKey: periodKey(closure.periodStart, closure.periodEnd) };
+        if (isPromotedLegacy(incoming) || recoverySource(incoming)) {
+            const duplicate = recoveryDuplicate(incoming, await this.db.getAll(PAYROLL_CLOSURE_STORE));
+            if (duplicate) throw new PayrollClosureConflictError(duplicate, incoming);
+        }
         const saved = await this.db.atomicMutate(
             PAYROLL_CLOSURE_STORE,
             incoming.id,
