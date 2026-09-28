@@ -1,5 +1,4 @@
-import { payrollClosureRestoreOptions } from '../features/payroll/PayrollClosureBackup.js';
-import { resolvePayrollClosureMutation } from '../features/payroll/PayrollClosureMerge.js';
+import { payrollClosureRestoreOptions, resolveRestoredPayrollClosure } from '../features/payroll/PayrollClosureBackup.js';
 /**
  * 💾 INDEXEDDB SERVICE
  * Módulo para gestionar la base de datos local y asegurar integridad de datos.
@@ -1111,7 +1110,7 @@ export class IndexedDBService {
                     const request = store.get(closure.id);
                     request.onsuccess = () => {
                         try {
-                            const merged = resolvePayrollClosureMutation(request.result, closure);
+                            const merged = resolveRestoredPayrollClosure(request.result, closure);
                             if (merged.write) store.put(this._serializeForIDB(merged.value));
                         } catch (error) {
                             operationError = error;

@@ -133,6 +133,8 @@ import { IndexedDBService, indexedDBService } from './modules/services/IndexedDB
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
 import { replaceLocalWithCloud, replaceCloudWithLocal, eraseCloudData } from './modules/services/DataOps.js';
+import { getDetachedRestore, markDetachedRestore, runDetachedRestoreLoginGate } from './modules/services/DetachedRestoreGuard.js';
+import { askDetachedRestoreChoice } from './modules/ui/DetachedRestoreChoiceModal.js';
 import { wipeAllLocalTraces } from './modules/services/LocalWipeService.js';
 import { confirmDataOperation } from './modules/ui/DataOpsModals.js';
 import { ValidationService } from './modules/services/ValidationService.js';
@@ -6173,7 +6175,7 @@ window.createFirebaseSnapshot = async function (type = 'auto', reason = null) {
 /**
  * 🛠️ Aplica los datos de un backup al estado actual y guarda localmente
  */
-async function applyBackupData(importedData) {
+async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
     let previous = null, suspendedSaveOptions = null, isolationActive = false, durableCommitted = false;
     try {
         const data = importedData.data;
@@ -6235,6 +6237,12 @@ async function applyBackupData(importedData) {
                 await PettyCashStore.applyRemote('projects', preparedPettyCash.pettyCash.projects);
                 await PettyCashStore.applyRemote('periods', preparedPettyCash.pettyCash.periods);
                 await PettyCashStore.applyRemote('movements', preparedPettyCash.pettyCash.movements);
+                // Sin cola, el primer snapshot de la nube borraba lo restaurado que
+                // la nube no tenía. 'merge' conserva lo más reciente de la nube;
+                // 'replace' hace ganar al respaldo. 'none' = solo este dispositivo.
+                if (pettyCashCloud === 'merge' || pettyCashCloud === 'replace') {
+                    await PettyCashStore.enqueueRestored(preparedPettyCash.pettyCash, { mode: pettyCashCloud });
+                }
                 if (preparedPettyCash.unrecoverableReceiptCount > 0) {
                     pettyCashRestoreWarning = `${preparedPettyCash.unrecoverableReceiptCount} comprobante(s) solo local(es) no se pueden recuperar desde este backup.`;
                 }
@@ -6266,6 +6274,85 @@ async function applyBackupData(importedData) {
         showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');
         return false;
     }
+}
+
+/**
+ * M2: deja la marca de «restauración solo en este dispositivo». Sin ella, el
+ * siguiente inicio de sesión aplicaría la nube sobre lo restaurado.
+ */
+function markDetachedRestoreAfterApply(importedData, previousUid) {
+    const data = importedData?.data || importedData || {};
+    const marked = markDetachedRestore({
+        previousUid,
+        hasPettyCash: Boolean(data.pettyCash && typeof data.pettyCash === 'object')
+    });
+    if (!marked) {
+        showNotification('⚠️ No se pudo recordar la restauración. Antes de iniciar sesión, guarda tu archivo de respaldo: la nube podría reemplazar lo restaurado.', 'warning');
+    }
+}
+
+/**
+ * M2: «Subir lo restaurado a esta cuenta». Mismo contrato que la restauración de
+ * snapshot: re-estampar para que lo restaurado gane el LWW por registro, olvidar
+ * los watermarks de subida y subir la asistencia por fechas (el espejo la
+ * excluye). Lo que solo existe en la nube no se borra. Caja Chica: modo
+ * 'replace' de enqueueRestored (gana lo restaurado; no borra documentos).
+ */
+async function uploadDetachedRestoreToAccount() {
+    const prepared = prepareRestoredState({
+        employees: state.employees, positions: state.positions,
+        leaders: state.leaders, attendance: state.attendance
+    });
+    stateManager.batchSetState(() => {
+        state.employees = prepared.employees.map(e => new Employee(e));
+        state.positions = prepared.positions.map(p => new Position(p));
+        state.leaders = prepared.leaders.map(l => new Leader(l));
+        state.attendance = prepared.attendance;
+    });
+    invalidateAllStats();
+    buildAttendanceIndex();
+    FirebaseService.resetEntityUploadTrackers();
+    await saveApplicationData({ immediate: true, force: true, dateKeys: prepared.dateKeys, awaitOutboxEnqueue: true });
+    const pettyCash = await PettyCashStore.loadLocal();
+    await PettyCashStore.enqueueRestored(pettyCash, { mode: 'replace', awaitFlush: true });
+    return { ok: true };
+}
+
+/**
+ * M2: una restauración hecha sin sesión («Desconectar y restaurar» o «Restaurar
+ * local» sin cuenta) decide ANTES de cualquier sincronización. Mientras la marca
+ * exista no sube nada (PersistenceService / PettyCashStore) y el login no
+ * arranca la descarga. Otra cuenta ya quedó frenada por el guardián de dueño.
+ * @returns {Promise<{proceed: boolean, prepared: boolean}>} proceed: el arranque
+ *   normal puede seguir; prepared: la subida ya reclamó el dueño local e
+ *   inicializó Proyectos (no repetirlo).
+ */
+async function passDetachedRestoreGate(user, isCurrent) {
+    const marker = getDetachedRestore();
+    if (!marker) return { proceed: true, prepared: false };
+    let prepared = false;
+    const gate = await runDetachedRestoreLoginGate({
+        user,
+        marker,
+        isCurrent,
+        ask: () => askDetachedRestoreChoice({ email: user.email || user.uid, marker }),
+        upload: async () => {
+            // Mismo orden que el login normal: dueño local y Proyectos antes de guardar.
+            claimLocalOwnership(user.uid);
+            try { await initProjectsInfrastructure({ uid: user.uid }); } catch (_) { /* igual que el login */ }
+            prepared = true;
+            if (!isCurrent()) return { ok: false };
+            return uploadDetachedRestoreToAccount();
+        },
+        useCloud: () => replaceLocalWithCloud(),
+        logout: async () => {
+            await FirebaseService.logout();
+            window.currentUser = null;
+            showNotification('Sesión cerrada. Lo restaurado sigue solo en este teléfono.', 'info');
+            render();
+        }
+    });
+    return { proceed: gate.proceed && isCurrent(), prepared };
 }
 
 /**
@@ -6370,16 +6457,23 @@ window.loadBackupFromFile = function (file, hooks = {}) {
             RestoreUI.showComparisonModal(importedData, state, {
                 // Opción 1: Restaurar Local (Offline)
                 onLocalRestore: async () => {
-                    if (!await applyBackupData(importedData)) return;
+                    // M2: sin sesión no hay cuenta a la que subir. Nada se encola y
+                    // el próximo inicio de sesión pide decidir (DetachedRestoreGuard).
+                    const detached = !window.currentUser;
+                    if (!await applyBackupData(importedData, detached ? {} : { pettyCashCloud: 'merge' })) return;
+                    if (detached) markDetachedRestoreAfterApply(importedData, null);
                     if (onSuccess) onSuccess();
                     setTimeout(() => location.reload(), 1200);
                 },
 
                 // Opción 2: Desconectar y Restaurar (Evitar impacto en nube antigua)
                 onDisconnectRestore: async () => {
+                    const previousUid = window.currentUser?.uid || null;
                     await FirebaseService.logout();
                     window.currentUser = null;
                     if (!await applyBackupData(importedData)) return;
+                    // M2: al volver a iniciar sesión se pregunta antes de sincronizar.
+                    markDetachedRestoreAfterApply(importedData, previousUid);
                     if (onSuccess) onSuccess();
                     showNotification('🚶 Sesión cerrada y backup restaurado localmente', 'info');
                     setTimeout(() => location.reload(), 1200);
@@ -6388,7 +6482,7 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                 // Opción 3: Reemplazo Total de la Nube
                 onReplaceCloudRestore: async () => {
                     // 1. Aplicar localmente primero
-                    const ok = await applyBackupData(importedData);
+                    const ok = await applyBackupData(importedData, { pettyCashCloud: 'replace' });
                     if (!ok) return;
                     // Datos ya restaurados en el dispositivo aunque la nube falle después.
                     if (onSuccess) onSuccess();
@@ -6406,19 +6500,24 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                         </div>`;
                     document.body.appendChild(syncLoader);
 
-                    // 3. Limpieza profunda y subida (Modo Espejo)
+                    // 3. Reemplazo del dataset principal (Modo Espejo). DataOps congela el
+                    // estado antes de borrar (los listeners vaciaban state.employees),
+                    // crea el snapshot de seguridad, purga pendientes y borra SOLO las
+                    // colecciones principales. Caja Chica ya quedó encolada arriba:
+                    // antes se borraba en la nube y nunca se volvía a subir.
+                    let result;
                     try {
                         debug.log('☁️ Iniciando limpieza espejo en la nube...');
-                        await FirebaseService.deleteCloudData();
-                        await FirebaseService.saveFullState(state);
-                        await FirebaseService.syncHistory(state.attendance);
-
+                        result = await replaceCloudWithLocal();
+                    } catch (err) {
+                        result = { ok: false, reason: 'unexpected', error: err };
+                    }
+                    if (result?.ok) {
                         showNotification('🚀 Nube actualizada con éxito', 'success');
-
                         // 🔄 Refrescar tras éxito
                         setTimeout(() => location.reload(), 1000);
-                    } catch (err) {
-                        console.error("Error sincronizando nube tras backup:", err);
+                    } else {
+                        console.error('Error sincronizando nube tras backup:', result?.reason, result?.error);
                         showNotification('⚠️ Error al actualizar nube, pero los datos locales están guardados.', 'warning');
                         if (syncLoader) syncLoader.remove();
                         render();
@@ -7799,7 +7898,10 @@ function _initOutgoingConflictGuard() {
                     if (!_isCurrentAuthCallback()) return;
                     return; // El flujo continúa tras el wipe+reload o el logout.
                 }
-                claimLocalOwnership(user.uid);try{await initProjectsInfrastructure({uid:user.uid})}catch(_){}
+                // M2: restauración sin sesión pendiente → decidir antes de sincronizar.
+                const _restoreGate = await passDetachedRestoreGate(user, _isCurrentAuthCallback);
+                if (!_restoreGate.proceed) return;
+                if (!_restoreGate.prepared) { claimLocalOwnership(user.uid);try{await initProjectsInfrastructure({uid:user.uid})}catch(_){} }
                 if (!_isCurrentAuthCallback()) return;
                 // 🚚 U8: reanudar subidas a la nube que quedaron pendientes de una
                 // sesión anterior (pestaña cerrada a medio subir). No espera a que

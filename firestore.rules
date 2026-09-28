@@ -77,12 +77,70 @@ service cloud.firestore {
           request.resource.data.projectId == resource.data.projectId;
     }
 
-    function isLegacyPromotion() {
+    // M1: cerrojo por cierre de origen. Un cierre schema 2 llega a una obra por
+    // promoción (mismo id) o por copia de recuperación (recovery.sourceId). Cada
+    // camino debe crear el cerrojo en el mismo commit; como el cerrojo no se
+    // puede actualizar, solo uno de los dos puede existir.
+    function closurePath(userId, closureId) {
+      return /databases/$(database)/documents/users/$(userId)/payrollClosures/$(closureId);
+    }
+
+    function claimPath(userId, sourceId) {
+      return /databases/$(database)/documents/users/$(userId)/payrollClosureClaims/$(sourceId);
+    }
+
+    function hasClaimAfter(userId, sourceId, kind, targetId, projectId) {
+      return existsAfter(claimPath(userId, sourceId)) &&
+        getAfter(claimPath(userId, sourceId)).data.kind == kind &&
+        getAfter(claimPath(userId, sourceId)).data.targetId == targetId &&
+        getAfter(claimPath(userId, sourceId)).data.projectId == projectId;
+    }
+
+    function isLegacyPromotion(userId, closureId) {
       return isLegacyClosure(resource.data) &&
         isPromotedLegacyClosure(request.resource.data) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'schemaVersion', 'projectId', 'identityKind', 'ownershipToken'
-        ]);
+        ]) &&
+        hasClaimAfter(userId, closureId, 'promotion', closureId,
+          request.resource.data.projectId);
+    }
+
+    // Una copia de recuperación nueva solo se crea con su cerrojo.
+    function isClaimedOrPlainNativeCreate(userId, closureId) {
+      return !request.resource.data.keys().hasAny(['recovery']) ||
+        (request.resource.data.recovery is map &&
+          hasNonEmptyString(request.resource.data.recovery, 'sourceId') &&
+          hasClaimAfter(userId, request.resource.data.recovery.sourceId,
+            'recovery-copy', closureId, request.resource.data.projectId));
+    }
+
+    function isSourceNotPromoted(userId, sourceId) {
+      return !exists(closurePath(userId, sourceId)) ||
+        get(closurePath(userId, sourceId)).data.get('identityKind', '') != 'promoted-legacy';
+    }
+
+    function isValidClosureClaim(userId, sourceId) {
+      let claim = request.resource.data;
+      let target = closurePath(userId, claim.targetId);
+      return claim.keys().hasOnly([
+          'sourceId', 'kind', 'targetId', 'projectId', 'claimedAt'
+        ]) &&
+        claim.keys().hasAll([
+          'sourceId', 'kind', 'targetId', 'projectId', 'claimedAt'
+        ]) &&
+        claim.sourceId == sourceId &&
+        hasNonEmptyString(claim, 'targetId') &&
+        isCanonicalProjectId(claim.projectId) &&
+        claim.claimedAt is int &&
+        existsAfter(target) &&
+        getAfter(target).data.projectId == claim.projectId &&
+        ((claim.kind == 'promotion' &&
+            claim.targetId == sourceId &&
+            isPromotedLegacyClosure(getAfter(target).data)) ||
+          (claim.kind == 'recovery-copy' &&
+            getAfter(target).data.recovery.sourceId == sourceId &&
+            isSourceNotPromoted(userId, sourceId)));
     }
 
     function isClosedToVoided() {
@@ -116,10 +174,21 @@ service cloud.firestore {
       allow read: if isAccountOwner(userId);
       allow create: if isAccountOwner(userId) &&
         (isLegacyClosure(request.resource.data) ||
-          isNativeClosure(request.resource.data));
+          (isNativeClosure(request.resource.data) &&
+            isClaimedOrPlainNativeCreate(userId, closureId)));
       allow update: if isAccountOwner(userId) &&
-        (isLegacyPromotion() || isAllowedClosureUpdate());
+        (isLegacyPromotion(userId, closureId) || isAllowedClosureUpdate());
       allow delete: if isAccountOwner(userId);
+    }
+
+    // M1: inmutable. Solo se borra si su cierre destino ya no existe.
+    match /users/{userId}/payrollClosureClaims/{sourceId} {
+      allow read: if isAccountOwner(userId);
+      allow create: if isAccountOwner(userId) &&
+        isValidClosureClaim(userId, sourceId);
+      allow update: if false;
+      allow delete: if isAccountOwner(userId) &&
+        !existsAfter(closurePath(userId, resource.data.targetId));
     }
 
     // These are the application's current direct Firestore subcollections.

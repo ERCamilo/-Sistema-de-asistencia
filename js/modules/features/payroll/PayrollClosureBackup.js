@@ -1,4 +1,9 @@
-import { validatePayrollClosureForScopedWrite } from './PayrollClosure.js';
+import {
+    PAYROLL_CLOSURE_IDENTITY_KIND,
+    promoteLegacyPayrollClosure,
+    validatePayrollClosureForScopedWrite
+} from './PayrollClosure.js';
+import { resolvePayrollClosureMutation } from './PayrollClosureMerge.js';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 
@@ -34,4 +39,20 @@ export function payrollClosureRestoreOptions(data = {}) {
         if (closure.schemaVersion === 3) validatePayrollClosureForScopedWrite(closure, closure.projectId);
     }
     return { payrollClosures };
+}
+
+/**
+ * Restore merge. A backup taken before promotion carries the schema 2 form of
+ * a closure that this device already holds as promoted (same id). Keep the
+ * promoted owner: compare the backup in promoted form so only the monotonic
+ * void audit can advance. Restore never promotes, demotes or reopens closures.
+ */
+export function resolveRestoredPayrollClosure(existing, incoming) {
+    if (existing?.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY
+        && incoming?.schemaVersion === 2 && existing.id === incoming.id) {
+        let promoted = null;
+        try { promoted = promoteLegacyPayrollClosure(incoming, existing.projectId); } catch (_) { /* not its source */ }
+        if (promoted) return resolvePayrollClosureMutation(existing, promoted);
+    }
+    return resolvePayrollClosureMutation(existing, incoming);
 }

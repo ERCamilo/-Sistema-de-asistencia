@@ -3,6 +3,7 @@ import { validateDataIntegrity } from '../modules/services/PersistenceService.js
 import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
 import { replaceEntityScope, resetEntityScope, peekEntityScope } from '../modules/features/projects/EntityProjectScope.js';
 import { Position } from '../modules/features/employees/Position.js';
+import mockedDB from '../modules/services/IndexedDBService.js';
 
 const PRJ_A = 'PRJ-A-000000';
 const PRJ_B = 'PRJ-B-000000';
@@ -34,6 +35,10 @@ function restoreState(snap) {
     state.attendance = snap.attendance;
 }
 
+function catalog(ids) {
+    mockedDB.getAll.mockImplementation(async store => (store === 'projects' ? ids.map(id => ({ id, name: id, status: 'active' })) : []));
+}
+
 function seedCrossProjectPair() {
     state.leaders = [
         { id: 'LEAD-A', number: '11', name: 'LiderA', icon: null, active: true, color: '#fff', updatedAt: 1, projectId: PRJ_A },
@@ -55,9 +60,13 @@ describe('ProjectStartupCrossProjectIntegrityR07', () => {
         localStorage.clear();
         setProjectsEnabled(true);
         replaceEntityScope({ enabled: true, projectId: PRJ_B, defaultProjectId: PRJ_B });
+        // Both owners exist locally: this is a real cross-project relation.
+        catalog([PRJ_A, PRJ_B]);
     });
 
     afterEach(() => {
+        mockedDB.getAll.mockReset();
+        mockedDB.getAll.mockResolvedValue([]);
         restoreState(snap);
         localStorage.clear();
         setProjectsEnabled(false);
@@ -146,6 +155,29 @@ describe('ProjectStartupCrossProjectIntegrityR07', () => {
         const x = state.positions.find(p => p.id === 'POS-X');
         expect(x.leaderId).toBe('LEAD-A'); // preserved (OFF ⇒ sameEffectiveProject passthrough)
         expect(x.crossProjectLeaderId).toBeUndefined();
+    });
+
+    test('owner missing from the local catalog is pending ownership, not another project: link kept', async () => {
+        // Restored backup on another device: its project does not exist here and the leader is unscoped.
+        catalog([PRJ_B]);
+        state.leaders = [{ id: 'LEAD-U', number: '13', name: 'LiderU', icon: null, active: true, color: '#fff', updatedAt: 1 }];
+        state.positions = [{ id: 'POS-R', name: 'PuestoR', hourlyRate: 5, color: '#555', icon: null, active: true, workingDays: [1], leaderId: 'LEAD-U', statusHistory: [], updatedAt: 1, projectId: 'PRJ-FROM-BACKUP' }];
+        state.employees = [];
+        state.attendance = {};
+        const before = JSON.parse(JSON.stringify(state.positions));
+
+        expect(await validateDataIntegrity()).toBe(0);
+        expect(state.positions).toEqual(before);
+    });
+
+    test('unreadable project catalog never severs a leader relation', async () => {
+        mockedDB.getAll.mockImplementation(async store => { if (store === 'projects') throw new Error('read failed'); return []; });
+        seedCrossProjectPair();
+        const before = JSON.parse(JSON.stringify(state.positions));
+
+        await validateDataIntegrity();
+
+        expect(state.positions).toEqual(before);
     });
 
     test('Position model: crossProjectLeaderId is byte-stable through toJSON', () => {

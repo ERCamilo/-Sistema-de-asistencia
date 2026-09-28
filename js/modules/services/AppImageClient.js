@@ -71,18 +71,39 @@ export class AppImageClient {
             throw new AppImageError('Servicio de imágenes no disponible', { code: 'SERVICE_UNAVAILABLE' });
         }
         const idToken = await this.getIdToken();
-        const response = await this.fetchImpl(this.endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action, idToken, ...normalizeCoordinates(coordinates), ...extra })
-        });
+        const body = JSON.stringify({ action, idToken, ...normalizeCoordinates(coordinates), ...extra });
+        let response;
+        try {
+            response = await this.fetchImpl(this.endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body
+            });
+        } catch {
+            throw new AppImageError('Servicio de imágenes sin conexión', {
+                code: 'IMAGE_SERVICE_UNREACHABLE',
+                retryable: true
+            });
+        }
         let payload = null;
         try { payload = await response.json(); } catch { payload = null; }
         if (!response.ok || payload?.ok === false) {
+            // La función app-images siempre responde { ok:false, error:<CÓDIGO> }. Sin ese
+            // código, quien respondió es el proxy (p. ej. n8n: 404 «webhook not
+            // registered» con el flujo inactivo), no el backend de imágenes.
+            const backendCode = typeof payload?.error === 'string' ? payload.error : '';
+            const status = Number(response.status) || 0;
+            if (!backendCode) {
+                throw new AppImageError('El servicio de imágenes no está disponible', {
+                    status,
+                    code: status === 404 ? 'IMAGE_ENDPOINT_NOT_FOUND' : 'IMAGE_SERVICE_UNAVAILABLE',
+                    retryable: true
+                });
+            }
             throw new AppImageError('No se pudo completar la operación de imagen', {
-                status: response.status,
-                code: String(payload?.error || 'APP_IMAGE_REQUEST_FAILED'),
-                retryable: payload?.retryable === true
+                status,
+                code: backendCode,
+                retryable: payload?.retryable === true || status >= 500
             });
         }
         return payload || { ok: true };

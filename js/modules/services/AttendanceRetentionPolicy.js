@@ -37,6 +37,9 @@ function dateForRecord(key, record) {
 export function planAttendanceEviction(attendance, {
     now = Date.now(),
     protectedDateKeys = new Set(),
+    // Claves restauradas desde un respaldo (FILE/FULL). El archivo puede ser
+    // la única copia de ese historial: no es caché de la nube.
+    protectedRecordKeys = new Set(),
     retentionMonths = ATTENDANCE_RETENTION_MONTHS,
     accessRetentionMs = HISTORICAL_ACCESS_RETENTION_MS,
     tombstoneRetentionMs = REQUIRED_TOMBSTONE_RETENTION_MS,
@@ -56,8 +59,9 @@ export function planAttendanceEviction(attendance, {
             && now - record.lastAccessed <= accessRetentionMs;
         const requiredTombstone = Number.isFinite(record?.deletedAt)
             && now - record.deletedAt <= tombstoneRetentionMs;
+        const recoveryProtected = protectedRecordKeys.has(key) || record?.recoveryProtected === true;
         let mustKeep = !date || date >= cutoffDate || protectedDateKeys.has(date)
-            || recentlyAccessed || requiredTombstone;
+            || recentlyAccessed || requiredTombstone || recoveryProtected;
         if (!mustKeep && scopeActive) {
             // Registro sin projectId ⇒ proyecto predeterminado (F0.4 §2). Si el
             // default no se pudo resolver, eff queda null ≠ projectId ⇒ KEEP

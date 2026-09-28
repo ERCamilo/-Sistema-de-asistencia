@@ -44,6 +44,7 @@ const mockService = {
     renewLease: jest.fn().mockResolvedValue(true),
     releaseLease: jest.fn().mockResolvedValue(true),
     batchDelete: jest.fn().mockResolvedValue(0),
+    getAttendanceRecoveryProtectedKeys: jest.fn().mockResolvedValue(new Set()),
     // R07 A2b: init (no-op in mock — tests use real IDB) and atomicUpdate
     init: jest.fn().mockResolvedValue(undefined),
     atomicUpdate: jest.fn().mockResolvedValue(true)

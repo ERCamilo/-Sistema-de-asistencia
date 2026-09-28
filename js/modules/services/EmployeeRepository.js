@@ -51,8 +51,23 @@ export const EmployeeRepository = {
         try {
             // Deliberately avoid the employee-level updatedAt: photo uses its
             // own LWW timestamp and must not win unrelated scalar fields.
-            await setDoc(ref, { photo }, { merge: true });
+            // setDoc(merge) creaba un documento con solo `photo` si el empleado
+            // ya no existía (borrado físico) o aún no se había subido. Se
+            // escribe solo sobre un documento existente.
+            const result = await runTransaction(db, async transaction => {
+                const snapshot = await transaction.get(ref);
+                if (!snapshot?.exists?.()) {
+                    if (photo.state === 'deleted') return { skipped: true };
+                    const error = new Error('El empleado todavía no está en la nube; la foto se publicará en el próximo intento.');
+                    error.code = 'EMPLOYEE_PHOTO_SIGNAL_NO_EMPLOYEE';
+                    error.retryable = true;
+                    throw error;
+                }
+                transaction.set(ref, { photo }, { merge: true });
+                return { skipped: false };
+            });
             SyncStatus.markSynced();
+            return result;
         } catch (e) {
             console.error(`❌ EmployeeRepository.savePhotoSignal(${id}) error:`, e);
             throw e;

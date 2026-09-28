@@ -16,7 +16,13 @@ export const PERMANENT_CODES = [
     'permission-denied',
     'invalid-argument',
     'failed-precondition',
-    'not-found'
+    'not-found',
+    // H1: el original ya fue promovido en la nube; reintentar la copia nunca
+    // puede resolverlo sin duplicar la nómina.
+    'PAYROLL_CLOSURE_RECOVERY_CONFLICT',
+    // M1: reglas del cerrojo sin publicar. No se resuelve solo; tras el
+    // despliegue, «Reintentar» (retryFailedCloudSync) revive la entrada.
+    'PAYROLL_CLOSURE_CLAIM_UNAVAILABLE'
 ];
 
 /**

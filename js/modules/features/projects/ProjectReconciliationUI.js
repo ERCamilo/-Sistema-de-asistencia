@@ -522,12 +522,20 @@ function linkedConflictChoice(conflict = {}) {
     };
     const choice = kinds[conflict.kind];
     if (!choice) return null;
-    const [collection, id, label] = choice;
-    const record = (state[collection] || []).find(item => item.id === id);
-    if (!record || snapshot.projects.some(project => project.id === record.projectId)) return null;
+    const [collection, rawId, label] = choice;
+    const id = String(rawId ?? '').trim();
+    const record = id && (state[collection] || []).find(item => String(item?.id ?? '').trim() === id);
+    // Same trimmed ownership rule as the analysis and the durable planner.
+    const owner = String(record?.projectId ?? '').trim();
+    if (!record || snapshot.projects.some(project => String(project?.id ?? '').trim() === owner)) return null;
     if (collection === 'employees') {
-        if (!snapshot.employeeRows.some(row => row.id === id) || modalState.selectedIds.has(id)) return null;
-    } else if (modalState.entitySelectedIds.has(collection + ':' + id)) return null;
+        // Only rows whose own ownership is pending are sent as repairable employees.
+        if (!snapshot.employeeRows.some(row => row.id === id && row.employeeIssue) || modalState.selectedIds.has(id)) return null;
+    } else {
+        // Offer only definitions that the final apply will actually send.
+        const key = collection + ':' + id;
+        if (modalState.entitySelectedIds.has(key) || !catalogIssues().some(issue => catalogIssueKey(issue) === key)) return null;
+    }
     return { collection, id, label, name: record.name || id };
 }
 
@@ -971,6 +979,10 @@ function leaderResolved(id) {
     return modalState.entitySelectedIds.has('leaders:' + id) || !!modalState.leaderRemaps[id]?.toLeaderId;
 }
 
+function hasUnresolvedRequiredLeaders() {
+    return leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id));
+}
+
 function renderLeaderChoices() {
     const needs = leaderNeeds();
     if (!needs.length) return '<div class="r07-recon-empty">Los líderes ya están listos.</div>';
@@ -1010,7 +1022,8 @@ function wizardHint(preflight) {
         return '';
     }
 
-    if (modalState.step === 2 && leaderNeeds().some(({ leader, required }) => required && !leaderResolved(leader.id))) return 'Resuelve los líderes relacionados para continuar.';
+    // Later steps can add people (explicit linked inclusion), so keep the gate after step 2.
+    if (modalState.step >= 2 && hasUnresolvedRequiredLeaders()) return 'Resuelve los líderes relacionados para continuar.';
     if (Object.values(modalState.leaderCopies).some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo líder.';
     if (modalState.step >= 3 && currentPositionCopies().some(copy => !copy.name.trim())) return 'Escribe el nombre del nuevo puesto.';
     if (modalState.step >= 3 && !preflight.ok) return preflight.conflicts?.length
@@ -1345,6 +1358,11 @@ async function applyLocalResolution() {
         rerenderModal();
         return;
     }
+    if (['map', 'create'].includes(modalState.action) && hasUnresolvedRequiredLeaders()) {
+        modalState.message = 'Resuelve los líderes relacionados antes de aplicar este cambio.';
+        rerenderModal();
+        return;
+    }
     if (modalState.action === 'later' && selectedRows().some(row => !row.employeeIssue)) {
         modalState.message = 'Desmarca las personas cuya única incidencia está en asistencia antes de dejarlas pendientes.';
         rerenderModal();
@@ -1571,6 +1589,12 @@ function handleClick(event) {
         if (choice.collection === 'employees') modalState.selectedIds.add(choice.id);
         else modalState.entitySelectedIds.add(choice.collection + ':' + choice.id);
         modalState.message = '';
+        // A newly included person may bring a leader that still needs a decision;
+        // otherwise the durable repair would silently detach it.
+        if (hasUnresolvedRequiredLeaders()) {
+            modalState.step = 2;
+            modalState.message = 'Se incluyó "' + choice.name + '". Resuelve su líder antes de continuar.';
+        }
         rerenderModal();
         return;
     }

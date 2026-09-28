@@ -4010,21 +4010,29 @@ export async function loadPayrollHistory({ direction = 'current', force = false 
     };
     context?.render?.();
     try {
-        const page = canUsePayrollRemote()
-            ? await payrollClosureSync.pullPage({
-                limit: 10,
-                status: payrollHistoryState.filters.status || null,
-                periodStart: payrollHistoryState.filters.periodStart || null,
-                periodEnd: payrollHistoryState.filters.periodEnd || null,
-                cursor
-            })
-            : await payrollClosureStore.listPage({
-                limit: 10,
-                status: payrollHistoryState.filters.status || null,
-                periodStart: payrollHistoryState.filters.periodStart || null,
-                periodEnd: payrollHistoryState.filters.periodEnd || null,
-                cursor
-            });
+        const pageOptions = {
+            limit: 10,
+            status: payrollHistoryState.filters.status || null,
+            periodStart: payrollHistoryState.filters.periodStart || null,
+            periodEnd: payrollHistoryState.filters.periodEnd || null,
+            cursor
+        };
+        let remoteNotice = null;
+        let page;
+        if (canUsePayrollRemote()) {
+            try {
+                page = await payrollClosureSync.pullPage(pageOptions);
+            } catch (error) {
+                // Sin el índice compuesto o sin las reglas del cerrojo de cierres
+                // (M1) desplegados, la consulta remota falla siempre: mostrar el
+                // historial local con el aviso en lugar de una lista vacía.
+                if (!['PAYROLL_CLOSURE_INDEX_MISSING', 'PAYROLL_CLOSURE_CLAIM_UNAVAILABLE'].includes(error?.code)) throw error;
+                remoteNotice = error.message;
+                page = await payrollClosureStore.listPage(pageOptions);
+            }
+        } else {
+            page = await payrollClosureStore.listPage(pageOptions);
+        }
         const syncStates = await payrollClosureStore.getSyncStates(page.items.map(item => item.id));
         if (token !== payrollHistoryLoadToken) return;
         const items = page.items.slice(0, 10).map(item => ({
@@ -4042,7 +4050,7 @@ export async function loadPayrollHistory({ direction = 'current', force = false 
                 pages,
                 loading: false,
                 ready: true,
-                error: null
+                error: remoteNotice
             };
             context?.render?.();
             return;
@@ -4060,7 +4068,7 @@ export async function loadPayrollHistory({ direction = 'current', force = false 
             nextCursor: page.nextCursor,
             loading: false,
             ready: true,
-            error: null
+            error: remoteNotice
         };
     } catch (error) {
         if (token !== payrollHistoryLoadToken) return;

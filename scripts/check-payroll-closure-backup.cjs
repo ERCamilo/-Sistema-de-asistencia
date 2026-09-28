@@ -23,7 +23,7 @@ const http = require('node:http');
    await page.setRequestInterception(true);
    page.on('request',req=>{
     const host=new URL(req.url()).hostname;
-    if(host.endsWith('googleapis.com')||host.endsWith('firebaseio.com')||host.endsWith('cloudfunctions.net')) req.abort(); else req.continue();
+    if(host.endsWith('googleapis.com')||host.endsWith('firebaseio.com')||host.endsWith('cloudfunctions.net')||host.includes('n8n')) req.abort(); else req.continue();
    });
    await page.setViewport({width:scenario.width,height:900});
    await page.goto(origin+'/design.md');
@@ -95,6 +95,13 @@ const http = require('node:http');
     return {closures:await db.getAll('payrollClosures'),employees:await db.getAll('employees')};
    });
    assert.deepEqual(restored.closures,exported.data.payrollClosures);
+   // M2: restaurar sin sesión deja la marca y no encola Caja Chica para ninguna cuenta.
+   const detached=await page.evaluate(async()=>{
+    const {default:db}=await import('/js/modules/services/IndexedDBService.js');
+    return {marker:JSON.parse(localStorage.getItem('asistencia_detached_restore_v1')||'null'),outbox:(await db.getAll('pettyCashOutbox')).length};
+   });
+   assert.ok(detached.marker&&detached.marker.previousUid===null,'falta la marca de restauración sin sesión');
+   assert.equal(detached.outbox,0);
    assert.deepEqual(restored.employees[0].loans,exported.data.employees[0].loans);
    if(scenario.route==='file') {
     await page.evaluate(async closure=>{
@@ -119,7 +126,7 @@ const http = require('node:http');
     assert.deepEqual(failure,{durable:'Conservar',memory:'Conservar',success:false});
    }
    assert.deepEqual(errors,[]);
-   console.log(JSON.stringify({status:'PASS',route:scenario.route,width:scenario.width,closures:restored.closures.length,preservedPayments:true,reload:true,noRealAccount:true}));
+   console.log(JSON.stringify({status:'PASS',route:scenario.route,width:scenario.width,closures:restored.closures.length,preservedPayments:true,reload:true,noRealAccount:true,detachedMarker:true}));
    await context.close();
   }
  } finally {if(browser) await browser.close();await new Promise(resolve=>server.close(resolve));}
