@@ -710,3 +710,183 @@ aceptadas. Esta prueba es un smoke test con documentos sintéticos; la prueba
 `PayrollClosureClaimRaceM1` cubre los 16 entrelazados en el modelo en memoria.
 **M1 permanece BLOCK para producción hasta desplegar primero estas reglas** y
 verificar la versión activa. Después puede publicarse el cliente y el índice.
+
+---
+
+# Ronda 5 — emulador real, bloqueos M1–M3, navegación Atrás y revisión (2026-09-28)
+
+Se conservan C1–C3, B1–B3, F1–F4, G1–G3 y las correcciones M1/M2 de la ronda 4. Sin
+commits, push, merge ni despliegues; sin escrituras en Firebase, Supabase ni n8n
+reales. Los respaldos privados solo se usaron en `/tmp` y este informe contiene solo
+conteos. Checksums verificados antes y después: T `9e14662d…`, C `ad3c0347…`.
+
+## Niveles de evidencia
+
+| Nivel | Qué es | Se usó para |
+|---|---|---|
+| **E1 — emulador real** | Emulador Firestore v1.22.0 en `127.0.0.1`, `firestore.rules` del repo, SDK web real y `PayrollClosureRepository` real (dos clientes) | reglas M1, carreras, clientes antiguos (código de `main`), orden de despliegue |
+| **E2 — PostgreSQL real (WASM)** | PGlite: motor PostgreSQL, sin Supabase (sin PostgREST, supabase-js, Storage ni privilegios por defecto de Supabase) | migraciones de comprobantes |
+| **E3 — Chromium real** | Chromium headless (snap), app servida del worktree, Google/Firebase/n8n/Supabase bloqueados | navegación Atrás, dos pestañas, fotos, respaldos privados, cierres |
+| **E4 — Jest** | jsdom + fake-indexeddb + dobles; backend de comprobantes en memoria con la **misma** lógica que la función | colas, UI, contratos |
+| **E5 — sondas de solo lectura** | `GET` a webhooks n8n y `OPTIONS` a funciones Edge, sin cuerpo ni credenciales | estado de n8n/fotos |
+
+Nada de esto certifica producción.
+
+## M1 — reglas de cierres: defectos encontrados en el emulador (E1)
+
+1. **Defecto grave (también en las reglas de `main`)**: anular un cierre o actualizar su
+   `updatedAt` estable se denegaba con «maximum of 1000 expressions». `isClosure()` volvía a
+   comprobar la forma completa en cada variante y en cada lado del `update`. Con las reglas de
+   `main` falla incluso anular un cierre **nativo**; si esas reglas están desplegadas, las
+   anulaciones de nómina no llegan a la nube (quedan en `dead`). Corrección: la forma se
+   comprueba una vez por documento (`isShapedClosure`) y las variantes solo miran los campos
+   que las distinguen. Semántica sin cambios (mismas pruebas de denegación).
+2. **El perdedor de la carrera recibía `permission-denied`** (el emulador evalúa las reglas
+   antes que la precondición de lectura), no el conflicto tipado; la copia acababa en `dead`
+   con un error genérico. Corrección: `runClaimTransaction` repite una vez tras
+   `permission-denied`; la segunda pasada ve el cerrojo ganador.
+3. **Copias previas al cerrojo duplicaban la nómina**: subir un promovido local o crear una
+   copia hacia otra obra no miraba copias sin cerrojo. Corrección: consulta
+   `recovery.sourceId` antes de ambas rutas (el conjunto de copias sin cerrojo no crece tras
+   desplegar las reglas, así que la consulta fuera de la transacción basta).
+
+`js/tests/emulator/PayrollClosureClaimRules.emulator.test.js` (**38/38**, exit 0): 16
+entrelazados reales (promoción nube/subida × copia misma/otra obra × orden × anulado), dos
+copias concurrentes, copias previas al cerrojo, anulados, otra obra, cerrojo inmutable y
+borrado condicionado, otra cuenta, cierre de 54 filas, cliente antiguo con reglas nuevas,
+cliente nuevo con reglas de `main` (falla cerrado, cero escrituras) y línea base (reglas y
+cliente de `main` **duplican** la nómina). Con las reglas anteriores fallan 4.
+Se ejecuta con `jest.emulator.config.cjs` (excluido de `npm test`).
+
+## Orden de despliegue (nada desplegado)
+
+1. **Reglas Firestore** (`firebase deploy --only firestore:rules`) y verificar la versión activa.
+   Arreglan además las anulaciones (defecto 1).
+2. **Índices** (`firebase deploy --only firestore:indexes`); comprobar con
+   `firebase firestore:indexes --project <id> > deployed.json` y
+   `node scripts/check-firestore-indexes.cjs --deployed deployed.json` (0 = todos READY;
+   2 = falta o construye). Mientras falte, el historial degrada a local con aviso.
+3. **Cliente** (este PR). Con reglas nuevas y cliente viejo: no promueve ni copia
+   (`permission-denied`, sin duplicados) y su historial en la obra por defecto falla mientras
+   quede algún legacy sin promover; se normaliza en cuanto un cliente nuevo lo promueve
+   (probado en E1). Tras publicar: «Reintentar» revive las copias en `dead` por
+   `CLAIM_UNAVAILABLE`.
+4. **Comprobantes (M3)**, en este orden: migración
+   `202609280001_petty_cash_receipt_soft_delete.sql` → `supabase functions deploy
+   petty-cash-receipt` → comprobar que el flujo n8n `caja-chica-subir` reenvía `action`,
+   `ifUploadedAt` y `uploadToken` sin registrar el cuerpo. La función nueva **falla** sin la
+   migración (escribe `upload_token`/`deleted_at`). El cliente nuevo tolera la función vieja:
+   `INVALID_ACTION` deja la petición en espera sin gastar intentos.
+
+## M2 — restauración con dos pestañas
+
+Hallazgo (E3, reproducido): una pestaña abierta **antes** de restaurar conserva el dataset
+anterior en memoria (la época del dataset es por pestaña). Sin guarda, un guardado de esa
+pestaña mezcló datos viejos sobre lo restaurado en IndexedDB. Corrección
+(`CrossTabDatasetGuard.js`): todo reemplazo completo (`advanceDatasetEpoch`) se anuncia por
+`localStorage`; las otras pestañas bloquean guardados implícitos (incluido `pagehide`) y
+recargan. Si otra pestaña resuelve la decisión de «restauración desconectada» con el diálogo
+abierto aquí, esta recarga. `scripts/check-cross-tab-restore.cjs` 2/2 (falla al quitar la
+guarda); `CrossTabDatasetGuardM2.test.js` 4/4. La marca durable ante cierre a mitad de
+subida sigue probada (ronda 4).
+
+## M3 — comprobantes: borrado lógico, versionado y cola
+
+Sin decisión de retención, no se purga nada:
+- **Función** (`receipt-actions.js` + `index.ts`): `delete` y `restore` lógicos con CAS sobre
+  `uploaded_at` (409 si hay versión más nueva); `lookup` de un borrado → 404
+  `RECEIPT_DELETED`; con `uploadToken` cada versión tiene ruta propia `uid/txId/token`, así
+  reemplazar la foto **ya no sobrescribe** la anterior (se archiva en
+  `petty_cash_receipt_versions`); sin token (clientes viejos) se mantiene la ruta estable.
+- **Cliente**: cola durable en `pettyCashMirrorOutbox` (`kind: 'receipt-delete'`, sin subir la
+  versión de IndexedDB; el espejo la ignora), por cuenta exacta, con espera exponencial,
+  `dead` a los 20 intentos, puerta M2. Nunca borra el comprobante de un movimiento que existe
+  localmente (restaurado/recreado). Un comprobante nuevo cancela la petición. Se corrigió la
+  **resurrección** de un movimiento borrado mientras su comprobante se subía (ahora se pide el
+  borrado lógico de esa versión).
+- Pruebas: `PettyCashReceiptRemoteDeleteM3` 10/10, `PettyCashReceiptUiDeleteM3` 2/2 (falla
+  sin la corrección de resurrección), `PettyCashMirrorOutbox` +1.
+- **Migración** en PGlite (`scripts/check-supabase-receipt-migration.mjs`, 7/7): aplica en
+  orden, re-ejecutable, filas previas válidas, CAS una sola vez, restricciones y reactivación.
+  **No se ejecutó en Supabase/PostgreSQL gestionado; el adaptador supabase-js y la función
+  Deno no se ejecutaron** (no hay Deno ni CLI).
+
+## Fotos del personal y n8n (E5, E3, E4)
+
+- Sondas `GET` (sin cuerpo): los webhooks `app-images`, `caja-chica-subir` y `caja-chica-ocr`
+  están **registrados para POST** hoy (el 404 de la ronda 3 era un flujo inactivo entonces).
+  `OPTIONS` a la función `app-images` desde un origen no permitido → 403: no hay atajo local
+  sin cambiar `APP_IMAGES_ALLOWED_ORIGINS`. No se envió ningún POST.
+- `scripts/check-employee-photo-flow.cjs` (6/6, sin sesión, 0 llamadas a n8n/Supabase):
+  elegir foto desde la ficha, verla tras recargar, visor y hoja cerrados con Atrás, eliminar.
+  La subida con sesión, el reintento ante el 404 y la señal en Firestore siguen cubiertos por
+  Jest (12 suites / 144 pruebas de fotos). Hallazgo menor, sin corregir: eliminar foto usa
+  `confirm()` nativo (design.md lo prohíbe).
+
+## Navegación Atrás/Adelante (PWA)
+
+`AppHistory.js` se conecta a la navegación central (`changeTab`/`changeSettingsTab`, evento
+`render:complete`) y detecta capas en el DOM (`[aria-modal]`, `[role=dialog]`,
+`.modal-overlay`, `.floating-card`, `[data-history-layer="on"]`). Atrás cierra primero la capa
+superior con su control de cierre seguro (nunca «Cerrar sesión»/«Cerrar periodo») o Escape;
+luego vuelve a la vista anterior; Adelante reabre vistas, no diálogos. En standalone, la vista
+inicial avisa «Pulsa Atrás otra vez para salir» y el segundo Atrás sale; la guardia se rearma
+solo tras un toque. Sin cambiar la URL; `pushState` solo con activación de usuario.
+El onboarding retrocede de paso. Un diálogo que no se deja cerrar no atrapa (revisión de
+Codex: `handlingLayerPop` y capas no cerrables). Semántica de cierre revisada: × de cambios
+entrantes = descartar sin pausar; confirmaciones = cancelar; restauración desconectada =
+cerrar sesión (su salida conservadora documentada).
+
+Defecto previo corregido al probar: `batchSetState` programaba `window.render`, que programa
+el render real con `_rendering` activo; ese render quedaba en cola (el perfil abierto con un
+toque no se pintaba). `RenderOptimizer` drena la cola; 0 renders en reposo (sin bucles).
+
+Pruebas: `scripts/check-mobile-back-navigation.cjs` 12/12 (Chromium 390 standalone: pestañas
+sin duplicados, perfil, ficha + hoja anidadas, ×, Adelante, subvistas, Ajustes con cambios sin
+guardar, recarga, doble Atrás, guardia; onboarding; escritorio 1280 sin guardia);
+`AppHistoryBackNavigation.test.js` 12/12. No participan: selectores de fecha, menú contextual
+de semana y menú de exportación (popovers que se cierran al tocar fuera). `display-mode` se
+simula (CDP no lo emula). **Prueba manual pendiente en Android real**: instalar la PWA, abrir
+Personal → perfil → gesto Atrás (cierra perfil) → Atrás (Asistencia) → Atrás (aviso) → Atrás
+(sale); repetir con un toque entre avisos (no sale).
+
+## Respaldos privados (E3)
+
+Matriz de 8 escenarios (T/C × FILE/FULL × dispositivo nuevo/misma obra × manual/«Asignar
+todo»): exit 0 y 0 errores de página en todos. Estado final tras recargar **idéntico** a la
+ronda 2, salvo C·FILE·misma obra, donde `miniImportAudit` ahora se conserva (coherente con
+B3). Cambian solo métricas intermedias: metadatos locales `lastAccessed` y el diagnóstico
+«asistencia sin empleado» tras importar (162→163, igual al origen).
+
+## Cambios de esta sesión de revisión
+
+- `BootLoader.test.js` vuelve a prohibir el literal `2500`; `app.js` usa `EXIT_HINT_MS`.
+- Migración re-ejecutable y con orden de despliegue en cabecera; validación PGlite.
+- Cola M3: dueño exacto (sesión o dueño local; nunca otra cuenta) y nunca borrar el
+  comprobante de un movimiento vivo.
+- Nuevas pruebas/arneses: UI M3, dos pestañas, fotos en Chromium, migración PGlite.
+
+## Resultados
+
+| Verificación | Resultado |
+|---|---|
+| Jest completo `--runInBand` | **502/502 suites, 4859/4859**, exit 0 |
+| Emulador Firestore (SDK real) | **38/38**, exit 0 |
+| Chromium navegación / dos pestañas / fotos / cierres | 12/12, 2/2, 6/6, PASS (FILE 1280 y FULL 390) |
+| Índices (repo) / migración PGlite | exit 0 / 7/7 |
+| Respaldos privados | 8/8 exit 0 |
+| `git diff --check` | PASS |
+
+## Riesgos y límites
+
+- Producción no verificada: reglas, índices, función, migración y n8n sin desplegar.
+- Subidas concurrentes del mismo `txId` con tokens distintos: el objeto perdedor queda en
+  Storage sin fila de versión (no hay pérdida; queda sin referenciar).
+- Borrados de comprobantes hechos por clientes viejos no llegan a Supabase (retención).
+- «Borrar nube» no borra cierres ni cerrojos (sin cambios; son evidencia financiera).
+- H1 (duplicado nube por clientes viejos) solo queda cerrado tras desplegar las reglas.
+- La guarda de pestañas depende del evento `storage` (mismo origen y perfil).
+
+## Integración al PR por Codex — 2026-09-28
+
+Confirmación independiente previa al commit: 502 suites y 4859 pruebas, exit 0. El control de escrituras de estado detectó tres asignaciones nuevas en applyHistoryView; se agruparon con stateManager.batchSetState conforme a la regla del repositorio.

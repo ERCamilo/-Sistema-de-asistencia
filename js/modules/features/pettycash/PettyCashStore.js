@@ -297,8 +297,10 @@ export const PettyCashStore = {
                 const idToken = await user.getIdToken();
                 let pending = [];
                 try { pending = (await indexedDBService.getAll(MIRROR_OUTBOX)) || []; } catch { pending = []; }
+                // Las peticiones de borrado de comprobantes (M3) comparten el store
+                // pero las drena PettyCashReceiptRemoteDelete contra otra función.
                 pending = pending
-                    .filter((entry) => entry?.status === 'pending')
+                    .filter((entry) => entry?.status === 'pending' && !entry?.kind)
                     .sort((left, right) => (Number(left.ts) || 0) - (Number(right.ts) || 0));
 
                 for (const entry of pending) {

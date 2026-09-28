@@ -1,5 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import {
+    buildUploadRow,
+    deleteReceiptLogically,
+    isReceiptDeleted,
+    ReceiptActionError,
+    receiptStoragePath,
+    restoreReceipt,
+    supersededVersion,
+} from "./receipt-actions.js";
 
 const FIREBASE_API_KEY = "AIzaSyDF8sJaHAMx4mRqMWo_J6Cpd6_ZjIc4jYA";
 const BUCKET = "petty-cash-receipts";
@@ -124,15 +133,63 @@ Deno.serve(async (request: Request) => {
             auth: { persistSession: false, autoRefreshToken: false },
         });
 
+        // Adaptador de la lógica de retención (receipt-actions.js). Los cambios
+        // de estado son CAS sobre uploaded_at; nunca se borra un objeto.
+        const receiptStore = {
+            async getReceipt(ownerUid: string, id: string) {
+                const { data, error } = await supabase
+                    .from("petty_cash_receipts")
+                    .select("firebase_uid, transaction_id, storage_bucket, storage_path, mime_type, file_size_bytes, status, uploaded_at, deleted_at")
+                    .eq("firebase_uid", ownerUid)
+                    .eq("transaction_id", id)
+                    .maybeSingle();
+                if (error) throw error;
+                return data;
+            },
+            async markDeleted(ownerUid: string, id: string, version: string, deletedAt: string) {
+                const { data, error } = await supabase
+                    .from("petty_cash_receipts")
+                    .update({ status: "deleted", deleted_at: deletedAt, updated_at: deletedAt })
+                    .eq("firebase_uid", ownerUid)
+                    .eq("transaction_id", id)
+                    .eq("uploaded_at", version)
+                    .is("deleted_at", null)
+                    .select("transaction_id, deleted_at")
+                    .maybeSingle();
+                if (error) throw error;
+                return data;
+            },
+            async markRestored(ownerUid: string, id: string, version: string, restoredAt: string) {
+                const { data, error } = await supabase
+                    .from("petty_cash_receipts")
+                    .update({ status: "confirmed", deleted_at: null, updated_at: restoredAt })
+                    .eq("firebase_uid", ownerUid)
+                    .eq("transaction_id", id)
+                    .eq("uploaded_at", version)
+                    .not("deleted_at", "is", null)
+                    .select("transaction_id")
+                    .maybeSingle();
+                if (error) throw error;
+                return data;
+            },
+        };
+
+        if (action === "delete" || action === "restore") {
+            const run = action === "delete" ? deleteReceiptLogically : restoreReceipt;
+            const result = await run({ store: receiptStore, uid, txId, ifUploadedAt: body.ifUploadedAt });
+            return respond(result.body, result.status);
+        }
+
         if (action === "lookup") {
             const { data: receipt, error: lookupError } = await supabase
                 .from("petty_cash_receipts")
-                .select("transaction_id, project_id, period_id, storage_bucket, storage_path, mime_type, file_size_bytes, page_count, original_name, ocr_data, movement_data, status, confirmed_at, uploaded_at")
+                .select("transaction_id, project_id, period_id, storage_bucket, storage_path, mime_type, file_size_bytes, page_count, original_name, ocr_data, movement_data, status, confirmed_at, uploaded_at, deleted_at")
                 .eq("firebase_uid", uid)
                 .eq("transaction_id", txId)
                 .maybeSingle();
             if (lookupError) throw lookupError;
             if (!receipt) return respond({ ok: false, error: "RECEIPT_NOT_FOUND" }, 404);
+            if (isReceiptDeleted(receipt)) return respond({ ok: false, error: "RECEIPT_DELETED" }, 404);
 
             const { data: signed, error: signedError } = await supabase.storage
                 .from(receipt.storage_bucket)
@@ -153,9 +210,12 @@ Deno.serve(async (request: Request) => {
         ) {
             return respond({ ok: false, error: "INVALID_PAGE_COUNT" }, 400);
         }
-        // Ruta estable: reemplazar una imagen por PDF (o viceversa) no deja un objeto
-        // huérfano con otra extensión.
-        const storagePath = `${uid}/${txId}`;
+        // Con uploadToken cada versión local tiene su propia ruta (el reintento de
+        // la misma versión es idempotente y reemplazar la foto no sobrescribe la
+        // anterior). Sin token (clientes anteriores) se mantiene la ruta estable.
+        const uploadToken = body.uploadToken == null ? null : String(body.uploadToken);
+        const storagePath = receiptStoragePath(uid, txId, uploadToken);
+        const previous = await receiptStore.getReceipt(uid, txId);
         const { error: uploadError } = await supabase.storage
             .from(BUCKET)
             .upload(storagePath, file.binary, {
@@ -165,28 +225,24 @@ Deno.serve(async (request: Request) => {
             });
         if (uploadError) throw uploadError;
 
-        const confirmedMillis = Number(body.userConfirmedAt);
-        const confirmedAt = Number.isFinite(confirmedMillis) && confirmedMillis > 0
-            ? new Date(confirmedMillis).toISOString()
-            : new Date().toISOString();
-        const row = {
-            firebase_uid: uid,
-            transaction_id: txId,
-            project_id: body.projectId ? String(body.projectId) : null,
-            period_id: body.periodId ? String(body.periodId) : null,
-            storage_bucket: BUCKET,
-            storage_path: storagePath,
-            mime_type: file.mimeType,
-            file_size_bytes: file.binary.byteLength,
-            page_count: requestedPageCount,
-            original_name: body.originalName ? String(body.originalName).slice(0, 255) : null,
-            ocr_data: safeObject(body.ocr),
-            movement_data: safeObject(body.movement),
-            status: "confirmed",
-            confirmed_at: confirmedAt,
-            uploaded_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        };
+        const now = new Date();
+        const archived = supersededVersion(previous, storagePath, now);
+        if (archived) {
+            const { error: archiveError } = await supabase
+                .from("petty_cash_receipt_versions")
+                .upsert(archived, { onConflict: "storage_bucket,storage_path", ignoreDuplicates: true });
+            if (archiveError) throw archiveError;
+        }
+        const row = buildUploadRow({
+            uid,
+            txId,
+            bucket: BUCKET,
+            storagePath,
+            file: { mimeType: file.mimeType, byteLength: file.binary.byteLength },
+            body: { ...body, pageCount: requestedPageCount, ocr: safeObject(body.ocr), movement: safeObject(body.movement) },
+            uploadToken,
+            now,
+        });
         const { data: receipt, error: upsertError } = await supabase
             .from("petty_cash_receipts")
             .upsert(row, { onConflict: "firebase_uid,transaction_id" })
@@ -196,6 +252,9 @@ Deno.serve(async (request: Request) => {
 
         return respond({ ok: true, path: `${BUCKET}/${storagePath}`, receipt });
     } catch (error) {
+        if (error instanceof ReceiptActionError) {
+            return respond({ ok: false, error: error.code }, error.status);
+        }
         const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
         const status = message === "INVALID_FIREBASE_TOKEN"
             ? 401

@@ -255,8 +255,39 @@ export function recoverySourcePromotedError(sourceId) {
     return error;
 }
 
+function recoveryCopyExistsError(sourceId) {
+    const error = new Error('Este cierre ya tiene una copia recuperada en una obra. No se vuelve a asignar para no duplicar la nómina; revisa ambos antes de continuar.');
+    error.code = 'PAYROLL_CLOSURE_RECOVERY_CONFLICT';
+    error.name = 'PayrollClosureRecoveryConflictError';
+    error.sourceId = String(sourceId || '');
+    return error;
+}
+
 function isPermissionDeniedError(error) {
     return String(error?.code || '').toLowerCase().replace(/_/g, '-').endsWith('permission-denied');
+}
+
+// Copias de recuperación subidas antes de existir el cerrojo: no tienen claim,
+// así que solo una consulta las ve. Después del despliegue de las reglas ya no
+// se pueden crear copias sin cerrojo, por eso basta consultarlas fuera de la
+// transacción (el conjunto no crece).
+async function findRecoveryCopies(sourceId) {
+    const snapshot = await getPageDocs(query(requireSessionRef(currentCollection()),
+        where('recovery.sourceId', '==', String(sourceId))));
+    return snapshotItems(snapshot);
+}
+
+// Con las reglas desplegadas, el perdedor de una carrera por el cerrojo recibe
+// permission-denied en el commit (el emulador evalúa las reglas antes que la
+// precondición de sus lecturas) en vez de reintentar. Una segunda pasada lee el
+// cerrojo ganador y devuelve el resultado tipado; si vuelve a fallar, se propaga.
+async function runClaimTransaction(operation) {
+    try {
+        return await runTransaction(db, operation);
+    } catch (error) {
+        if (!isPermissionDeniedError(error)) throw error;
+        return runTransaction(db, operation);
+    }
 }
 
 // Antes de publicar las reglas del cerrojo, Firestore niega leerlo. Sin cerrojo
@@ -302,9 +333,8 @@ async function promoteLegacyCloudClosure(legacy, scope) {
         return null;
     }
     // Copias anteriores al cerrojo no tienen claim: la consulta las sigue viendo.
-    const recovered = await getPageDocs(query(requireSessionRef(currentCollection()), where('recovery.sourceId', '==', legacy.id)));
+    const copies = await findRecoveryCopies(legacy.id);
     ensureNotStale(scope);
-    const copies = snapshotItems(recovered);
     const matches = copies.filter(c => c.projectId === scope.projectId);
     if (matches.length > 1) throw new Error('Hay más de una recuperación para el mismo cierre');
     if (matches.length) return validatePayrollClosureForScopedWrite(matches[0], scope.projectId);
@@ -312,7 +342,7 @@ async function promoteLegacyCloudClosure(legacy, scope) {
     // la misma nómina en dos obras; el original queda sin promover.
     if (copies.length) return null;
     const ref = requireSessionRef(currentDocument(legacy.id));
-    const result = await runTransaction(db, async transaction => {
+    const result = await runClaimTransaction(async transaction => {
         const snapshot = await transaction.get(ref);
         ensureNotStale(scope);
         if (!snapshot?.exists?.()) return null;
@@ -366,6 +396,10 @@ async function saveOneScoped(closure, scope = captureScopedScope()) {
             validatePayrollClosureForScopedWrite(incoming, scope.projectId, {
                 legacySource: source
             });
+            // Una copia anterior al cerrojo ya asignó esta nómina a una obra.
+            const copies = await findRecoveryCopies(incoming.id);
+            ensureNotStale(scope);
+            if (copies.length) throw recoveryCopyExistsError(incoming.id);
         }
     }
     // M1: toda copia nueva (venga de la recuperación o de una subida ordinaria)
@@ -374,7 +408,13 @@ async function saveOneScoped(closure, scope = captureScopedScope()) {
         ? String(incoming.recovery.sourceId) : '';
     const sourceRef = recoverySourceId && recoverySourceId !== String(incoming.id)
         ? requireSessionRef(currentDocument(recoverySourceId)) : null;
-    const result = await runTransaction(db, async transaction => {
+    if (sourceRef) {
+        const others = (await findRecoveryCopies(recoverySourceId))
+            .filter(copy => String(copy.id) !== String(incoming.id));
+        ensureNotStale(scope);
+        if (others.length) throw recoveryCopyExistsError(recoverySourceId);
+    }
+    const result = await runClaimTransaction(async transaction => {
         // H1: el original se lee dentro de la transacción. Si otro dispositivo lo
         // promueve antes del commit, Firestore reintenta y esta lectura lo ve.
         const sourceSnapshot = sourceRef ? await transaction.get(sourceRef) : null;

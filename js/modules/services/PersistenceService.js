@@ -42,6 +42,7 @@ import { Position } from '../features/employees/Position.js';
 import { Leader } from '../features/employees/Leader.js';
 import { Attendance } from '../features/attendance/Attendance.js';
 import { getDemoSeed } from '../data/DemoSeed.js';
+import { announceDatasetReplaced } from './CrossTabDatasetGuard.js';
 
 // ⚡ Debounce de guardado: colapsa llamadas rápidas en un solo guardado
 let _saveDebounceTimer = null;
@@ -82,6 +83,9 @@ export function stampDatasetEpochOptions(options = {}) {
 
 export function advanceDatasetEpoch() {
     _datasetEpochRef.value += 1;
+    // M2: la época es por pestaña; las demás conservan en memoria el dataset
+    // anterior y deben recargar antes de volver a guardarlo.
+    announceDatasetReplaced('full-replace');
     return _datasetEpochRef.value;
 }
 

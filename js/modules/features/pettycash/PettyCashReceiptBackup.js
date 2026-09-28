@@ -32,7 +32,8 @@ async function postReceiptAction({
     const result = await response.json().catch(() => null);
     if (!response.ok || !result?.ok) {
         const code = result?.error || `HTTP_${response.status || 0}`;
-        const error = new Error(`No se pudo ${action === 'lookup' ? 'recuperar' : 'respaldar'} el comprobante (${code}).`);
+        const verb = action === 'lookup' ? 'recuperar' : action === 'delete' ? 'borrar' : 'respaldar';
+        const error = new Error(`No se pudo ${verb} el comprobante (${code}).`);
         error.code = code;
         error.status = Number(response.status) || 0;
         throw error;
@@ -49,10 +50,20 @@ export function isReceiptReadyForBackup(receipt, now = Date.now()) {
     );
 }
 
+// Versión local del comprobante: cambia cuando el usuario confirma otra foto.
+// El servidor la usa como ruta física propia, así un reintento de la misma
+// versión es idempotente y reemplazar la foto no sobrescribe la anterior.
+export function receiptUploadToken(receipt) {
+    const confirmedAt = Math.trunc(Number(receipt?.userConfirmedAt) || 0);
+    const size = Math.trunc(Number(receipt?.originalSize || receipt?.originalBlob?.size) || 0);
+    return confirmedAt > 0 ? `v${confirmedAt}-${size}` : null;
+}
+
 export async function uploadReceiptBackup({
     url,
     idToken,
     txId,
+    uploadToken = null,
     fileDataUrl,
     imageDataUrl,
     mimeType = 'image/jpeg',
@@ -82,10 +93,40 @@ export async function uploadReceiptBackup({
             projectId,
             periodId,
             userConfirmedAt,
+            uploadToken: uploadToken || undefined,
             ocr,
             movement
         }
     });
+}
+
+/**
+ * Borrado LÓGICO y condicionado a la versión que este dispositivo subió
+ * (ifUploadedAt = receipt.uploaded_at devuelto por el servidor). Resultado:
+ *   { done: true, outcome: 'deleted' | 'already-deleted' | 'absent' | 'newer-version' }
+ * o lanza un error con `retryable` (red, proxy o función sin desplegar).
+ */
+export async function deleteReceiptBackup({
+    url,
+    idToken,
+    txId,
+    ifUploadedAt,
+    fetchImpl = globalThis.fetch
+}) {
+    if (!ifUploadedAt) throw new Error('Falta la versión del comprobante a borrar.');
+    try {
+        const result = await postReceiptAction({
+            url, idToken, txId, action: 'delete', fetchImpl, body: { ifUploadedAt }
+        });
+        if (result.absent) return { done: true, outcome: 'absent' };
+        return { done: true, outcome: result.alreadyDeleted ? 'already-deleted' : 'deleted' };
+    } catch (error) {
+        // Otra versión más nueva ocupa el txId: se conserva, no hay nada que borrar.
+        if (error.code === 'RECEIPT_VERSION_MISMATCH') return { done: true, outcome: 'newer-version' };
+        // Sesión inválida o petición mal formada: no se arregla reintentando.
+        error.retryable = !['INVALID_TRANSACTION_ID', 'MISSING_RECEIPT_VERSION', 'MISSING_ID_TOKEN'].includes(error.code);
+        throw error;
+    }
 }
 
 export async function lookupReceiptBackup({

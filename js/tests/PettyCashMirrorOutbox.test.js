@@ -62,4 +62,27 @@ describe('PettyCashStore mirror outbox', () => {
             .filter(([store]) => store === 'pettyCashMirrorOutbox');
         expect(mirrorWrites).toHaveLength(0);
     });
+
+    test('flushMirror no envía las peticiones de borrado de comprobantes (M3) que comparten el store', async () => {
+        auth.currentUser = { uid: 'firebase-user', getIdToken: async () => 'token' };
+        const previousFetch = global.fetch;
+        const fetchMock = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+        global.fetch = fetchMock;
+        const mirrorEntry = { id: movement.id, op: 'save', data: movement, status: 'pending', ownerUid: 'firebase-user', ts: 2 };
+        indexedDBService.getAll.mockResolvedValue([
+            { id: 'receipt-delete:mov-1', kind: 'receipt-delete', txId: 'mov-1', status: 'pending', ownerUid: 'firebase-user', ts: 1 },
+            mirrorEntry
+        ]);
+        indexedDBService.get.mockImplementation(async (_store, id) => (id === movement.id ? mirrorEntry : null));
+        try {
+            await PettyCashStore.flushMirror();
+        } finally {
+            global.fetch = previousFetch;
+        }
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ transactionId: movement.id, action: 'upsert' });
+        const touched = [...indexedDBService.update.mock.calls, ...indexedDBService.delete.mock.calls]
+            .filter(([store, value]) => store === 'pettyCashMirrorOutbox' && String(value?.id || value).startsWith('receipt-delete:'));
+        expect(touched).toEqual([]);
+    });
 });

@@ -45,8 +45,17 @@ import {
     isReceiptReadyForBackup,
     uploadReceiptBackup,
     lookupReceiptBackup,
-    isReceiptBackupVerified
+    isReceiptBackupVerified,
+    receiptUploadToken
 } from './PettyCashReceiptBackup.js';
+import {
+    cancelReceiptRemoteDelete,
+    drainReceiptRemoteDeletes,
+    enqueueReceiptRemoteDelete,
+    receiptDeleteTransport
+} from './PettyCashReceiptRemoteDelete.js';
+import { isDetachedRestoreSyncBlocked } from '../../services/DetachedRestoreGuard.js';
+import { getLocalOwnerUid } from '../../services/LocalDataOwner.js';
 import {
     formatPettyCashDate,
     isEmptyReceiptPlaceholder,
@@ -225,6 +234,9 @@ async function prepareReceiptCapture(file) {
 }
 
 async function saveLocalReceiptCapture(txId, capture, metadata = {}) {
+    // M3: un comprobante nuevo para este movimiento anula su borrado remoto pendiente.
+    await cancelReceiptRemoteDelete({ db: indexedDBService, txId })
+        .catch((error) => console.warn('receipt remote delete cancel', error));
     return indexedDBService.saveReceiptOriginal(
         txId,
         capture.originalBlob,
@@ -578,6 +590,7 @@ export async function startPettyCashSync() {
 
     // Respaldar comprobantes confirmados que todavía están solo en local.
     uploadPendingReceipts();
+    drainPendingReceiptDeletes();
 }
 
 function receiptOcrMetadata(movement) {
@@ -623,6 +636,7 @@ export async function uploadPendingReceipts() {
                     url,
                     idToken,
                     txId: rec.txId,
+                    uploadToken: receiptUploadToken(rec),
                     fileDataUrl,
                     mimeType: rec.originalType || rec.originalBlob?.type || 'image/jpeg',
                     originalName: rec.originalName || null,
@@ -642,20 +656,36 @@ export async function uploadPendingReceipts() {
                     throw new Error('El respaldo remoto no pudo verificarse.');
                 }
                 const remotePath = data.path || data.receipt?.storage_path || remote.receipt?.storage_path || null;
+                // Versión del servidor: el borrado remoto solo afecta a esta versión.
+                const remoteVersion = data.receipt?.uploaded_at || remote.receipt?.uploaded_at || null;
                 const verifiedAt = Date.now();
-                if (movement) {
-                    movement.receiptStatus = 'uploaded';
-                    movement.receiptStorage = 'supabase';
-                    movement.receiptUrl = remotePath;
-                    movement.updatedAt = verifiedAt;
-                    await saveMovement(movement, null, 'receipt-backup');
+                // El movimiento pudo borrarse mientras se subía: no resucitarlo.
+                const liveMovement = pc().movements.find(m => m.id === rec.txId) || null;
+                if (liveMovement) {
+                    liveMovement.receiptStatus = 'uploaded';
+                    liveMovement.receiptStorage = 'supabase';
+                    liveMovement.receiptUrl = remotePath;
+                    liveMovement.updatedAt = verifiedAt;
+                    await saveMovement(liveMovement, null, 'receipt-backup');
                 }
-                await indexedDBService.finalizeReceiptBackup(rec.txId, {
+                const finalized = await indexedDBService.finalizeReceiptBackup(rec.txId, {
                     remotePath,
+                    remoteVersion,
+                    remoteUploadToken: receiptUploadToken(rec),
                     remoteUploadedAt: verifiedAt,
                     remoteVerifiedAt: verifiedAt,
                     uploadLastError: null
                 });
+                if (!finalized) {
+                    // El comprobante local ya no existe (movimiento borrado a mitad
+                    // de la subida): pedir el borrado lógico de lo que se acaba de subir.
+                    await enqueueReceiptRemoteDelete({
+                        db: indexedDBService,
+                        txId: rec.txId,
+                        receipt: { uploadStatus: 'uploaded', remoteVersion },
+                        ownerUid: user.uid
+                    });
+                }
             } catch (e) {
                 console.warn('⚠️ uploadPendingReceipts(' + rec.txId + '):', e);
                 const attempts = (Number(rec.uploadAttempts) || 0) + 1;
@@ -670,6 +700,49 @@ export async function uploadPendingReceipts() {
         persist(); window.render?.();
     } finally {
         _uploadingReceipts = false;
+    }
+    drainPendingReceiptDeletes();
+}
+
+// M3: borra el comprobante local y encola el borrado lógico de su respaldo.
+async function discardMovementReceipt(txId) {
+    let receipt = null;
+    try { receipt = await indexedDBService.getReceipt(txId); } catch { receipt = null; }
+    try {
+        await enqueueReceiptRemoteDelete({
+            db: indexedDBService,
+            txId,
+            receipt,
+            // Sin sesión: la cuenta dueña de los datos de este dispositivo (la
+            // que subió el comprobante). Nunca se envía con otra cuenta.
+            ownerUid: auth?.currentUser?.uid || getLocalOwnerUid() || null
+        });
+    } catch (error) {
+        console.warn('receipt remote delete enqueue', error);
+    }
+    await indexedDBService.deleteReceipt(txId);
+}
+
+let _drainingReceiptDeletes = false;
+export async function drainPendingReceiptDeletes() {
+    if (_drainingReceiptDeletes) return null;
+    const url = APP_CONFIG && APP_CONFIG.RECEIPT_UPLOAD_URL;
+    const user = auth && auth.currentUser;
+    if (!url || !user || typeof user.getIdToken !== 'function') return null;
+    if (isDetachedRestoreSyncBlocked()) return null;
+    _drainingReceiptDeletes = true;
+    try {
+        const idToken = await user.getIdToken();
+        return await drainReceiptRemoteDeletes({
+            db: indexedDBService,
+            uid: user.uid,
+            ...receiptDeleteTransport({ url, idToken, lookupReceipt: lookupReceiptBackup })
+        });
+    } catch (error) {
+        console.warn('receipt remote delete drain', error);
+        return null;
+    } finally {
+        _drainingReceiptDeletes = false;
     }
 }
 
@@ -1312,6 +1385,7 @@ export function registerPettyCashGlobals() {
             PettyCashStore.flushMirror();
             processPendingReceiptJobs().catch((e) => console.warn('receipt queue online', e));
             uploadPendingReceipts();
+            drainPendingReceiptDeletes();
         });
     }
 
@@ -1411,7 +1485,7 @@ export function registerPettyCashGlobals() {
         if (!ok) return;
         // cascada: movimientos + periodos del proyecto
         d.movements.filter(m => m.projectId === proj.id).forEach(m => {
-            if (m.receiptStatus) indexedDBService.deleteReceipt(m.id);
+            if (m.receiptStatus) discardMovementReceipt(m.id).then(drainPendingReceiptDeletes, (e) => console.warn('delete receipt', e));
             removeMovementDoc(m.id);
         });
         pers.forEach(p => removePeriodDoc(p.id));
@@ -1476,7 +1550,7 @@ export function registerPettyCashGlobals() {
         const ok = await Modal.confirm({ title: '🗑️ Eliminar periodo', message: `¿Eliminar el periodo "${esc(period.label)}"${movs.length ? ` y sus ${movs.length} movimiento(s)` : ''}? No se puede deshacer.`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
         movs.forEach(m => {
-            if (m.receiptStatus) indexedDBService.deleteReceipt(m.id);
+            if (m.receiptStatus) discardMovementReceipt(m.id).then(drainPendingReceiptDeletes, (e) => console.warn('delete receipt', e));
             removeMovementDoc(m.id);
         });
         removePeriodDoc(period.id);
@@ -2199,11 +2273,12 @@ export function registerPettyCashGlobals() {
         const label = mov.type === 'gasto' ? (mov.paidTo || mov.description || 'gasto') : 'reposición';
         const ok = await Modal.confirm({ title: '🗑️ Eliminar movimiento', message: `¿Eliminar "${esc(label)}" de ${rd(mov.amount)}?`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
-        if (mov.receiptStatus) await indexedDBService.deleteReceipt(movId);
+        if (mov.receiptStatus) await discardMovementReceipt(movId);
         removeMovementDoc(movId, 'Movimiento eliminado');
         d.movements = d.movements.filter(m => m.id !== movId);
         await refreshReceiptQueueSummary();
         persist(); window.render?.();
+        drainPendingReceiptDeletes();
     };
 
     window.pcClosePeriod = async () => {

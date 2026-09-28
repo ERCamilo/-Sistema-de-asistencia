@@ -94,10 +94,12 @@ function checkRulesModel(before, after, writes) {
     }
 }
 
-function installCloud({ denyClaims = false, enforceRules = true } = {}) {
+// rulesFirst: como el emulador real, las reglas se evalúan antes que la
+// precondición de las lecturas; el perdedor recibe permission-denied.
+function installCloud({ denyClaims = false, enforceRules = true, rulesFirst = false } = {}) {
     const docs = new Map();
     const versions = new Map();
-    const cloud = { docs, gates: {}, afterQuery: null, retries: 0, denyClaims, enforceRules };
+    const cloud = { docs, gates: {}, afterQuery: null, retries: 0, denied: 0, denyClaims, enforceRules };
     const path = ref => ref.path;
     const put = (key, data) => { docs.set(key, clone(data)); versions.set(key, (versions.get(key) || 0) + 1); };
     firebase.collection.mockImplementation((_db, ...segments) => ({ path: segments.join('/') }));
@@ -141,6 +143,11 @@ function installCloud({ denyClaims = false, enforceRules = true } = {}) {
             const gate = label && cloud.gates[label];
             if (gate) { delete cloud.gates[label]; await gate(); }
             // Commit atómico (síncrono en JS): validar lecturas, reglas y aplicar.
+            if (rulesFirst && enforceRules) {
+                const after = new Map(docs);
+                writes.forEach(([key, data]) => after.set(key, data));
+                try { checkRulesModel(docs, after, writes); } catch (error) { cloud.denied++; throw error; }
+            }
             if ([...seen].some(([key, version]) => (versions.get(key) || 0) !== version)) { cloud.retries++; continue; }
             if (cloud.denyClaims && writes.some(([key]) => isClaimKey(key))) throw permissionDenied();
             if (cloud.enforceRules) {
@@ -433,6 +440,69 @@ describe('M1: modelo de firestore.rules frente a clientes antiguos (sin cerrojo)
     });
 });
 
+describe('M1: conducta observada en el emulador real (reglas antes que precondición, copias previas al cerrojo)', () => {
+    let cloud;
+
+    beforeEach(() => {
+        firebase.auth.currentUser = { uid: UID };
+        setProjectsEnabled(true);
+        replaceEntityScope({ enabled: true, projectId: DEFAULT, defaultProjectId: DEFAULT });
+        cloud = installCloud({ rulesFirst: true });
+    });
+
+    afterEach(() => {
+        setProjectsEnabled(false);
+        resetEntityScope();
+        delete firebase.auth.currentUser;
+        jest.restoreAllMocks();
+    });
+
+    test.each(['cloud', 'upload'])('gana la promoción (%s): la copia perdedora recibe el conflicto tipado, no permission-denied', async promoter => {
+        const legacy = legacyClosure();
+        cloud.put(closureKey(legacy.id), legacy);
+        const copy = recoveryCopy(legacy, OTHER);
+        const barrier = installBarrier(cloud, ['promotion', 'copy']);
+        const promotion = settle(PROMOTERS_FOR_EMULATOR[promoter](legacy));
+        const recovery = settle(PayrollClosureRepository.saveRecoveredClosure(copy));
+        await barrier.bothArrived;
+        barrier.release('promotion');
+        await promotion;
+        barrier.release('copy');
+        const [promotionResult, recoveryResult] = await Promise.all([promotion, recovery]);
+
+        expect(promotionResult.ok).toBe(true);
+        expect(cloud.denied).toBe(1);                       // el commit perdedor fue denegado por las reglas
+        expect(recoveryResult.ok).toBe(false);
+        expect(recoveryResult.error.code).toBe('PAYROLL_CLOSURE_RECOVERY_CONFLICT');
+        expect(assignments(cloud, legacy.id)).toHaveLength(1);
+        expect(classifySyncError(recoveryResult.error)).toBe('permanent');
+    });
+
+    test('copia previa al cerrojo: ni la subida de un promovido local ni otra copia duplican la nómina', async () => {
+        const legacy = legacyClosure();
+        cloud.put(closureKey(legacy.id), legacy);
+        const preLock = recoveryCopy(legacy, OTHER);
+        cloud.put(closureKey(preLock.id), preLock);          // subida por un cliente antiguo, sin cerrojo
+
+        const upload = await settle(repo.saveOneScoped(promoteLegacyPayrollClosure(legacy, DEFAULT), scope));
+        expect(upload.ok).toBe(false);
+        expect(upload.error.code).toBe('PAYROLL_CLOSURE_RECOVERY_CONFLICT');
+        const second = await settle(PayrollClosureRepository.saveRecoveredClosure(recoveryCopy(legacy, DEFAULT)));
+        expect(second.ok).toBe(false);
+        expect(second.error.code).toBe('PAYROLL_CLOSURE_RECOVERY_CONFLICT');
+        await expect(PayrollClosureRepository.saveRecoveredClosure(preLock)).resolves.toMatchObject({ written: false });
+
+        expect(assignments(cloud, legacy.id)).toEqual([preLock]);
+        expect(cloud.docs.has(claimKey(legacy.id))).toBe(false);
+        expect(cloud.docs.get(closureKey(legacy.id))).toEqual(legacy);
+    });
+});
+
+const PROMOTERS_FOR_EMULATOR = {
+    cloud: legacy => repo.promoteLegacyCloudClosure(legacy, { projectId: DEFAULT, defaultProjectId: DEFAULT }),
+    upload: legacy => repo.saveOneScoped(promoteLegacyPayrollClosure(legacy, DEFAULT), { projectId: DEFAULT, defaultProjectId: DEFAULT })
+};
+
 describe('M1: contrato estático de firestore.rules (no sustituye al emulador)', () => {
     const rules = require('fs').readFileSync(require('path').resolve(__dirname, '../../firestore.rules'), 'utf8');
 
@@ -441,12 +511,15 @@ describe('M1: contrato estático de firestore.rules (no sustituye al emulador)',
         expect(block).toMatch(/allow read: if isAccountOwner\(userId\);/);
         expect(block).toMatch(/allow create: if isAccountOwner\(userId\) &&\s+isValidClosureClaim\(userId, sourceId\);/);
         expect(block).toMatch(/allow update: if false;/);
-        expect(rules).toMatch(/isLegacyPromotion\(userId, closureId\) \|\| isAllowedClosureUpdate\(\)/);
+        expect(rules).toMatch(/allow update: if isAccountOwner\(userId\) &&\s+isAllowedClosureUpdate\(userId, closureId\);/);
+        expect(rules).toMatch(/isLegacyVariant\(before\) &&\s+isLegacyPromotion\(userId, closureId, before, after\)/);
         expect(rules).toMatch(/hasClaimAfter\(userId, closureId, 'promotion', closureId,/);
-        expect(rules).toMatch(/isNativeClosure\(request\.resource\.data\) &&\s+isClaimedOrPlainNativeCreate\(userId, closureId\)/);
+        expect(rules).toMatch(/isNativeVariant\(request\.resource\.data\) &&\s+isClaimedOrPlainNativeCreate\(userId, closureId\)/);
         expect(rules).toMatch(/'recovery-copy', closureId, request\.resource\.data\.projectId/);
         expect(rules).toMatch(/isSourceNotPromoted\(userId, sourceId\)/);
         // Las actualizaciones ordinarias (anular) no exigen cerrojo.
-        expect(rules).toMatch(/function isAllowedClosureUpdate\(\) \{[\s\S]*?\(isClosedToVoided\(\) \|\| isStableClosedUpdate\(\)\);/);
+        expect(rules).toMatch(/function isAllowedClosureUpdate\(userId, closureId\) \{[\s\S]*?\(isClosedToVoided\(\) \|\| isStableClosedUpdate\(\)\)\)\);/);
+        // Conducta real (límite de 1000 expresiones, carreras, clientes antiguos):
+        // js/tests/emulator/PayrollClosureClaimRules.emulator.test.js.
     });
 });
