@@ -14,6 +14,8 @@ export const firebaseConfig = {
 };
 
 export const APP_CONFIG = {
+    // Lo sube el workflow «refresh PR build version» en cada cambio que entra a
+    // main (1.7.0 → 1.7.1 → …). No editar a mano el número de parche.
     VERSION: "1.7.0",
     LAST_UPDATED: "2026-07-11",
     DATABASE_NAME: "attendance-app-db", // L2: coincide con el nombre real de la BD IndexedDB

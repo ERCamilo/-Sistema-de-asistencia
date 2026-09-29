@@ -13,6 +13,7 @@ import {
     addEmployee, removeEmployee, cycleDemo, markAllPresent, cycleWeek
 } from './OnboardingCore.js';
 import { COLOR_PALETTE } from '../../utils/Constants.js';
+import { APP_CONFIG } from '../../config/Config.js';
 const C = { bg: '#0f172a', panel: '#1e293b', panel2: '#334155', border: '#334155', text: '#f8fafc', dim: '#94a3b8', faint: '#64748b', accent: '#06b6d4', onAccent: '#0f172a', good: '#10b981', warn: '#f59e0b', bad: '#ef4444' };
 const POS_COLORS = COLOR_PALETTE.slice(0, 4);
 const FIELD_STYLE = `width:100%;height:48px;padding:0 15px;border-radius:11px;border:1px solid ${C.border};background:${C.panel};font-size:16px;font-family:inherit;color:inherit;box-sizing:border-box;`;
@@ -151,7 +152,7 @@ const DEMO_ICONS = [
 const mono = "font-family:'IBM Plex Mono',monospace;";
 function demoWelcome() {
     return `<div class="odv-glow" style="position:absolute;width:240px;height:240px;border-radius:50%;background:${C.accent};filter:blur(80px);"></div>`
-        + `<div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:20px;"><img src="icon-512.png" alt="" width="112" height="112" onerror="this.style.display='none'" style="width:112px;height:112px;border-radius:28px;display:block;"><div style="text-align:center;"><div style="font-size:17px;font-weight:700;">Control de Asistencia</div><div style="${mono}font-size:11.5px;color:${C.faint};margin-top:5px;">v1.7.0</div></div></div>`;
+        + `<div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:20px;"><img src="icon-512.png" alt="" width="112" height="112" onerror="this.style.display='none'" style="width:112px;height:112px;border-radius:28px;display:block;"><div style="text-align:center;"><div style="font-size:17px;font-weight:700;">Control de Asistencia</div><div style="${mono}font-size:11.5px;color:${C.faint};margin-top:5px;">v${APP_CONFIG.VERSION}</div></div></div>`;
 }
 function demoAttendance(s) {
     const present = s.demoStates.filter(v => v === 'p').length;
