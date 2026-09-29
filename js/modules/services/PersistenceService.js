@@ -1738,14 +1738,49 @@ export async function validateDataIntegrity() {
         }
     });
 
-    // 4. Limpiar positionHours en asistencia
-    if (!positionsCatalogSuspicious) Object.values(state.attendance).forEach(att => {
+    // 4. Limpiar positionHours en asistencia.
+    //    Un id viejo de un puesto ya fusionado por nombre («albanil»,
+    //    «albañil-1769317018450») se pasa al puesto actual del mismo nombre en
+    //    vez de borrarse: la fusión remapea la asistencia solo en el dispositivo
+    //    que la hizo y un dispositivo nuevo recibía los ids viejos y perdía el
+    //    puesto de cada día (miles de «correcciones»). Si aun así la limpieza
+    //    tocaría una gran parte de la asistencia, el catálogo está incompleto y
+    //    no se toca nada.
+    const positionIdBySlug = new Map();
+    for (const pos of state.positions) {
+        const slug = slugify(pos?.name || '');
+        if (slug && !positionIdBySlug.has(slug)) positionIdBySlug.set(slug, pos.id);
+    }
+    const legacyPositionTarget = pid => {
+        if (!pid || positionIds.has(pid)) return pid;
+        const raw = String(pid);
+        return positionIdBySlug.get(slugify(raw.replace(/-\d{10,}$/, '').replace(/-/g, ' '))) || null;
+    };
+    const attendanceWithPositions = Object.values(state.attendance || {}).filter(att => att?.positionHours?.length || att?.selectedPosition);
+    const attendanceLosing = attendanceWithPositions.filter(att =>
+        (att.positionHours || []).some(ph => !legacyPositionTarget(ph.positionId))
+        || (att.selectedPosition && !legacyPositionTarget(att.selectedPosition) && !(att.selectedPosition.length > 10 && !isNaN(att.selectedPosition))));
+    const attendanceCatalogSuspicious = attendanceLosing.length >= 5 && attendanceLosing.length * 4 >= attendanceWithPositions.length;
+    if (attendanceCatalogSuspicious) {
+        console.error(`🛑 validateDataIntegrity: limpieza de puestos en asistencia OMITIDA — ${attendanceLosing.length}/${attendanceWithPositions.length} registro(s) perderían su puesto. Señal de catálogo incompleto.`);
+    }
+    if (!positionsCatalogSuspicious && !attendanceCatalogSuspicious) Object.values(state.attendance).forEach(att => {
         if (att.positionHours) {
-            const validPh = att.positionHours.filter(ph => positionIds.has(ph.positionId));
-            if (validPh.length !== att.positionHours.length) {
+            let remapped = false;
+            const mapped = att.positionHours.map(ph => {
+                const target = legacyPositionTarget(ph.positionId);
+                if (target && target !== ph.positionId) { remapped = true; return { ...ph, positionId: target }; }
+                return ph;
+            });
+            const validPh = mapped.filter(ph => positionIds.has(ph.positionId));
+            if (remapped || validPh.length !== att.positionHours.length) {
                 att.positionHours = validPh;
                 fixes++;
             }
+        }
+        if (att.selectedPosition && !positionIds.has(att.selectedPosition)) {
+            const target = legacyPositionTarget(att.selectedPosition);
+            if (target) { att.selectedPosition = target; fixes++; }
         }
             // ⚡ P3-OPT: Si la posición seleccionada no existe por ID, puede ser un "Legacy ID" (un número largo de Firebase)
             // Intentamos buscar una posición activa con un nombre similar antes de borrarla.
