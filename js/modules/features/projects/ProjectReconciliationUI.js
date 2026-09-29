@@ -12,6 +12,7 @@ import { Project, PROJECT_STATUS } from './Project.js';
 import { analyzeProjectOwnership, CLASSIFICATION } from './ProjectOwnershipReconciliation.js';
 import { projectNameKey } from './ProjectNames.js';
 import { syncProjectCatalogWithin } from './ProjectCatalogSync.js';
+import { findDuplicateCandidates, countAttendanceByEmployee } from './ProjectDuplicateCandidates.js';
 import {
     applyOwnershipRepair,
     preflightDependencies,
@@ -60,6 +61,7 @@ function initialModalState() {
         positionCopies: {},
         entitySelectedIds: new Set(), entityTargetProjectId: '', entityBusy: false, entityMessage: '',
         includeOrphanAttendance: false,
+        pendingMerge: null,
         busy: false, message: ''
     };
 }
@@ -130,6 +132,18 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
     })).sort((a, b) => numericEmployeeCompare(a.employee, b.employee));
 
     const rowIds = new Set(employeeRows.map(row => row.id));
+    // Un pendiente puede ser una copia vieja de alguien que ya está en una obra
+    // válida: se sugiere fusionarlo en vez de asignarlo como otra persona.
+    const attendanceCounts = countAttendanceByEmployee(appState?.attendance);
+    // Solo el empleado en sí puede estar pendiente; uno con obra válida al que
+    // le falta obra solo en alguna asistencia sigue siendo un destino válido.
+    const pendingEmployeeIds = new Set(employeeRows.filter(row => row.employeeIssue).map(row => row.id));
+    const assignedEmployees = (appState?.employees || []).filter(employee => !pendingEmployeeIds.has(String(employee?.id ?? '')));
+    for (const row of employeeRows) {
+        row.duplicateCandidates = row.employeeIssue
+            ? findDuplicateCandidates(row.employee, assignedEmployees, { attendanceCounts })
+            : [];
+    }
     const diagnosticIssues = diagnoseExtendedProjectData(appState, projects);
     const missingEmployeeIssue = issue => issue.collection === 'attendance' && !employeeById.has(String(issue.employeeId || ''));
     // Asistencia de empleados que ya no existen y sin obra válida: "Asignar todo
@@ -500,6 +514,84 @@ function choiceIcon(value) {
     return '<svg ' + common + '><path d="M4 20V7l8-4 8 4v13"></path><path d="M8 20v-5h8v5"></path></svg>';
 }
 
+
+function duplicateLabel(candidate) {
+    return '#' + (candidate.number || '—') + ' ' + (candidate.name || 'Empleado sin nombre');
+}
+function renderDuplicateHint(row) {
+    const candidate = row.duplicateCandidates?.[0];
+    if (!candidate) return '';
+    const project = snapshot.projects.find(item => String(item.id) === String(candidate.projectId || ''));
+    const more = row.duplicateCandidates.length > 1 ? ' (y ' + (row.duplicateCandidates.length - 1) + ' más)' : '';
+    return '<span class="r07-recon-duplicate" role="note">'
+        + '<span>' + (candidate.strength === 'exact' ? 'Posible duplicado de ' : 'Quizá es ') + '<strong>' + escapeHTML(duplicateLabel(candidate)) + '</strong>'
+        + (project ? ' en ' + escapeHTML(project.name || project.id) : '') + escapeHTML(more)
+        + ' · ' + escapeHTML(candidate.reason) + ' · ' + candidate.attendanceCount + ' asistencia(s)</span>'
+        + '<button type="button" class="r07-recon-link-button" data-r07-action="merge-duplicate" data-employee-id="' + escapeHTML(row.id)
+        + '" data-master-id="' + escapeHTML(candidate.id) + '">Fusionar con ' + escapeHTML('#' + (candidate.number || '—')) + '</button></span>';
+}
+function exactDuplicatePairs() {
+    return snapshot.employeeRows
+        .filter(row => row.duplicateCandidates?.length === 1 && row.duplicateCandidates[0].strength === 'exact')
+        .map(row => ({ dupId: row.id, masterId: row.duplicateCandidates[0].id }));
+}
+function renderDuplicateTools() {
+    const pending = modalState.pendingMerge;
+    if (pending?.length) {
+        const lines = pending.map(pair => {
+            const row = snapshot.employeeRows.find(item => item.id === pair.dupId);
+            const master = row?.duplicateCandidates?.find(candidate => candidate.id === pair.masterId);
+            return '<li><strong>' + escapeHTML('#' + (row?.employee?.number || '—') + ' ' + (row?.employee?.name || '')) + '</strong> → '
+                + escapeHTML(master ? duplicateLabel(master) : pair.masterId) + '</li>';
+        }).join('');
+        return '<div class="r07-recon-merge-confirm" role="alertdialog" aria-label="Confirmar fusión">'
+            + '<p><strong>Fusionar ' + pending.length + ' empleado(s) duplicado(s)</strong></p>'
+            + '<ul>' + lines + '</ul>'
+            + '<p class="r07-recon-hint">La asistencia, los préstamos, los abonos y los puestos pasan al empleado que ya está en la obra; '
+            + 'se conserva su ficha y la copia se elimina. Esto no se puede deshacer: descarga un respaldo antes si tienes dudas.</p>'
+            + '<div class="r07-recon-merge-actions"><button type="button" class="btn-secondary" data-r07-action="cancel-merge">Cancelar</button>'
+            + '<button type="button" class="btn-primary" data-r07-action="confirm-merge"' + (modalState.busy ? ' disabled' : '') + '>Confirmar fusión</button></div></div>';
+    }
+    const exact = exactDuplicatePairs();
+    const total = snapshot.employeeRows.filter(row => row.duplicateCandidates?.length).length;
+    if (!total) return '';
+    return '<div class="r07-recon-duplicates-note"><p>' + total + ' empleado(s) pendiente(s) parecen duplicados de alguien que ya está en una obra. '
+        + 'Revísalos antes de asignarlos para no tener la misma persona dos veces.</p>'
+        + (exact.length ? '<button type="button" class="btn-secondary" data-r07-action="merge-all-duplicates">Fusionar ' + exact.length + ' con el mismo nombre</button>' : '')
+        + '</div>';
+}
+async function applyDuplicateMerges() {
+    const pairs = modalState.pendingMerge || [];
+    if (!pairs.length || modalState.busy) return;
+    modalState.busy = true;
+    rerenderModal();
+    let merged = 0;
+    try {
+        const persistence = await import('../../services/PersistenceService.js');
+        for (const { dupId, masterId } of pairs) {
+            const hasBoth = state.employees.some(employee => employee.id === dupId) && state.employees.some(employee => employee.id === masterId);
+            if (!hasBoth) continue;
+            if (persistence.mergeEmployees(masterId, dupId)) {
+                persistence.enqueueCloudEmployeeDelete(dupId);
+                modalState.selectedIds.delete(dupId);
+                merged++;
+            }
+        }
+        if (merged) await persistence.saveApplicationData({ immediate: true });
+        modalState.message = merged ? merged + ' empleado(s) duplicado(s) fusionado(s).' : 'No se fusionó ningún empleado: los datos cambiaron. Revisa de nuevo.';
+    } catch (error) {
+        console.error('Fusión de duplicados:', error);
+        modalState.message = 'No se pudo completar la fusión. Revisa la lista antes de continuar.';
+    } finally {
+        modalState.busy = false;
+        modalState.pendingMerge = null;
+    }
+    resetPositionAuditCache();
+    await refreshProjectReconciliationSnapshot();
+    for (const id of [...modalState.selectedIds]) if (!snapshot.employeeRows.some(row => row.id === id)) modalState.selectedIds.delete(id);
+    rerenderModal();
+}
+
 function renderPersonRows(preflight = { ok: false }) {
     if (!snapshot.employeeRows.length) {
         return '<div class="r07-recon-empty">No hay empleados pendientes de asignación.</div>';
@@ -539,7 +631,7 @@ function renderPersonRows(preflight = { ok: false }) {
             + '<span class="r07-recon-person-meta"><span class="' + statusClass + '">' + escapeHTML(statusText) + '</span>'
             + '<span class="r07-recon-project-ref">' + escapeHTML(refs) + '</span>'
             + (row.attendanceIssueCount ? '<span>' + row.attendanceIssueCount + ' asistencia(s) afectada(s)</span>' : '')
-            + '</span></span></label>';
+            + '</span>' + renderDuplicateHint(row) + '</span></label>';
     }).join('');
 }
 
@@ -1268,10 +1360,12 @@ function modalContent() {
             + '</div>' + renderActionControl(preflight) + '</fieldset>'
             + '<div class="r07-wizard-quick"><button type="button" class="btn-secondary r07-recon-note-action" data-r07-action="quick-assign"'
             + (wizardHint(preflight) ? ' disabled' : '') + '>Asignar todo a esta obra</button>'
-            + '<small>Incluye los datos pendientes y revisa el resumen antes de guardar.</small></div>',
+            + '<small>Incluye los datos pendientes y revisa el resumen antes de guardar.</small></div>'
+            + (snapshot.employeeRows.some(row => row.duplicateCandidates?.length)
+                ? '<p class="r07-recon-hint">Hay empleados pendientes que parecen duplicados. En el paso «Datos» puedes fusionarlos antes de asignar.</p>' : ''),
         '<div class="r07-recon-section-head"><p>' + modalState.selectedIds.size + ' empleados seleccionados</p>'
             + '<button type="button" class="r07-recon-link-button" data-r07-action="toggle-all">' + (allSelected ? 'Deseleccionar todos' : 'Seleccionar todos')
-            + '</button></div><div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink() + renderCashChoices() + financialRecoveryControls(),
+            + '</button></div>' + renderDuplicateTools() + '<div class="r07-recon-people">' + renderPersonRows(preflight) + '</div>' + renderPersonnelManagementLink() + renderCashChoices() + financialRecoveryControls(),
         renderLeaderChoices(),
         renderPositionRemapControls(preflight) + renderCatalogIssues('positions') + financialRecoveryControls(),
         '<div class="r07-recon-summary"><div><strong>' + modalState.selectedIds.size + '</strong><span>empleados</span></div>'
@@ -1686,6 +1780,25 @@ function handleClick(event) {
         rerenderModal();
         return;
     }
+    if (action === 'merge-duplicate') {
+        event.preventDefault();
+        modalState.pendingMerge = [{ dupId: target.dataset.employeeId, masterId: target.dataset.masterId }];
+        modalState.message = '';
+        rerenderModal();
+        return;
+    }
+    if (action === 'merge-all-duplicates') {
+        modalState.pendingMerge = exactDuplicatePairs();
+        modalState.message = '';
+        rerenderModal();
+        return;
+    }
+    if (action === 'cancel-merge') {
+        modalState.pendingMerge = null;
+        rerenderModal();
+        return;
+    }
+    if (action === 'confirm-merge') return applyDuplicateMerges();
     if (action === 'quick-assign') return quickAssignAll();
     if (action === 'wizard-next') return changeWizardStep(1);
     if (action === 'wizard-back') return changeWizardStep(-1);
