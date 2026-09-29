@@ -139,12 +139,19 @@ export const EmployeeRepository = {
                     const snap = await transaction.get(ref);
                     const remote = snap.exists() ? snap.data() : null;
                     const merged = normalizeEmployeePhotoField(remote ? mergeEmployees(remote, payload) : payload);
-                    // merge:true preserves omitted fields. Explicitly clear an old
-                    // deletion marker when the merge selected a newer recovery.
+                    // Explicitly clear an old deletion marker when the merge
+                    // selected a newer recovery.
                     if (Number.isFinite(remote?.deletedAt) && !Number.isFinite(merged.deletedAt)) {
                         merged.deletedAt = null;
                     }
-                    transaction.set(ref, merged, { merge: true });
+                    // `merged` ya contiene todos los campos del remoto (mergeEmployees
+                    // parte de {...remoto, ...local}), así que se REEMPLAZA el
+                    // documento. Con merge:true Firestore fusiona los mapas anidados
+                    // clave a clave: una clave quitada localmente (p. ej. un puesto
+                    // duplicado en positionSalaries) nunca se borraba en la nube,
+                    // volvía en el siguiente snapshot, la validación la quitaba otra
+                    // vez y los dispositivos entraban en un bucle de re-subidas.
+                    transaction.set(ref, merged);
                 });
             } else {
                 await setDoc(ref, normalizeEmployeePhotoField(payload), { merge: true });
