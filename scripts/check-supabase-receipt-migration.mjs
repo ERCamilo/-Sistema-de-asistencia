@@ -31,7 +31,7 @@ const { PGlite } = await import(pathToFileURL(modulePath).href);
 const MIGRATIONS = [
     '20260729094737_create_petty_cash_receipts.sql',
     '20260729105450_allow_pdf_petty_cash_receipts.sql',
-    '20260928000100_petty_cash_receipt_soft_delete.sql'
+    '20260929000117_petty_cash_receipt_soft_delete.sql'
 ].map(name => [name, fs.readFileSync(path.join(ROOT, 'supabase/migrations', name), 'utf8')]);
 
 const results = [];
