@@ -26,6 +26,21 @@ describe('transactional employee writes', () => {
         await EmployeeRepository.saveOne({ id: 'e', updatedAt: 300, active: true }, { mergeRemote: true });
         expect(transaction.set.mock.calls[0][1]).toMatchObject({ deletedAt: null, active: true, loans: [{ id: 'loan', amount: 1000 }] });
     });
+    test('a map key removed locally is removed in the cloud too (no merge:true deep-merge)', async () => {
+        // Bucle de sanitización 2026-09-29: el puesto duplicado «albanil» se
+        // quitaba de positionSalaries, pero merge:true lo conservaba en la nube.
+        transaction.get.mockResolvedValue(remote({ id: 'e', updatedAt: 100, positionsUpdatedAt: 100,
+            positions: ['albanil', 'uuid-albanil'], positionSalaries: { albanil: 250, 'uuid-albanil': 250 },
+            notes: 'solo en la nube', photo: { state: 'ready', revision: 'original:2026-09-14T19:43:38Z|thumbnail:2026-09-14T19:43:39Z', updatedAt: 50 } }));
+        await EmployeeRepository.saveOne({ id: 'e', updatedAt: 300, positionsUpdatedAt: 300,
+            positions: ['uuid-albanil'], positionSalaries: { 'uuid-albanil': 250 } }, { mergeRemote: true });
+        const [, written, options] = transaction.set.mock.calls[0];
+        expect(options).toBeUndefined();
+        expect(written.positionSalaries).toEqual({ 'uuid-albanil': 250 });
+        expect(written.positions).toEqual(['uuid-albanil']);
+        // Lo que solo estaba en la nube se conserva: el documento es la fusión completa.
+        expect(written).toMatchObject({ notes: 'solo en la nube', photo: { state: 'ready', updatedAt: 50 } });
+    });
     test('a delayed deletion is rejected before writing over a newer employee', async () => {
         transaction.get.mockResolvedValue(remote({ id: 'e', updatedAt: 300, active: true }));
         await expect(EmployeeRepository.tombstoneOne('e', 200)).rejects.toMatchObject({ code: 'failed-precondition' });
