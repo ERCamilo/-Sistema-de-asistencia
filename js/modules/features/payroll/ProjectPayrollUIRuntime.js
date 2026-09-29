@@ -250,6 +250,8 @@ export class ProjectPayrollUIRuntime {
         const persisted = await this.configStore.putConfig(normalized);
         announcePayrollConfigChanged(persisted);
         this.commitIfCurrent(request, () => {
+            const followsConfig = request.session.selectedPeriod?.source === 'configured' || request.session.preset === 'payPeriod';
+            if (followsConfig) request.session.selectedPeriod = null;
             request.session.config = persisted;
             request.session.settingsView = createProjectPayrollSettingsView(this.state.settings, persisted);
             request.session.status = 'ready';
@@ -282,9 +284,13 @@ export class ProjectPayrollUIRuntime {
         const loaded = await this.ensureCurrentConfig(request);
         const configuredPeriod = resolvePayrollPeriod(loaded.config.payPeriod, today);
         const previous = request.session.selectedPeriod;
+        // Un período elegido a mano se conserva; el que sigue a Ajustes →
+        // Calendario («Período de pago») se recalcula con la configuración
+        // actual, así «Avanzar período» o un cambio de fechas llega a Nómina.
+        const followsConfig = previous?.source === 'configured' || request.session.preset === 'payPeriod';
         const period = periodStart && periodEnd
             ? { periodStart, periodEnd, source: 'custom' }
-            : previous?.periodStart && previous?.periodEnd
+            : previous?.periodStart && previous?.periodEnd && !followsConfig
                 ? previous
                 : configuredPeriod;
         const baseContext = loaded.request.ctx;

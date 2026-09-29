@@ -16,6 +16,7 @@ import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { peekEntityScope } from '../projects/EntityProjectScope.js';
 import { subscribeActiveProject } from '../projects/ProjectContext.js';
 import * as configStore from './ProjectPayrollConfigStore.js';
+import { setPayrollSettingsResolver } from '../../core/AppState.js';
 
 // Mismos campos que PROJECT_PAYROLL_UI_CONFIG_FIELDS (ProjectPayrollUIRuntime);
 // una prueba verifica que no se desalineen.
@@ -94,6 +95,8 @@ export function resetActivePayrollSettingsForTests() {
     memo = { base: null, config: null, view: null };
     inFlight = null;
 }
+
+setPayrollSettingsResolver(getActivePayrollSettings);
 
 if (typeof window !== 'undefined') {
     for (const eventName of ['projects:setup-changed', 'payroll-config:changed']) {

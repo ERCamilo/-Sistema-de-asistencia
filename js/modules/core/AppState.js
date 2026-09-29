@@ -373,7 +373,7 @@ export function calculateStats() {
         }
 
         // Cálculo automático basado en el umbral global de ajustes (no el selector diario)
-        const threshold = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
+        const threshold = normalizeRegularHoursPerDay(resolvePayrollSettings(state).regularHoursPerDay);
         return sum + Math.max(0, (a.hoursWorked || 0) - threshold);
     }, 0);
     
@@ -386,6 +386,17 @@ window.calculateStats = calculateStats;
 /**
  * ⚡ P3-OPT: Obtener estadísticas mensuales acumuladas con caché persistente (O(1) amortizado).
  */
+// La configuración de nómina de la obra activa la resuelve ActivePayrollSettings,
+// que se registra aquí al cargarse (AppState no la importa para no crear ciclos).
+let _payrollSettingsResolver = null;
+export function setPayrollSettingsResolver(resolver) {
+    _payrollSettingsResolver = typeof resolver === 'function' ? resolver : null;
+}
+function resolvePayrollSettings(appState) {
+    try { if (_payrollSettingsResolver) return _payrollSettingsResolver(appState) || appState?.settings || {}; } catch (_) { /* usa los generales */ }
+    return appState?.settings || {};
+}
+
 export function getEmployeeMTDStats(empId, dateInput) {
     const date = parseDate(dateInput);
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;

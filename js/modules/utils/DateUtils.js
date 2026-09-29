@@ -302,6 +302,13 @@ export function isEmployeeVisibleOnDate(employee, date, attendance = {}) {
     if (wasEmployeeActiveOnDate(employee, dateKey, attendance)) {
         return { visible: true, flagged: false };
     }
+    // Un día con asistencia registrada (p. ej. importada desde Mini) nunca se
+    // oculta, aunque sea anterior a la contratación: esas horas se pagan y el
+    // detalle ya las mostraba mientras la lista escondía al empleado.
+    const att = attendance?.[`${employee?.id}-${dateKey}`];
+    if (att && att.deletedAt == null) {
+        return { visible: true, flagged: true };
+    }
     if (employee.active === true) {
         const hire = employee.hireDate ? String(employee.hireDate).slice(0, 10) : null;
         if (!hire || dateKey >= hire) {

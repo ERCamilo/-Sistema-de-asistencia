@@ -623,8 +623,13 @@ export function PayrollTab() {
     `;
 }
 
+let scopedPreviewRefreshKey = null;
 function ScopedPayrollTab(view) {
-    if (view.status === 'idle') {
+    // Sin período vigente (primera carga o la configuración de la obra cambió):
+    // se genera una vez por configuración, sin reintentos en cada render.
+    const refreshKey = `${view.projectId}:${view.config?.updatedAt || ''}`;
+    if (view.status === 'idle' || (view.status === 'ready' && !view.period && scopedPreviewRefreshKey !== refreshKey)) {
+        scopedPreviewRefreshKey = refreshKey;
         queueMicrotask(() => refreshScopedPayrollPreview().catch(() => {}));
     }
     const errorMessage = view.error?.message || `Payroll config unavailable for project "${view.projectId}"`;

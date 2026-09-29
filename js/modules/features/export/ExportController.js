@@ -1,3 +1,4 @@
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { payrollClosureRestoreOptions } from '../payroll/PayrollClosureBackup.js';
 /**
  * 📤 ExportController — Handlers for the export popover and import modal.
@@ -350,7 +351,7 @@ export async function shareExportMini(options = {}) {
         const mini = buildMiniExportPayload(
             state.employees,
             state.positions,
-            state.settings,
+            getActivePayrollSettings(state),
             options
         );
 

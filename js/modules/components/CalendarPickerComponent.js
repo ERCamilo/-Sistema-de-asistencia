@@ -1,3 +1,4 @@
+import { getActivePayrollSettings } from '../features/payroll/ActivePayrollSettings.js';
 import { ComponentBase } from './ComponentBase.js';
 import { parseDate, getDateKey, isDateInPayPeriod, isPayday } from '../utils/DateUtils.js';
 import icons from '../ui/IconSystem.js';
@@ -241,7 +242,7 @@ export class CalendarPickerComponent extends ComponentBase {
         const todayKey = getDateKey(new Date());
 
         // Días mes actual
-        const payPeriod = window.state?.settings?.payPeriod;
+        const payPeriod = getActivePayrollSettings(window.state).payPeriod;
 
         for (let day = 1; day <= daysInMonth; day++) {
             const dateKey = getDateKey(new Date(year, month, day));

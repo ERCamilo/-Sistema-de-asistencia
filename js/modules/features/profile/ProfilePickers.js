@@ -7,6 +7,7 @@
  *   - calculateMonthlyEstimate — aligned with PayrollService.calculateEmployeePayroll
  */
 
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { state } from '../../core/AppState.js';
 import { getDaysInMonth, getDateKey, formatMonthYear } from '../../utils/DateUtils.js';
 
@@ -108,7 +109,7 @@ export function ProfileHireDatePicker(emp) {
 export function calculateMonthlyEstimate(emp) {
     let totalMonthly = 0;
     const breakdown = [];
-    const hoursPerDay = state.settings.regularHoursPerDay || 8;
+    const hoursPerDay = getActivePayrollSettings(state).regularHoursPerDay || 8;
     const WEEKS_PER_MONTH = 52 / 12; // 4.333...
 
     emp.positions.forEach(posId => {
