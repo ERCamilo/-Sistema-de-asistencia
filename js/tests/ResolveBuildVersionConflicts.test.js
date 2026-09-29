@@ -44,10 +44,13 @@ describe('resolución automática de conflictos de versión', () => {
         expect(VERSION_RE.test('2026.1332.250000')).toBe(false);
     });
 
-    test('el workflow nunca toca main y aborta ante conflictos ajenos a la versión', () => {
+    test('los PRs solo reciben conflictos de versión resueltos; main solo recibe el commit de versión', () => {
         const wf = fs.readFileSync(path.resolve(__dirname, '../../.github/workflows/refresh-pr-build-version.yml'), 'utf8');
         expect(wf).toMatch(/git push --quiet origin "HEAD:\$BRANCH"/);
-        expect(wf).not.toMatch(/push[^\n]*\bmain\b/);
+        // El único push a main es el de la versión (Config + sw.js + BuildInfo), con reintento.
+        expect(wf.match(/push[^\n]*\bmain\b/g)).toEqual(['push --quiet origin HEAD:main']);
+        expect(wf).toMatch(/git add js\/modules\/config\/Config\.js sw\.js js\/modules\/config\/BuildInfo\.js/);
+        expect(wf).toMatch(/\$3 \+ 1/);
         expect(wf).toMatch(/conflictos que requieren revisión[\s\S]*git merge --abort/);
         expect(wf).toMatch(/select\(\.isCrossRepository \| not\)/);
     });
