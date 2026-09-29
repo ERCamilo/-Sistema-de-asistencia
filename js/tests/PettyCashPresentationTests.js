@@ -2,6 +2,7 @@ import {
     formatPettyCashDate,
     isEmptyReceiptPlaceholder,
     isReceiptJobIncomplete,
+    receiptBackupState,
     summarizeReceiptBatch
 } from '../modules/features/pettycash/PettyCashPresentation.js';
 
@@ -11,6 +12,16 @@ testRunner.addSuite('Caja chica — presentación de fechas y lotes', {
         testRunner.assertEquals(formatPettyCashDate('2026-07-28'), '28-07-2026');
         testRunner.assertEquals(formatPettyCashDate('2026-07-28T10:30:00Z'), '28-07-2026');
         testRunner.assertEquals(formatPettyCashDate(''), '—');
+    },
+
+    'indica si el comprobante quedó respaldado en la nube'() {
+        testRunner.assertEquals(receiptBackupState({ receiptStatus: 'uploaded' }).state, 'uploaded');
+        testRunner.assertEquals(receiptBackupState({ receiptStatus: 'uploaded' }).label, 'Respaldado');
+        testRunner.assertEquals(receiptBackupState({ receiptStatus: 'local' }).state, 'pending');
+        testRunner.assertEquals(receiptBackupState({ receiptStatus: 'local' }).label, 'Por subir');
+        testRunner.assertEquals(receiptBackupState({ hasReceipt: true }), null);
+        testRunner.assertEquals(receiptBackupState({}), null);
+        testRunner.assertEquals(receiptBackupState(null), null);
     },
 
     'identifica los registros que todavía no deben mostrarse'() {
