@@ -9,19 +9,18 @@
  */
 
 import { Modal } from '../components/Modal.js';
-import { analyzeConflicts, mergeEmployees, executeAutoRepair, reassignEmployeeNumber, saveApplicationData } from '../services/PersistenceService.js';
+import { analyzeConflicts, executeAutoRepair, reassignEmployeeNumber, saveApplicationData } from '../services/PersistenceService.js';
 import { buildConflictPlan, executeMergePlan } from '../services/ConflictPlanner.js';
 import { EmployeeRepository } from '../services/EmployeeRepository.js';
 import FirebaseService from '../services/FirebaseService.js';
 import { validateManualGroup } from '../services/ManualGroupValidator.js';
 import { reconcileCloudFromLocal } from '../services/CloudReconcile.js';
 import { classifyEmployeeId, idFormatLabel } from '../services/IdFormat.js';
-import { state, stateManager } from '../core/AppState.js';
+import { state } from '../core/AppState.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { canDeleteDuplicateEmployee } from '../services/EmployeeDeletionGuard.js';
-import { enqueueEmployeeTombstone } from '../services/PersistenceService.js';
 import { escapeHTML } from '../utils/Sanitize.js';
-import { purgeEmployeeAttendanceHistory } from '../services/AttendanceCleanupRunner.js';
+import { mergeDuplicateEmployees, deleteDuplicateEmployee, purgeMergedEmployeesFromLocalStore } from '../features/employees/EmployeeDuplicateService.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-maint-action)
@@ -252,6 +251,7 @@ export class MaintenanceUI {
         // 3. Guardar. saveApplicationData también drena _pendingCloudDeletes
         //    (Tarea #18) para limpiar los docs huérfanos en la subcolección.
         await saveApplicationData({ skipValidation: false, clearAttendance: true });
+        await purgeMergedEmployeesFromLocalStore().catch(() => 0);
 
         // 4. Pasar a manual si quedaron conflictos por revisar.
         const manuals = plan.filter(p => p.action === 'needs-manual');
@@ -907,16 +907,10 @@ export class MaintenanceUI {
         //     re-suba, y se encola el tombstone durable con el ts del borrado.
         if (deleteIds && deleteIds.length > 0) {
             const now = Date.now();
-            stateManager.batchSetState(() => {
-                state.employees = state.employees.filter(e => !deleteIds.includes(e.id));
-            });
-            for (const delId of deleteIds) {
-                enqueueEmployeeTombstone(delId, now);
-                // El wizard borra duplicados "de más": su historial de
-                // asistencia se elimina también (la confirmación ya lo
-                // advirtió). Para conservarlo, el usuario usa "Unir".
-                purgeEmployeeAttendanceHistory(delId);
-            }
+            // El wizard borra duplicados "de más": su historial de asistencia
+            // se elimina también (la confirmación ya lo advirtió). Para
+            // conservarlo, el usuario usa "Unir".
+            for (const delId of deleteIds) deleteDuplicateEmployee(delId, { at: now });
         }
 
         // 2. Reasignar separates. Materializar miembros cloud-only antes.
@@ -941,6 +935,7 @@ export class MaintenanceUI {
         // 3. Guardar. saveApplicationData también drena _pendingCloudDeletes
         //    (Tarea #18) y sube los empleados cuyo número cambió.
         await saveApplicationData({ skipValidation: false, clearAttendance: true });
+        await purgeMergedEmployeesFromLocalStore().catch(() => 0);
 
         // 4. Re-analizar: cargar cloud para ver si las reasignaciones
         //    crearon conflictos nuevos en otras fichas.
@@ -985,11 +980,9 @@ export class MaintenanceUI {
         const group = this.conflicts[this.currentConflictIndex];
         const duplicates = group.members.filter(m => m.id !== masterId);
 
-        for (const dup of duplicates) {
-            if (mergeEmployees(masterId, dup.id)) {
-                this.mergeCount++;
-            }
-        }
+        this.mergeCount += mergeDuplicateEmployees({
+            masterId, duplicateIds: duplicates.map(dup => dup.id), members: group.members
+        }).merged;
 
         // ⚡ TRUCO DE LA ARENA: Asegurar que el ganador se quede con el número del grupo 
         // (Relevante si fue un grupo "virtual" forzado de cruzamiento de fichas ajenas)
@@ -1333,6 +1326,7 @@ export class MaintenanceUI {
         // Guardar todos los cambios acumulados (fusiones + reasignaciones) de una vez
         if (this.mergeCount > 0) {
             await saveApplicationData({ skipValidation: false, clearAttendance: true });
+            await purgeMergedEmployeesFromLocalStore().catch(() => 0);
         } else {
             await saveApplicationData({ skipValidation: false });
         }

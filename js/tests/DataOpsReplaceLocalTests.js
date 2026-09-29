@@ -239,7 +239,7 @@ testRunner.addSuite("app.js — mensajería honesta por reason (ronda 2)", {
         const path = require('path');
         const appSource = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
         const idx = appSource.indexOf('downloadFromCloud: async () =>');
-        const block = appSource.slice(idx, idx + 3000);
+        const block = appSource.slice(idx, idx + 5000);
         testRunner.assert(/'wipe-failed'\s*:/.test(block),
             'msgByReason debe tener entrada propia para wipe-failed');
         testRunner.assert(/wipe-failed[\s\S]{0,600}saveApplicationData\s*\(/.test(block),
@@ -278,7 +278,7 @@ testRunner.addSuite("app.js — App.Sync.downloadFromCloud delega en DataOps (U4
 
         const idx = appSource.indexOf('downloadFromCloud: async () =>');
         testRunner.assert(idx !== -1, 'debe existir App.Sync.downloadFromCloud');
-        const block = appSource.slice(idx, idx + 1800);
+        const block = appSource.slice(idx, idx + 3500);
         testRunner.assert(/replaceLocalWithCloud\s*\(/.test(block),
             'debe delegar en DataOps.replaceLocalWithCloud (purga outbox + fetch-first + sin metadata)');
         testRunner.assert(!/Object\.assign\(state,\s*cloudState\)/.test(block),

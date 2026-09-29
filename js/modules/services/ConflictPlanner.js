@@ -113,12 +113,7 @@ export function buildConflictPlan(conflicts) {
 // Ejecutor del plan
 // ─────────────────────────────────────────────────────────────────────
 
-import { state } from '../core/AppState.js';
-import {
-    mergeEmployees as fuseLocally,
-    enqueueCloudEmployeeDeleteBatch
-} from './PersistenceService.js';
-import { mergeEmployees as fuseObjects } from './EmployeeMerge.js';
+import { mergeDuplicateEmployees } from '../features/employees/EmployeeDuplicateService.js';
 
 /**
  * Ejecuta los items del plan con action='auto-merge'. Los 'needs-manual'
@@ -140,63 +135,21 @@ import { mergeEmployees as fuseObjects } from './EmployeeMerge.js';
 export function executeMergePlan(plan) {
     const result = { merged: 0, skippedManual: 0 };
     if (!Array.isArray(plan)) return result;
-
-    // Collect ids that need cloud deletion across all items; persist once at end.
-    const toDeleteFromCloud = [];
-
     for (const item of plan) {
         if (item.action === 'needs-manual') {
             result.skippedManual++;
             continue;
         }
         if (item.action !== 'auto-merge') continue;
-
-        const masterId = item.proposedMasterId;
-
-        // Garantizar que el master esté en state. Si vino solo de la nube,
-        // lo materializamos (descartando el helper field _source).
-        let master = state.employees.find(e => e.id === masterId);
-        if (!master) {
-            const masterMember = (item.members || []).find(m => m.id === masterId);
-            if (!masterMember) continue;
-            master = { ...masterMember };
-            delete master._source;
-            state.employees.push(master);
-        }
-
-        for (const loserId of item.loserIds || []) {
-            const loserMember = (item.members || []).find(m => m.id === loserId);
-            if (!loserMember) continue;
-
-            const loserInState = state.employees.find(e => e.id === loserId);
-
-            if (loserInState) {
-                // Loser en state local → usa la lógica existente que
-                // remapea attendance keys, fusiona advances/bonuses/etc.
-                fuseLocally(masterId, loserId);
-            } else {
-                // Loser cloud-only → asimila sus datos al master con
-                // EmployeeMerge (preserva préstamos por id).
-                // Llamado: fuseObjects(loser, master) — master es "local"
-                // (2do arg) para que sus escalares ganen en empate.
-                const merged = fuseObjects(loserMember, master);
-                delete merged._source;
-                const idx = state.employees.findIndex(e => e.id === masterId);
-                if (idx >= 0) state.employees[idx] = merged;
-                master = merged;
-            }
-
-            // Si el loser tenía representación remota, acumular para borrado.
-            if (loserMember._source === 'cloud' || loserMember._source === 'both') {
-                toDeleteFromCloud.push(loserId);
-            }
-        }
-        result.merged++;
+        // Servicio único: fusiona (también copias que solo están en la nube),
+        // deja lápida con mergedIntoId y marca la copia para limpiar localmente.
+        const outcome = mergeDuplicateEmployees({
+            masterId: item.proposedMasterId,
+            duplicateIds: item.loserIds || [],
+            members: item.members || []
+        });
+        if (outcome.merged > 0) result.merged++;
     }
-
-    // Persist delete queue once for the entire plan (not once per loser).
-    enqueueCloudEmployeeDeleteBatch(toDeleteFromCloud);
-
     return result;
 }
 

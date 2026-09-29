@@ -46,6 +46,7 @@ import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { initProjectsInfrastructure } from './modules/features/projects/ProjectsBoot.js';
 import { stopProjectCatalogLiveSync } from './modules/features/projects/ProjectCatalogSync.js';
 import { getActivePayrollSettings } from './modules/features/payroll/ActivePayrollSettings.js';
+import { absorbIncomingMergeMarkers, persistDuplicateResolution } from './modules/features/employees/EmployeeDuplicateService.js';
 import { resetEntityScope, getScopedSidebarCounters } from './modules/features/projects/EntityProjectScope.js';
 import { MainSyncStore } from './modules/services/MainSyncStore.js';
 import { PayrollClosureLiveSync } from './modules/features/payroll/PayrollClosureLiveSync.js';
@@ -655,12 +656,30 @@ window.App.Sync = {
     // + reload dejaba una carrera con el pagehide. Todo eso vive ahora en
     // DataOps con su propio contrato de tests (DataOpsReplaceLocalTests).
     downloadFromCloud: async () => {
+        // Antes de reemplazar, se intenta subir lo pendiente: una fusión o un
+        // cambio que aún no llegó a la nube se perdería con la descarga (caso
+        // #004 Wilmer, 2026-09-29).
+        let pendingUploads = 0;
+        try {
+            pendingUploads = await MainSyncStore.pendingCount();
+            if (pendingUploads > 0) {
+                const uploading = showNotification(`☁️ Subiendo ${pendingUploads} cambio(s) pendiente(s) antes de descargar...`, 'loading');
+                await drainMainSyncOutboxUntilEmpty().catch(() => {});
+                pendingUploads = await MainSyncStore.pendingCount();
+                uploading.update({
+                    message: pendingUploads ? `⚠️ ${pendingUploads} cambio(s) no se pudieron subir.` : '✅ Cambios pendientes subidos.',
+                    type: pendingUploads ? 'warning' : 'success', closable: true, duration: 5000
+                });
+            }
+        } catch (_) { /* sin outbox legible: se avisa igual con el texto general */ }
         const confirmed = await confirmDataOperation({
             title: '⚠️ Descargar y Reemplazar',
             flow: 'cloud-to-device',
             bullets: [
                 'Se reemplazan empleados, cargos, líderes, asistencia y ajustes de este dispositivo.',
-                'Se descartan las subidas pendientes que aún no llegaron a la nube.',
+                pendingUploads > 0
+                    ? `⚠️ ${pendingUploads} cambio(s) de este dispositivo todavía no llegaron a la nube y se perderán (por ejemplo, fusiones de duplicados). Mejor cancela, conéctate y espera a que se suban.`
+                    : 'Se descartan las subidas pendientes que aún no llegaron a la nube.',
                 'Los datos de la nube quedan como única fuente y la app se recarga.',
                 'Caja Chica, comprobantes y cierres de nómina locales se conservan.',
                 'Si la descarga falla, no se toca nada local.'
@@ -7871,12 +7890,19 @@ function _initOutgoingConflictGuard() {
         // Projects ON keeps legacy Tanda B advances immutable; the controller
         // also guards direct callers, while boot skips this legacy migration.
         if (!isProjectsEnabled()) migrateAllAdvances();
-        try {
-            await migrateLegacyPayrollClosures(state.employees, {
-                schemaVersion: state.settings?.schemaVersion
-            });
-        } catch (error) {
-            console.warn('No se pudo completar la migración local del historial de nómina:', error?.name || 'Error');
+        // Los pagos de nómina antiguos (sin cierre) se convierten en cierres.
+        // Con obras activas, un cierre necesita su obra y el almacén rechaza
+        // uno sin ella (ProjectScopedGateError en cada arranque): esos lotes
+        // los recupera «Datos pendientes de asignación» → «Recuperar préstamos,
+        // abonos, planes y cierres sin obra válida», eligiendo la obra.
+        if (!isProjectsEnabled()) {
+            try {
+                await migrateLegacyPayrollClosures(state.employees, {
+                    schemaVersion: state.settings?.schemaVersion
+                });
+            } catch (error) {
+                console.warn('No se pudo completar la migración local del historial de nómina:', error?.name || 'Error');
+            }
         }
 
         // 2. Aplicar configuraciones de interfaz
@@ -8269,7 +8295,11 @@ function _initOutgoingConflictGuard() {
                                 // (préstamos, adelantos, etc.) todavía no subidas. Ver
                                 // EmployeesIncomingMerge.js para las reglas de LWW + detección
                                 // de borrado remoto.
-                                const merged = mergeIncomingEmployees(state.employees, emps || []);
+                                // Copias ya fusionadas (lápida con mergedIntoId o registro
+                                // local): se unen a su empleado en vez de volver como nuevas.
+                                const { incoming, absorbed } = absorbIncomingMergeMarkers(emps || []);
+                                const merged = mergeIncomingEmployees(state.employees, incoming);
+                                if (absorbed > 0) persistDuplicateResolution().catch(e => console.warn('⚠️ No se pudo guardar la fusión recibida:', e));
                                 state.employees = (typeof Employee !== 'undefined')
                                     ? merged.map(e => e instanceof Employee ? e : new Employee(e))
                                     : merged;

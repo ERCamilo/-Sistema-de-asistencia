@@ -196,7 +196,8 @@ testRunner.addSuite("app.js — LiveSync de empleados usa merge por-registro (Fa
         testRunner.assert(!!match, "Debe localizarse la llamada completa a EmployeesLiveSync.start");
         const block = match[0];
         testRunner.assert(
-            /mergeIncomingEmployees\s*\(\s*state\.employees\s*,\s*emps/.test(block),
+            /mergeIncomingEmployees\s*\(\s*state\.employees\s*,\s*(emps|incoming)/.test(block)
+                && /absorbIncomingMergeMarkers\s*\(\s*emps/.test(block),
             "El onApply debe fusionar state.employees (local) con emps (entrante) vía mergeIncomingEmployees"
         );
         testRunner.assert(

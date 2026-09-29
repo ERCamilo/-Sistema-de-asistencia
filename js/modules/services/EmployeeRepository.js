@@ -199,7 +199,7 @@ export const EmployeeRepository = {
      * hiciera falta un undelete. updatedAt = deletedAt para que el LWW del
      * merge propague el borrado (una edición POSTERIOR lo revive).
      */
-    async tombstoneOne(employeeId, deletedAt) {
+    async tombstoneOne(employeeId, deletedAt, { mergedIntoId = null } = {}) {
         const id = String(employeeId || '').trim();
         const ref = employeeDocRef(id);
         if (!ref) return;
@@ -213,7 +213,13 @@ export const EmployeeRepository = {
                     conflict.code = 'failed-precondition';
                     throw conflict;
                 }
-                transaction.set(ref, { deletedAt: ts, updatedAt: ts, active: false }, { merge: true });
+                const marker = { deletedAt: ts, updatedAt: ts, active: false };
+                // Fusión de duplicados: queda registrado en quién se fusionó
+                // (por id). Otro dispositivo o un respaldo viejo que traiga la
+                // copia la une a ese empleado en vez de mostrarla como nueva.
+                const into = String(mergedIntoId || '').trim();
+                if (into && into !== id) { marker.mergedIntoId = into; marker.mergedAt = ts; }
+                transaction.set(ref, marker, { merge: true });
             });
             SyncStatus.markSynced();
         } catch (e) {
