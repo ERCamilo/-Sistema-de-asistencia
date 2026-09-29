@@ -137,56 +137,63 @@ describe('ProjectReconciliationDurableTruthR07', () => {
         expect(durableEmployees.find(e => e.id === emp.id)?.projectId).toBe(existing.id);
     });
 
-    test('e. selected employee that exists only in caller memory is rejected and never created durably', async () => {
+    test('e. a caller-only employee with a VALID project is rejected; a caller-only orphan in app memory is recovered', async () => {
+        await db.update('projects', VALID_PROJECT);
         await db.update('projects', TARGET_PROJECT);
-        const callerOnly = makeEmployee('emp-dt-e-caller-only');
-        stateManager.setState({ employees: [callerOnly], attendance: {} }, { silent: true });
-
-        const result = await applyOwnershipRepair({
-            action: REPAIR_ACTION.MAP_TO_EXISTING,
-            employees: [callerOnly],
-            attendance: {},
-            catalog: [TARGET_PROJECT],
-            targetProjectId: TARGET_PROJECT.id,
-            _db: db
+        // Con obra válida el guardado normal lo persiste: la reparación no lo crea.
+        const unsaved = makeEmployee('emp-dt-e-unsaved', { projectId: VALID_PROJECT.id });
+        stateManager.setState({ employees: [unsaved], attendance: {} }, { silent: true });
+        const rejected = await applyOwnershipRepair({
+            action: REPAIR_ACTION.MAP_TO_EXISTING, employees: [unsaved], attendance: {},
+            catalog: [VALID_PROJECT, TARGET_PROJECT], targetProjectId: TARGET_PROJECT.id, _db: db
         });
+        expect(rejected.status).toBe(REPAIR_STATUS.CONFLICT);
+        expect(rejected.reason).toMatch(/durable employee/i);
+        expect((await db.getAll('employees')).some(e => e.id === unsaved.id)).toBe(false);
 
-        expect(result.status).toBe(REPAIR_STATUS.CONFLICT);
-        expect(result.reason).toMatch(/durable employee/i);
-        expect((await db.getAll('employees')).some(e => e.id === callerOnly.id)).toBe(false);
+        // Un huérfano (obra inexistente) nunca llega a IndexedDB por el guardado
+        // normal: si está en la memoria de la app, la reparación lo recupera.
+        const orphan = makeEmployee('emp-dt-e-orphan');
+        stateManager.setState({ employees: [orphan], attendance: {} }, { silent: true });
+        const recovered = await applyOwnershipRepair({
+            action: REPAIR_ACTION.MAP_TO_EXISTING, employees: [orphan], attendance: {},
+            catalog: [VALID_PROJECT, TARGET_PROJECT], targetProjectId: TARGET_PROJECT.id, _db: db
+        });
+        expect(recovered.status).toBe(REPAIR_STATUS.OK);
+        expect((await db.getAll('employees')).find(e => e.id === orphan.id)?.projectId).toBe(TARGET_PROJECT.id);
     });
 
-    test('f. caller-only attendance for a selected durable employee blocks instead of being created or ignored', async () => {
+    test('e2. an employee only in the caller payload (not in app memory) is still rejected', async () => {
+        await db.update('projects', TARGET_PROJECT);
+        const forged = makeEmployee('emp-dt-e2-forged');
+        stateManager.setState({ employees: [], attendance: {} }, { silent: true });
+        const result = await applyOwnershipRepair({
+            action: REPAIR_ACTION.MAP_TO_EXISTING, employees: [forged], attendance: {},
+            catalog: [TARGET_PROJECT], targetProjectId: TARGET_PROJECT.id, _db: db
+        });
+        expect(result.status).toBe(REPAIR_STATUS.CONFLICT);
+        expect((await db.getAll('employees')).some(e => e.id === forged.id)).toBe(false);
+    });
+
+    test('f. orphan attendance only in app memory for a selected durable employee is recovered with it', async () => {
         await db.update('projects', TARGET_PROJECT);
         const emp = makeEmployee('emp-dt-f-001');
         await db.update('employees', emp);
 
         const key = `${emp.id}-2026-09-20`;
         const callerAttendance = {
-            [key]: {
-                key,
-                employeeId: emp.id,
-                date: '2026-09-20',
-                present: true,
-                hoursWorked: 8,
-                projectId: ORPHAN_PID
-            }
+            [key]: { key, employeeId: emp.id, date: '2026-09-20', present: true, hoursWorked: 8, projectId: ORPHAN_PID }
         };
         stateManager.setState({ employees: [emp], attendance: callerAttendance }, { silent: true });
 
         const result = await applyOwnershipRepair({
-            action: REPAIR_ACTION.MAP_TO_EXISTING,
-            employees: [emp],
-            attendance: callerAttendance,
-            catalog: [TARGET_PROJECT],
-            targetProjectId: TARGET_PROJECT.id,
-            _db: db
+            action: REPAIR_ACTION.MAP_TO_EXISTING, employees: [emp], attendance: callerAttendance,
+            catalog: [TARGET_PROJECT], targetProjectId: TARGET_PROJECT.id, _db: db
         });
 
-        expect(result.status).toBe(REPAIR_STATUS.CONFLICT);
-        expect(result.reason).toMatch(/attendance.*durable|unpersisted attendance/i);
-        expect(await db.getAll('attendance')).toEqual([]);
-        expect((await db.getAll('employees')).find(e => e.id === emp.id)?.projectId).toBe(ORPHAN_PID);
+        expect(result.status).toBe(REPAIR_STATUS.OK);
+        expect(await db.get('attendance', key)).toMatchObject({ projectId: TARGET_PROJECT.id, hoursWorked: 8 });
+        expect((await db.getAll('employees')).find(e => e.id === emp.id)?.projectId).toBe(TARGET_PROJECT.id);
     });
 
     test('d. CREATE same stable id but conflicting existing identity/name => CONFLICT', async () => {

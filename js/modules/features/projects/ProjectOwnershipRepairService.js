@@ -57,7 +57,7 @@ import {
     drainMainSyncOutbox
 } from '../../services/PersistenceService.js';
 import { MainSyncStore } from '../../services/MainSyncStore.js';
-import { peekEntityScope } from './EntityProjectScope.js';
+import { peekEntityScope, effectiveProjectId } from './EntityProjectScope.js';
 import { stateManager } from '../../core/AppState.js';
 import {
     analyzeProjectOwnership,
@@ -2382,6 +2382,39 @@ function computeWholeFinancialRecovery(action, reads, tx, p) {
     };
 }
 
+/**
+ * Lo que llega de la nube con una obra inexistente se ve en pantalla, pero el
+ * guardado local lo omite para no crear huérfanos (IndexedDB.saveState). La
+ * reparación lee IndexedDB, así que sin esto rechazaría justo esos registros
+ * («not a durable employee yet»). Se incorporan a la lectura durable SOLO los
+ * que faltan en IndexedDB y cuya obra no es válida; lo ya guardado manda.
+ */
+export function adoptMemoryOnlyOrphans(durable, memory, scope = peekEntityScope()) {
+    const validIds = new Set((durable.projects || []).map(project => trimId(project?.id)).filter(Boolean));
+    let defaultProjectId = trimId(scope?.defaultProjectId);
+    if ((!defaultProjectId || !validIds.has(defaultProjectId)) && validIds.size === 1) defaultProjectId = validIds.values().next().value;
+    const validation = { ...(scope || {}), enabled: true, defaultProjectId: defaultProjectId || null };
+    const isOrphan = record => {
+        const owner = trimId(effectiveProjectId(record, validation));
+        return !owner || !validIds.has(owner);
+    };
+    const adopted = { employees: 0, positions: 0, leaders: 0, attendance: 0 };
+    for (const store of ['employees', 'positions', 'leaders']) {
+        const known = new Set((durable[store] || []).map(record => trimId(record?.id)).filter(Boolean));
+        const extra = (memory?.[store] || []).filter(record => record && typeof record === 'object'
+            && trimId(record.id) && !known.has(trimId(record.id)) && isOrphan(record));
+        if (extra.length) durable[store] = [...(durable[store] || []), ...extra.map(deepCopy)];
+        adopted[store] = extra.length;
+    }
+    const knownKeys = new Set((durable.attendance || []).map(record => trimId(record?.key)).filter(Boolean));
+    const extraAttendance = Object.entries(memory?.attendance || {})
+        .filter(([key, record]) => record && typeof record === 'object' && trimId(key) && !knownKeys.has(trimId(key)) && isOrphan(record))
+        .map(([key, record]) => ({ ...deepCopy(record), key: trimId(key) }));
+    if (extraAttendance.length) durable.attendance = [...(durable.attendance || []), ...extraAttendance];
+    adopted.attendance = extraAttendance.length;
+    return adopted;
+}
+
 /** Dispatch to the correct in-transaction planner for the given action. */
 function computeRepair(action, reads, tx, p) {
     if (p.recoverFinancial && [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)) return computeWholeFinancialRecovery(action, reads, tx, p);
@@ -2665,6 +2698,7 @@ export async function applyOwnershipRepair(params = {}) {
                 pettyCashProjects: reads.pettyCashProjects || [],
                 settings: reads.settings || null
             };
+            adoptMemoryOnlyOrphans(durable, stateManager._state);
             txOutcome = computeRepair(action, durable, tx, computeParams);
             return txOutcome.result;
         });

@@ -79,6 +79,6 @@ describe('aviso al usuario', () => {
     const SRC = fs.readFileSync(path.resolve(__dirname, '../modules/services/PersistenceService.js'), 'utf8');
     test('los dos caminos de guardado local avisan cuando se omiten cambios', () => {
         expect(SRC.match(/_notifyOrphanWritesSkipped\(await indexedDBService\.saveState\(rawState, options\)\)/g)).toHaveLength(2);
-        expect(SRC).toMatch(/NotificationSystem\.warning\(`⚠️ \$\{skipped\} cambio\(s\) no se guardaron/);
+        expect(SRC).toMatch(/NotificationSystem\.warning\(`⚠️ \$\{skipped\} registro\(s\) sin obra válida no se guardaron/);
     });
 });
