@@ -1186,19 +1186,26 @@ function prepareTargetOwnershipScope({ employees, attendance, targetProjectId, c
  */
 function planOrphanAttendanceAssignment(reads, p, target, catalog) {
     const durable = buildDurableAttendanceMap(reads.attendance);
+    // Lo que se ve en pantalla puede venir de la nube y ser más nuevo que lo
+    // guardado (o aún no estar en IndexedDB): se usa la versión más reciente.
+    const caller = collectCallerAttendanceMap(p.attendance);
     const keys = p.assignAllOrphanAttendance === true
-        ? Object.keys(durable)
+        ? [...new Set([...Object.keys(durable), ...Object.keys(caller)])]
         : [...new Set((p.orphanAttendanceKeys || []).map(trimId).filter(Boolean))];
     if (!keys.length) return [];
     const employeeIds = new Set((reads.employees || []).map(employee => trimId(employee?.id)).filter(Boolean));
     const catalogIds = new Set((catalog || []).map(project => trimId(project?.id)).filter(Boolean));
     const writes = [];
     for (const key of keys) {
-        const original = durable[key];
-        if (!original || employeeIds.has(trimId(original.employeeId))) continue;
+        const stored = durable[key];
+        const shown = caller[key];
+        const original = !stored ? shown : !shown ? stored
+            : (Number(shown.updatedAt) || 0) > (Number(stored.updatedAt) || 0) ? shown : stored;
+        if (!original || typeof original !== 'object' || employeeIds.has(trimId(original.employeeId))) continue;
         const owner = trimId(original.projectId);
         if (owner && catalogIds.has(owner)) continue;
-        writes.push({ key, record: { ...deepCopy(original), projectId: target, updatedAt: p.repairTimestamp } });
+        const { key: _key, ...record } = deepCopy(original);
+        writes.push({ key, record: { ...record, projectId: target, updatedAt: p.repairTimestamp } });
     }
     return writes;
 }

@@ -97,3 +97,21 @@ test('crear una obra: recibe la asistencia huérfana y la configuración de nóm
     // La configuración de origen no cambia.
     expect(await db.get('projectPayrollConfigs', OBRA)).toMatchObject({ projectId: OBRA, updatedAt: 1 });
 });
+
+test('usa lo que se ve en pantalla cuando es más nuevo o aún no está guardado (llegó de la nube)', async () => {
+    const shown = {
+        ...stateManager._state.attendance,
+        // Solo en memoria: llegó por la suscripción de la nube.
+        'emp-otro-2026-09-10': att('emp-otro', '2026-09-10', { updatedAt: 50 }),
+        // Guardado con obra válida, pero la nube trajo una versión más nueva sin obra.
+        'emp-ido-2026-09-04': att('emp-ido', '2026-09-04', { updatedAt: 60, hoursWorked: 6 })
+    };
+    stateManager.setState({ attendance: shown }, { silent: true });
+
+    const result = await applyOwnershipRepair({ ...base(), attendance: shown, action: REPAIR_ACTION.MAP_TO_EXISTING, targetProjectId: OBRA });
+
+    expect(result.status).toBe(REPAIR_STATUS.OK);
+    expect(await db.get('attendance', 'emp-otro-2026-09-10')).toMatchObject({ projectId: OBRA, hoursWorked: 8 });
+    expect(await db.get('attendance', 'emp-ido-2026-09-04')).toMatchObject({ projectId: OBRA, hoursWorked: 6 });
+    expect(stateManager._state.attendance['emp-otro-2026-09-10'].projectId).toBe(OBRA);
+});
