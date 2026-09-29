@@ -314,10 +314,14 @@ describe('F1.9 S1 applyBackupData semantics preserved (default-preserve, no wide
         const block = endRel > 0 ? tail.slice(0, endRel) : tail.slice(0, 4500);
         expect(block).toMatch(/state\.settings\s*=\s*data\.settings/);
         expect(block).toMatch(/state\.employees\s*=\s*data\.employees/);
-        expect(block).toMatch(/saveToIndexedDB\(\{\s*clearFirst:\s*true,\s*\.\.\.closureOptions\s*\}\)/);
+        expect(block).toMatch(/\{\s*clearFirst:\s*true,\s*\.\.\.closureOptions\s*\}/);
+        expect(block).toMatch(/saveToIndexedDB\(saveOptions\)/);
         expect(block).toMatch(/PettyCashStore\.applyRemote/);
         expect(block).toMatch(/preparePettyCashBackupForRestore/);
-        // Project-surface adoption remains separate; closure options join the atomic restore
+        // Project surface is adopted only through the validated FULL preflight
+        // (catalog + payroll configs + unscoped binding), never read ad hoc.
+        expect(block).toMatch(/await prepareRestoreProjectSurface\(data\)/);
+        expect(block).toMatch(/projectSurface: projects, entityScope: projects\.incomingScope/);
         expect(block).not.toMatch(/data\.projects/);
         expect(block).not.toMatch(/projectPayrollConfigs/);
         expect(block).toMatch(/payrollClosureRestoreOptions/);

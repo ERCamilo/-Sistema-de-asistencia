@@ -68,7 +68,7 @@ describe('restored attendance older than the cache window', () => {
             return pruneAttendanceCache();
         }
 
-        test('restored history survives the reload; ordinary old cache is still pruned', async () => {
+        test('restored history survives the reload; ordinary old cache leaves memory but stays in IndexedDB', async () => {
             const miniImportAudit = { source: 'mini', original: { normalHours: 7, overtimeHours: 0, totalHours: 7 },
                 applied: { normalHours: 8, overtimeHours: 0, totalHours: 8 }, differenceHours: 1 };
             const restored = { ['e1-' + OLD]: { ...record('e1', OLD), miniImportAudit }, ['e1-' + RECENT]: record('e1', RECENT) };
@@ -83,11 +83,16 @@ describe('restored attendance older than the cache window', () => {
             const result = await reloadAndPrune();
 
             expect(result.evicted).toBe(1);
-            expect((await db.getAll('attendance')).map(item => item.key).sort()).toEqual(['e1-' + OLD, 'e1-' + RECENT]);
+            // Retention only releases memory: without a session the device may hold the only copy.
+            expect(mockedDB.batchDelete).not.toHaveBeenCalled();
+            expect((await db.getAll('attendance')).map(item => item.key).sort()).toEqual(['e1-' + OLD, 'e1-' + RECENT, 'e9-' + OLD]);
             expect(Object.keys(stateManager.getState().attendance).sort()).toEqual(['e1-' + OLD, 'e1-' + RECENT]);
-            // A later ordinary save keeps the durable list, so the next start still protects it.
+            // A later ordinary save keeps the durable list and never drops the evicted local copy.
             await db.saveState({ employees: [], positions: [], leaders: [], attendance: stateManager.getState().attendance, settings: {} }, {});
-            expect((await reloadAndPrune()).evicted).toBe(0);
+            expect(await db.get('attendance', 'e9-' + OLD)).toMatchObject({ employeeId: 'e9', date: OLD });
+            // The next start protects the restored history again and only releases the ordinary cache.
+            expect((await reloadAndPrune()).evicted).toBe(1);
+            expect(Object.keys(stateManager.getState().attendance).sort()).toEqual(['e1-' + OLD, 'e1-' + RECENT]);
             // The Mini audit survives the model round-trip and the ordinary save.
             expect(await db.get('attendance', 'e1-' + OLD)).toMatchObject({ hoursWorked: 8, present: true, miniImportAudit });
             expect(await db.get('attendance', 'e1-' + RECENT)).not.toHaveProperty('miniImportAudit');

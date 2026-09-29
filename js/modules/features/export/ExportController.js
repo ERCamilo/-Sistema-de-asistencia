@@ -820,6 +820,38 @@ function commitProjectSurfacePointers(projectSurface, previousPointers = null) {
     } catch (_) {}
 }
 
+/**
+ * Restaurar desde archivo usa el mismo contrato de obras que FULL: adopta el
+ * catálogo y la config de nómina del respaldo, valida los projectId explícitos
+ * y asigna los datos sin obra. Proyectos OFF ⇒ null (restauración legacy).
+ */
+export async function prepareRestoreProjectSurface(data) {
+    assertProjectRepairAllowed();
+    return prepareFullImportProjectPreflight(data);
+}
+
+export function readRestoreProjectPointers() {
+    return {
+        defaultProjectId: readLocalStorageValue(DEFAULT_PROJECT_LS_KEY),
+        activeProjectId: readLocalStorageValue(ACTIVE_PROJECT_LS_KEY)
+    };
+}
+
+export function commitRestoredProjectSurface(projectSurface, previousPointers = null) {
+    commitProjectSurfacePointers(projectSurface, previousPointers);
+}
+
+/**
+ * Si el respaldo necesita elegir obra, deja el payload pendiente y abre la
+ * misma elección que FULL (al elegir, se completa como importación FULL).
+ * @returns {boolean} true si el error era una elección de obra pendiente.
+ */
+export function handleRestoreProjectChoiceRequired(error) {
+    if (error?.reconciliation?.reason !== 'MULTIPLE_VALID_PROJECTS_WITH_UNSCOPED_RECORDS') return false;
+    rememberFullImportReconciliation(error);
+    return true;
+}
+
 function rememberFullImportReconciliation(error) {
     if (error?.reconciliation) lastFullImportReconciliation = error.reconciliation;
     // R07 Phase B — emit AFTER the catch has rolled back / cleared isolation

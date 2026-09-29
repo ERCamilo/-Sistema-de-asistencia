@@ -29,6 +29,7 @@ import { PettyCashStore } from '../features/pettycash/PettyCashStore.js';
 import { debug } from '../utils/Debug.js';
 import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/attendance/AttendanceRecordWriter.js';
 import { createAttendanceRangeLoader } from './AttendanceRangeLoader.js';
+import { mergeAttendanceRecords } from '../features/attendance/AttendanceMerge.js';
 import { createAttendanceCachePruner } from './AttendanceCachePruner.js';
 import { attendanceRetentionStart } from './AttendanceRetentionPolicy.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject, effectiveProjectId } from '../features/projects/ProjectContext.js';
@@ -102,7 +103,26 @@ function _getAttendanceRangeLoader() {
         _attendanceRangeLoaderEpoch = currentEpoch;
         const capturedEpoch = currentEpoch;
         _attendanceRangeLoader = createAttendanceRangeLoader({
-            fetchRange: (startDate, endDate) => FirebaseService.getAttendanceRange(startDate, endDate),
+            // La retención solo libera memoria: el historial local sigue en
+            // IndexedDB y puede ser la única copia (dispositivo sin sincronizar).
+            // Se lee primero lo local y la nube se combina cuando responde.
+            fetchRange: async (startDate, endDate) => {
+                const local = {};
+                let localRecords = [];
+                try {
+                    localRecords = await indexedDBService.getAttendanceByDateRange(startDate, endDate);
+                } catch (_) { /* sin lectura local: solo la nube, como antes */ }
+                for (const record of localRecords || []) {
+                    if (record?.key) local[record.key] = record;
+                }
+                let remote = {};
+                try {
+                    remote = await FirebaseService.getAttendanceRange(startDate, endDate);
+                } catch (error) {
+                    if (!Object.keys(local).length) throw error;
+                }
+                return mergeAttendanceRecords(local, remote);
+            },
             readAttendance: () => state.attendance || {},
             writeAttendance: attendance => {
                 if (_datasetEpochRef.value !== capturedEpoch || isDatasetMutationIsolationInProgress() || isLocalDataWipeInProgress()) return;
@@ -141,7 +161,10 @@ const _attendanceCachePruner = createAttendanceCachePruner({
     // F1.5 (ADR-008): la retención respeta el alcance activo — nunca evicta
     // registros de otro proyecto efectivo. peekEntityScope es sync y fail-open.
     getScope: () => peekEntityScope(),
-    deleteRecords: keys => indexedDBService.batchDelete('attendance', keys),
+    // Solo memoria: IndexedDB conserva el historial. Sin sesión la asistencia
+    // nunca entra al outbox y el login no la sube, así que borrarla aquí podía
+    // destruir la única copia de un dispositivo que trabajó sin sincronizar.
+    deleteRecords: async () => {},
     onPruned: () => {
         invalidateAllStats();
         buildAttendanceIndex();
