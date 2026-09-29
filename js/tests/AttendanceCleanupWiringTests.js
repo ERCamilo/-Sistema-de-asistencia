@@ -18,6 +18,7 @@ const UI_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/ui/SettingsUI
 const DATA_TAB_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/ui/settings/SettingsDataTab.js'), 'utf8');
 const RUNNER_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/services/AttendanceCleanupRunner.js'), 'utf8');
 
+const DUP_SRC = require('fs').readFileSync(require('path').resolve(__dirname, '../modules/features/employees/EmployeeDuplicateService.js'), 'utf8');
 testRunner.addSuite("AttendanceCleanupWiring — modal extra al eliminar (lista)", {
 
     "EmployeesList importa countLiveAttendance y purgeEmployeeAttendanceHistory"() {
@@ -49,9 +50,11 @@ testRunner.addSuite("AttendanceCleanupWiring — modal extra al eliminar (lista)
 testRunner.addSuite("AttendanceCleanupWiring — wizard borra el historial de los eliminados", {
 
     "MaintenanceUI importa y llama purgeEmployeeAttendanceHistory por cada eliminado"() {
-        testRunner.assert(/purgeEmployeeAttendanceHistory/.test(MAINT_SRC) && /AttendanceCleanupRunner\.js/.test(MAINT_SRC));
-        testRunner.assert(/for\s*\(\s*const\s+delId[\s\S]{0,400}purgeEmployeeAttendanceHistory\s*\(\s*delId\s*\)/.test(MAINT_SRC),
-            'cada empleado eliminado en el wizard debe purgar su historial');
+        testRunner.assert(/for\s*\(\s*const\s+delId[\s\S]{0,120}deleteDuplicateEmployee\s*\(\s*delId/.test(MAINT_SRC),
+            'cada empleado eliminado en el wizard pasa por deleteDuplicateEmployee');
+        testRunner.assert(/purgeEmployeeAttendanceHistory/.test(DUP_SRC) && /AttendanceCleanupRunner\.js/.test(DUP_SRC)
+            && /purgeAttendance\s*=\s*true/.test(DUP_SRC) && /purgeEmployeeAttendanceHistory\s*\(\s*id\s*\)/.test(DUP_SRC),
+            'deleteDuplicateEmployee purga el historial por defecto');
     }
 
 });

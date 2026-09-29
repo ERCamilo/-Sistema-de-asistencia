@@ -12,13 +12,17 @@ import path from 'path';
 
 const MAINT_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/ui/MaintenanceUI.js'), 'utf8');
 
+const DUP_SRC = require('fs').readFileSync(require('path').resolve(__dirname, '../modules/features/employees/EmployeeDuplicateService.js'), 'utf8');
 testRunner.addSuite("WizardDeleteWiring — botón y ejecución", {
 
     "MaintenanceUI importa el guard liviano y el encolado de tombstone"() {
         testRunner.assert(/canDeleteDuplicateEmployee/.test(MAINT_SRC) && /EmployeeDeletionGuard\.js/.test(MAINT_SRC),
             'debe importar canDeleteDuplicateEmployee');
-        testRunner.assert(/enqueueEmployeeTombstone/.test(MAINT_SRC),
-            'debe importar enqueueEmployeeTombstone (borrado robusto, no hard-delete)');
+        // El borrado va por el servicio único de duplicados (lápida, no hard-delete).
+        testRunner.assert(/deleteDuplicateEmployee/.test(MAINT_SRC) && /EmployeeDuplicateService\.js/.test(MAINT_SRC),
+            'debe usar deleteDuplicateEmployee del servicio único');
+        testRunner.assert(/enqueueEmployeeTombstone/.test(DUP_SRC),
+            'el servicio debe encolar enqueueEmployeeTombstone (borrado robusto, no hard-delete)');
     },
 
     "la tarjeta del wizard tiene el botón 'Eliminar' con data-role='delete'"() {
@@ -71,12 +75,13 @@ testRunner.addSuite("WizardDeleteWiring — botón y ejecución", {
 
     "ejecuta el tombstone sacando de state (batchSetState) y encolando con el ts del borrado"() {
         testRunner.assert(
-            /stateManager\.batchSetState[\s\S]{0,160}state\.employees\s*=\s*state\.employees\.filter\([\s\S]{0,80}deleteIds\.includes/.test(MAINT_SRC),
-            'debe sacar los borrados de state dentro de batchSetState'
+            /for\s*\(\s*const\s+delId\s+of\s+deleteIds\s*\)\s*deleteDuplicateEmployee\s*\(\s*delId\s*,\s*\{\s*at:\s*now\s*\}\s*\)/.test(MAINT_SRC),
+            'debe eliminar cada duplicado con el ts del borrado'
         );
         testRunner.assert(
-            /enqueueEmployeeTombstone\s*\(\s*delId\s*,\s*now\s*\)/.test(MAINT_SRC),
-            'debe encolar el tombstone durable con el ts del borrado'
+            /stateManager\.batchSetState[\s\S]{0,160}state\.employees\s*=\s*state\.employees\.filter/.test(DUP_SRC)
+            && /enqueueEmployeeTombstone\s*\(\s*id\s*,\s*at\s*\)/.test(DUP_SRC),
+            'el servicio saca de state (batchSetState) y encola la lápida con el ts del borrado'
         );
     }
 

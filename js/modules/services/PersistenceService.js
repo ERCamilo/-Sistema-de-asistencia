@@ -39,6 +39,7 @@ import { isDetachedRestoreSyncBlocked } from './DetachedRestoreGuard.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
+import { withoutMergedAway } from '../features/employees/EmployeeMergeRegistry.js';
 import { Position } from '../features/employees/Position.js';
 import { Leader } from '../features/employees/Leader.js';
 import { Attendance } from '../features/attendance/Attendance.js';
@@ -337,12 +338,12 @@ export function enqueueCloudEmployeeDelete(id) {
  * momento REAL del borrado (no el del flush): el LWW lo necesita para que una
  * edición posterior pueda revivir al empleado.
  */
-export function enqueueEmployeeTombstone(id, deletedAt) {
+export function enqueueEmployeeTombstone(id, deletedAt, { mergedIntoId = null } = {}) {
     if (!id) return;
     const key = String(id).trim();
     if (!key) return;
     const ts = Number.isFinite(deletedAt) ? deletedAt : Date.now();
-    MainSyncStore.enqueueDelete('employee', key, state?.settings?.schemaVersion, { deletedAt: ts })
+    MainSyncStore.enqueueDelete('employee', key, state?.settings?.schemaVersion, { deletedAt: ts, mergedIntoId })
         .catch(e => console.warn('⚠️ Error encolando tombstone de empleado en el outbox:', e));
 }
 
@@ -522,14 +523,14 @@ function _mainSyncGuards() {
         },
         savePayrollClosure: (closure) => PayrollClosureRepository.saveOne(closure),
         savePayrollRecoveredClosure: (closure) => PayrollClosureRepository.saveRecoveredClosure(closure),
-        deleteEntity: (entity, id, deletedAt) => {
+        deleteEntity: (entity, id, deletedAt, mergedIntoId) => {
             const repo = REPO_BY_ENTITY[entity];
             if (!repo) return Promise.resolve();
             // 🪦 Empleados con deletedAt → tombstone (soft-delete robusto: no
             // resucita desde un dispositivo que estaba offline al borrar).
             // Cargos/líderes y borrados legacy sin deletedAt → hard-delete.
             if (entity === 'employee' && Number.isFinite(deletedAt) && typeof repo.tombstoneOne === 'function') {
-                return repo.tombstoneOne(id, deletedAt);
+                return repo.tombstoneOne(id, deletedAt, { mergedIntoId });
             }
             return repo.deleteOne(id);
         },
@@ -1428,7 +1429,8 @@ export async function loadApplicationData() {
             
             // Inflar datos (convertir a instancias de clase)
             const inflatedData = {
-                employees: (idbData.employees || []).map(e => e instanceof Employee ? e : new Employee(e)),
+                // Una copia ya fusionada no vuelve aunque siga en IndexedDB.
+                employees: withoutMergedAway(idbData.employees || []).map(e => e instanceof Employee ? e : new Employee(e)),
                 positions: (idbData.positions || []).map(p => p instanceof Position ? p : new Position(p)),
                 leaders: (idbData.leaders || []).map(l => l instanceof Leader ? l : new Leader(l)),
                 attendance: {},
@@ -2587,6 +2589,7 @@ export async function executeAutoRepair() {
 
     let fixedCount = 0;
     const pendingReassignments = [];
+    const autoMerges = [];
 
     conflicts.forEach(group => {
         // Verificar si todos los miembros son la misma persona
@@ -2611,15 +2614,15 @@ export async function executeAutoRepair() {
 
         const master = sorted[0];
         const duplicates = sorted.slice(1);
-
-        duplicates.forEach(dup => {
-            if (mergeEmployees(master.id, dup.id)) fixedCount++;
-        });
+        autoMerges.push({ masterId: master.id, duplicateIds: duplicates.map(dup => dup.id), members: group.members });
     });
 
-    // Guardar UNA sola vez con limpieza de attendance en IndexedDB
-    if (fixedCount > 0) {
-        await saveApplicationData({ skipValidation: false, clearAttendance: true });
+    // Mismo camino que el resto de pantallas: lápida con mergedIntoId y
+    // limpieza de la copia en el dispositivo.
+    if (autoMerges.length > 0) {
+        const duplicates = await import('../features/employees/EmployeeDuplicateService.js');
+        for (const item of autoMerges) fixedCount += duplicates.mergeDuplicateEmployees(item).merged;
+        if (fixedCount > 0) await duplicates.persistDuplicateResolution({ skipValidation: false, clearAttendance: true });
     }
 
     if (pendingReassignments.length > 0) {
