@@ -108,7 +108,7 @@ describe('ProjectOnboardingRenameFirstR07 — first-project mode reuses the exis
         // Collision with another project fails closed without touching the store.
         const updatesBeforeCollision = h.store.update.mock.calls.length;
         await expect(h.service.renameDefaultProjectForOnboarding({ name: 'obra vecina' }))
-            .rejects.toThrow(/Ya existe un proyecto con el nombre "Obra Vecina"/i);
+            .rejects.toThrow(/Ya existe una obra con el nombre "Obra Vecina"/i);
         expect(h.store.update.mock.calls.length).toBe(updatesBeforeCollision);
     });
 

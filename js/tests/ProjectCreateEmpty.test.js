@@ -130,10 +130,10 @@ describe('F2.2 — ProjectSetupService.createEmptyProject & Name Invariants', ()
         });
 
         await expect(h.service.createEmptyProject({ name: 'residencial san pedro' }))
-            .rejects.toThrow(/Ya existe un proyecto con el nombre "Residencial San Pedro"/i);
+            .rejects.toThrow(/Ya existe una obra con el nombre "Residencial San Pedro"/i);
 
         await expect(h.service.createEmptyProject({ name: '  RESIDENCIAL   SAN   PEDRO  ' }))
-            .rejects.toThrow(/Ya existe un proyecto con el nombre "Residencial San Pedro"/i);
+            .rejects.toThrow(/Ya existe una obra con el nombre "Residencial San Pedro"/i);
 
         expect(h.store.create).not.toHaveBeenCalled();
     });
@@ -148,9 +148,9 @@ describe('F2.2 — ProjectSetupService.createEmptyProject & Name Invariants', ()
         });
 
         await expect(h.service.createEmptyProject({ name: 'Obra Vieja' }))
-            .rejects.toThrow(/Ya existe un proyecto con el nombre "Obra Vieja"/i);
+            .rejects.toThrow(/Ya existe una obra con el nombre "Obra Vieja"/i);
         await expect(h.service.createEmptyProject({ name: 'obra archivada' }))
-            .rejects.toThrow(/Ya existe un proyecto con el nombre "Obra Archivada"/i);
+            .rejects.toThrow(/Ya existe una obra con el nombre "Obra Archivada"/i);
 
         expect(h.store.create).not.toHaveBeenCalled();
     });

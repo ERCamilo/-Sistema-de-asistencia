@@ -25,6 +25,7 @@ import { projectStore } from './ProjectStore.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { createCrossTabLock } from '../../services/CrossTabLock.js';
 import { DEFAULT_PROJECT_LS_KEY } from './EntityProjectScope.js';
+import { firstAvailableProjectName } from './ProjectNames.js';
 
 export { DEFAULT_PROJECT_LS_KEY };
 export const DEFAULT_PROJECT_NAME = 'Mi obra';
@@ -89,8 +90,9 @@ export class DefaultProjectService {
             return recovered;
         }
 
+        // Puede haber obras cerradas/archivadas: el nombre por defecto no repite uno existente.
         const created = await this.store.create(
-            Project.create({ name: DEFAULT_PROJECT_NAME })
+            Project.create({ name: firstAvailableProjectName(DEFAULT_PROJECT_NAME, candidates) })
         );
         writePointer(created.id);
         return created;

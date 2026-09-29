@@ -1,5 +1,6 @@
 import { planFinancialRecovery } from './ProjectFinancialRecovery.js';
 import { reviewFinancialPlanRepair } from './ProjectFinancialPlanRepair.js';
+import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
 /**
  * 🔧 ProjectOwnershipRepairService.js — R07 A2b (application service)
  *
@@ -1494,6 +1495,12 @@ function computeCreateProjectAndMap(reads, tx, p) {
     const durableProjects = reads.projects || [];
     const durableProjectsById = indexById(durableProjects);
     const existingProject = durableProjectsById.get(target) || null;
+    // Defensa en la escritura (la UI ya lo valida): la obra nueva no puede
+    // repetir el nombre de otra obra del catálogo durable.
+    const nameConflict = findProjectNameConflict(resolvedName, durableProjects, { excludeId: target });
+    if (nameConflict) {
+        return { result: conflictResult(duplicateProjectNameMessage(nameConflict)) };
+    }
 
     let projectAlreadyExists = false;
     let createdProject = false;

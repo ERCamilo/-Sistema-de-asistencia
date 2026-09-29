@@ -9,6 +9,7 @@ import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { projectSetupService } from './ProjectSetupService.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { analyzeProjectOwnership, CLASSIFICATION } from './ProjectOwnershipReconciliation.js';
+import { projectNameKey } from './ProjectNames.js';
 import {
     applyOwnershipRepair,
     preflightDependencies,
@@ -244,7 +245,7 @@ function selectedRows() {
 }
 
 function normalizeProjectName(value) {
-    return String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+    return projectNameKey(value);
 }
 
 function duplicateCreateProject() {
