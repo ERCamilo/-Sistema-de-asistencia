@@ -72,6 +72,7 @@ import { Position } from '../employees/Position.js';
 import { remapPositionInAttendanceRecord } from '../../services/AttendancePositionAudit.js';
 import { stampAttendanceWrite } from '../attendance/AttendanceRecordWriter.js';
 import { slugify } from '../../utils/Helpers.js';
+import { createDefaultConfig, cloneConfig } from '../payroll/ProjectPayrollConfig.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -1175,6 +1176,48 @@ function prepareTargetOwnershipScope({ employees, attendance, targetProjectId, c
  * MAP_TO_EXISTING: map selected employees (and their canonically-owned
  * attendance) to an existing durable project.
  */
+/**
+ * "Asignar todo a esta obra" también lleva a la obra destino la asistencia
+ * cuyo empleado ya no existe y cuya obra falta o no está en el catálogo.
+ * Solo cambia projectId (y updatedAt); la asistencia con obra válida queda
+ * byte-estable. Con assignAllOrphanAttendance se recorre lo DURABLE: la memoria
+ * puede haber compactado tombstones que siguen en IndexedDB. Los keys
+ * explícitos son un selector y también se revalidan contra lo durable.
+ */
+function planOrphanAttendanceAssignment(reads, p, target, catalog) {
+    const durable = buildDurableAttendanceMap(reads.attendance);
+    const keys = p.assignAllOrphanAttendance === true
+        ? Object.keys(durable)
+        : [...new Set((p.orphanAttendanceKeys || []).map(trimId).filter(Boolean))];
+    if (!keys.length) return [];
+    const employeeIds = new Set((reads.employees || []).map(employee => trimId(employee?.id)).filter(Boolean));
+    const catalogIds = new Set((catalog || []).map(project => trimId(project?.id)).filter(Boolean));
+    const writes = [];
+    for (const key of keys) {
+        const original = durable[key];
+        if (!original || employeeIds.has(trimId(original.employeeId))) continue;
+        const owner = trimId(original.projectId);
+        if (owner && catalogIds.has(owner)) continue;
+        writes.push({ key, record: { ...deepCopy(original), projectId: target, updatedAt: p.repairTimestamp } });
+    }
+    return writes;
+}
+
+/**
+ * Una obra creada desde la reconciliación nace con configuración de nómina
+ * (D2: copia de la obra por defecto; sin ella, los valores por defecto). Nunca
+ * pisa una configuración existente. null si el store no está en la transacción.
+ */
+function planNewProjectPayrollConfig(reads, target, p) {
+    if (!Array.isArray(reads.projectPayrollConfigs)) return null;
+    const configs = reads.projectPayrollConfigs;
+    if (configs.some(config => trimId(config?.projectId) === target)) return null;
+    const seedId = trimId(p.configurationSeedProjectId || peekEntityScope()?.defaultProjectId);
+    const seed = seedId ? configs.find(config => trimId(config?.projectId) === seedId) : null;
+    const config = seed ? { ...cloneConfig(seed), projectId: target } : createDefaultConfig(target, {});
+    return { ...config, updatedAt: p.repairTimestamp };
+}
+
 function computeMapToExisting(reads, tx, p) {
     const target = trimId(p.targetProjectId);
     const durableProjects = reads.projects || [];
@@ -1388,7 +1431,14 @@ function computeMapToExisting(reads, tx, p) {
         });
     }
 
+    const orphanAttendanceWrites = planOrphanAttendanceAssignment(reads, p, target, durableProjects);
+    for (const write of orphanAttendanceWrites) {
+        writeAttendance.push(write);
+        attendanceProjectIds.set(write.key, target);
+    }
+
     if (affected.length === 0
+        && orphanAttendanceWrites.length === 0
         && positionLeaderDetachment.writes.length === 0
         && copyPreparation.writes.length === 0) {
         return {
@@ -1409,6 +1459,7 @@ function computeMapToExisting(reads, tx, p) {
         action: REPAIR_ACTION.MAP_TO_EXISTING,
         targetProjectId: target,
         employeeIds: affected.map(a => a.employeeId),
+        orphanAttendanceCount: orphanAttendanceWrites.length,
         detachedLeaders: detachedLeaders.map(d => d.leaderId),
         positionRemaps: (p.positionRemaps || []).map(item => ({
             employeeId: trimId(item?.employeeId),
@@ -1725,8 +1776,15 @@ function computeCreateProjectAndMap(reads, tx, p) {
         affected.push({ employeeId: empId, attendanceCount: r.attendanceChanges.length, remappedHistoryCount });
     }
 
+    const orphanAttendanceWrites = planOrphanAttendanceAssignment(reads, p, target, durableProjects);
+    for (const write of orphanAttendanceWrites) {
+        writeAttendance.push(write);
+        attendanceProjectIds.set(write.key, target);
+    }
+
     if (projectAlreadyExists
         && affected.length === 0
+        && orphanAttendanceWrites.length === 0
         && positionLeaderDetachment.writes.length === 0
         && copyPreparation.writes.length === 0) {
         return {
@@ -1750,6 +1808,7 @@ function computeCreateProjectAndMap(reads, tx, p) {
         projectName: resolvedName,
         projectAlreadyExisted: projectAlreadyExists,
         employeeIds: affected.map(a => a.employeeId),
+        orphanAttendanceCount: orphanAttendanceWrites.length,
         detachedLeaders: detachedLeaders.map(d => d.leaderId),
         positionRemaps: (p.positionRemaps || []).map(item => ({
             employeeId: trimId(item?.employeeId),
@@ -1770,7 +1829,11 @@ function computeCreateProjectAndMap(reads, tx, p) {
         positionLeaderPatches.set(trimId(pos.id), { leaderId: null, crossProjectLeaderId: undefined });
     }
 
-    if (createdProject) txPut(tx, 'projects', projectPayload);
+    if (createdProject) {
+        txPut(tx, 'projects', projectPayload);
+        const payrollConfig = planNewProjectPayrollConfig(reads, target, p);
+        if (payrollConfig) txPut(tx, 'projectPayrollConfigs', payrollConfig);
+    }
     for (const copy of copyPreparation.writes) txPut(tx, 'positions', copy);
     for (const pos of positionLeaderDetachment.writes) txPut(tx, 'positions', pos);
     for (const emp of writeEmployees) txPut(tx, 'employees', emp);
@@ -2505,6 +2568,8 @@ export async function applyOwnershipRepair(params = {}) {
         leaderRemaps = [],
         leaderCopies = [],
         pettyCashIds = [],
+        orphanAttendanceKeys = [],
+        assignAllOrphanAttendance = false,
         financialPlan = null,
         recoverFinancial = false, configurationSource = '', financialEmployeeIds = null,
         _db = indexedDBService
@@ -2512,7 +2577,7 @@ export async function applyOwnershipRepair(params = {}) {
 
     // --- Input guard: employees must be an explicit non-empty array.
     const catalogOnly = [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)
-        && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length || pettyCashIds.length || recoverFinancial);
+        && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length || pettyCashIds.length || orphanAttendanceKeys.length || assignAllOrphanAttendance || recoverFinancial);
     if (action !== REPAIR_ACTION.MAP_CATALOG_ENTITIES && !catalogOnly && (!Array.isArray(employees) || employees.length === 0)) {
         return {
             status: REPAIR_STATUS.CONFLICT,
@@ -2565,6 +2630,8 @@ export async function applyOwnershipRepair(params = {}) {
         leaderRemaps,
         leaderCopies,
         pettyCashIds,
+        orphanAttendanceKeys,
+        assignAllOrphanAttendance,
         financialPlan, recoverFinancial, configurationSource, financialEmployeeIds,
         memoryFinancialEmployees: recoverFinancial ? deepCopy(stateManager._state.employees || []) : null,
         allEmployees: effectiveAllEmployees,
@@ -2580,7 +2647,7 @@ export async function applyOwnershipRepair(params = {}) {
         const rawDb = _db.db || _db;
         let txOutcome = null;
 
-        await runReadWriteTransaction(rawDb, [...REPAIR_STORES, ...(recoverFinancial ? ['payrollClosures', 'projectPayrollConfigs', 'mainSyncOutbox'] : action === REPAIR_ACTION.MAP_FINANCIAL_PLAN ? ['payrollClosures'] : []), ...(pettyCashIds.length ? ['pettyCashProjects', 'pettyCashOutbox'] : [])], (reads, tx) => {
+        await runReadWriteTransaction(rawDb, [...REPAIR_STORES, ...(recoverFinancial ? ['payrollClosures', 'projectPayrollConfigs', 'mainSyncOutbox'] : action === REPAIR_ACTION.MAP_FINANCIAL_PLAN ? ['payrollClosures'] : action === REPAIR_ACTION.CREATE_PROJECT_AND_MAP ? ['projectPayrollConfigs'] : []), ...(pettyCashIds.length ? ['pettyCashProjects', 'pettyCashOutbox'] : [])], (reads, tx) => {
             const durable = {
                 payrollClosures: reads.payrollClosures || [], projectPayrollConfigs: reads.projectPayrollConfigs || [],
                 projects: reads.projects || [],

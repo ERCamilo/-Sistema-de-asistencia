@@ -41,12 +41,16 @@ export function diagnoseExtendedProjectData(data = {}, projects = []) {
                     else if (!closure) historicalReasons.add('Un cierre del historial no está disponible localmente; comprueba la sincronización o el respaldo');
                     else if (id(closure.projectId) !== id(plan.projectId)) historicalReasons.add('La obra de un cierre del historial no coincide con la del plan');
                 }
+                const ownershipProblem = Boolean(reason);
                 reason = [reason, ...historicalReasons].filter(Boolean).join('. ');
                 if (reason) {
                     add('plans', id(employee.id) + ':' + kind + ':' + (plan.id || index),
                         [employee.number, employee.name, plan.name || (kind === 'bonuses' ? 'Bonificación' : 'Deducción')].filter(Boolean).join(' · '),
                         reason, plan.projectId);
                     issues[issues.length - 1].planSelection = { employeeId: id(employee.id), kind, planId: id(plan.id) };
+                    // Solo historial (p. ej. un cierre que llega sincronizando): se
+                    // informa, pero no es una asignación pendiente.
+                    if (!ownershipProblem) issues[issues.length - 1].informational = true;
                 }
             }
         }
@@ -81,7 +85,8 @@ export function diagnoseExtendedProjectData(data = {}, projects = []) {
         : Object.entries(data.attendance || {});
     for (const [key, record] of attendance) {
         if (!record || typeof record !== 'object') continue;
-        if (!employeeIds.has(id(record.employeeId))) add('attendance', key,
+        // Con obra válida es historial conservado; solo sin obra es pendiente.
+        if (!employeeIds.has(id(record.employeeId)) && ownershipReason(record)) add('attendance', key,
             record.date || 'Asistencia sin fecha',
             id(record.employeeId) ? 'El empleado no está disponible' : 'El registro no identifica al empleado',
             record.projectId);
