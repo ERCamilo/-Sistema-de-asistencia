@@ -4,6 +4,7 @@ import { projectStore } from './ProjectStore.js';
 import { getEntityScope, setActiveProjectId } from './ProjectContext.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
+import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
 
 export const PROJECT_SETUP_NAME_MAX_LENGTH = 80;
 
@@ -16,13 +17,10 @@ export function normalizeProjectSetupName(value) {
     return name;
 }
 
-export function assertUniqueProjectName(name, existingProjects = []) {
-    const normalized = normalizeProjectSetupName(name).toLowerCase();
-    const duplicate = (existingProjects || []).find(
-        p => String(p?.name ?? '').trim().replace(/\s+/g, ' ').toLowerCase() === normalized
-    );
+export function assertUniqueProjectName(name, existingProjects = [], { excludeId = null } = {}) {
+    const duplicate = findProjectNameConflict(normalizeProjectSetupName(name), existingProjects, { excludeId });
     if (duplicate) {
-        throw new Error(`Ya existe un proyecto con el nombre "${duplicate.name}".`);
+        throw new Error(duplicateProjectNameMessage(duplicate));
     }
 }
 
@@ -126,6 +124,8 @@ export class ProjectSetupService {
         if (!state.ready || !state.activeProject) {
             throw new Error('No hay un proyecto activo válido para renombrar.');
         }
+        // Cambiar solo mayúsculas del propio nombre es válido; chocar con otra obra no.
+        assertUniqueProjectName(name, state.projects, { excludeId: state.activeProject.id });
         const model = Project.create({ ...state.activeProject, name });
         const updated = await this.store.update(model);
         return { ...(await this.getState()), activeProject: updated };
@@ -153,14 +153,7 @@ export class ProjectSetupService {
 
         // Unicidad excluyendo al propio proyecto (renombrar sobre su nombre
         // actual u otra capitalización es válido; chocar con OTRA obra no).
-        const targetId = String(state.activeProject.id);
-        const duplicate = (state.projects || []).find(
-            p => p && String(p.id) !== targetId
-            && String(p?.name ?? '').trim().replace(/\s+/g, ' ').toLowerCase() === normalizedName.toLowerCase()
-        );
-        if (duplicate) {
-            throw new Error(`Ya existe un proyecto con el nombre "${duplicate.name}".`);
-        }
+        assertUniqueProjectName(normalizedName, state.projects, { excludeId: state.activeProject.id });
 
         const previousProject = { ...state.activeProject };
         const model = Project.create({ ...state.activeProject, name: normalizedName });

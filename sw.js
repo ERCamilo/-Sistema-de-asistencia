@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0928.232421'
+const CACHE_VERSION = '2026.0928.232908'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -59,6 +59,7 @@ const APP_SHELL = [
     './js/modules/features/projects/ProjectContext.js',
     './js/modules/features/projects/ProjectStore.js',
     './js/modules/features/projects/Project.js',
+    './js/modules/features/projects/ProjectNames.js',
     './js/modules/features/projects/DefaultProject.js',
     './js/modules/features/projects/EntityProjectScope.js',
     './js/modules/features/export/SaMiniRosterExport.js',
