@@ -254,6 +254,21 @@ export function loadDeleteQueuesFromStorage() {
 // 🕒 lastCloudSavedAt — persistir timestamp de la última sync exitosa
 // ─────────────────────────────────────────────────────────────────────────────
 
+let _orphanSkipNoticeAt = 0;
+/**
+ * Un guardado local omitió registros que habrían quedado en una obra
+ * inexistente. No se reporta como "guardado" en silencio: se avisa (como
+ * máximo una vez por minuto) y se remite a la revisión de pendientes.
+ */
+function _notifyOrphanWritesSkipped(stats) {
+    const skipped = Number(stats?.orphanWritesSkipped) || 0;
+    if (!skipped || Date.now() - _orphanSkipNoticeAt < 60_000) return;
+    _orphanSkipNoticeAt = Date.now();
+    try {
+        NotificationSystem.warning(`⚠️ ${skipped} cambio(s) no se guardaron porque su obra no existe. Revisa «Datos pendientes de asignación».`);
+    } catch (_) { /* sin UI: queda el aviso de consola */ }
+}
+
 let _syncPersistenceUnsub = null;
 
 /**
@@ -724,7 +739,7 @@ export async function saveToIndexedDB(options = {}) {
         if (options.clearFirst && rawState?.pettyCash && !options.pettyCash) {
             options = { ...options, pettyCash: rawState.pettyCash };
         }
-        await indexedDBService.saveState(rawState, options);
+        _notifyOrphanWritesSkipped(await indexedDBService.saveState(rawState, options));
         // C01-NEW-1: el reemplazo FULL durable comprometió. Incrementar la
         // época compartida para que TODO guardado local no-clearFirst que
         // esté en vuelo con el estampo anterior (sus per-store transactions
@@ -1063,7 +1078,7 @@ async function _persistLocalState(options = {}) {
             if (isDatasetMutationIsolationInProgress()) return false;
             const rawState = stateManager.getState();
             _stampDatasetEpoch(options);
-            await indexedDBService.saveState(rawState, options);
+            _notifyOrphanWritesSkipped(await indexedDBService.saveState(rawState, options));
             // C01-NEW-1 (b): saveState es awaited — durante esa ventana un
             // import FULL pudo activar el aislamiento y publicar estado
             // provisional importado en `state`. Reportar éxito acá dejaría a
