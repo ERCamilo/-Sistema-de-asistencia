@@ -84,6 +84,15 @@ export function createProjectPayrollSettingsView(legacySettings, config) {
     return view;
 }
 
+/** Avisa a la interfaz (ActivePayrollSettings) que la configuración de una obra cambió. */
+function announcePayrollConfigChanged(config) {
+    try {
+        if (typeof window !== 'undefined' && config?.projectId) {
+            window.dispatchEvent(new CustomEvent('payroll-config:changed', { detail: { config } }));
+        }
+    } catch (_) { /* sin UI */ }
+}
+
 export class PayrollConfigUnavailableError extends Error {
     constructor(projectId, options = {}) {
         super(`Payroll config unavailable for project "${projectId}"`, options);
@@ -239,6 +248,7 @@ export class ProjectPayrollUIRuntime {
         const normalized = normalizeProjectPayrollConfig(configPayload(config, request.projectId));
         validateProjectPayrollConfig(normalized);
         const persisted = await this.configStore.putConfig(normalized);
+        announcePayrollConfigChanged(persisted);
         this.commitIfCurrent(request, () => {
             request.session.config = persisted;
             request.session.settingsView = createProjectPayrollSettingsView(this.state.settings, persisted);
@@ -362,6 +372,7 @@ export class ProjectPayrollUIRuntime {
         const neutral = createDefaultConfig(request.projectId);
         validateProjectPayrollConfig(neutral);
         const persisted = await this.configStore.putConfig(neutral);
+        announcePayrollConfigChanged(persisted);
         return {
             enabled: true,
             projectId: request.projectId,

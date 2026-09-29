@@ -3,6 +3,7 @@
  * Separa los cálculos de la interfaz de usuario para permitir su reutilización.
  */
 
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { getDateKey, parseDate } from '../../utils/DateUtils.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 
@@ -61,8 +62,8 @@ export class EmployeeStatsService {
         let hp = 0;
         const projectsEnabled = isProjectsEnabled();
         let gross = projectsEnabled ? null : 0;
-        const pStartKey = this.state.settings?.payPeriod?.periodStart;
-        const pLen = this.state.settings?.payPeriod?.periodLength || 15;
+        const pStartKey = getActivePayrollSettings(this.state).payPeriod?.periodStart;
+        const pLen = getActivePayrollSettings(this.state).payPeriod?.periodLength || 15;
 
         if (pStartKey && this.payrollService) {
             const start = parseDate(pStartKey);

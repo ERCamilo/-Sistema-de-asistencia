@@ -24,6 +24,7 @@
  * numbers — for a payroll app of this scale, the precision is sufficient.
  */
 
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { recordNestedTombstone } from '../../services/NestedTombstones.js';
 import { ProjectScopedGateError } from '../../config/TandaBGate.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
@@ -891,6 +892,41 @@ export function getLoanLatestActivityDate(loan) {
     return loan.startDate || null;
 }
 
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const dayOf = value => {
+    const text = String(value ?? '').slice(0, 10);
+    return ISO_DAY.test(text) ? text : null;
+};
+const latestDay = days => days.filter(Boolean).sort().pop() || null;
+
+/**
+ * Fecha asignada al préstamo más reciente: su fecha de inicio o la de su
+ * último refinanciamiento vigente (YYYY-MM-DD). Solo fechas de negocio, no de
+ * edición.
+ */
+export function getLoanAssignedDate(loan) {
+    if (!loan) return null;
+    const refinancings = (loan.refinancings || []).filter(item => item && !item.voided).map(item => dayOf(item.date));
+    return latestDay([dayOf(loan.startDate), ...refinancings]);
+}
+
+/** Fecha del último abono vigente (YYYY-MM-DD), o null si no hay abonos. */
+export function getLoanLastPaymentDate(loan) {
+    if (!loan) return null;
+    return latestDay((loan.payments || []).filter(payment => payment && !payment.voided)
+        .map(payment => dayOf(payment.date) || (Number.isFinite(Number(payment.recordedAt)) && Number(payment.recordedAt) > 0
+            ? dayOf(new Date(Number(payment.recordedAt)).toISOString()) : null)));
+}
+
+/** Las tres fechas de un conjunto de préstamos (la más reciente de cada una). */
+export function summarizeLoanDates(loans = []) {
+    return {
+        lastLoanDate: latestDay(loans.map(getLoanLatestActivityDate)),
+        lastAssignedDate: latestDay(loans.map(getLoanAssignedDate)),
+        lastPaymentDate: latestDay(loans.map(getLoanLastPaymentDate))
+    };
+}
+
 /**
  * Formats a date in short format (e.g. "11 sep 2026").
  * @param {string|number|Date} dateInput
@@ -930,13 +966,7 @@ export function getEmployeesWithDebt(state) {
         const totalDue = round2(loans.reduce((s, l) => s + getTotalDue(l), 0));
         const totalPaid = round2(loans.reduce((s, l) => s + getPaidAmount(l), 0));
 
-        let lastLoanDate = null;
-        for (const l of (emp.loans || [])) {
-            const d = getLoanLatestActivityDate(l);
-            if (d && (!lastLoanDate || d > lastLoanDate)) {
-                lastLoanDate = d;
-            }
-        }
+        const { lastLoanDate, lastAssignedDate, lastPaymentDate } = summarizeLoanDates(emp.loans || []);
 
         result.push({
             employeeId: emp.id,
@@ -947,7 +977,9 @@ export function getEmployeesWithDebt(state) {
             totalBalance,
             totalDue,
             totalPaid,
-            lastLoanDate
+            lastLoanDate,
+            lastAssignedDate,
+            lastPaymentDate
         });
     }
     result.sort((a, b) => b.totalBalance - a.totalBalance);
@@ -992,13 +1024,7 @@ export function getEmployeesWithOnlyInactiveLoans(state) {
         const totalPaid = round2(allLoans.reduce((s, l) => s + getPaidAmount(l), 0));
         const totalBalance = round2(allLoans.reduce((s, l) => s + getBalance(l), 0));
 
-        let lastLoanDate = null;
-        for (const l of allLoans) {
-            const d = getLoanLatestActivityDate(l);
-            if (d && (!lastLoanDate || d > lastLoanDate)) {
-                lastLoanDate = d;
-            }
-        }
+        const { lastLoanDate, lastAssignedDate, lastPaymentDate } = summarizeLoanDates(allLoans);
         
         result.push({
             employeeId: emp.id,
@@ -1008,7 +1034,9 @@ export function getEmployeesWithOnlyInactiveLoans(state) {
             totalDue,
             totalPaid,
             totalBalance,
-            lastLoanDate
+            lastLoanDate,
+            lastAssignedDate,
+            lastPaymentDate
         });
     }
     result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -1041,6 +1069,8 @@ export function getIndividualLoanRecords(state, filterView = 'active') {
             const totalDue = getTotalDue(loan);
             const totalPaid = getPaidAmount(loan);
             const lastLoanDate = getLoanLatestActivityDate(loan);
+            const lastAssignedDate = getLoanAssignedDate(loan);
+            const lastPaymentDate = getLoanLastPaymentDate(loan);
 
             records.push({
                 isIndividualLoan: true,
@@ -1058,6 +1088,8 @@ export function getIndividualLoanRecords(state, filterView = 'active') {
                 totalDue,
                 totalPaid,
                 lastLoanDate,
+                lastAssignedDate,
+                lastPaymentDate,
                 loan
             });
         }
@@ -1072,6 +1104,12 @@ export function getIndividualLoanRecords(state, filterView = 'active') {
  * @param {'asc'|'desc'} [sortOrder='desc']
  * @returns {Array<Object>}
  */
+export const LOAN_DATE_SORT_FIELDS = Object.freeze({
+    date: 'lastLoanDate',
+    assigned: 'lastAssignedDate',
+    payment: 'lastPaymentDate'
+});
+
 export function sortEmployeeLoans(employees, sortBy = 'balance', sortOrder = 'desc') {
     const list = Array.isArray(employees) ? [...employees] : [];
     return list.sort((a, b) => {
@@ -1084,9 +1122,13 @@ export function sortEmployeeLoans(employees, sortBy = 'balance', sortOrder = 'de
             } else {
                 cmp = String(a.number || '').localeCompare(String(b.number || ''), undefined, { numeric: true });
             }
-        } else if (sortBy === 'date') {
-            const dateA = a.lastLoanDate || '';
-            const dateB = b.lastLoanDate || '';
+        } else if (LOAN_DATE_SORT_FIELDS[sortBy]) {
+            // 'date' = última actualización; 'assigned' = fecha del último
+            // préstamo o refinanciamiento; 'payment' = último abono. Sin fecha
+            // siempre al final, en cualquier orden.
+            const field = LOAN_DATE_SORT_FIELDS[sortBy];
+            const dateA = a[field] || '';
+            const dateB = b[field] || '';
             if (!dateA && !dateB) cmp = 0;
             else if (!dateA) return 1;
             else if (!dateB) return -1;
@@ -1215,7 +1257,7 @@ export function getClosedLoansCount(state) {
  */
 export function getCalendarPeriodWeeks(stateObj = null) {
     const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
-    const periodLength = Number(resolvedState.settings?.payPeriod?.periodLength);
+    const periodLength = Number(getActivePayrollSettings(resolvedState).payPeriod?.periodLength);
     if (Number.isInteger(periodLength) && periodLength > 0) {
         return round2(periodLength / 7);
     }
@@ -1241,7 +1283,7 @@ export function getEmployeePeriodSalary(emp, frequencyWeeks = null, stateObj = n
     if (!emp) return 0;
     const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
     const weeks = frequencyWeeks && Number(frequencyWeeks) > 0 ? Number(frequencyWeeks) : getCalendarPeriodWeeks(resolvedState);
-    const regularHours = Number(resolvedState.settings?.regularHoursPerDay) || 8;
+    const regularHours = Number(getActivePayrollSettings(resolvedState).regularHoursPerDay) || 8;
     const WEEKS_PER_MONTH = 52 / 12;
 
     let weeklyEarnings = 0;
@@ -1348,7 +1390,7 @@ export function calculateRepaymentCapacity({
     const weeks = frequencyWeeks && Number(frequencyWeeks) > 0 ? Number(frequencyWeeks) : getCalendarPeriodWeeks(stateObj);
 
     const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
-    const configuredDays = Number(resolvedState.settings?.payPeriod?.periodLength);
+    const configuredDays = Number(getActivePayrollSettings(resolvedState).payPeriod?.periodLength);
 
     const periodNames = {
         1: 'semanal',

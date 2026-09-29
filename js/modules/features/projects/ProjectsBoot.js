@@ -20,6 +20,7 @@ import { projectContext, getEntityScope } from './ProjectContext.js';
 import { ensureCanonicalProject } from './ProjectRegistry.js';
 import { adoptProject } from './ProjectAdoption.js';
 import { syncProjectCatalog, startProjectCatalogLiveSync } from './ProjectCatalogSync.js';
+import { refreshActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { ensureDefaultSeed } from '../payroll/ProjectPayrollConfigStore.js';
 import { backfillMissingOfficialLinks } from '../pettycash/PettyCashOfficialLink.js';
@@ -83,6 +84,8 @@ export async function initProjectsInfrastructure({
         // el snapshot del módulo no se toca.
         if (defaults === defaultProjectService && context === projectContext) {
             await getEntityScope();
+            // La interfaz lee la configuración de nómina de la obra activa.
+            await refreshActivePayrollSettings({ render: false }).catch(() => null);
             // R07: M2 no se dispara en boot. Su sello al default podía asignar
             // empleados y asistencia a la obra equivocada antes del banner.
             // F1.7 (DEP-SA-001): backfill idempotente del vínculo oficial de

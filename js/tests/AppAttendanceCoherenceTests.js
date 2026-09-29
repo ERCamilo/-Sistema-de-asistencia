@@ -447,8 +447,8 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
             'el panel debe delegar el contenido del calendario al componente especializado');
         testRunner.assert(panelBody.includes('activeView: state.attendanceDetailCalendarView'),
             'la selección de período/calendario completo debe venir del estado');
-        testRunner.assert(panelBody.includes('payPeriod: state.settings?.payPeriod'),
-            'el período configurado debe ser la única fuente del rango');
+        testRunner.assert(panelBody.includes('payPeriod: getActivePayrollSettings(state).payPeriod'),
+            'el período configurado de la obra activa debe ser la única fuente del rango');
         testRunner.assert(
             /window\.setAttendanceDetailCalendarView\s*=\s*\(view\)\s*=>\s*\{[\s\S]*?normalizeAttendanceDetailCalendarView\(view\)/.test(panelBody),
             'el handler global debe rechazar modos no soportados mediante el normalizador'
