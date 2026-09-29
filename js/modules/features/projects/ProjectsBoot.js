@@ -19,6 +19,7 @@ import { defaultProjectService } from './DefaultProject.js';
 import { projectContext, getEntityScope } from './ProjectContext.js';
 import { ensureCanonicalProject } from './ProjectRegistry.js';
 import { adoptProject } from './ProjectAdoption.js';
+import { syncProjectCatalog, startProjectCatalogLiveSync } from './ProjectCatalogSync.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { ensureDefaultSeed } from '../payroll/ProjectPayrollConfigStore.js';
 import { backfillMissingOfficialLinks } from '../pettycash/PettyCashOfficialLink.js';
@@ -52,6 +53,13 @@ export async function initProjectsInfrastructure({
             } catch (e) {
                 console.warn('⚠️ ProjectsBoot: identidad canónica no disponible en este arranque (provisional):', e?.message || e);
             }
+        }
+        // El catálogo de obras se comparte entre dispositivos: se descarga lo
+        // que falte, se publica lo local y se escucha en vivo. Fire-and-forget:
+        // sin red el arranque sigue con el catálogo local.
+        if (effectiveUid && defaults === defaultProjectService && context === projectContext) {
+            syncProjectCatalog({ uid: String(effectiveUid) }).catch(() => {});
+            startProjectCatalogLiveSync(String(effectiveUid));
         }
         const activeProjectId = await context.getActiveProjectId();
         // F1.6-A2: semilla atómica de payroll config para el proyecto default

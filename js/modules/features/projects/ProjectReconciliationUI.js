@@ -11,6 +11,7 @@ import { projectSetupService } from './ProjectSetupService.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { analyzeProjectOwnership, CLASSIFICATION } from './ProjectOwnershipReconciliation.js';
 import { projectNameKey } from './ProjectNames.js';
+import { syncProjectCatalogWithin } from './ProjectCatalogSync.js';
 import {
     applyOwnershipRepair,
     preflightDependencies,
@@ -1361,6 +1362,9 @@ function rerenderModal() {
 
 export async function openProjectReconciliation({ onClose } = {}) {
     resetPositionAuditCache();
+    // Primero se traen las obras creadas en otros dispositivos: sus datos no
+    // son huérfanos y no deben ofrecerse para reasignar.
+    await syncProjectCatalogWithin(4000);
     await refreshProjectReconciliationSnapshot();
     modalState = initialModalState();
     modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
