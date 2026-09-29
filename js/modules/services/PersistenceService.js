@@ -265,7 +265,7 @@ function _notifyOrphanWritesSkipped(stats) {
     if (!skipped || Date.now() - _orphanSkipNoticeAt < 60_000) return;
     _orphanSkipNoticeAt = Date.now();
     try {
-        NotificationSystem.warning(`⚠️ ${skipped} cambio(s) no se guardaron porque su obra no existe. Revisa «Datos pendientes de asignación».`);
+        NotificationSystem.warning(`⚠️ ${skipped} registro(s) sin obra válida no se guardaron en este dispositivo. Asígnalos en «Datos pendientes de asignación».`);
     } catch (_) { /* sin UI: queda el aviso de consola */ }
 }
 
