@@ -1,5 +1,6 @@
 import { reviewFinancialPlanRepair } from './ProjectFinancialPlanRepair.js';
 import { diagnoseExtendedProjectData } from './ProjectExtendedDiagnostics.js';
+import { recoveredClosureSources } from './ProjectFinancialRecovery.js';
 import indexedDBService from '../../services/IndexedDBService.js';
 import { state, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { eventBus } from '../../core/Events.js';
@@ -46,7 +47,7 @@ function emptySnapshot() {
     return {
         enabled: false, projectPayrollConfigs: [], payrollClosures: [], projects: [], activeProjects: [], employeeRows: [],
         otherIssues: [], diagnosticIssues: [], diagnosticReadErrors: [], pettyCashRows: [], pettyCashProjects: [], pendingEmployeeCount: 0,
-        totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0
+        orphanAttendanceKeys: [], totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0
     };
 }
 function initialModalState() {
@@ -57,6 +58,7 @@ function initialModalState() {
         positionRemaps: {},
         positionCopies: {},
         entitySelectedIds: new Set(), entityTargetProjectId: '', entityBusy: false, entityMessage: '',
+        includeOrphanAttendance: false,
         busy: false, message: ''
     };
 }
@@ -129,6 +131,10 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
     const rowIds = new Set(employeeRows.map(row => row.id));
     const diagnosticIssues = diagnoseExtendedProjectData(appState, projects);
     const missingEmployeeIssue = issue => issue.collection === 'attendance' && !employeeById.has(String(issue.employeeId || ''));
+    // Asistencia de empleados que ya no existen y sin obra válida: "Asignar todo
+    // a esta obra" también la lleva a la obra destino.
+    const orphanAttendanceKeys = analysis.issues.filter(issue => actionable(issue) && missingEmployeeIssue(issue))
+        .map(issue => String(issue.recordKey || '')).filter(Boolean);
     const otherIssues = analysis.issues.filter(issue =>
         actionable(issue)
         && !missingEmployeeIssue(issue)
@@ -153,7 +159,11 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
         employeeRows,
         otherIssues,
         pendingEmployeeCount: employeeRows.length,
-        totalPendingCount: employeeRows.length + otherIssues.length + pettyCashRows.length + diagnosticIssues.length,
+        orphanAttendanceKeys,
+        // Solo cuenta lo que se puede asignar desde aquí; lo informativo (p. ej. un
+        // cierre que solo llega sincronizando) se ve en «Revisión especial».
+        totalPendingCount: employeeRows.length + otherIssues.length + pettyCashRows.length
+            + diagnosticIssues.filter(issue => !issue.informational).length,
         validEmployeeCount: employeeAnalysis.summary.counts[CLASSIFICATION.VALID] || 0,
         issueCount: analysis.summary.issueCount + pettyCashRows.length + diagnosticIssues.length - analysis.issues.filter(missingEmployeeIssue).length,
         analysis
@@ -351,7 +361,8 @@ function hasFinancialRecoveryData() {
     return (state.employees || []).some(e => ['loans', 'advances', 'bonuses', 'deductions'].some(kind =>
         (e[kind] || []).some(r => r && (!known.has(String(r.projectId || ''))
             || (r.payments || []).some(p => !known.has(String(p.payrollProjectId || p.projectId || p.payrollBatchSnapshot?.projectId || '')))))))
-        || snapshot.payrollClosures.some(c => !known.has(String(c.projectId || '')) && c.rows?.length)
+        || snapshot.payrollClosures.some(c => !known.has(String(c.projectId || '')) && c.rows?.length
+            && !recoveredClosureSources(snapshot.payrollClosures).has(String(c.id || '')))
         || snapshot.projectPayrollConfigs.some(c => !known.has(String(c.projectId || '')) && Object.keys(c).length > 1);
 }
 function financialRecoveryControls() {
@@ -404,6 +415,8 @@ function currentPreflight() {
         recoverFinancial: modalState.recoverFinancial, financialEmployeeIds: financialEmployeeIds(),
         configurationSource: modalState.configurationSource, payrollClosures: snapshot.payrollClosures, projectPayrollConfigs: snapshot.projectPayrollConfigs,
         pettyCashProjects: snapshot.pettyCashProjects, pettyCashIds: [...modalState.pettyCashIds],
+        orphanAttendanceKeys: [...selectedOrphanAttendanceKeys()],
+        assignAllOrphanAttendance: modalState.includeOrphanAttendance,
         catalog: snapshot.projects, targetProjectId, projectId: modalState.createProjectId,
         projectName: modalState.createName.trim(), positionIds: selectedCatalogIds('positions'),
         leaderIds: selectedCatalogIds('leaders'), leaderRemaps: Object.values(modalState.leaderRemaps),
@@ -814,8 +827,12 @@ function renderPreflightSummary(preflight) {
     return html;
 }
 
+function selectedOrphanAttendanceKeys() {
+    return modalState.includeOrphanAttendance ? snapshot.orphanAttendanceKeys : [];
+}
+
 function canApply(preflight) {
-    if (modalState.busy || (!modalState.selectedIds.size && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size && !modalState.recoverFinancial) || !modalState.action) return false;
+    if (modalState.busy || (!modalState.selectedIds.size && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size && !modalState.recoverFinancial && !selectedOrphanAttendanceKeys().length) || !modalState.action) return false;
     if (modalState.action === 'map' && !modalState.targetProjectId) return false;
     if (modalState.action === 'create' && !modalState.createName.trim()) return false;
     if (modalState.action === 'create' && duplicateCreateProject()) return false;
@@ -1040,6 +1057,7 @@ function quickAssignAll() {
     modalState.entitySelectedIds = new Set(catalogIssues().map(catalogIssueKey));
     modalState.pettyCashIds = new Set(snapshot.pettyCashRows.map(record => record.id));
     modalState.recoverFinancial = hasFinancialRecoveryData();
+    modalState.includeOrphanAttendance = snapshot.orphanAttendanceKeys.length > 0;
     modalState.positionRemaps = {};
     modalState.positionCopies = {};
     modalState.leaderRemaps = {};
@@ -1176,6 +1194,7 @@ function modalContent() {
     if (modalState.financialReview) return renderFinancialConfirmation();
     const preflight = currentPreflight();
     if (!snapshot.employeeRows.length && !catalogIssues().length && !snapshot.pettyCashRows.length
+        && !snapshot.orphanAttendanceKeys.length
         && !hasFinancialRecoveryData() && (snapshot.diagnosticIssues.length || snapshot.diagnosticReadErrors.length)) {
         return '<div class="r07-recon-shell r07-wizard"><div class="r07-wizard-content">'
             + renderExtendedDiagnostics() + '</div><div class="r07-recon-footer">'
@@ -1204,6 +1223,7 @@ function modalContent() {
             + '<details class="r07-wizard-details"><summary>Ver decisiones y datos conservados</summary>' + renderPreflightSummary(preflight) + '</details>'
             + renderDependencyBlocker(preflight) + renderFinancialWarnings(preflight) + financialRecoveryControls() + renderOtherIssuesNote() + renderExtendedDiagnostics()
             + (modalState.pettyCashIds.size ? '<p class="r07-recon-hint">' + modalState.pettyCashIds.size + ' cajas seleccionadas. Se conservan períodos, movimientos y comprobantes.</p>' : '')
+            + (selectedOrphanAttendanceKeys().length ? '<p class="r07-recon-hint">' + selectedOrphanAttendanceKeys().length + ' registros de asistencia de empleados que ya no existen también quedarán en esta obra.</p>' : '')
             + '<p class="r07-recon-hint">Se guardarán todas las decisiones juntas. Se conservan los sueldos especiales, las horas y los préstamos.</p>'
     ];
     const hints = ['Elige dónde quedarán los datos.', 'Selecciona personas y cajas de esta obra.',
@@ -1352,7 +1372,7 @@ export function closeProjectReconciliation() {
 async function applyLocalResolution() {
     if (modalState.busy) return;
     const employees = selectedEmployees();
-    if ((!employees.length && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size && !modalState.recoverFinancial) || !modalState.action) return;
+    if ((!employees.length && !modalState.entitySelectedIds.size && !modalState.pettyCashIds.size && !modalState.recoverFinancial && !selectedOrphanAttendanceKeys().length) || !modalState.action) return;
     const preflight = currentPreflight();
     if (['map', 'create'].includes(modalState.action) && !preflight.ok) {
         modalState.message = 'Hay relaciones de puesto o líder que deben revisarse antes de aplicar este cambio.';
@@ -1394,6 +1414,8 @@ async function applyLocalResolution() {
             recoverFinancial: modalState.recoverFinancial, financialEmployeeIds: financialEmployeeIds(),
             configurationSource: modalState.configurationSource,
             pettyCashIds: [...modalState.pettyCashIds],
+            orphanAttendanceKeys: [...selectedOrphanAttendanceKeys()],
+            assignAllOrphanAttendance: modalState.includeOrphanAttendance,
             leaderRemaps: Object.values(modalState.leaderRemaps),
             leaderCopies: Object.values(modalState.leaderCopies)
         };
@@ -1458,6 +1480,7 @@ async function applyLocalResolution() {
         modalState.positionRemaps = {};
         modalState.positionCopies = {};
         modalState.entitySelectedIds = new Set();
+        modalState.includeOrphanAttendance = false;
         modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
 
         if ((snapshot.totalPendingCount === 0) || appliedAction === 'later') {

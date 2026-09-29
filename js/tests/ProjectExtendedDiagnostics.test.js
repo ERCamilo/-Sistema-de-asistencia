@@ -31,13 +31,24 @@ test('archived valid ownership and ordinary legacy adjustments are not orphans',
         attendance: [{ employeeId: 'e', projectId: 'B' }]
     }, projects)).toEqual([]);
 });
-test('counts missing employees once, including attendance assigned to a valid work', () => {
+test('attendance of a missing employee is pending only while it has no valid work', () => {
     const data = fixture();
+    // Ya asignada a una obra válida: historial conservado, no es una asignación pendiente.
     data.attendance.valid = { employeeId: 'also-gone', projectId: 'A' };
     const result = buildLocalReconciliationViewModel(data, setup);
-    expect(result.totalPendingCount).toBe(5);
+    expect(result.totalPendingCount).toBe(4);
+    expect(result.orphanAttendanceKeys).toEqual(['gone-2026-09-01']);
     expect(result.otherIssues).toEqual([]);
     expect(result.employeeRows).toEqual([]);
+});
+test('a plan whose only problem is a closure that has not synced yet is informational', () => {
+    const data = fixture();
+    data.attendance = {};
+    data.payrollClosures = []; data.projectPayrollConfigs = [];
+    data.employees[0].bonuses = [{ ...plan, projectId: 'A', history: [{ source: 'payroll', payrollClosureId: 'not-synced' }] }];
+    const [issue] = diagnoseExtendedProjectData(data, projects);
+    expect(issue).toMatchObject({ kind: 'plans', informational: true });
+    expect(buildLocalReconciliationViewModel(data, setup).totalPendingCount).toBe(0);
 });
 test('detects unscoped closures, configurations and modern plans without inventing ownership', () => {
     const result = diagnoseExtendedProjectData({
@@ -52,7 +63,7 @@ describe('diagnostic-only UI', () => {
         registerProjectReconciliationGlobals();
         setProjectsEnabled(true);
         document.body.innerHTML = '';
-        state.employees = fixture().employees; state.attendance = fixture().attendance;
+        state.employees = fixture().employees; state.attendance = {};
         state.positions = []; state.leaders = [];
         jest.spyOn(projectSetupService, 'getState').mockResolvedValue(setup);
         jest.spyOn(indexedDBService, 'getAll').mockImplementation(async store => fixture()[store] || []);
@@ -63,13 +74,25 @@ describe('diagnostic-only UI', () => {
         const writes = jest.spyOn(indexedDBService, 'update');
         await openProjectReconciliation();
         expect(document.querySelector('[aria-label="Pendientes de revisión especial"]')).not.toBeNull();
-        expect(document.querySelectorAll('details')).toHaveLength(4);
+        expect(document.querySelectorAll('details')).toHaveLength(3);
         expect(document.querySelector('[data-r07-action="quick-assign"]')).toBeNull();
         expect(document.querySelector('[data-r07-action="apply"]')).toBeNull();
         expect(renderProjectReconciliationSettingsAction()).not.toContain('al día');
         document.querySelector('[data-r07-action="close"]').click();
         expect(apply).not.toHaveBeenCalled();
         expect(writes).not.toHaveBeenCalled();
+    });
+
+    test('orphan attendance of missing employees is offered by «Asignar todo a esta obra»', async () => {
+        state.attendance = fixture().attendance;
+        await openProjectReconciliation();
+        document.querySelector('input[name="r07-recon-action"][value="map"]').click();
+        const select = document.querySelector('[data-r07-control="target-project"]');
+        select.value = 'A'; select.dispatchEvent(new Event('change', { bubbles: true }));
+        document.querySelector('[data-r07-action="quick-assign"]').click();
+        expect(document.querySelector('.r07-recon-shell').textContent)
+            .toContain('1 registros de asistencia de empleados que ya no existen también quedarán en esta obra.');
+        expect(document.querySelector('[data-r07-action="apply"]').disabled).toBe(false);
     });
 
     test('financial proposal requires confirmation and back performs no writes', async () => {
