@@ -420,10 +420,23 @@ export function validatePayrollClosureForScopedWrite(
         periodEnd: closure.periodEnd,
         rows: clone(closure.rows)
     });
-    if (closure.fingerprint !== expectedFingerprint) {
+    if (closure.fingerprint !== expectedFingerprint && !sameCanonicalFingerprint(closure.fingerprint, expectedFingerprint)) {
         throw new Error('La identidad nativa del cierre no corresponde a su projectId y payload');
     }
     return closure;
+}
+
+/**
+ * La nube puede devolver los campos de cada fila en otro orden que el usado
+ * al crear la huella (JSON). Mismo contenido con otro orden de claves es la
+ * misma huella; cualquier diferencia de datos sigue rechazándose.
+ */
+function sameCanonicalFingerprint(stored, expected) {
+    try {
+        return JSON.stringify(canonicalValue(JSON.parse(stored))) === JSON.stringify(canonicalValue(JSON.parse(expected)));
+    } catch (_) {
+        return false;
+    }
 }
 
 /**
