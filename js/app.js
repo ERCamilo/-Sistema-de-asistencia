@@ -7889,12 +7889,19 @@ function _initOutgoingConflictGuard() {
         // Projects ON keeps legacy Tanda B advances immutable; the controller
         // also guards direct callers, while boot skips this legacy migration.
         if (!isProjectsEnabled()) migrateAllAdvances();
-        try {
-            await migrateLegacyPayrollClosures(state.employees, {
-                schemaVersion: state.settings?.schemaVersion
-            });
-        } catch (error) {
-            console.warn('No se pudo completar la migración local del historial de nómina:', error?.name || 'Error');
+        // Los pagos de nómina antiguos (sin cierre) se convierten en cierres.
+        // Con obras activas, un cierre necesita su obra y el almacén rechaza
+        // uno sin ella (ProjectScopedGateError en cada arranque): esos lotes
+        // los recupera «Datos pendientes de asignación» → «Recuperar préstamos,
+        // abonos, planes y cierres sin obra válida», eligiendo la obra.
+        if (!isProjectsEnabled()) {
+            try {
+                await migrateLegacyPayrollClosures(state.employees, {
+                    schemaVersion: state.settings?.schemaVersion
+                });
+            } catch (error) {
+                console.warn('No se pudo completar la migración local del historial de nómina:', error?.name || 'Error');
+            }
         }
 
         // 2. Aplicar configuraciones de interfaz
