@@ -1271,7 +1271,16 @@ export class IndexedDBService {
                 // se guarda. Antes cualquier huérfano bloqueaba TODO el guardado
                 // en silencio y las ediciones se perdían al recargar.
                 const ownerOf = record => String(effectiveProjectId(record, validationScope) ?? '').trim();
-                const isInvalid = record => { const pid = ownerOf(record); return !pid || !validProjectIds.has(pid); };
+                // Solo cuenta una obra EXPLÍCITA que no existe. Un registro antiguo
+                // sin obra (cuenta anterior a multi-obra, o un dispositivo nuevo
+                // cuyo catálogo aún no cargó) no es un huérfano nuevo: se guarda y
+                // lo asigna «Datos pendientes de asignación». Antes se omitían
+                // todos (1847 asistencias en un dispositivo recién iniciado).
+                const isInvalid = record => {
+                    if (String(record?.projectId ?? '').trim() === '') return false;
+                    const pid = ownerOf(record);
+                    return !pid || !validProjectIds.has(pid);
+                };
                 const collections = [
                     ['employees', state.employees || [], record => record?.id],
                     ['positions', state.positions || [], record => record?.id],
