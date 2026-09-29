@@ -34,6 +34,33 @@ jobs:
         with:
           node-version: 20
 
+      # Cada cambio que entra a main sube el parche de la versión visible
+      # (APP_CONFIG.VERSION 1.7.0 → 1.7.1 …) y estampa el build en el MISMO
+      # commit, para que la app muestre exactamente qué versión corre. Un push
+      # con GITHUB_TOKEN no vuelve a disparar workflows: no hay bucle.
+      - name: Release app version on main
+        if: github.event_name == 'push'
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch --quiet origin main
+            git checkout --quiet -B main origin/main
+            CURRENT=$(sed -n 's/^    VERSION: "\([0-9]*\.[0-9]*\.[0-9]*\)",$/\1/p' js/modules/config/Config.js)
+            [ -n "$CURRENT" ] || { echo "No se encontró APP_CONFIG.VERSION"; exit 1; }
+            NEXT=$(echo "$CURRENT" | awk -F. '{ printf "%d.%d.%d", $1, $2, $3 + 1 }')
+            BUILD=$(TZ='AST4' date +"%Y.%m%d.%H%M%S")
+            sed -i "s/^    VERSION: \"$CURRENT\",$/    VERSION: \"$NEXT\",/" js/modules/config/Config.js
+            sed -i "s/const CACHE_VERSION = '[^']*'/const CACHE_VERSION = '$BUILD'/" sw.js
+            sed -i "s/export const BUILD = '[^']*'/export const BUILD = '$BUILD'/" js/modules/config/BuildInfo.js
+            git add js/modules/config/Config.js sw.js js/modules/config/BuildInfo.js
+            git commit --quiet -m "chore(release): v$NEXT (build $BUILD)"
+            if git push --quiet origin HEAD:main; then echo "Publicada v$NEXT (build $BUILD)"; exit 0; fi
+            echo "main cambió mientras se publicaba; reintento $attempt"
+          done
+          exit 1
+
       - name: Resolve version-only conflicts in open PRs
         env:
           GH_TOKEN: ${{ github.token }}
