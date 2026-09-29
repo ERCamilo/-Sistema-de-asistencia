@@ -28,6 +28,29 @@ export function isReceiptJobIncomplete(job) {
     return INCOMPLETE_RECEIPT_STATES.has(job?.queueStatus);
 }
 
+/**
+ * Estado del respaldo en la nube del comprobante de un movimiento.
+ * receiptStatus solo pasa a 'uploaded' cuando la subida se verificó con un
+ * lookup remoto; cualquier otro valor significa que la copia vive solo en el
+ * dispositivo. Sin comprobante adjunto no hay nada que respaldar (null).
+ */
+export function receiptBackupState(movement) {
+    const status = movement?.receiptStatus;
+    if (!status) return null;
+    if (status === 'uploaded') {
+        return {
+            state: 'uploaded',
+            label: 'Respaldado',
+            title: 'Comprobante subido y verificado en la nube'
+        };
+    }
+    return {
+        state: 'pending',
+        label: 'Por subir',
+        title: 'Comprobante guardado solo en este dispositivo; se subirá a la nube al haber conexión'
+    };
+}
+
 export function isEmptyReceiptPlaceholder(movement) {
     if (!movement || movement.type !== 'gasto' || !movement.hasReceipt) return false;
     const hasUsefulText = [

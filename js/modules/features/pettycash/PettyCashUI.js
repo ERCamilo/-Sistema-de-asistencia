@@ -60,6 +60,7 @@ import {
     formatPettyCashDate,
     isEmptyReceiptPlaceholder,
     isReceiptJobIncomplete,
+    receiptBackupState,
     summarizeReceiptBatch
 } from './PettyCashPresentation.js';
 import { buildPeriodSheets } from './PettyCashExport.js';
@@ -452,6 +453,17 @@ function uid(prefix) { return `${prefix}-${Date.now().toString(36)}-${Math.rando
 function today() { return new Date().toISOString().slice(0, 10); }
 function rd(n) { return 'RD$ ' + (Number(n) || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+// Etiqueta del respaldo en la nube del comprobante (vacía si no hay comprobante).
+function receiptBackupBadge(movement) {
+    const backup = receiptBackupState(movement);
+    if (!backup) return '';
+    const uploaded = backup.state === 'uploaded';
+    const palette = uploaded
+        ? 'background:rgba(16,185,129,.15);color:#34d399;border:1px solid rgba(16,185,129,.45);'
+        : 'background:rgba(245,158,11,.15);color:#fbbf24;border:1px solid rgba(245,158,11,.45);';
+    return `<span class="pc-receipt-backup pc-receipt-backup--${backup.state}" title="${esc(backup.title)}" aria-label="${esc(backup.title)}"
+        style="font-size:.62rem;${palette}padding:1px 7px;border-radius:999px;font-weight:700;white-space:nowrap;">${uploaded ? '✓' : '⏳'} ${esc(backup.label)}</span>`;
+}
 
 function currentProject() {
     const d = pc();
@@ -1152,7 +1164,7 @@ function _movementEditForm(mov, cerrada) {
             <div style="grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                 <label style="font-size:.75rem;color:#94a3b8;">📷 Comprobante:</label>
                 ${pc()._editPhoto ? `<img src="${pc()._editPhoto}" style="max-height:90px;border-radius:8px;border:1px solid #0ea5e9;"><span style="font-size:.7rem;color:#34d399;">(nuevo comprobante)</span>`
-                    : (mov.receiptStatus ? `<button type="button" data-app-fn="pcViewReceipt" data-arg="${mov.id}" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">🧾 Ver comprobante</button>` : '<span style="font-size:.75rem;color:#64748b;">Sin comprobante</span>')}
+                    : (mov.receiptStatus ? `<button type="button" data-app-fn="pcViewReceipt" data-arg="${mov.id}" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">🧾 Ver comprobante</button> ${receiptBackupBadge(mov)}` : '<span style="font-size:.75rem;color:#64748b;">Sin comprobante</span>')}
                 ${ro ? '' : `
                     <label style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:.8rem;">
                         ${icons.get('camera', { size: 15 })} Cámara
@@ -1293,6 +1305,7 @@ function _reviewPendingMovementsTable(
                                 <div style="font-weight:750;color:#f8fafc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(title)}</div>
                                 <div style="font-size:.66rem;color:#94a3b8;margin-top:2px;">${movement.ncf ? `NCF: ${esc(movement.ncf)}` : esc(movement.category || 'Datos pendientes de confirmar')}</div>
                                 ${duplicate ? '<div style="font-size:.64rem;color:#fdba74;margin-top:3px;">⚠ Posible duplicado</div>' : ''}
+                                ${isExpense && receiptBackupState(movement) ? `<div style="margin-top:4px;">${receiptBackupBadge(movement)}</div>` : ''}
                             </td>
                             <td class="pc-review-date" style="padding:10px;color:#cbd5e1;white-space:nowrap;">${esc(formatPettyCashDate(movement.fechaEmision || movement.date))}</td>
                             <td class="pc-review-amount" style="padding:10px;text-align:right;font-weight:850;color:${isExpense ? '#f87171' : '#34d399'};white-space:nowrap;">${isExpense ? '−' : '+'} ${rd(movement.amount)}</td>
@@ -1344,11 +1357,12 @@ function _movementsList(
             return `<div data-app-fn="pcOpenMovement" data-arg="${m.id}" role="button" tabindex="0" title="Ver / editar detalle"
                 style="display:flex;align-items:center;gap:10px;background:#0f172a;border:1px solid #1e293b;border-radius:9px;padding:10px 12px;cursor:pointer;">
                 <div style="flex:1;min-width:0;">
-                    <div style="font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:6px;">
+                    <div style="font-weight:600;font-size:.9rem;display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;">
                         <span style="font-size:.68rem;color:#38bdf8;font-variant-numeric:tabular-nums;">${formatPettyCashRecordNumber(m.recordNumber)}</span>
                         ${isGasto ? '🏪' : '💰'} ${esc(titulo)}
                         ${m.reviewPending ? '<span title="Creado automáticamente — toca para revisar y confirmar" style="font-size:.62rem;background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.5);padding:1px 7px;border-radius:999px;font-weight:700;">⚠️ Revisar</span>' : ''}
                         ${isGasto && m.hasReceipt ? '<span title="Tiene comprobante">🧾</span>' : ''}
+                        ${isGasto ? receiptBackupBadge(m) : ''}
                         ${isGasto && m.category ? `<span style="font-size:.68rem;background:#1e293b;border:1px solid #334155;padding:1px 7px;border-radius:999px;color:#94a3b8;">${esc(m.category)}</span>` : ''}
                     </div>
                     <div style="font-size:.72rem;color:#64748b;">📅 ${esc(formatPettyCashDate(m.date))}${isGasto && m.ncf ? ' · NCF: ' + esc(m.ncf) : ''}${m.description && isGasto && m.paidTo ? ' · ' + esc(m.description) : ''}</div>
