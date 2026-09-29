@@ -2,7 +2,8 @@ import { Modal } from '../../components/Modal.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
 import { positionsChanged } from '../../features/employees/Employee.js';
 import icons from '../../ui/IconSystem.js';
-import { swapEmployeeNumbers, mergeEmployees, enqueueCloudEmployeeDelete } from '../../services/PersistenceService.js';
+import { swapEmployeeNumbers } from '../../services/PersistenceService.js';
+import { mergeDuplicateEmployees, purgeMergedEmployeesFromLocalStore } from '../../features/employees/EmployeeDuplicateService.js';
 import { toStoredHourly } from '../../features/payroll/SalaryConversion.js';
 import { collectPositionDays, reassignPositionDays } from '../../services/AttendancePositionAudit.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
@@ -427,8 +428,10 @@ export class EmployeeModal {
                 };
                 let masterId = duplicate.id, dupId = editedId;
                 if (attCount(editedId) >= attCount(duplicate.id)) { masterId = editedId; dupId = duplicate.id; }
-                mergeEmployees(masterId, dupId);
-                enqueueCloudEmployeeDelete(dupId); // borra el doc huérfano del eliminado
+                // Servicio único: lápida con mergedIntoId (no un borrado directo
+                // que otro dispositivo o un respaldo podían revertir).
+                mergeDuplicateEmployees({ masterId, duplicateIds: [dupId] });
+                setTimeout(() => { purgeMergedEmployeesFromLocalStore().catch(() => 0); }, 2000);
                 this.close();
                 finish(`🤝 ${who} y ${duplicate.name} fusionados en un solo empleado (#${intendedNumber})`);
             }

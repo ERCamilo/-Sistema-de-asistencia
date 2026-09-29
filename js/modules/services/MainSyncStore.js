@@ -122,7 +122,7 @@ function _resolveCloudCall(entry, guards) {
         // deletedAt (opcional): si viene, el borrado es un tombstone (soft) en
         // vez de un hard-delete — el guard decide según la entidad. Empleados
         // usan tombstone (no resucitan); cargos/líderes siguen con hard-delete.
-        return () => guards.deleteEntity(entry.entity, entry.id, entry.deletedAt);
+        return () => guards.deleteEntity(entry.entity, entry.id, entry.deletedAt, entry.mergedIntoId);
     }
     return null; // kind desconocido — no debería pasar; no tocar la entrada
 }
@@ -290,6 +290,8 @@ export const MainSyncStore = {
             kind: 'delete', entity, id, schemaVersion, ts: Date.now(), status: 'pending'
         };
         if (Number.isFinite(opts.deletedAt)) entry.deletedAt = opts.deletedAt;
+        // Fusión de duplicados: la lápida dice en quién se fusionó (por id).
+        if (typeof opts.mergedIntoId === 'string' && opts.mergedIntoId.trim()) entry.mergedIntoId = opts.mergedIntoId.trim();
         await indexedDBService.update(OUTBOX, entry);
     },
 

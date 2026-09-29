@@ -47,6 +47,11 @@ describe('transactional employee writes', () => {
         expect(transaction.set).not.toHaveBeenCalled();
         expect(setDoc).not.toHaveBeenCalled();
     });
+    test('merge tombstone records the employee it was merged into (by id)', async () => {
+        transaction.get.mockResolvedValue(remote({ id: 'dup', updatedAt: 100, active: true }));
+        await EmployeeRepository.tombstoneOne('dup', 200, { mergedIntoId: 'master' });
+        expect(transaction.set.mock.calls[0][1]).toEqual({ deletedAt: 200, updatedAt: 200, active: false, mergedIntoId: 'master', mergedAt: 200 });
+    });
     test('deletion read failure does not fall back to a blind delete', async () => {
         transaction.get.mockRejectedValue(new Error('offline'));
         await expect(EmployeeRepository.tombstoneOne('e', 200)).rejects.toThrow('offline');

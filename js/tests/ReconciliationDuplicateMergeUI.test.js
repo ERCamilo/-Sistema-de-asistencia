@@ -7,7 +7,7 @@ import indexedDBService from '../modules/services/IndexedDBService.js';
 import { state } from '../modules/core/AppState.js';
 import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
 import { projectSetupService } from '../modules/features/projects/ProjectSetupService.js';
-import * as persistence from '../modules/services/PersistenceService.js';
+import * as duplicates from '../modules/features/employees/EmployeeDuplicateService.js';
 import { openProjectReconciliation, closeProjectReconciliation, registerProjectReconciliationGlobals }
     from '../modules/features/projects/ProjectReconciliationUI.js';
 
@@ -32,12 +32,12 @@ describe('fusión de duplicados en el asistente', () => {
         jest.spyOn(projectSetupService, 'getState').mockResolvedValue({
             enabled: true, ready: true, activeProjectId: project.id, defaultProjectId: project.id, projects: [project]
         });
-        merge = jest.spyOn(persistence, 'mergeEmployees').mockImplementation((masterId, dupId) => {
-            state.employees = state.employees.filter(employee => employee.id !== dupId);
-            return true;
+        merge = jest.spyOn(duplicates, 'mergeDuplicateEmployees').mockImplementation(({ duplicateIds }) => {
+            state.employees = state.employees.filter(employee => !duplicateIds.includes(employee.id));
+            return { merged: duplicateIds.length, skipped: [] };
         });
-        save = jest.spyOn(persistence, 'saveApplicationData').mockResolvedValue(undefined);
-        del = jest.spyOn(persistence, 'enqueueCloudEmployeeDelete').mockImplementation(() => {});
+        save = jest.spyOn(duplicates, 'persistDuplicateResolution').mockResolvedValue(0);
+        del = null;
         state.employees = [
             { id: 'v-028', number: '028', name: 'Mathieu Dormeus', projectId: project.id, active: true },
             { id: 'p-028', number: '028', name: 'Mathieu  Dormeus', projectId: 'PRJ-no-existe', active: true },
@@ -69,8 +69,7 @@ describe('fusión de duplicados en el asistente', () => {
 
         q('[data-r07-action="confirm-merge"]').click();
         await flush();
-        expect(merge).toHaveBeenCalledWith('v-028', 'p-028');
-        expect(del).toHaveBeenCalledWith('p-028');
+        expect(merge).toHaveBeenCalledWith({ masterId: 'v-028', duplicateIds: ['p-028'] });
         expect(save).toHaveBeenCalled();
         expect(q('.r07-recon-message').textContent).toContain('1 empleado(s) duplicado(s) fusionado(s)');
         // El pendiente fusionado desaparece; el otro sigue para asignar.
