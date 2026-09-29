@@ -42,14 +42,30 @@ describe('verificación de índices desplegados', () => {
         }));
     });
 
-    test('todo desplegado (firebase CLI, sin __name__ implícito) → READY y código 0', () => {
+    test('firebase CLI (sin estado ni __name__ implícito) → UNVERIFIED y código 3, nunca READY', () => {
         const deployed = {
             indexes: REPO.indexes.map(index => ({ ...index, fields: index.fields.filter(f => f.fieldPath !== '__name__') })),
             fieldOverrides: []
         };
         const result = run(deployed);
-        expect(result.code).toBe(0);
-        expect(result.lines.filter(line => line.startsWith('READY'))).toHaveLength(REPO.indexes.length);
+        expect(result.code).toBe(3);
+        expect(result.lines.filter(line => line.startsWith('UNVERIFIED'))).toHaveLength(REPO.indexes.length);
+        expect(result.lines.some(line => line.startsWith('READY'))).toBe(false);
+        expect(result.lines.join('\n')).toMatch(/gcloud firestore indexes composite list/);
+    });
+
+    test('todo desplegado y listo (gcloud o API de administración) → READY y código 0', () => {
+        const gcloud = run(REPO.indexes.map(index => asGcloud(index)));
+        expect(gcloud.code).toBe(0);
+        expect(gcloud.lines.filter(line => line.startsWith('READY'))).toHaveLength(REPO.indexes.length);
+        const admin = run({ indexes: REPO.indexes.map(index => asGcloud(index)) });
+        expect(admin.code).toBe(0);
+    });
+
+    test('en construcción con estado de la API de administración (CREATING) → BUILDING y código 2', () => {
+        const result = run({ indexes: REPO.indexes.map(index => asGcloud(index, 'CREATING')) });
+        expect(result.code).toBe(2);
+        expect(result.lines.filter(line => line.startsWith('BUILDING'))).toHaveLength(REPO.indexes.length);
     });
 
     test('falta el índice de projectId + closedAt (situación actual de producción) → MISSING y código 2', () => {
