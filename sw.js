@@ -60,6 +60,7 @@ const APP_SHELL = [
     './js/modules/features/projects/ProjectStore.js',
     './js/modules/features/projects/Project.js',
     './js/modules/features/projects/ProjectNames.js',
+    './js/modules/features/projects/ProjectDuplicateCandidates.js',
     './js/modules/features/projects/ProjectCatalogSync.js',
     './js/modules/features/projects/DefaultProject.js',
     './js/modules/features/projects/EntityProjectScope.js',

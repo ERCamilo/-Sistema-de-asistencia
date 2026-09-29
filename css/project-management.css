@@ -315,6 +315,22 @@
 
 .r07-recon-project-ref { color: var(--text-dim); }
 
+/* Posibles duplicados: se sugiere fusionar antes de asignar */
+.r07-recon-duplicate {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+    margin-top: 4px; font-size: 0.74rem; color: var(--text);
+}
+.r07-recon-duplicate::before { content: '⚠'; color: var(--warn); }
+.r07-recon-duplicates-note,
+.r07-recon-merge-confirm {
+    display: grid; gap: 8px; margin: 0 0 10px; padding: 10px 12px;
+    border: 1px solid var(--warn); border-radius: 10px; font-size: 0.8rem; color: var(--text);
+}
+.r07-recon-duplicates-note p, .r07-recon-merge-confirm p { margin: 0; }
+.r07-recon-duplicates-note .btn-secondary { justify-self: start; }
+.r07-recon-merge-confirm ul { margin: 0; padding-left: 18px; }
+.r07-recon-merge-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
 /* Choices: solid selected cards */
 .r07-recon-fieldset { border: none; padding: 0; margin: 0; }
 .r07-recon-fieldset legend { font-size: 0.9rem; font-weight: 600; margin-bottom: 8px; color: var(--text); }
