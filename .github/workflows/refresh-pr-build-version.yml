@@ -1,0 +1,78 @@
+name: refresh PR build version
+
+# El hook de pre-commit estampa CACHE_VERSION (sw.js) y BUILD (BuildInfo.js) en
+# cada commit, así que dos PRs abiertos a la vez chocan siempre en esa línea.
+# Al actualizarse main, este job fusiona main en cada PR abierto de este repo y,
+# SOLO si los únicos conflictos son esas líneas de versión, estampa una versión
+# nueva y la sube a la rama del PR. Cualquier otro conflicto queda para una
+# persona. main nunca se modifica: la versión sigue viajando con el código.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-pr-build-version
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Resolve version-only conflicts in open PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # El script de main sirve aunque la rama del PR sea anterior a él.
+          cp scripts/resolve-build-version-conflicts.mjs "$RUNNER_TEMP/resolve.mjs"
+          VERSION_FILES="sw.js js/modules/config/BuildInfo.js"
+
+          gh pr list --repo "$REPO" --state open --json number,headRefName,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | "\(.number) \(.headRefName)"' |
+          while read -r NUMBER BRANCH; do
+            echo "::group::PR #$NUMBER ($BRANCH)"
+            git fetch --quiet origin "$BRANCH"
+            git checkout --quiet -B "$BRANCH" "origin/$BRANCH"
+            if git merge --no-edit --quiet origin/main >/dev/null 2>&1; then
+              # Sin conflictos: no se sube nada (GitHub ya puede fusionarlo).
+              git reset --quiet --hard "origin/$BRANCH"
+              echo "sin conflictos"; echo "::endgroup::"; continue
+            fi
+            CONFLICTS=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+            OTHERS=$(for f in $CONFLICTS; do case " $VERSION_FILES " in *" $f "*) ;; *) echo "$f";; esac; done)
+            if [ -n "$OTHERS" ]; then
+              echo "conflictos que requieren revisión: $OTHERS"
+              git merge --abort; echo "::endgroup::"; continue
+            fi
+            VERSION=$(TZ='AST4' date +"%Y.%m%d.%H%M%S")
+            if ! node "$RUNNER_TEMP/resolve.mjs" "$VERSION" $CONFLICTS; then
+              git merge --abort; echo "::endgroup::"; continue
+            fi
+            # Mismo número en los dos archivos aunque solo uno haya chocado.
+            sed -i "s/const CACHE_VERSION = '[^']*'/const CACHE_VERSION = '$VERSION'/" sw.js
+            sed -i "s/export const BUILD = '[^']*'/export const BUILD = '$VERSION'/" js/modules/config/BuildInfo.js
+            git add $VERSION_FILES
+            git commit --quiet --no-edit
+            git push --quiet origin "HEAD:$BRANCH"
+            echo "versión actualizada a $VERSION"
+            echo "::endgroup::"
+          done
