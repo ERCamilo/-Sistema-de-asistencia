@@ -193,8 +193,10 @@ describe('F1.5 attendance e2e battery (real IDB + LS)', () => {
 
             const res = await g.pruneCache();
             expect(res.evicted).toBe(1); // only EA (own project, expired)
-            const remaining = (await g.db.getAll('attendance')).map(r => r.employeeId).sort();
-            expect(remaining).toEqual(['EB', 'EF']); // foreign + legacy survive
+            // Retention only releases memory; IndexedDB keeps every record.
+            expect(Object.values(g.state.attendance).map(r => r.employeeId).sort()).toEqual(['EB', 'EF']); // foreign + legacy survive
+            const stored = (await g.db.getAll('attendance')).map(r => r.employeeId).sort();
+            expect(stored).toEqual(['EA', 'EB', 'EF']);
         }
     });
 
@@ -213,7 +215,8 @@ describe('F1.5 attendance e2e battery (real IDB + LS)', () => {
         };
         const res = await g.pruneCache();
         expect(res.evicted).toBe(2); // whole-day parity: both evicted regardless of tag
-        expect((await g.db.getAll('attendance')).length).toBe(0);
+        expect(Object.keys(g.state.attendance)).toEqual([]);
+        expect((await g.db.getAll('attendance')).length).toBe(2); // memory only: IndexedDB keeps them
 
         // Views: scope disabled ⇒ zero filtering (fail-open parity).
         g.state.attendance = {

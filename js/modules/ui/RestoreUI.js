@@ -313,7 +313,7 @@ export const RestoreUI = {
                 lines.push(`<div style="font-size: 0.75rem; color: #cbd5e1; margin-bottom: 6px;">IDs en backup: ${backupIds.map(esc).join(', ')}</div>`);
             }
             if (foreignIds.length > 0) {
-                lines.push(`<div style="margin-top: 6px;">⚠️ IDs foráneos (no existen en este dispositivo): <b>${foreignIds.map(esc).join(', ')}</b>. No se adoptará ni creará ningún proyecto; el restore conserva la semántica actual.</div>`);
+                lines.push(`<div style="margin-top: 6px;">⚠️ IDs foráneos (no existen en este dispositivo): <b>${foreignIds.map(esc).join(', ')}</b>. Se agregarán desde el respaldo junto con su configuración de nómina.</div>`);
             }
             if (missingConfigs.length > 0) {
                 lines.push(`<div style="margin-top: 6px;">⚠️ Sin configuración de nómina en el backup para: <b>${missingConfigs.map(esc).join(', ')}</b>.</div>`);

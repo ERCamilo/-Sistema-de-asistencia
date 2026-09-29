@@ -185,6 +185,12 @@ import { PettyCashTab, registerPettyCashGlobals } from './modules/features/petty
 import * as SyncUI from './modules/ui/SyncUI.js';
 import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
+import {
+    prepareRestoreProjectSurface,
+    readRestoreProjectPointers,
+    commitRestoredProjectSurface,
+    handleRestoreProjectChoiceRequired
+} from './modules/features/export/ExportController.js';
 import { registerP2PRosterGlobals } from './modules/features/p2p/P2PRosterUI.js';
 import { registerProjectSetupGlobals } from './modules/features/projects/ProjectsUI.js';
 import { registerProjectReconciliationGlobals, renderProjectReconciliationBanner, refreshProjectReconciliationSnapshot, getProjectReconciliationSnapshot } from './modules/features/projects/ProjectReconciliationUI.js';
@@ -6182,6 +6188,12 @@ async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
     try {
         const data = importedData.data;
         const closureOptions = payrollClosureRestoreOptions(data);
+        // Obras: mismo preflight que FULL, antes de tocar nada. Adopta el
+        // catálogo y la config de nómina del respaldo y asigna los datos sin
+        // obra; sin esto la config se perdía y los projectId del respaldo
+        // quedaban huérfanos en un dispositivo que no conocía la obra.
+        const previousProjectPointers = readRestoreProjectPointers();
+        const projects = await prepareRestoreProjectSurface(data);
         suspendedSaveOptions = beginFullImportIsolation();
         isolationActive = true;
         previous = { settings: state.settings, employees: state.employees, positions: state.positions,
@@ -6221,10 +6233,14 @@ async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
         buildAttendanceIndex();
 
         // Guardar en IndexedDB
-        if (!await saveToIndexedDB({ clearFirst: true, ...closureOptions })) {
+        const saveOptions = projects
+            ? { clearFirst: true, ...closureOptions, projectSurface: projects, entityScope: projects.incomingScope }
+            : { clearFirst: true, ...closureOptions };
+        if (!await saveToIndexedDB(saveOptions)) {
             throw new Error('No se pudo restaurar el respaldo; se conservaron los datos anteriores.');
         }
         durableCommitted = true;
+        if (projects) commitRestoredProjectSurface(projects, previousProjectPointers);
         endFullImportIsolation({ commit: true });
         isolationActive = false;
 
@@ -6271,6 +6287,10 @@ async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
         }
         if (isolationActive) endFullImportIsolation({ commit: false });
         if (!durableCommitted) resumeSuspendedSaveOptions(suspendedSaveOptions);
+        if (handleRestoreProjectChoiceRequired(error)) {
+            showNotification('Hay datos sin obra asignada. Elige una obra para continuar la restauración.', 'warning');
+            return false;
+        }
         console.error("Error aplicando backup:", error);
         logError(error, 'aplicar el backup local');
         showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');

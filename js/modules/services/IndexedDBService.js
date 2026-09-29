@@ -777,6 +777,21 @@ export class IndexedDBService {
         });
     }
 
+    /** Asistencia local de un rango inclusivo de fechas (todo si no hay límites). */
+    async getAttendanceByDateRange(startDate, endDate) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const index = this.db.transaction(['attendance'], 'readonly').objectStore('attendance').index('date');
+            let range = null;
+            if (startDate && endDate) range = IDBKeyRange.bound(startDate, endDate);
+            else if (startDate) range = IDBKeyRange.lowerBound(startDate);
+            else if (endDate) range = IDBKeyRange.upperBound(endDate);
+            const request = index.getAll(range);
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
     async getPageByIndex(storeName, indexName, {
         limit = 20,
         direction = 'prev',

@@ -12,11 +12,24 @@ describe('twelve-month attendance retention wiring', () => {
         expect(method).toContain('keys.forEach(key => store.delete(key))');
         expect(method).toContain('transaction.onabort');
     });
-    test('Persistence protects unconfirmed outbox dates and deletes attendance only', () => {
+    test('Persistence protects unconfirmed outbox dates and only releases memory', () => {
         const wiring = PERSISTENCE.match(/createAttendanceCachePruner\(\{[\s\S]*?\n}\);/)?.[0] || '';
         expect(wiring).toContain('MainSyncStore.getUnconfirmedDailyDateKeys()');
-        expect(wiring).toContain("indexedDBService.batchDelete('attendance', keys)");
+        // Sin sesión la asistencia no entra al outbox: IndexedDB puede ser la única copia.
+        expect(wiring).toContain('deleteRecords: async () => {}');
+        expect(wiring).not.toContain('batchDelete');
         expect(wiring).not.toMatch(/employees|leaders|positions|settings|pettyCash/);
+    });
+
+    test('range loading reads local history first and merges the cloud when it answers', () => {
+        const loader = PERSISTENCE.match(/createAttendanceRangeLoader\(\{[\s\S]*?\n        }\);/)?.[0] || '';
+        expect(loader).toContain('await indexedDBService.getAttendanceByDateRange(startDate, endDate)');
+        expect(loader).toContain('FirebaseService.getAttendanceRange(startDate, endDate)');
+        expect(loader).toContain('mergeAttendanceRecords(local, remote)');
+        expect(loader).toMatch(/if \(!Object\.keys\(local\)\.length\) throw error;/);
+        const method = IDB.match(/async getAttendanceByDateRange\([\s\S]*?\n    }/)?.[0] || '';
+        expect(method).toContain(".index('date')");
+        expect(method).toContain('IDBKeyRange.bound(startDate, endDate)');
     });
     test('startup applies retention after outbox rehydration without triggering a save', () => {
         const start = PERSISTENCE.indexOf('export async function loadApplicationData(');
