@@ -2043,6 +2043,38 @@ export async function testConflictedRestore() {
     }
 }
 
+// Puestos fusionados por nombre cuyo registro local aún existe en IndexedDB.
+// El guardado normal solo escribe (no borra), así que sin esta purga el
+// duplicado volvía en cada arranque y se fusionaba y encolaba otra vez.
+const _mergedPositionIdsPendingLocalDelete = new Set();
+
+/**
+ * Borra de IndexedDB los puestos ya fusionados. Solo después de guardar el
+ * remapeo, y solo si nada en memoria los sigue usando.
+ * @returns {Promise<number>} cuántos se borraron
+ */
+export async function purgeMergedPositionsFromLocalStore() {
+    if (_mergedPositionIdsPendingLocalDelete.size === 0) return 0;
+    const inUse = new Set((state.positions || []).map(pos => String(pos?.id)));
+    for (const emp of state.employees || []) {
+        for (const id of emp?.positions || []) inUse.add(String(id));
+        for (const id of Object.keys(emp?.positionSalaries || {})) inUse.add(String(id));
+    }
+    let removed = 0;
+    for (const id of [..._mergedPositionIdsPendingLocalDelete]) {
+        if (inUse.has(id)) continue;
+        try {
+            await indexedDBService.delete('positions', id);
+            _mergedPositionIdsPendingLocalDelete.delete(id);
+            removed++;
+        } catch (error) {
+            console.warn(`⚠️ No se pudo borrar el puesto fusionado ${id} del dispositivo:`, error?.message || error);
+        }
+    }
+    if (removed) debug.log(`🧹 ${removed} puesto(s) duplicado(s) ya fusionado(s) borrado(s) del dispositivo.`);
+    return removed;
+}
+
 /**
  * 🧹 sanitizePositions() - Unifica puestos duplicados y migra IDs a Slugs
  * Este proceso es vital para evitar errores de cálculo de nómina.
@@ -2090,7 +2122,10 @@ export function sanitizePositions(state) {
             // su borrado de la subcolección remota (positions/{id}).
             const masterId = masterIdByKey.get(dedupKey);
             idMap.set(pos.id, masterId);
-            if (pos.id && pos.id !== masterId) enqueueCloudPositionDelete(pos.id);
+            if (pos.id && pos.id !== masterId) {
+                enqueueCloudPositionDelete(pos.id);
+                _mergedPositionIdsPendingLocalDelete.add(String(pos.id));
+            }
             hasChanges = true;
             console.log(`🔗 Fusionando duplicado por nombre: ${pos.name} (${pos.id} -> ${masterId})`);
         }

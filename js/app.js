@@ -2,7 +2,7 @@ import { readPayrollClosuresForBackup, payrollClosureRestoreOptions } from './mo
 import { beginFullImportIsolation, endFullImportIsolation, resumeSuspendedSaveOptions, beginLocalDataWipe } from './modules/services/PersistenceService.js';
 import { installCrossTabDatasetGuard } from './modules/services/CrossTabDatasetGuard.js';
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, purgeMergedPositionsFromLocalStore, loadDemoDataIntoDB, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
 import { hydrateApplicationAndInitializeWeather } from './modules/core/StartupOrchestrator.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
@@ -7861,6 +7861,7 @@ function _initOutgoingConflictGuard() {
             invalidateAllStats();
             debug.log('💾 Guardando cambios de sanitización inicial...');
             await saveApplicationData({ force: true });
+            await purgeMergedPositionsFromLocalStore().catch(() => 0);
             render();
         }
 
@@ -8334,7 +8335,9 @@ function _initOutgoingConflictGuard() {
                         window._isApplyingRemoteData = false;
                         if (window._pendingRemoteSave) {
                             window._pendingRemoteSave = false;
-                            saveToIndexedDB().catch(e => console.warn('⚠️ Error persistiendo datos remotos localmente:', e));
+                            saveToIndexedDB()
+                                .then(() => purgeMergedPositionsFromLocalStore())
+                                .catch(e => console.warn('⚠️ Error persistiendo datos remotos localmente:', e));
                         }
 
                         // 🛡️ POST-SYNC INTEGRITY GUARD (2026-05-20)
