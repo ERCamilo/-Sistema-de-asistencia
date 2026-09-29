@@ -1,3 +1,4 @@
+import { getActivePayrollSettings } from '../../features/payroll/ActivePayrollSettings.js';
 import { Modal } from '../../components/Modal.js';
 import { COLOR_PALETTE } from '../../utils/Constants.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
@@ -45,7 +46,7 @@ export class PositionModal {
         const activeLeaders = state.leaders.filter(l => l.active && entityInScope(l, scope));
         const selectedColor = pos?.color || COLOR_PALETTE[0];
 
-        const regularHours = normalizeRegularHoursPerDay(state.settings.regularHoursPerDay);
+        const regularHours = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
         // Modo en que se cargó la tarifa (aditivo). Reabrimos el input en ese modo.
         const savedMode = pos?.salaryInputMode === 'daily' ? 'daily' : 'hourly';
         const displayRate = pos?.hourlyRate
@@ -341,7 +342,7 @@ export class PositionModal {
         const hourlyRateInput = modalEl.querySelector('#posHourlyRate');
         if (!hourlyRateInput) return;
 
-        const regularHours = normalizeRegularHoursPerDay(state.settings.regularHoursPerDay);
+        const regularHours = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
         const mode = modalEl.querySelector('#posSalaryMode')?.value || 'hourly';
         // El input puede estar en modo día; el preview siempre razona en por-hora.
         const hourlyRate = toStoredHourly(Number.parseFloat(hourlyRateInput.value) || 0, mode, regularHours);
@@ -446,7 +447,7 @@ export class PositionModal {
         const rate = toStoredHourly(
             rawRate,
             salaryMode,
-            normalizeRegularHoursPerDay(state.settings.regularHoursPerDay)
+            normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay)
         );
         // ⚡ Opción A (IDs estables): el id del puesto NO se deriva del nombre.
         // La unicidad se valida por nombre (slug), pero el id es inmutable, así

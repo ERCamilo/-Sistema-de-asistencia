@@ -4,6 +4,7 @@
  * Sprint 7b: handlers moved here from EmployeesUI.js.
  */
 
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { state, stateManager } from '../../core/AppState.js';
@@ -33,7 +34,7 @@ function formatMoney(amount) {
 }
 
 export function getEmployeeEarningsDisplay(emp, positions) {
-    const regularHours = Number(state.settings?.regularHoursPerDay) || 8;
+    const regularHours = Number(getActivePayrollSettings(state).regularHoursPerDay) || 8;
     const amounts = positions.length
         ? positions.map(position => {
             const customRate = Number(emp.positionSalaries?.[position.id]);

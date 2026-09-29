@@ -1,3 +1,4 @@
+import { getActivePayrollSettings } from '../../features/payroll/ActivePayrollSettings.js';
 import { Modal } from '../../components/Modal.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
 import { positionsChanged } from '../../features/employees/Employee.js';
@@ -37,7 +38,7 @@ export class EmployeeModal {
         let showOptionalFields = !!(emp?.phone || emp?.email || emp?.notes);
 
         const hireDateValue = emp?.hireDate || new Date().toISOString().split('T')[0];
-        const regularHours = normalizeRegularHoursPerDay(state.settings.regularHoursPerDay);
+        const regularHours = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
 
         const contentHTML = `
             <div style="max-height: 70vh; overflow-y: auto; padding-right: 8px;" id="employee-modal-form">
@@ -222,7 +223,7 @@ export class EmployeeModal {
         const state = getState();
 
         // Sueldos personalizados (común a todos los caminos)
-        const regularHours = normalizeRegularHoursPerDay(state.settings.regularHoursPerDay);
+        const regularHours = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
         const positionSalaries = {};
         const positionSalaryModes = {};
         el.querySelectorAll('.custom-salary-input').forEach(input => {

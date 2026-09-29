@@ -1,3 +1,4 @@
+import { getActivePayrollSettings } from '../features/payroll/ActivePayrollSettings.js';
 import { getDateKey, parseDate, formatMonthYear } from './DateUtils.js';
 
 // ============================================
@@ -154,7 +155,7 @@ export class DateRangeManager {
 
     // Establecer periodo de pago actual
     setPayPeriod() {
-        const pp = this.state.settings?.payPeriod;
+        const pp = getActivePayrollSettings(this.state).payPeriod;
         if (pp?.periodStart) {
             const start = new Date(pp.periodStart + 'T00:00:00');
             const len = pp.periodLength || 15;

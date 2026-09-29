@@ -30,7 +30,7 @@ export function changeBaseHours(delta) {
             const currentHours = resolveDailyTargetHours(
                 dateKey,
                 state.dayHoursConfig,
-                state.settings?.regularHoursPerDay
+                getActivePayrollSettings(state).regularHoursPerDay
             );
 
             // Calcular nuevo valor

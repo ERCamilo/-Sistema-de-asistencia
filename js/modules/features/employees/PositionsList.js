@@ -6,6 +6,7 @@
  */
 
 import icons from '../../ui/IconSystem.js';
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
@@ -58,7 +59,7 @@ export function PositionCard(pos) {
     const totalAssigned = state.employees.filter(e => (e.positions || []).includes(pos.id)).length;
     const canDelete = totalAssigned === 0 && !pos.active;
     const employeesInPosition = state.employees.filter(e => (e.positions || []).includes(pos.id) && e.active);
-    const hoursPerDay = state.settings?.regularHoursPerDay || 8;
+    const hoursPerDay = getActivePayrollSettings(state).regularHoursPerDay || 8;
     const rateNum = Number(pos.hourlyRate);
     const hourlyRate = Number.isFinite(rateNum) ? rateNum : 0;
     const dailyRate = hourlyRate > 0 ? Math.round(hourlyToDaily(hourlyRate, hoursPerDay)) : 0;

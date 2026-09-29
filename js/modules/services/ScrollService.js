@@ -2,6 +2,7 @@
  * 🛰️ SCROLL SERVICE (Mini-mapa)
  * Maneja el renderizado de indicadores (ausencias/extras) en la barra de scroll.
  */
+import { getActivePayrollSettings } from '../features/payroll/ActivePayrollSettings.js';
 import { state } from '../core/AppState.js';
 import { getDateKey, isDayHoliday } from '../utils/DateUtils.js';
 
@@ -68,9 +69,9 @@ export const ScrollService = {
         
         let dotsHTML = '';
         const total = employees.length;
-        const regular = state.settings?.regularHoursPerDay || 8;
+        const regular = getActivePayrollSettings(state).regularHoursPerDay || 8;
         const tolerance = 0.1;
-        const isH = isDayHoliday(state.selectedDate, state.settings?.holidays);
+        const isH = isDayHoliday(state.selectedDate, getActivePayrollSettings(state).holidays);
         
         employees.forEach((emp, index) => {
             const key = `${emp.id}-${dateKey}`;

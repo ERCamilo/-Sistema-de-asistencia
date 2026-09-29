@@ -9,6 +9,7 @@
  * dispatcher in app.js keeps resolving them.
  */
 
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { getDateKey } from '../../utils/DateUtils.js';
@@ -398,7 +399,7 @@ export function setProfilePeriod(preset) {
             end = today;
             break;
         case 'payPeriod': {
-            const pp = state.settings.payPeriod;
+            const pp = getActivePayrollSettings(state).payPeriod;
             if (pp?.periodStart) {
                 start = new Date(pp.periodStart + 'T00:00:00');
                 const len = pp.periodLength || 15;
@@ -411,7 +412,7 @@ export function setProfilePeriod(preset) {
             break;
         }
         case 'lastPayment': {
-            const pp = state.settings.payPeriod;
+            const pp = getActivePayrollSettings(state).payPeriod;
             if (pp?.periodStart) {
                 start = new Date(pp.periodStart + 'T00:00:00');
                 end = today;

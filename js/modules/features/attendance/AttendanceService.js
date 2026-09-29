@@ -1,3 +1,4 @@
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import icons from '../../ui/IconSystem.js';
 import { getDateKey, isDayHoliday } from '../../utils/DateUtils.js';
 import { getDeviceId } from '../../config/Config.js';
@@ -34,9 +35,9 @@ export class AttendanceService {
             employeeId,
             date: dateKey,
             present: true,
-            hoursWorked: options.hoursWorked || this.state.settings.regularHoursPerDay,
+            hoursWorked: options.hoursWorked || getActivePayrollSettings(this.state).regularHoursPerDay,
             overtimeHours: options.overtimeHours || 0,
-            isHoliday: options.isHoliday !== undefined ? options.isHoliday : isDayHoliday(date, this.state.settings?.holidays || []),
+            isHoliday: options.isHoliday !== undefined ? options.isHoliday : isDayHoliday(date, getActivePayrollSettings(this.state).holidays || []),
             selectedPosition: options.selectedPosition || emp.positions[0] || null,
             multiPosition: options.multiPosition || false,
             positionHours: options.positionHours || [],

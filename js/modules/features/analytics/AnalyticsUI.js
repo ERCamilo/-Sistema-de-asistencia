@@ -86,6 +86,7 @@ _attachAnalyticsDelegation();
 
 import { memoCache } from '../../utils/MemoCache.js';
 import { stateManager } from '../../core/AppState.js';
+import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange, isDateInPayPeriod, isPayday } from '../../utils/DateUtils.js';
 import { buildEmployeeReportData } from './EmployeeReportData.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
@@ -105,9 +106,40 @@ export function init(ctx) {
     employeeReportDateManagerV2 = new EmployeeReportDateManagerV2(ctx.state, ctx.saveToLocalStorage);
 }
 
-function getState() {
-    return context.state;
+// Reportes muestran solo la obra activa: los empleados se filtran por obra
+// (la asistencia se busca por empleado). Todo lo demás, incluidas las
+// escrituras (rangos de fechas, modales), va directo al estado real.
+let scopedEmployeesMemo = { source: null, projectId: null, list: null };
+let scopedStateMemo = { target: null, proxy: null };
+function scopedEmployees(target) {
+    const source = target.employees || [];
+    const scope = peekEntityScope();
+    const projectId = scope?.enabled ? String(scope.projectId || '') : '';
+    if (!projectId) return source;
+    if (scopedEmployeesMemo.source !== source || scopedEmployeesMemo.projectId !== projectId) {
+        scopedEmployeesMemo = { source, projectId, list: source.filter(employee => entityInScope(employee, scope)) };
+    }
+    return scopedEmployeesMemo.list;
 }
+function getState() {
+    const target = context.state;
+    if (scopedStateMemo.target !== target) {
+        scopedStateMemo = {
+            target,
+            proxy: new Proxy(target, {
+                get(obj, key) {
+                    return key === 'employees' ? scopedEmployees(obj) : obj[key];
+                },
+                set(obj, key, value) {
+                    obj[key] = value;
+                    return true;
+                }
+            })
+        };
+    }
+    return scopedStateMemo.proxy;
+}
+export { getState as getReportsState };
 
 /**
  * Inicializa un gráfico de forma segura, destruyendo cualquier instancia previa
@@ -359,7 +391,7 @@ function getHoursChartData() {
             if (!weeks[weekKey]) weeks[weekKey] = { label: 'Semana ' + formatDateShort(weekStart), regular: 0, overtime: 0, holiday: 0 };
 
             const dateKey = getDateKey(date);
-            const isHoliday = isDayHoliday(date);
+            const isHoliday = isDayHoliday(date, getActivePayrollSettings(state).holidays);
 
             state.employees.filter(e => e.active).forEach(emp => {
                 const key = `${ emp.id }-${ dateKey }`;
@@ -1043,7 +1075,7 @@ function calculateEmployeeReportData() {
     const days = [];
     for (let d = new Date(startDateObj); d <= endDateObj; d.setDate(d.getDate() + 1)) {
         const date = new Date(d);
-        days.push({ date: date, isHoliday: isDayHoliday(date) });
+        days.push({ date: date, isHoliday: isDayHoliday(date, getActivePayrollSettings(state).holidays) });
     }
 
     // El armado vive en EmployeeReportData (puro, testeado). Regla que arregla
@@ -2044,7 +2076,7 @@ export function getPastPeriodsList(state, closures = []) {
     }
 
     // 2. Ciclos calculados a partir de settings.payPeriod
-    const pp = state?.settings?.payPeriod;
+    const pp = getActivePayrollSettings(state).payPeriod;
     const len = Number(pp?.periodLength) || 15;
     let anchorStart;
     if (typeof pp?.periodStart === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(pp.periodStart)) {
