@@ -1357,7 +1357,7 @@ function _movementsList(
             return `<div data-app-fn="pcOpenMovement" data-arg="${m.id}" role="button" tabindex="0" title="Ver / editar detalle"
                 style="display:flex;align-items:center;gap:10px;background:#0f172a;border:1px solid #1e293b;border-radius:9px;padding:10px 12px;cursor:pointer;">
                 <div style="flex:1;min-width:0;">
-                    <div style="font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:6px;">
+                    <div style="font-weight:600;font-size:.9rem;display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;">
                         <span style="font-size:.68rem;color:#38bdf8;font-variant-numeric:tabular-nums;">${formatPettyCashRecordNumber(m.recordNumber)}</span>
                         ${isGasto ? '🏪' : '💰'} ${esc(titulo)}
                         ${m.reviewPending ? '<span title="Creado automáticamente — toca para revisar y confirmar" style="font-size:.62rem;background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.5);padding:1px 7px;border-radius:999px;font-weight:700;">⚠️ Revisar</span>' : ''}
