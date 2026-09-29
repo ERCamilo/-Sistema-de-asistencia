@@ -567,17 +567,18 @@ async function applyDuplicateMerges() {
     rerenderModal();
     let merged = 0;
     try {
-        const persistence = await import('../../services/PersistenceService.js');
+        // Servicio único de duplicados: lápida con mergedIntoId en la nube y
+        // limpieza de la copia en el dispositivo (no un borrado directo).
+        const duplicates = await import('../employees/EmployeeDuplicateService.js');
         for (const { dupId, masterId } of pairs) {
             const hasBoth = state.employees.some(employee => employee.id === dupId) && state.employees.some(employee => employee.id === masterId);
             if (!hasBoth) continue;
-            if (persistence.mergeEmployees(masterId, dupId)) {
-                persistence.enqueueCloudEmployeeDelete(dupId);
+            if (duplicates.mergeDuplicateEmployees({ masterId, duplicateIds: [dupId] }).merged) {
                 modalState.selectedIds.delete(dupId);
                 merged++;
             }
         }
-        if (merged) await persistence.saveApplicationData({ immediate: true });
+        if (merged) await duplicates.persistDuplicateResolution();
         modalState.message = merged ? merged + ' empleado(s) duplicado(s) fusionado(s).' : 'No se fusionó ningún empleado: los datos cambiaron. Revisa de nuevo.';
     } catch (error) {
         console.error('Fusión de duplicados:', error);

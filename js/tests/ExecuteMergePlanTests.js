@@ -21,12 +21,22 @@ import {
     getPendingCloudDeletes,
     clearPendingCloudDeletes
 } from '../modules/services/PersistenceService.js';
+import { MainSyncStore } from '../modules/services/MainSyncStore.js';
+import { mergedTargetOf, EMPLOYEE_MERGE_REGISTRY_KEY } from '../modules/features/employees/EmployeeMergeRegistry.js';
 
+// Servicio único de duplicados: toda copia fusionada recibe una lápida con
+// mergedIntoId (no un borrado directo) y queda en el registro local.
+let enqueued = [];
+const realEnqueueDelete = MainSyncStore.enqueueDelete;
 function resetState() {
     state.employees = [];
     state.attendance = {};
     clearPendingCloudDeletes();
+    try { localStorage.removeItem(EMPLOYEE_MERGE_REGISTRY_KEY); } catch (_) {}
+    enqueued = [];
+    MainSyncStore.enqueueDelete = async (entity, id, schemaVersion, opts = {}) => { enqueued.push({ entity, id, ...opts }); };
 }
+const tombstoneFor = id => enqueued.find(entry => entry.entity === 'employee' && entry.id === id);
 
 testRunner.addSuite("ConflictPlanner.executeMergePlan (Tarea #19)", {
 
@@ -99,9 +109,12 @@ testRunner.addSuite("ConflictPlanner.executeMergePlan (Tarea #19)", {
         }];
 
         executeMergePlan(plan);
-        const pending = getPendingCloudDeletes();
-        testRunner.assert(pending.includes('eCloud'),
-            'El loser cloud-only debe quedar en la cola de borrado remoto');
+        testRunner.assertEquals(tombstoneFor('eCloud')?.mergedIntoId, 'eM',
+            'El loser cloud-only recibe una lápida que apunta al master');
+        testRunner.assert(Number.isFinite(tombstoneFor('eCloud')?.deletedAt));
+        testRunner.assertEquals(getPendingCloudDeletes().length, 0, 'Ya no se usa el borrado directo');
+        testRunner.assertEquals(mergedTargetOf('eCloud'), 'eM');
+        MainSyncStore.enqueueDelete = realEnqueueDelete;
     },
 
     "loser con _source='both': también se encola para borrado remoto"() {
@@ -121,10 +134,11 @@ testRunner.addSuite("ConflictPlanner.executeMergePlan (Tarea #19)", {
         }];
 
         executeMergePlan(plan);
-        testRunner.assert(getPendingCloudDeletes().includes('eBoth'));
+        testRunner.assertEquals(tombstoneFor('eBoth')?.mergedIntoId, 'eM');
+        MainSyncStore.enqueueDelete = realEnqueueDelete;
     },
 
-    "loser con _source='local': NO encola borrado remoto"() {
+    "loser con _source='local': también recibe lápida (su doc puede existir en la nube aunque no se haya leído)"() {
         resetState();
         state.employees = [
             { id: 'eM', name: 'Carlos', number: '003', _source: 'local' },
@@ -142,8 +156,9 @@ testRunner.addSuite("ConflictPlanner.executeMergePlan (Tarea #19)", {
         }];
 
         executeMergePlan(plan);
-        testRunner.assertEquals(getPendingCloudDeletes().length, 0,
-            'Loser local-only no necesita borrado remoto');
+        testRunner.assertEquals(tombstoneFor('eL')?.mergedIntoId, 'eM');
+        testRunner.assertEquals(getPendingCloudDeletes().length, 0);
+        MainSyncStore.enqueueDelete = realEnqueueDelete;
     },
 
     "miembro cloud-only se asimila al state antes de fusionar (préstamos preservados)"() {
