@@ -316,6 +316,38 @@ function targetPositionsForProject(projectId) {
         .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { numeric: true }));
 }
 
+// Auditoría de días por (empleado, puesto). Cada redibujado del asistente la
+// pedía para cada empleado y puesto recorriendo TODA la asistencia (≈0,5 s por
+// clic con ~3.000 registros). Se agrupa una vez por empleado y se memoriza
+// mientras el mapa de asistencia sea el mismo; se reinicia al abrir y al aplicar.
+let positionAuditCache = null;
+function resetPositionAuditCache() {
+    positionAuditCache = null;
+    preflightCache = null;
+}
+function positionDaysAudit(employeeId, positionId) {
+    // Objeto real bajo el proxy del estado: identidad estable y sin coste por acceso.
+    const proxied = state.attendance || {};
+    const attendance = proxied._rawTarget || proxied;
+    if (!positionAuditCache || positionAuditCache.attendance !== attendance) {
+        const byEmployee = new Map();
+        for (const [key, record] of Object.entries(attendance)) {
+            const owner = String(record?.employeeId ?? '').trim() || String(key).slice(0, -11);
+            if (!byEmployee.has(owner)) byEmployee.set(owner, {});
+            byEmployee.get(owner)[key] = record;
+        }
+        positionAuditCache = { attendance, byEmployee, audits: new Map() };
+    }
+    const cacheKey = String(employeeId) + '\u0000' + String(positionId);
+    if (!positionAuditCache.audits.has(cacheKey)) {
+        positionAuditCache.audits.set(cacheKey, collectPositionDays(
+            positionAuditCache.byEmployee.get(String(employeeId)) || {},
+            { employeeId, positionId }
+        ));
+    }
+    return positionAuditCache.audits.get(cacheKey);
+}
+
 function selectedPositionRemapNeeds(includeAssigned = false) {
     if (!['map', 'create'].includes(modalState.action)) return [];
     const target = currentTargetProjectId();
@@ -338,10 +370,7 @@ function selectedPositionRemapNeeds(includeAssigned = false) {
                 employee,
                 fromPositionId,
                 fromPosition: position || null,
-                audit: collectPositionDays(state.attendance || {}, {
-                    employeeId: row.id,
-                    positionId: fromPositionId
-                })
+                audit: positionDaysAudit(row.id, fromPositionId)
             });
         }
     }
@@ -382,7 +411,34 @@ function financialRecoveryControls() {
         + '</fieldset>';
 }
 
+// La simulación completa (dependencias + previewOwnershipRepair) cuesta ~2 s
+// con miles de registros y se pedía en cada redibujado. Se memoriza mientras no
+// cambien las decisiones del asistente ni los datos (identidad de los mapas).
+let preflightCache = null;
+const rawOf = value => (value && value._rawTarget) || value;
+function preflightCacheKey() {
+    const sorted = set => [...(set || [])].sort();
+    return JSON.stringify({
+        action: modalState.action, target: modalState.targetProjectId, createName: modalState.createName,
+        createProjectId: modalState.createProjectId, deep: modalState.step >= 3,
+        selected: sorted(modalState.selectedIds), entities: sorted(modalState.entitySelectedIds),
+        cash: sorted(modalState.pettyCashIds), leaderRemaps: modalState.leaderRemaps, leaderCopies: modalState.leaderCopies,
+        positionRemaps: modalState.positionRemaps, positionCopies: modalState.positionCopies,
+        recoverFinancial: modalState.recoverFinancial, configurationSource: modalState.configurationSource,
+        orphanAttendance: modalState.includeOrphanAttendance
+    });
+}
 function currentPreflight() {
+    const key = preflightCacheKey();
+    const sources = [rawOf(state.employees), rawOf(state.positions), rawOf(state.leaders), rawOf(state.attendance), snapshot];
+    if (preflightCache && preflightCache.key === key && preflightCache.sources.every((source, index) => source === sources[index])) {
+        return preflightCache.value;
+    }
+    const value = computePreflight();
+    preflightCache = { key, sources, value };
+    return value;
+}
+function computePreflight() {
     if (!['map', 'create'].includes(modalState.action)) return { ok: true, conflicts: [] };
     const targetProjectId = currentTargetProjectId();
     if (!targetProjectId) return { ok: false, conflicts: [] };
@@ -1144,6 +1200,7 @@ async function applyFinancialPlanResolution() {
         await refreshProjectReconciliationSnapshot();
         modalState.financialReview = null;
         invalidateAllStats();
+        resetPositionAuditCache();
         window.render?.();
         window.showNotification?.(result.cloudQueued === false
             ? 'Plan guardado localmente. Sincronización pendiente.' : 'Obra del plan actualizada.',
@@ -1303,6 +1360,7 @@ function rerenderModal() {
 }
 
 export async function openProjectReconciliation({ onClose } = {}) {
+    resetPositionAuditCache();
     await refreshProjectReconciliationSnapshot();
     modalState = initialModalState();
     modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
@@ -1454,6 +1512,7 @@ async function applyLocalResolution() {
         }
 
         invalidateAllStats();
+        resetPositionAuditCache();
         buildAttendanceIndex();
         const createdProject = result.createdProject || null;
         const before = signature(snapshot);
@@ -1544,6 +1603,7 @@ async function applyCatalogResolution() {
             modalState.entityMessage = repairFailureText(result);
         } else {
             invalidateAllStats();
+            resetPositionAuditCache();
             await refreshProjectReconciliationSnapshot();
             modalState.entitySelectedIds = new Set();
             window.render?.();
