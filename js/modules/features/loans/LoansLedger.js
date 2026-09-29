@@ -58,6 +58,23 @@ import {
     PAYMENT_PLAN_MODE
 } from './LoanPaymentPlan.js';
 
+// Tres fechas por tarjeta: último préstamo/refinanciamiento, último pago y
+// última actualización. La del orden activo se resalta.
+const LOAN_DATE_SORTS = [
+    { key: 'assigned', field: 'lastAssignedDate', label: 'Préstamo', title: 'fecha del último préstamo o refinanciamiento', tooltip: 'Fecha del último préstamo o refinanciamiento', icon: 'calendar', prefix: 'Préstamo' },
+    { key: 'payment', field: 'lastPaymentDate', label: 'Pago', title: 'fecha del último pago', tooltip: 'Último pago', icon: 'check', prefix: 'Pago' },
+    { key: 'date', field: 'lastLoanDate', label: 'Actualizado', title: 'última actualización', tooltip: 'Última actualización', icon: 'clock', prefix: 'Actualizado' }
+];
+
+function renderLoanDates(item, sortBy) {
+    return LOAN_DATE_SORTS.map(option => {
+        const value = item?.[option.field];
+        const active = sortBy === option.key;
+        const text = value ? formatLoanShortDate(value) : (option.key === 'payment' ? 'sin pagos' : '—');
+        return `<span>·</span><span class="loan-card-date${active ? ' is-sorted' : ''}" style="color: ${active ? '#06b6d4' : '#94a3b8'}; font-weight: ${active ? '700' : '400'}; display: inline-flex; align-items: center; gap: 3px;" title="${escapeAttr(option.tooltip + ': ' + text)}">${icons.get(option.icon, { size: 11 })} ${escapeHTML(option.prefix)} ${escapeHTML(text)}</span>`;
+    }).join('');
+}
+
 function getScopedLoanEmployees() {
     const projectScope = peekEntityScope();
     return (state.employees || []).filter(employee => entityInScope(employee, projectScope));
@@ -304,11 +321,12 @@ function LedgerOverview() {
                                     class="loan-sort-btn ${sortBy === 'balance' ? 'active' : ''}">
                                 Monto ${sortBy === 'balance' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
                             </button>
-                            <button type="button" data-app-fn="setLoansSortBy" data-arg="date"
-                                    title="Ordenar por fecha del último préstamo (${sortBy === 'date' && sortOrder === 'desc' ? 'Más reciente' : 'Más antiguo'})"
-                                    class="loan-sort-btn ${sortBy === 'date' ? 'active' : ''}">
-                                Fecha ${sortBy === 'date' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
-                            </button>
+                            ${LOAN_DATE_SORTS.map(option => `
+                            <button type="button" data-app-fn="setLoansSortBy" data-arg="${option.key}"
+                                    title="Ordenar por ${option.title} (${sortBy === option.key && sortOrder === 'asc' ? 'Más antiguo primero' : 'Más reciente primero'})"
+                                    class="loan-sort-btn ${sortBy === option.key ? 'active' : ''}">
+                                ${option.label} ${sortBy === option.key ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+                            </button>`).join('')}
                         </div>
 
                         <!-- Botón Toggle de Filtros Avanzados -->
@@ -371,10 +389,9 @@ function LedgerOverview() {
                     </div>
                 </div>
                 ` : sorted.map(item => {
-                    const isDateSorted = sortBy === 'date';
                     const isAmountSorted = sortBy === 'balance';
                     const isNumberSorted = sortBy === 'number';
-                    const formattedDate = item.lastLoanDate ? formatLoanShortDate(item.lastLoanDate) : null;
+                    const loanDates = renderLoanDates(item, sortBy);
 
                     if (displayMode === 'individual') {
                         // Tarjeta individual por préstamo (desglosada por unidad)
@@ -402,12 +419,7 @@ function LedgerOverview() {
                                     <span>${item.installmentMode === 'installments' ? `${item.installmentCount || 1} cuotas` : 'Pago único'}</span>
                                     <span>·</span>
                                     <span>Pagado ${formatCurrency(item.totalPaid)}</span>
-                                    ${formattedDate ? `
-                                        <span>·</span>
-                                        <span style="color: ${isDateSorted ? '#06b6d4' : '#94a3b8'}; font-weight: ${isDateSorted ? '700' : '400'}; display: inline-flex; align-items: center; gap: 3px;" title="Última actividad: ${formattedDate}">
-                                            ${icons.get('calendar', { size: 11 })} ${formattedDate}
-                                        </span>
-                                    ` : ''}
+                                    ${loanDates}
                                 </div>
                             </div>
                             <!-- Balance pinned to the right -->
@@ -441,12 +453,7 @@ function LedgerOverview() {
                                 <span>${item.loanCount} préstamo${item.loanCount === 1 ? '' : 's'}</span>
                                 <span>·</span>
                                 <span>Pagado ${formatCurrency(item.totalPaid)}</span>
-                                ${formattedDate ? `
-                                    <span>·</span>
-                                    <span style="color: ${isDateSorted ? '#06b6d4' : '#94a3b8'}; font-weight: ${isDateSorted ? '700' : '400'}; display: inline-flex; align-items: center; gap: 3px;" title="Última actividad: ${formattedDate}">
-                                        ${icons.get('calendar', { size: 11 })} ${formattedDate}
-                                    </span>
-                                ` : ''}
+                                ${loanDates}
                             </div>
                         </div>
                         <!-- Balance pinned to the right -->
