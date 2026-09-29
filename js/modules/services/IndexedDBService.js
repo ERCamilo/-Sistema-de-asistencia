@@ -1180,7 +1180,9 @@ export class IndexedDBService {
      * @param {Object} options - Opciones (ej. { clearFirst: false })
      */
     async saveState(state, options = {}) {
-        const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0 };
+        const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0, orphanWritesSkipped: 0 };
+        const orphanWriteExclusions = { employees: new Set(), positions: new Set(), leaders: new Set(), attendance: new Set() };
+        const writable = (storeName, keyOf) => record => !orphanWriteExclusions[storeName].has(keyOf(record));
         const entityScope = options.entityScope || captureEntityProjectScope();
         const previousEpochFlightGuard = this._epochFlightGuard;
         try {
@@ -1263,13 +1265,31 @@ export class IndexedDBService {
                     ...(state.leaders || []),
                     ...Object.values(state.attendance || {})
                 ].filter(record => record && typeof record === 'object');
-                const invalidRecord = projectOwnedRecords.find(record => {
-                    const pid = String(effectiveProjectId(record, validationScope) ?? '').trim();
-                    return !pid || !validProjectIds.has(pid);
-                });
-                if (invalidRecord) {
-                    console.warn('IndexedDB: guardado bloqueado para evitar una relacion huerfana de obra.');
-                    return stats;
+                // Solo se omite lo que CREARÍA una relación huérfana: un registro
+                // nuevo o cuya obra cambió a una inexistente. Lo que ya estaba
+                // guardado así se reescribe igual (no cambia su obra) y el resto
+                // se guarda. Antes cualquier huérfano bloqueaba TODO el guardado
+                // en silencio y las ediciones se perdían al recargar.
+                const ownerOf = record => String(effectiveProjectId(record, validationScope) ?? '').trim();
+                const isInvalid = record => { const pid = ownerOf(record); return !pid || !validProjectIds.has(pid); };
+                const collections = [
+                    ['employees', state.employees || [], record => record?.id],
+                    ['positions', state.positions || [], record => record?.id],
+                    ['leaders', state.leaders || [], record => record?.id],
+                    ['attendance', Object.entries(state.attendance || {}).map(([key, value]) => ({ ...value, key })), record => record?.key]
+                ];
+                for (const [storeName, records, keyOf] of collections) {
+                    for (const record of records) {
+                        if (!record || typeof record !== 'object' || !isInvalid(record)) continue;
+                        const key = keyOf(record);
+                        const durable = key != null ? await this.get(storeName, key).catch(() => null) : null;
+                        if (durable && ownerOf(durable) === ownerOf(record)) continue;
+                        orphanWriteExclusions[storeName].add(key);
+                        stats.orphanWritesSkipped++;
+                    }
+                }
+                if (stats.orphanWritesSkipped > 0) {
+                    console.warn(`IndexedDB: ${stats.orphanWritesSkipped} registro(s) sin obra válida no se guardaron para no crear relaciones huérfanas; el resto se guardó.`);
                 }
             }
 
@@ -1327,7 +1347,7 @@ export class IndexedDBService {
                 });
 
                 // GUARDADO DE METADATOS
-                stats.employees = await this.batchUpdate('employees', [...empMap.values()]);
+                stats.employees = await this.batchUpdate('employees', [...empMap.values()].filter(writable('employees', e => e?.id)));
                 // 🛡️ C02-NEW-1: re-verificar la época tras CADA await — si un
                 // mutación durable del dataset comprometió durante el vuelo, no emitir los
                 // writes restantes (silencioso, sin lanzar: un throw caería al
@@ -1337,12 +1357,12 @@ export class IndexedDBService {
                     console.warn('🛡️ IndexedDB: guardado local obsoleto — mutación durable del dataset comprometió durante el vuelo; se detiene el guardado (employees).');
                     return stats;
                 }
-                stats.positions = await this.batchUpdate('positions', state.positions || []);
+                stats.positions = await this.batchUpdate('positions', (state.positions || []).filter(writable('positions', p => p?.id)));
                 if (this._isDatasetEpochStale()) {
                     console.warn('🛡️ IndexedDB: guardado local obsoleto — mutación durable del dataset comprometió durante el vuelo; se detiene el guardado (positions).');
                     return stats;
                 }
-                stats.leaders = await this.batchUpdate('leaders', [...leadMap.values()]);
+                stats.leaders = await this.batchUpdate('leaders', [...leadMap.values()].filter(writable('leaders', l => l?.id)));
                 if (this._isDatasetEpochStale()) {
                     console.warn('🛡️ IndexedDB: guardado local obsoleto — mutación durable del dataset comprometió durante el vuelo; se detiene el guardado (leaders).');
                     return stats;
@@ -1402,7 +1422,7 @@ export class IndexedDBService {
                 return true;
             });
 
-            stats.attendance = await this.batchUpdate('attendance', attToSave);
+            stats.attendance = await this.batchUpdate('attendance', attToSave.filter(writable('attendance', r => r?.key)));
 
             // 🛡️ C02-NEW-1: misma re-verificación de época antes de pisar
             // settings — es el upsert final del vuelo y el más persistente
