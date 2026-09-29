@@ -1,3 +1,4 @@
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 
 export class ChartService {
@@ -26,9 +27,9 @@ export class ChartService {
                     if (att.isHoliday) {
                         holiday = att.hoursWorked;
                         absent = 0;
-                    } else if (att.hoursWorked > this.state.settings.regularHoursPerDay) {
-                        regular = this.state.settings.regularHoursPerDay;
-                        overtime = att.hoursWorked - this.state.settings.regularHoursPerDay;
+                    } else if (att.hoursWorked > getActivePayrollSettings(this.state).regularHoursPerDay) {
+                        regular = getActivePayrollSettings(this.state).regularHoursPerDay;
+                        overtime = att.hoursWorked - getActivePayrollSettings(this.state).regularHoursPerDay;
                         absent = 0;
                     } else {
                         regular = att.hoursWorked;
@@ -52,9 +53,9 @@ export class ChartService {
                     if (att.isHoliday) {
                         holiday = att.hoursWorked;
                         absent = 0;
-                    } else if (att.hoursWorked > this.state.settings.regularHoursPerDay) {
-                        regular = this.state.settings.regularHoursPerDay;
-                        overtime = att.hoursWorked - this.state.settings.regularHoursPerDay;
+                    } else if (att.hoursWorked > getActivePayrollSettings(this.state).regularHoursPerDay) {
+                        regular = getActivePayrollSettings(this.state).regularHoursPerDay;
+                        overtime = att.hoursWorked - getActivePayrollSettings(this.state).regularHoursPerDay;
                         absent = 0;
                     } else {
                         regular = att.hoursWorked;
@@ -92,9 +93,9 @@ export class ChartService {
                     if (att && att.present) {
                         if (att.isHoliday) {
                             monthHoliday += att.hoursWorked;
-                        } else if (att.hoursWorked > this.state.settings.regularHoursPerDay) {
-                            monthRegular += this.state.settings.regularHoursPerDay;
-                            monthOvertime += (att.hoursWorked - this.state.settings.regularHoursPerDay);
+                        } else if (att.hoursWorked > getActivePayrollSettings(this.state).regularHoursPerDay) {
+                            monthRegular += getActivePayrollSettings(this.state).regularHoursPerDay;
+                            monthOvertime += (att.hoursWorked - getActivePayrollSettings(this.state).regularHoursPerDay);
                         } else {
                             monthRegular += att.hoursWorked;
                         }

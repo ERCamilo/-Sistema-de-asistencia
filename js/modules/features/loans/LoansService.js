@@ -24,6 +24,7 @@
  * numbers — for a payroll app of this scale, the precision is sufficient.
  */
 
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { recordNestedTombstone } from '../../services/NestedTombstones.js';
 import { ProjectScopedGateError } from '../../config/TandaBGate.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
@@ -1215,7 +1216,7 @@ export function getClosedLoansCount(state) {
  */
 export function getCalendarPeriodWeeks(stateObj = null) {
     const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
-    const periodLength = Number(resolvedState.settings?.payPeriod?.periodLength);
+    const periodLength = Number(getActivePayrollSettings(resolvedState).payPeriod?.periodLength);
     if (Number.isInteger(periodLength) && periodLength > 0) {
         return round2(periodLength / 7);
     }
@@ -1241,7 +1242,7 @@ export function getEmployeePeriodSalary(emp, frequencyWeeks = null, stateObj = n
     if (!emp) return 0;
     const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
     const weeks = frequencyWeeks && Number(frequencyWeeks) > 0 ? Number(frequencyWeeks) : getCalendarPeriodWeeks(resolvedState);
-    const regularHours = Number(resolvedState.settings?.regularHoursPerDay) || 8;
+    const regularHours = Number(getActivePayrollSettings(resolvedState).regularHoursPerDay) || 8;
     const WEEKS_PER_MONTH = 52 / 12;
 
     let weeklyEarnings = 0;
@@ -1348,7 +1349,7 @@ export function calculateRepaymentCapacity({
     const weeks = frequencyWeeks && Number(frequencyWeeks) > 0 ? Number(frequencyWeeks) : getCalendarPeriodWeeks(stateObj);
 
     const resolvedState = stateObj || (typeof state !== 'undefined' ? state : (typeof window !== 'undefined' ? window.state : null)) || {};
-    const configuredDays = Number(resolvedState.settings?.payPeriod?.periodLength);
+    const configuredDays = Number(getActivePayrollSettings(resolvedState).payPeriod?.periodLength);
 
     const periodNames = {
         1: 'semanal',

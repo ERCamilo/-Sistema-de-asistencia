@@ -3,6 +3,7 @@
  * Parte de la Fase 4: Modularización y Componentización
  */
 
+import { getActivePayrollSettings } from '../features/payroll/ActivePayrollSettings.js';
 import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.js';
 import icons from './IconSystem.js';
 import { entityInScope, peekEntityScope } from '../features/projects/ProjectContext.js';
@@ -156,7 +157,7 @@ export function DateControlsCompact() {
 
     const isToday = getDateKey(new Date()) === getDateKey(state.selectedDate);
     const dayHours = getDayHours(state.selectedDate);
-    const regularHoursPerDay = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
+    const regularHoursPerDay = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
     let hourColor = '#10b981';
     if (dayHours > regularHoursPerDay) {
         hourColor = '#3b82f6';
@@ -220,7 +221,7 @@ export function formatSplitName(fullName) {
  */
 export function getDayHours(date) {
     const key = getDateKey(date);
-    return resolveDailyTargetHours(key, state.dayHoursConfig, state.settings?.regularHoursPerDay);
+    return resolveDailyTargetHours(key, state.dayHoursConfig, getActivePayrollSettings(state).regularHoursPerDay);
 }
 
 /**
@@ -233,11 +234,11 @@ export function getCheckColor(att, date) {
         return 'check-multiposition';
     }
     // Día festivo (DORADO)
-    if (isDayHoliday(date, state.settings?.holidays)) return 'check-holiday';
+    if (isDayHoliday(date, getActivePayrollSettings(state).holidays)) return 'check-holiday';
 
     // Horas trabajadas vs Configuración Global General
     const hours = att.hoursWorked || 0;
-    const regular = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
+    const regular = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
     const tolerance = 0.1;
 
     if (hours > regular + tolerance) return 'check-overtime';
@@ -334,7 +335,7 @@ function ControlesAsistenciaHoy(isToday, todayBtnStyle, todayIconColor) {
  * 📅 COMPONENTE: DateControls (Estándar)
  */
 export function DateControls() {
-    const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
+    const isHoliday = isDayHoliday(state.selectedDate, getActivePayrollSettings(state).holidays);
     const dayHours = getDayHours(state.selectedDate);
     const periodInfo = state.viewMode === 'week' ? getPeriodViewDates(state.selectedDate) : null;
     const displayText = state.viewMode === 'week'
@@ -348,7 +349,7 @@ export function DateControls() {
     const weekLabel = 'Semana';
 
     // Semántica de colores en horas (Refactorizado de operador ternario anidado)
-    const regularHoursPerDay = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
+    const regularHoursPerDay = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
     let hourColor = '#10b981';
     if (dayHours > regularHoursPerDay) {
         hourColor = '#3b82f6';
@@ -906,7 +907,7 @@ export function EmployeeRow(emp) {
         selectedDate: state.selectedDate,
         attendance: state.attendance,
         positions: state.positions,
-        settings: state.settings,
+        settings: getActivePayrollSettings(state),
         dayHoursConfig: state.dayHoursConfig
     });
 
@@ -923,9 +924,9 @@ export function EmployeeRow(emp) {
             emp.updatedAt ?? 0,
             att?.present ?? false,
             state.listDisplayMode,
-            normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay),
+            normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay),
             getDayHours(state.selectedDate),
-            (state.settings.holidays || []).join(','),
+            (getActivePayrollSettings(state).holidays || []).join(','),
             state.settings?.restDayFactor ?? 1.5,
             state.tempPositionSelection?.[attKey] || '',
             att?.selectedPosition || '',
@@ -966,7 +967,7 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel, periodMetrics
         : [];
     const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
 
-    const isHoliday = isDayHoliday(state.selectedDate, state.settings?.holidays) || att?.isHoliday;
+    const isHoliday = isDayHoliday(state.selectedDate, getActivePayrollSettings(state).holidays) || att?.isHoliday;
     const activePos = selPos ? state.positions.find(p => p.id === selPos) : null;
     const workingDays = emp.customWorkingDays?.[selPos] || activePos?.workingDays || [1, 2, 3, 4, 5];
     const selectedDayOfWeek = parseDate(state.selectedDate).getDay();
@@ -1099,7 +1100,7 @@ export function EmployeeRowCompact(emp) {
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
-    const isHoliday = isDayHoliday(state.selectedDate, state.settings?.holidays) || att?.isHoliday;
+    const isHoliday = isDayHoliday(state.selectedDate, getActivePayrollSettings(state).holidays) || att?.isHoliday;
     const activePosId = att?.selectedPosition || emp.positions?.[0] || null;
     const activePos = activePosId ? state.positions.find(p => p.id === activePosId) : null;
     const workingDays = emp.customWorkingDays?.[activePosId] || activePos?.workingDays || [1, 2, 3, 4, 5];
@@ -1142,7 +1143,7 @@ export function EmployeeRowCompact(emp) {
  * Se eliminó el uso de setTimeout + renderInChunks para prevenir parpadeos en renderizado reactivo.
  */
 export function DayView() {
-    const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
+    const isHoliday = isDayHoliday(state.selectedDate, getActivePayrollSettings(state).holidays);
     const filtered = getFilteredEmployeesForDay();
     const columns = Number(state.attendanceListColumns) === 2 ? 2 : 1;
     const listHTML = filtered.length > 0
@@ -1212,7 +1213,7 @@ export function getFilteredEmployeesForDay() {
     // Filtrar por Estado (Presentes/Ausentes/Extras)
     if (state.employeeFilter) {
         const dateKey = getDateKey(state.selectedDate);
-        const dayHours = resolveDailyTargetHours(dateKey, state.dayHoursConfig, state.settings?.regularHoursPerDay);
+        const dayHours = resolveDailyTargetHours(dateKey, state.dayHoursConfig, getActivePayrollSettings(state).regularHoursPerDay);
         employees = employees.filter(emp => {
             const att = state.attendance[`${emp.id}-${dateKey}`];
             const isChecked = att && att.present;
@@ -1303,7 +1304,7 @@ export function getPeriodViewDates(selectedDateInput = state.selectedDate) {
     }
 
     // 4. Modo 'period': Período de nómina configurado
-    const settingsPp = state.settings?.payPeriod;
+    const settingsPp = getActivePayrollSettings(state).payPeriod;
     const exportPp = state.exportConfig?.payPeriod;
     const payPeriod = (settingsPp?.periodStart && Number(settingsPp?.periodLength) > 0)
         ? settingsPp
@@ -1461,7 +1462,7 @@ export function WeekView() {
                         <th class="sticky-column">EMPLEADO</th>
                          ${dates.map(date => {
         const dObj = parseDate(date);
-        const isH = isDayHoliday(date, state.settings?.holidays);
+        const isH = isDayHoliday(date, getActivePayrollSettings(state).holidays);
         const isS = dObj.getDay() === 0;
         const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
         const dayLabel = `${dayNames[dObj.getDay()]} ${dObj.getDate()}`;
@@ -1487,7 +1488,7 @@ export function WeekRow(emp, week, positionMapArg = null) {
     const deps = [
         emp.updatedAt ?? 0,
         state.settings?.updatedAt ?? 0, // ⚡ P4-OPT: Sincronismo vía timestamp global de settings
-        normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay),
+        normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay),
         ...dates.map(date => {
             const att = state.attendance[`${emp.id}-${getDateKey(date)}`];
             return `${att?.updatedAt ?? 0}_${att?.selectedPosition ?? ''}_${att?.present ? 1 : 0}_${att?.hoursWorked ?? 0}`;
@@ -1518,7 +1519,7 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
             ${week.map(date => {
         const dObj = parseDate(date);
         const isS = dObj.getDay() === 0;
-        const isH = isDayHoliday(date, state.settings?.holidays);
+        const isH = isDayHoliday(date, getActivePayrollSettings(state).holidays);
         const dKey = getDateKey(date);
         const aKey = `${emp.id}-${dKey}`;
         const att = state.attendance[aKey];
@@ -1573,7 +1574,7 @@ export function WeekViewTotalsRow(datesArg = null) {
             ${dates.map(date => {
         const dObj = parseDate(date);
         const isS = dObj.getDay() === 0;
-        const isH = isDayHoliday(date, state.settings?.holidays);
+        const isH = isDayHoliday(date, getActivePayrollSettings(state).holidays);
         const dKey = getDateKey(date);
         // ⚡ P3-OPT: Lookup O(1) en lugar de filter O(N) sobre todo el historial
         // F1.5: los totales del día cuentan sólo registros del proyecto efectivo.

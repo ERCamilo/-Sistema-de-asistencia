@@ -12,6 +12,7 @@
  * `window.*` for now. A future sprint can fold those into PayrollUI.
  */
 
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { state } from '../../core/AppState.js';
 import { payrollService } from '../../services/index.js';
 import { formatCurrency } from '../../utils/Formatters.js';
@@ -45,7 +46,7 @@ export function ProfileTabNomina(emp) {
     const totalHours = payroll.breakdown.reduce((sum, b) => sum + b.regularHours + (b.restDayHours || 0) + b.holidayHours, 0);
     const totalOvertime = payroll.breakdown.reduce((sum, b) => sum + b.overtimeHours, 0);
 
-    const pp = state.settings?.payPeriod;
+    const pp = getActivePayrollSettings(state).payPeriod;
     const lastPayment = pp?.payDay
         ? new Date(pp.payDay + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })
         : 'No configurado';
@@ -153,7 +154,7 @@ export function ProfileTabNomina(emp) {
                     <div class="position-details" style="display: ${isExpanded ? 'block' : 'none'}; margin-top: 12px; padding-top: 12px; border-top: 1px solid #334155; animation: slideDown 0.2s ease-out;">
                         <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 12px;">
                             💰 Tarifa: <span style="color: #f1f5f9; font-weight: 600;">$${Math.round(b.hourlyRate)}/hora</span>
-                            · <span style="color: #06b6d4;">$${Math.round(b.hourlyRate * state.settings.regularHoursPerDay)}/día</span>
+                            · <span style="color: #06b6d4;">$${Math.round(b.hourlyRate * getActivePayrollSettings(state).regularHoursPerDay)}/día</span>
                             · <span style="color: #64748b;">~$${Math.round(b.monthlyEquivalent).toLocaleString()}/mes</span>
                         </div>
 
@@ -246,7 +247,7 @@ export function ProfileTabResumen(emp) {
     const hireDate = emp.hireDate
         ? new Date(emp.hireDate + 'T00:00:00').toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' })
         : 'No registrada';
-    const ppResumen = state.settings?.payPeriod;
+    const ppResumen = getActivePayrollSettings(state).payPeriod;
     const lastPayment = ppResumen?.payDay
         ? new Date(ppResumen.payDay + 'T00:00:00').toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' })
         : 'No configurado';
@@ -279,7 +280,7 @@ export function ProfileTabResumen(emp) {
     }).join('')}
             </div>
             <div style="font-size: 0.68rem; color: #64748b; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(100,116,139,0.2);">
-                📊 Basado en ${state.settings.regularHoursPerDay}h/día × 4.33 semanas/mes
+                📊 Basado en ${getActivePayrollSettings(state).regularHoursPerDay}h/día × 4.33 semanas/mes
             </div>
         </div>
 

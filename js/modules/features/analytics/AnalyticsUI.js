@@ -1,3 +1,4 @@
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import icons from '../../ui/IconSystem.js';
 import { EmptyState } from '../../components/EmptyState.js';
 
@@ -364,11 +365,11 @@ function getHoursChartData() {
                 const key = `${ emp.id }-${ dateKey }`;
                 const att = state.attendance[key];
                 if (att && att.present) {
-                    const regularHours = Math.min(att.hoursWorked, state.settings.regularHoursPerDay);
+                    const regularHours = Math.min(att.hoursWorked, getActivePayrollSettings(state).regularHoursPerDay);
                     if (isHoliday || att.isHoliday) weeks[weekKey].holiday += att.hoursWorked;
                     else {
                         weeks[weekKey].regular += regularHours;
-                        if (att.hoursWorked > state.settings.regularHoursPerDay) weeks[weekKey].overtime += att.hoursWorked - state.settings.regularHoursPerDay;
+                        if (att.hoursWorked > getActivePayrollSettings(state).regularHoursPerDay) weeks[weekKey].overtime += att.hoursWorked - getActivePayrollSettings(state).regularHoursPerDay;
                     }
                 }
             });
@@ -465,9 +466,9 @@ function getTop10ChartData() {
             const key = `${ emp.id }-${ getDateKey(new Date(d))}`;
     const att = state.attendance[key];
     if (att && att.present) {
-        const regHours = Math.min(att.hoursWorked, state.settings.regularHoursPerDay);
+        const regHours = Math.min(att.hoursWorked, getActivePayrollSettings(state).regularHoursPerDay);
         regular += regHours;
-        if (att.hoursWorked > state.settings.regularHoursPerDay) overtime += att.hoursWorked - state.settings.regularHoursPerDay;
+        if (att.hoursWorked > getActivePayrollSettings(state).regularHoursPerDay) overtime += att.hoursWorked - getActivePayrollSettings(state).regularHoursPerDay;
     }
 }
 return { name: `[${emp.number}] ${emp.name}`, regular, overtime, total: regular + overtime };
@@ -1055,7 +1056,7 @@ function calculateEmployeeReportData() {
         days,
         startDate,
         endDate,
-        regularHours: state.settings.regularHoursPerDay,
+        regularHours: getActivePayrollSettings(state).regularHoursPerDay,
         holidayFactor: state.settings.holidayFactor,
         leaders: state.leaders,
         settings: state.settings,
@@ -1089,7 +1090,7 @@ function generateDatePicker(month, selectedDate, selectFunc, changeMonthFunc) {
 
     const selectedDateKey = selectedDate ? getDateKey(selectedDate) : null;
     const todayKey = getDateKey(new Date());
-    const payPeriod = state.settings?.payPeriod;
+    const payPeriod = getActivePayrollSettings(state).payPeriod;
 
     return `<div class="date-picker" data-analytics-action="stop-propagation">
         <div class="date-picker-header">
@@ -1434,7 +1435,7 @@ export async function exportEmployeeReportExcel() {
 
         // Identificar feriados en el rango
         reportData.days.forEach(d => {
-            if (isDayHoliday(d.date, state.settings.holidays)) {
+            if (isDayHoliday(d.date, getActivePayrollSettings(state).holidays)) {
                 globalMetrics.holidays.push(formatDate(d.date));
             }
         });
@@ -1456,7 +1457,7 @@ export async function exportEmployeeReportExcel() {
                     const att = state.attendance[`${emp.id}-${dateKey}`];
                     if (att && att.present) {
                         const hours = att.hoursWorked || 0;
-                        const dayLimit = state.dayHoursConfig[dateKey] ?? state.settings.regularHoursPerDay ?? 8;
+                        const dayLimit = state.dayHoursConfig[dateKey] ?? getActivePayrollSettings(state).regularHoursPerDay ?? 8;
                         const extra = Math.max(0, hours - dayLimit);
                         
                         globalMetrics.totalHours += hours;

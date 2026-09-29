@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0929.102449'
+const CACHE_VERSION = '2026.0929.140908'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -106,6 +106,7 @@ const APP_SHELL = [
     './js/modules/services/ExportService.js',
     './js/modules/services/FirebaseService.js',
     './js/modules/services/IndexedDBService.js',
+    './js/modules/features/payroll/ActivePayrollSettings.js',
     './js/modules/features/payroll/PayrollClosureBackup.js',
     './js/modules/features/payroll/PayrollClosureMerge.js',
     './js/modules/features/payroll/PayrollClosure.js',

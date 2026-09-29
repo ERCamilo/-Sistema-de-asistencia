@@ -3,6 +3,7 @@
  * Parte de la Fase 4: Modularización y Componentización
  */
 
+import { getActivePayrollSettings } from '../../features/payroll/ActivePayrollSettings.js';
 import { state, stateManager, invalidateEmployeeStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { payrollService } from '../../services/index.js';
 import { getDateKey, formatDateShort, isDayHoliday } from '../../utils/DateUtils.js';
@@ -80,7 +81,7 @@ export class AdvancedAttendanceModal {
         // Asegurar valores por defecto
         const hoursWorked = att.hoursWorked !== undefined
             ? att.hoursWorked
-            : normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
+            : normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
         const overtimeHours = att.overtimeHours || 0;
         const isHoliday = att.isHoliday || false;
         const notes = att.notes || '';
@@ -243,7 +244,7 @@ export function saveAdvancedAttendance() {
         overtimeHours: totalOvertime,
         positionHours: positionHours,
         multiPosition: positionHours.length > 1,
-        isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
+        isHoliday: isDayHoliday(state.selectedDate, getActivePayrollSettings(state).holidays),
         notes: document.getElementById('notes')?.value || '',
         selectedPosition: positionHours.length > 0 ? positionHours[0].positionId : (emp.positions?.[0] || null),
         updatedAt: Date.now(),

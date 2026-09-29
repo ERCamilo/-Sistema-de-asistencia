@@ -3,6 +3,7 @@
  * Genera la cuadrícula mensual con resaltado de periodos, días de pago y asistencia.
  */
 
+import { getActivePayrollSettings } from '../../features/payroll/ActivePayrollSettings.js';
 import { state } from '../../core/AppState.js';
 import { getDateKey, getDaysInMonth, formatMonthYear, isDateInPayPeriod, isPayday, wasEmployeeActiveOnDate } from '../../utils/DateUtils.js';
 import { entityInScope } from '../../features/projects/ProjectContext.js';
@@ -144,7 +145,7 @@ export function CalendarView({
     selectedDate = null,
     selectAction = '',
     displayMode = 'month',
-    payPeriod = state.settings.payPeriod,
+    payPeriod = getActivePayrollSettings(state).payPeriod,
     hideRegularHours = false
 }) {
     const isPeriodView = displayMode === 'period';
@@ -185,7 +186,7 @@ export function CalendarView({
         const checkColor = getCheckColor(att, d.date);
         const positionMarkers = _positionMarkerData(att, employee);
         const expectedHours = Number(state.dayHoursConfig?.[dKey])
-            || Number(state.settings?.regularHoursPerDay)
+            || Number(getActivePayrollSettings(state).regularHoursPerDay)
             || 8;
         const workedHours = Number(att?.hoursWorked) || 0;
         const showWorkedHours = isPresent && (

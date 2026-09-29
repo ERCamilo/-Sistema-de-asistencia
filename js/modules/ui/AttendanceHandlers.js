@@ -8,6 +8,10 @@ import { saveApplicationData } from '../services/PersistenceService.js';
 import { DateUtils, getDateKey } from '../utils/DateUtils.js';
 import { resolveDailyTargetHours } from '../utils/AttendanceHours.js';
 import { Notification } from '../components/Notification.js';
+import { isProjectsEnabled } from '../config/FeatureFlags.js';
+import { entityInScope, peekEntityScope } from '../features/projects/ProjectContext.js';
+import { getActivePayrollSettings, setActivePayrollConfig } from '../features/payroll/ActivePayrollSettings.js';
+import * as projectPayrollConfigStore from '../features/payroll/ProjectPayrollConfigStore.js';
 
 /**
  * ⏱️ Ajusta las horas base para el día seleccionado o la semana completa (+/- 0.5h)
@@ -49,7 +53,13 @@ export function changeBaseHours(delta) {
  */
 export function toggleHoliday(providedDateKey = null) {
     const dateKey = providedDateKey || getDateKey(state.selectedDate);
-    const holidays = state.settings.holidays || [];
+    const scope = peekEntityScope();
+    const projectId = isProjectsEnabled() && scope?.enabled ? String(scope.projectId || '').trim() : '';
+    // Con obras, el feriado es de la obra activa (Ajustes → Calendario) y solo
+    // toca la asistencia de esa obra; antes se marcaba en todas.
+    const holidays = projectId
+        ? [...getActivePayrollSettings(state).holidays || []]
+        : (state.settings.holidays || []);
     
     const index = holidays.indexOf(dateKey);
     let isNowHoliday = false;
@@ -70,13 +80,13 @@ export function toggleHoliday(providedDateKey = null) {
     // DENTRO del mismo batch: el único render del cierre lee statsCache.mtd ya fresco.
     const touched = new Set();
     stateManager.batchSetState(() => {
-        state.settings.holidays = holidays;
+        if (!projectId) state.settings.holidays = holidays;
 
         // 🔥 Sincronizar los registros existentes para este día (mutación IN-PLACE: el
         // proxy no dispara, por eso la coherencia es explícita y load-bearing tras Paso 4)
         Object.keys(state.attendance).forEach(key => {
             const att = state.attendance[key];
-            if (att && att.date === dateKey) {
+            if (att && att.date === dateKey && (!projectId || entityInScope(att, scope))) {
                 att.isHoliday = isNowHoliday;
                 att.updatedAt = Date.now();
                 touched.add(att.employeeId); // por employeeId, NO split de la clave (ids con guion)
@@ -87,6 +97,12 @@ export function toggleHoliday(providedDateKey = null) {
         buildAttendanceIndex(dateKey);
     });
 
+    if (projectId) {
+        projectPayrollConfigStore.getConfig(projectId)
+            .then(config => config ? projectPayrollConfigStore.putConfig({ ...config, holidays }) : null)
+            .then(saved => { if (saved) setActivePayrollConfig(saved); })
+            .catch(error => Notification.error(`No se pudo guardar el feriado en la obra: ${error?.message || error}`));
+    }
     // Guardar; el render lo agenda batchSetState al cerrar (1 render en vez de N).
     saveApplicationData();
 }

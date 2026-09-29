@@ -25,7 +25,7 @@ function between(startAnchor, endAnchor) {
 testRunner.addSuite('app.js — contrato productivo de horas de asistencia', {
     'modal avanzado enlaza su valor inicial al normalizador canónico'() {
         testRunner.assert(
-            /const\s+hoursWorked\s*=\s*att\.hoursWorked\s*!==\s*undefined\s*\?\s*att\.hoursWorked\s*:\s*normalizeRegularHoursPerDay\s*\(\s*state\.settings\?\.regularHoursPerDay\s*\)/.test(ADVANCED_MODAL_SRC),
+            /const\s+hoursWorked\s*=\s*att\.hoursWorked\s*!==\s*undefined\s*\?\s*att\.hoursWorked\s*:\s*normalizeRegularHoursPerDay\s*\(\s*getActivePayrollSettings\(state\)\.regularHoursPerDay\s*\)/.test(ADVANCED_MODAL_SRC),
             'AdvancedAttendanceModal debe normalizar el setting persistido y no mantener su propio || 8'
         );
         testRunner.assertEquals(normalizeRegularHoursPerDay(6), 6);
@@ -47,7 +47,7 @@ testRunner.addSuite('app.js — contrato productivo de horas de asistencia', {
     'handleWeekCheck preserva override diario cero mediante el resolver canónico'() {
         const body = between("window.handleWeekCheck = ", 'window.handleWeekCheckClick');
         testRunner.assert(
-            /resolveDailyTargetHours\s*\(\s*dateStr\s*,\s*state\.dayHoursConfig\s*,\s*state\.settings\?\.regularHoursPerDay\s*\)/.test(body),
+            /resolveDailyTargetHours\s*\(\s*dateStr\s*,\s*state\.dayHoursConfig\s*,\s*getActivePayrollSettings\(state\)\.regularHoursPerDay\s*\)/.test(body),
             'handleWeekCheck debe resolver la jornada diaria sin usar ||, que descarta el cero explícito'
         );
     },
@@ -56,7 +56,7 @@ testRunner.addSuite('app.js — contrato productivo de horas de asistencia', {
         const title = between('function AttendancePageTitle()', 'function AttendanceDetailPanel()');
         const detail = between('function _AttendanceDetailPanelInner()', 'function getAttendanceDetailPositionHours');
         testRunner.assert(
-            /normalizeRegularHoursPerDay\s*\(\s*state\.settings\?\.regularHoursPerDay\s*\)/.test(title),
+            /normalizeRegularHoursPerDay\s*\(\s*getActivePayrollSettings\(state\)\.regularHoursPerDay\s*\)/.test(title),
             'el título debe mostrar la jornada persistida normalizada, incluyendo 6 y 7.5'
         );
         testRunner.assert(

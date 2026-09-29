@@ -45,6 +45,7 @@ import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { initProjectsInfrastructure } from './modules/features/projects/ProjectsBoot.js';
 import { stopProjectCatalogLiveSync } from './modules/features/projects/ProjectCatalogSync.js';
+import { getActivePayrollSettings } from './modules/features/payroll/ActivePayrollSettings.js';
 import { resetEntityScope, getScopedSidebarCounters } from './modules/features/projects/EntityProjectScope.js';
 import { MainSyncStore } from './modules/services/MainSyncStore.js';
 import { PayrollClosureLiveSync } from './modules/features/payroll/PayrollClosureLiveSync.js';
@@ -515,7 +516,7 @@ window.DatePicker = (target) => {
         selectedDate: state.selectedDate,
         viewDate: state.datePickerMonth,
         currentView: state.datePickerView,
-        holidays: state.settings?.holidays || [],
+        holidays: getActivePayrollSettings(state).holidays || [],
         indicators: indicators,
         onDateSelect: 'window.selectAttendanceDate',
         onClose: () => attendanceDateManager.togglePicker(target, false)
@@ -994,7 +995,7 @@ window.App.setProfilePeriod = function (periodType) {
         startDate = getDateKey(start);
     } else if (periodType === 'lastPayment') {
         // Usar período de pago unificado
-        const pp = state.settings.payPeriod;
+        const pp = getActivePayrollSettings(state).payPeriod;
         if (pp?.periodStart) {
             startDate = pp.periodStart;
         } else {
@@ -2337,7 +2338,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             present: true,
             hoursWorked: dayHours,
             overtimeHours: 0,
-            isHoliday: isDayHoliday(date, state.settings.holidays),
+            isHoliday: isDayHoliday(date, getActivePayrollSettings(state).holidays),
             selectedPosition: selectedPos,
             multiPosition: false,
             positionHours: [],
@@ -2537,7 +2538,7 @@ window.markVisibleEmployeesPresent = () => {
         attendance: state.attendance,
         dateKey,
         dayHours: getDayHours(selectedDate),
-        isHoliday: isDayHoliday(selectedDate, state.settings.holidays)
+        isHoliday: isDayHoliday(selectedDate, getActivePayrollSettings(state).holidays)
     });
 
     if (changes.length === 0) {
@@ -3528,14 +3529,14 @@ window.handleWeekCheck = (empId, dateStr, event, element) => {
         debug.log('📝 Creando asistencia:', {
             dateStr,
             dateObject: date,
-            isHoliday: isDayHoliday(date, state.settings.holidays)
+            isHoliday: isDayHoliday(date, getActivePayrollSettings(state).holidays)
         });
 
         // 🔥 Unificación: respetar incluso un override diario explícito de cero.
         const hours = resolveDailyTargetHours(
             dateStr,
             state.dayHoursConfig,
-            state.settings?.regularHoursPerDay
+            getActivePayrollSettings(state).regularHoursPerDay
         );
 
         // Crear registro de asistencia
@@ -3545,7 +3546,7 @@ window.handleWeekCheck = (empId, dateStr, event, element) => {
             present: true,
             hoursWorked: hours,
             overtimeHours: 0,
-            isHoliday: isDayHoliday(date, state.settings.holidays),
+            isHoliday: isDayHoliday(date, getActivePayrollSettings(state).holidays),
             useTempPosition: false,
             notes: '',
             multiPosition: emp.positions?.length > 1,
@@ -4274,7 +4275,7 @@ function AttendancePageTitle() {
         ? pillWeekRange(state.selectedDate)
         : formatDateShort(state.selectedDate);
     const activeCount = (state.employees || []).filter(e => e.active !== false).length;
-    const defaultHours = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
+    const defaultHours = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
     const modeLabel = state.viewMode === 'week' ? 'Semanal' : 'Diaria';
     return `<div class="page-title-row">
                 <div>
@@ -4353,13 +4354,13 @@ function _AttendanceDetailPanelInner() {
     }).join('');
 
     // ----- Compute stats over the CURRENT PAY PERIOD -----
-    // Source: state.settings.payPeriod (configured in Ajustes → Calendario).
+    // Source: período de la obra activa (Ajustes → Calendario; sin obras, el general).
     // Range: [periodStart, periodStart + periodLength - 1]. We cap iteration
     // at the selected date so future days of the period don't pre-count.
     // If no period is configured, fall back to month-to-date silently and
     // surface a hint at the bottom of the stat grid.
     const today = state.selectedDate instanceof Date ? state.selectedDate : new Date(state.selectedDate);
-    const pp = state.settings && state.settings.payPeriod;
+    const pp = getActivePayrollSettings(state).payPeriod;
     let rangeStart, rangeEnd, rangeMode;
     if (pp && pp.periodStart) {
         rangeStart = parseDate(pp.periodStart);
@@ -4377,7 +4378,7 @@ function _AttendanceDetailPanelInner() {
     let periodHours = 0;
     let periodDays = 0;
     let overtimeHours = 0;
-    const regularHours = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
+    const regularHours = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
     try {
         for (let d = new Date(rangeStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
             const dk = getDateKey(new Date(d));
@@ -4396,7 +4397,7 @@ function _AttendanceDetailPanelInner() {
     } catch (e) { /* defensive */ }
 
     // ----- Visual summary cards: current week + period hours progress -----
-    const holidays = state.settings?.holidays || [];
+    const holidays = getActivePayrollSettings(state).holidays || [];
     const firstWorkPosId = emp.positions?.[0];
     const firstWorkPos = scopedDetailPositions.find(p => p.id === firstWorkPosId);
     const employeeWorkingDays = (
@@ -4621,7 +4622,7 @@ function renderAttendanceDetailWorkPanel(emp, selectedDate) {
         selectedDate,
         calendarMonth,
         activeView: state.attendanceDetailCalendarView,
-        payPeriod: state.settings?.payPeriod
+        payPeriod: getActivePayrollSettings(state).payPeriod
     });
 
     const hoursContent = `
@@ -4803,7 +4804,7 @@ window.saveAttendanceDetailHours = (empId) => {
             selectedPosition: positionHours[0]?.positionId
                 || (emp.positions || []).find(pid => scopedSavePosIds.has(pid))
                 || null,
-            isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
+            isHoliday: isDayHoliday(state.selectedDate, getActivePayrollSettings(state).holidays),
             notes: existing.notes || '',
             lastAccessed: Date.now(),
             _isDirty: true
@@ -5414,7 +5415,7 @@ function getDateMarker(emp, dateKey) {
     }
 
     // 💰 Día de pago del período actual
-    const pp = state.settings?.payPeriod;
+    const pp = getActivePayrollSettings(state).payPeriod;
     if (pp?.payDay === dateKey) {
         markers.push('💰');
     }
@@ -6660,7 +6661,7 @@ function MultiPositionModal() {
         present: true,
         hoursWorked: 0,
         overtimeHours: 0,
-        isHoliday: isDayHoliday(state.selectedDate, state.settings.holidays),
+        isHoliday: isDayHoliday(state.selectedDate, getActivePayrollSettings(state).holidays),
         multiPosition: false,
         positionHours: [],
         notes: ''
@@ -6703,7 +6704,7 @@ function MultiPositionModal() {
                                     <div style="font-weight: 600; color: #f1f5f9;">${emp.name}</div>
                                     <div style="font-size: 0.75rem; color: #94a3b8;">${formatDate(state.selectedDate)}</div>
                                 </div>
-                                ${isDayHoliday(state.selectedDate, state.settings.holidays) ? '<div style="font-size: 1.5rem;">☀️</div>' : ''}
+                                ${isDayHoliday(state.selectedDate, getActivePayrollSettings(state).holidays) ? '<div style="font-size: 1.5rem;">☀️</div>' : ''}
                             </div>
                         </div>
                         

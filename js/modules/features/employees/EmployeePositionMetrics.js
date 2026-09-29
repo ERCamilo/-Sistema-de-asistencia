@@ -1,3 +1,4 @@
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { PayrollService } from '../payroll/PayrollService.js';
 import { resolvePayrollPeriod } from '../payroll/PayrollPeriod.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
@@ -12,7 +13,7 @@ const EMPTY_METRICS = Object.freeze({
 });
 
 export function buildEmployeePositionPeriodSnapshot(state, employee, today = new Date()) {
-    const period = resolvePayrollPeriod(state?.settings?.payPeriod, today);
+    const period = resolvePayrollPeriod(getActivePayrollSettings(state).payPeriod, today);
     if (isProjectsEnabled()) {
         return { period, metricsByPosition: new Map(), payrollAvailable: false };
     }
