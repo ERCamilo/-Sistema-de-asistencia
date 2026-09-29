@@ -105,10 +105,12 @@ function strongConfirm({ assessment, notify }) {
 }
 
 /**
- * Pide la confirmación que corresponda al nivel. Devuelve true si se puede
- * aplicar. `ui` permite sustituir los diálogos (pruebas).
+ * Pide la confirmación que corresponda al nivel. Devuelve `true` al instante
+ * si no hace falta preguntar (así aplicar sigue siendo inmediato y no admite
+ * doble clic), o una promesa con la respuesta del usuario. `ui` permite
+ * sustituir los diálogos (pruebas).
  */
-export async function confirmMiniImportDates(days, { today = new Date(), employees = [], ui = {} } = {}) {
+export function confirmMiniImportDates(days, { today = new Date(), employees = [], ui = {} } = {}) {
     const assessment = assessMiniImportDates(days, { today, employees });
     const notify = ui.notify || ((message, type) => window.showNotification?.(message, type));
     if (assessment.level === DATE_AGE_LEVEL.STRONG) {

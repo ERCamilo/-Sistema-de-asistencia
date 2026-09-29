@@ -36,6 +36,8 @@ function enterReview(report, attendance = {}, roster = employees, options = {}) 
         positions,
         attendance,
         proposedDate: DATE,
+        // Fecha fija de prueba: la validación por antigüedad se prueba aparte.
+        confirmImportDates: () => true,
         regularLimit: 8,
         ...modalOptions
     }).mount(host);
