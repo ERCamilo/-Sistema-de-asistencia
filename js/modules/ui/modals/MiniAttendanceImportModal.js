@@ -32,6 +32,7 @@ import {
     isSafeBulkSaConflict
 } from '../../features/attendance/MultiDayAttendanceResolver.js';
 import { P2P_SUCCESS_EVENTS, signalP2PSuccess } from '../../features/p2p/P2PSuccessFeedback.js';
+import { confirmMiniImportDates } from '../../features/attendance/MiniImportDateGuard.js';
 
 let nextControlId = 1;
 
@@ -516,8 +517,10 @@ export class MiniAttendanceImportModal {
         groupingMode = 'day',
         selectedMiniId = null,
         saProjectId = null,
-        entityScope = null
+        entityScope = null,
+        confirmImportDates = confirmMiniImportDates
     } = {}) {
+        this.confirmImportDates = confirmImportDates;
         this.employees = employees;
         this.attendance = attendance;
         this.positions = positions;
@@ -2794,6 +2797,8 @@ export class MiniAttendanceImportModal {
                         applyDayBtn.dataset.miniDate = group.workDate;
                         applyDayBtn.addEventListener('click', async () => {
                             try {
+                                const gate = this.guardMiniImportDates([group.workDate]);
+                                if (gate !== true && !(await gate)) return;
                                 await this.multiDayResolver.applyDay(group.workDate);
                                 this.render();
                             } catch (err) {
@@ -3294,6 +3299,10 @@ export class MiniAttendanceImportModal {
                 applyReadyBtn.classList.add('mini-import-action-primary');
                 applyReadyBtn.addEventListener('click', async () => {
                     try {
+                        const readyDates = this.multiDayResolver.workDates
+                            .filter(date => this.multiDayResolver.getDayState(date)?.status === 'ready');
+                        const gate = this.guardMiniImportDates(readyDates);
+                        if (gate !== true && !(await gate)) return;
                         await this.multiDayResolver.applyReadyDays();
                         this.render();
                     } catch (err) {
@@ -4000,12 +4009,35 @@ export class MiniAttendanceImportModal {
         this.resetReviewViewport();
     }
 
+    /**
+     * Valida qué tan lejos de hoy están las fechas a aplicar (informa,
+     * confirma o pide escribir el año) y avisa de días anteriores al ingreso.
+     */
+    guardMiniImportDates(dates, plans = null) {
+        const days = (dates || []).filter(Boolean).map((date, index) => {
+            const plan = plans?.[index] || this.multiDayResolver?.getDayState?.(date)?.applyPlan;
+            return { date, employeeIds: (plan?.writes || []).map(write => write?.record?.employeeId).filter(Boolean) };
+        });
+        if (!days.length) return true;
+        return this.confirmImportDates(days, { employees: this.employees });
+    }
+
     async applyCurrentPlan() {
         if (this.applyStatus === 'pending' || this.applyStatus === 'success') return null;
         try {
             const plan = buildMiniAttendanceApplyPlan(this.conflictPlan, {
                 expectedDraftRevision: this.draft.revision
             });
+            if (this.confirmingImportDates) return null;
+            const gate = this.guardMiniImportDates([plan.date], [plan]);
+            if (gate !== true) {
+                this.confirmingImportDates = true;
+                try {
+                    if (!(await gate)) return null;
+                } finally {
+                    this.confirmingImportDates = false;
+                }
+            }
             this.applyStatus = 'pending';
             this.applyError = null;
             this.render();
