@@ -25,6 +25,7 @@
  */
 
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
+import { getRemainingCapital } from './LoanTimeline.js';
 import { recordNestedTombstone } from '../../services/NestedTombstones.js';
 import { ProjectScopedGateError } from '../../config/TandaBGate.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
@@ -186,10 +187,22 @@ export function validatePaymentInput(loan, params) {
 }
 
 /** Validate a refinancing (refinanciamiento) entry. */
+export const REFINANCE_BASES = Object.freeze({
+    PENDING: 'pending',   // no genera interés: el pendiente se queda (solo nuevo plan de cuotas)
+    CAPITAL: 'capital',   // interés sobre el capital restante (interés primero)
+    BALANCE: 'balance',   // interés sobre capital + interés pendiente
+    PRINCIPAL: 'principal' // histórico: capital original del préstamo
+});
+
 export function validateRefinanceInput(loan, params) {
     const errors = [];
     const rate = Number(params.interestRate);
-    if (!Number.isFinite(rate) || rate <= 0) {
+    if (params.basis === REFINANCE_BASES.PENDING) {
+        if (Number.isFinite(rate) && rate !== 0) errors.push('«Dejar pendiente» no genera interés');
+        if (!(params.installmentCount != null && Number(params.installmentCount) > 0)) {
+            errors.push('«Dejar pendiente» solo aplica al crear un nuevo plan de cuotas');
+        }
+    } else if (!Number.isFinite(rate) || rate <= 0) {
         errors.push('La tasa de interés del refinanciamiento debe ser mayor a 0');
     } else if (rate > VALIDATION.MAX_INTEREST_PERCENT) {
         errors.push(`El interés excede el máximo permitido (${VALIDATION.MAX_INTEREST_PERCENT}%)`);
@@ -197,8 +210,8 @@ export function validateRefinanceInput(loan, params) {
     if (params.date && !/^\d{4}-\d{2}-\d{2}$/.test(params.date)) {
         errors.push('La fecha debe estar en formato YYYY-MM-DD');
     }
-    if (params.basis && !['principal', 'balance'].includes(params.basis)) {
-        errors.push('Base de interés inválida (capital original o saldo restante)');
+    if (params.basis && !Object.values(REFINANCE_BASES).includes(params.basis)) {
+        errors.push('Base de interés inválida (capital restante, saldo o dejar pendiente)');
     }
     return { valid: errors.length === 0, errors };
 }
@@ -480,9 +493,9 @@ export function refinanceLoan(emp, loanId, params = {}, options = {}) {
     if (!valid) throw new Error(errors.join('. '));
 
     const createsReplacement = params.replacement !== false && params.installmentCount != null && Number(params.installmentCount) > 0;
-    const basis = params.basis === 'principal' ? 'principal' : 'balance';
-    const baseAmount = basis === 'balance' ? balance : round2(Number(loan.principal || 0));
-    const rate = Number(params.interestRate);
+    const basis = Object.values(REFINANCE_BASES).includes(params.basis) ? params.basis : REFINANCE_BASES.BALANCE;
+    const baseAmount = refinanceBaseAmount(loan, basis, balance);
+    const rate = basis === REFINANCE_BASES.PENDING ? 0 : Number(params.interestRate);
     const interestAmount = round2(baseAmount * rate / 100);
 
     const now = Date.now();
@@ -532,6 +545,20 @@ export function refinanceLoan(emp, loanId, params = {}, options = {}) {
     loan.updatedAt = Date.now();
     emp.updatedAt = Date.now();
     return event;
+}
+
+/**
+ * Monto sobre el que se calcula el interés de un refinanciamiento.
+ * - capital: capital que queda después de aplicar cada abono primero al interés
+ * - balance: capital + interés pendiente (el saldo)
+ * - principal: capital original (refinanciamientos anteriores)
+ * - pending: no genera interés
+ */
+export function refinanceBaseAmount(loan, basis, balance = getBalance(loan)) {
+    if (basis === REFINANCE_BASES.PENDING) return 0;
+    if (basis === REFINANCE_BASES.CAPITAL) return round2(Math.min(balance, getRemainingCapital(loan)));
+    if (basis === REFINANCE_BASES.PRINCIPAL) return round2(Number(loan.principal || 0));
+    return balance;
 }
 
 /**
