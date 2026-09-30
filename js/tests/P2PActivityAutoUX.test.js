@@ -22,7 +22,7 @@ describe('P2P activity center + automatic trusted transfer', () => {
     const ui = read('js/modules/features/p2p/P2PRosterUI.js');
     expect(ui).toContain('let autoSendStarted = false');
     expect(ui).toContain('if (autoSendStarted) return');
-    expect(ui).toContain('onAuthenticated: () => { scheduleSaP2PHeaderRefresh(); triggerAutoSend(channel); }');
+    expect(ui).toContain('onAuthenticated: () => { presenceMgr?.resumePeer?.(peer.peerId); scheduleSaP2PHeaderRefresh(); triggerAutoSend(channel); }');
     expect(ui).not.toContain('En Mini abre Transferencias');
     expect(ui).not.toContain('data-trusted-send');
   });

@@ -25,6 +25,8 @@ export const ONLINE_TTL_MS = 60000;
 export const RECONNECT_BACKOFF_STEPS = Object.freeze([5000, 15000, 30000, 60000]);
 export const PROBE_TIMEOUT_MS = 10000;
 export const MAX_PROBE_ID_BYTES = 128;
+// El Mini anuncia en la conexión de presencia que ya puede responder asistencia.
+export const ATTENDANCE_READY_TYPE = 'attendance-ready/v1';
 
 function exactKeys(obj, expected) {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
@@ -216,7 +218,9 @@ export class P2PPresenceManager {
                 retryTimer: null,
                 heartbeatTimer: null,
                 probeTimeoutTimer: null,
-                activeProbe: null
+                activeProbe: null,
+                attendanceReadyChannel: null,
+                released: false
             };
             this.peers.set(peerId, entry);
         }
@@ -287,6 +291,7 @@ export class P2PPresenceManager {
             entry.channelMessageCleanup = null;
         }
         entry.channel = null;
+        entry.attendanceReadyChannel = null;
     }
 
     async refreshPeers() {
@@ -402,6 +407,7 @@ export class P2PPresenceManager {
         if (!this.isNetworkOnline()) return;
         const entry = this.getPeerEntry(peerId);
         if (!entry) return;
+        if (entry.released) return; // otra conexión usa la sala de este Mini
         if (entry.isConnecting) return; // deduped connection attempt
 
         if (entry.channel && this.isChannelAuthenticated(entry.channel)) {
@@ -539,6 +545,15 @@ export class P2PPresenceManager {
 
         // Filter out control and transfer protocols
         if (parsed.protocol === 'sa-mini-p2p-control/v1' || parsed.protocol === 'sa-mini-p2p-transfer/v1') {
+            return;
+        }
+
+        // El Mini ya armó su respuesta de asistencia en esta conexión: se
+        // recuerda para pedir asistencia por aquí sin abrir otra (la sala de
+        // señalización no admite una segunda conexión del mismo SA).
+        if (parsed.schema === ATTENDANCE_READY_TYPE) {
+            const entry = this.getPeerEntry(peerId);
+            if (entry && entry.channel === channel) entry.attendanceReadyChannel = channel;
             return;
         }
 
@@ -691,6 +706,7 @@ export class P2PPresenceManager {
             entry.retryTimer = null;
         }
         if (!this.isNetworkOnline()) return;
+        if (entry.released) return;
 
         const delay = RECONNECT_BACKOFF_STEPS[Math.min(entry.backoffIndex, RECONNECT_BACKOFF_STEPS.length - 1)];
         entry.backoffIndex++;
@@ -767,6 +783,49 @@ export class P2PPresenceManager {
             if (entry.isTransferring) return true;
         }
         return false;
+    }
+
+    /**
+     * Conexión de presencia autenticada y abierta en la que el Mini anunció que
+     * responde asistencia; null si no hay.
+     */
+    getAttendanceChannel(peerId) {
+        const entry = this.peers.get(peerId);
+        const channel = entry?.channel;
+        if (!channel || entry.attendanceReadyChannel !== channel) return null;
+        if (channel.readyState && channel.readyState !== 'open') return null;
+        if (!this.isChannelAuthenticated(channel)) return null;
+        return channel;
+    }
+
+    /**
+     * Cierra la presencia de un Mini y no reintenta hasta resumePeer(): deja la
+     * sala de señalización libre para otra conexión de SA con ese Mini.
+     * Devuelve true si había una conexión abierta o en curso.
+     */
+    releasePeer(peerId) {
+        const entry = this.getPeerEntry(peerId);
+        if (!entry) return false;
+        const held = Boolean(entry.session || entry.channel || entry.isConnecting);
+        entry.released = true;
+        this.clearPeerTimers(entry);
+        this.detachChannel(entry);
+        if (entry.session) {
+            try { entry.session.close?.('presence-released'); } catch (_) {}
+            entry.session = null;
+        }
+        entry.isConnecting = false;
+        entry.state = 'linked-offline';
+        this.notifyChange();
+        return held;
+    }
+
+    resumePeer(peerId) {
+        const entry = this.peers.get(peerId);
+        if (!entry || !entry.released) return;
+        entry.released = false;
+        entry.backoffIndex = 0;
+        if (this.isStarted && this.isNetworkOnline()) this.ensureConnected(peerId);
     }
 
     getAuthenticatedChannel(peerId) {

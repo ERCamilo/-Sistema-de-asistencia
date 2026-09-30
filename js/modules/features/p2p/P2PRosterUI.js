@@ -351,6 +351,7 @@ function cleanupSession() {
   if (activePeer?.peerId) {
     const presenceMgr = typeof window !== 'undefined' ? (window.p2pPresenceManager || getP2PPresenceManager()) : getP2PPresenceManager();
     presenceMgr?.setPeerTransferring?.(activePeer.peerId, false);
+    presenceMgr?.resumePeer?.(activePeer.peerId);
   }
   try { activeSession?.close?.(); } catch (_) {}
   activeSession = null;
@@ -744,9 +745,16 @@ async function connectTrustedAndSend(peerId) {
     body().querySelector('[data-back]').addEventListener('click', () => {
       safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: 'Transferencia cancelada por el usuario.' });
       presenceMgr?.setPeerTransferring?.(peerId, false);
+      presenceMgr?.resumePeer?.(peerId);
       cleanupSession();
       renderHome();
     });
+    // La presencia de este Mini ocupa la sala de señalización con el mismo id
+    // de SA: se suelta antes de conectar (si no, el servidor rechaza la
+    // conexión) y se retoma sobre este canal al autenticar.
+    if (presenceMgr?.releasePeer?.(peerId)) {
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
     const route = await window.SaMiniP2P.deriveTrustedRoute(peer.linkToken);
     const signaling = new window.SaMiniP2P.SignalingClient({ room: route.room, peerId: self.deviceId, proof: route.proof });
     let autoSendStarted = false;
@@ -766,9 +774,10 @@ async function connectTrustedAndSend(peerId) {
         presenceMgr?.registerChannel?.(peer.peerId, channel, activeSession);
         window.SaMiniP2PPairing.attachTrusted(channel, {
           self, peer, store: identityStore,
-          onAuthenticated: () => { scheduleSaP2PHeaderRefresh(); triggerAutoSend(channel); },
+          onAuthenticated: () => { presenceMgr?.resumePeer?.(peer.peerId); scheduleSaP2PHeaderRefresh(); triggerAutoSend(channel); },
           onError: error => {
             presenceMgr?.setPeerTransferring?.(peer.peerId, false);
+            presenceMgr?.resumePeer?.(peer.peerId);
             const box=body()?.querySelector('[data-connect-status]');
             if (box) box.textContent='Autenticación falló: '+error.message;
             safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: String(error?.message || 'Autenticación falló').slice(0, 280) });
@@ -778,6 +787,7 @@ async function connectTrustedAndSend(peerId) {
     });
   } catch (error) {
     presenceMgr?.setPeerTransferring?.(peerId, false);
+      presenceMgr?.resumePeer?.(peerId);
     try {
       if (activityId) safeUpdateActivity(activityId, { status: P2P_ACTIVITY_STATUSES.ERROR, summary: String(error?.message || error || 'Error de conexión').slice(0, 280) });
     } catch (_) {}
@@ -851,6 +861,7 @@ async function sendRosterOnChannel(channel, peer, includeSalary, activityContext
     if (status) { status.classList.add('is-error'); status.innerHTML = `<strong>Error:</strong> ${esc(error.message || error)}`; }
   } finally {
     presenceMgr?.setPeerTransferring?.(peer.peerId, false);
+    presenceMgr?.resumePeer?.(peer.peerId);
   }
 }
 

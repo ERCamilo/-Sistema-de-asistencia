@@ -361,6 +361,86 @@ function makeAggregateAttendanceId() {
   return 'attendance-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);
 }
 
+// Tras cerrar la presencia, el servidor de señalización tarda un momento en
+// soltar la conexión anterior de SA; antes de eso rechaza la nueva (409).
+export const PRESENCE_RELEASE_SETTLE_MS = 800;
+// Por la conexión de presencia el Mini responde de inmediato; si no lo hace en
+// este tiempo se intenta con una conexión nueva.
+export const SHARED_CHANNEL_TIMEOUT_MS = 8000;
+
+function defaultPresenceManager() {
+    return (typeof globalThis !== 'undefined' && globalThis.p2pPresenceManager) || null;
+}
+
+/**
+ * Pide asistencia por la conexión de presencia ya abierta (Mini en verde).
+ * Un error con fallbackToSession indica que conviene reintentar con una
+ * conexión nueva (canal cerrado, envío fallido o sin respuesta).
+ */
+function requestOverPresenceChannel({ channel, request, core, timeoutMs, signal }) {
+    return new Promise((resolve, reject) => {
+        let done = false;
+        let timer = null;
+        let onAbort = null;
+        const finish = (settle, value) => {
+            if (done) return;
+            done = true;
+            if (timer) clearTimeout(timer);
+            try { channel.removeEventListener('message', onMessage); } catch (_) {}
+            try { channel.removeEventListener('close', onClose); } catch (_) {}
+            if (signal && onAbort) {
+                try { signal.removeEventListener('abort', onAbort); } catch (_) {}
+            }
+            settle(value);
+        };
+        const fallback = (message) => {
+            const error = new Error(message);
+            error.fallbackToSession = true;
+            finish(reject, error);
+        };
+        const onMessage = (event) => {
+            if (typeof event?.data !== 'string') return;
+            let parsed;
+            try { parsed = JSON.parse(event.data); } catch (_) { return; }
+            if (!parsed || parsed.schema !== ATTENDANCE_RESPONSE_SCHEMA || parsed.requestId !== request.requestId) return;
+            try {
+                if (typeof core.isChannelAuthenticated === 'function' && core.isChannelAuthenticated(channel) !== true) {
+                    throw new Error('Canal P2P dejó de estar autenticado antes de recibir asistencia.');
+                }
+                finish(resolve, validateAttendanceResponse(parsed, {
+                    expectedRequestId: request.requestId,
+                    expectedSaProjectId: request.saProjectId,
+                    expectedFromDate: request.fromDate,
+                    expectedToDate: request.toDate
+                }));
+            } catch (error) {
+                finish(reject, error);
+            }
+        };
+        const onClose = () => fallback('La conexión activa con el Mini se cerró.');
+        if (signal) {
+            onAbort = () => {
+                const error = new Error('Solicitud cancelada por el usuario.');
+                error.name = 'AbortError';
+                finish(reject, error);
+            };
+            if (signal.aborted) { onAbort(); return; }
+            signal.addEventListener('abort', onAbort, { once: true });
+        }
+        channel.addEventListener('message', onMessage);
+        channel.addEventListener('close', onClose);
+        timer = setTimeout(() => fallback('El Mini no respondió por la conexión activa.'), timeoutMs);
+        try {
+            if (typeof core.isChannelAuthenticated === 'function' && core.isChannelAuthenticated(channel) !== true) {
+                throw new Error('Canal de presencia no autenticado.');
+            }
+            channel.send(JSON.stringify(request));
+        } catch (error) {
+            fallback(error?.message || 'No se pudo enviar la solicitud por la conexión activa.');
+        }
+    });
+}
+
 export async function requestAttendanceFromPeer({
     peerId,
     saProjectId,
@@ -376,8 +456,11 @@ export async function requestAttendanceFromPeer({
     onStateChange = null,
     signal = null,
     activityStore = null,
-    projectName = ''
+    projectName = '',
+    presence = undefined
 } = {}) {
+    const presenceMgr = presence === undefined ? defaultPresenceManager() : presence;
+    let releasedPresence = false;
     const core = getP2PCore(p2pCore);
     if (!core) throw new Error('SaMiniP2P core no está disponible.');
     const pairing = getP2PPairing(p2pPairing);
@@ -420,12 +503,6 @@ export async function requestAttendanceFromPeer({
         throw cancelErr;
     }
 
-    const route = await core.deriveTrustedRoute(peer.linkToken);
-    const signaling = new core.SignalingClient({
-        room: route.room,
-        peerId: self.deviceId,
-        proof: route.proof
-    });
 
     let session = null;
     let sessionPromise = null;
@@ -441,152 +518,194 @@ export async function requestAttendanceFromPeer({
 
     safeAttendanceRecord(activeActivityStore, { id: request.requestId, kind: 'attendance', status: 'pending', peerName, projectName: humanProjectName, summary: rangeLabel, peerId: String(peer.peerId || ''), saProjectId: String(request.saProjectId || '') });
     try {
-        const response = await new Promise((resolve, reject) => {
-            const fail = (error) => {
-                if (isSettled) return;
-                isSettled = true;
-                if (timeoutTimer) clearTimeout(timeoutTimer);
-                if (signal && abortHandler) {
-                    try { signal.removeEventListener('abort', abortHandler); } catch (_) {}
+        let response = null;
+        // Mini en verde: la conexión de presencia ya está autenticada y el Mini
+        // anunció que responde asistencia. Se pide por ahí; abrir otra
+        // conexión de SA a la misma sala la rechaza el servidor.
+        const sharedChannel = presenceMgr?.getAttendanceChannel?.(peer.peerId) || null;
+        if (sharedChannel) {
+            notifyState('requesting', { message: `Solicitando asistencia a ${peerName} por la conexión activa…` });
+            try { presenceMgr.setPeerTransferring?.(peer.peerId, true); } catch (_) {}
+            try {
+                response = await requestOverPresenceChannel({
+                    channel: sharedChannel,
+                    request,
+                    core,
+                    timeoutMs: Math.min(timeoutMs, SHARED_CHANNEL_TIMEOUT_MS),
+                    signal
+                });
+            } catch (sharedErr) {
+                if (!sharedErr?.fallbackToSession) {
+                    if (sharedErr?.name === 'AbortError') notifyState('cancelled', { error: sharedErr, message: sharedErr.message });
+                    else notifyState('error', { error: sharedErr, message: sharedErr.message });
+                    throw sharedErr;
                 }
-                const normalized = error instanceof Error ? error : new Error(String(error));
-                const isAbort = normalized.name === 'AbortError' || normalized.message?.includes('cancelada');
-                const isTimeout = normalized.isTimeout || normalized.message?.includes('timeout');
-                if (isAbort) {
-                    notifyState('cancelled', { error: normalized, message: 'Solicitud cancelada por el usuario.' });
-                } else if (isTimeout) {
-                    notifyState('timeout', { error: normalized, message: normalized.message });
-                } else {
-                    notifyState('error', { error: normalized, message: normalized.message || 'Error P2P' });
-                }
-                reject(normalized);
-            };
-
-            const succeed = (result) => {
-                if (isSettled) return;
-                isSettled = true;
-                if (timeoutTimer) clearTimeout(timeoutTimer);
-                if (signal && abortHandler) {
-                    try { signal.removeEventListener('abort', abortHandler); } catch (_) {}
-                }
-                resolve(result);
-            };
-
-            notifyState('connecting', { message: `Conectando con ${peerName}…` });
-
-            if (signal) {
-                abortHandler = () => {
-                    const cancelErr = new Error('Solicitud cancelada por el usuario.');
-                    cancelErr.name = 'AbortError';
-                    fail(cancelErr);
-                };
-                if (signal.aborted) {
-                    abortHandler();
-                    return;
-                }
-                signal.addEventListener('abort', abortHandler, { once: true });
+            } finally {
+                try { presenceMgr.setPeerTransferring?.(peer.peerId, false); } catch (_) {}
             }
-
-            timeoutTimer = setTimeout(() => {
-                const timeoutErr = new Error(`Mini "${peerName}" no respondió a tiempo (timeout de ${timeoutMs}ms).`);
-                timeoutErr.isTimeout = true;
-                fail(timeoutErr);
-            }, timeoutMs);
-
-            sessionPromise = core.createRtcSession({
-                signaling,
-                initiator: true,
-                onState: (status, error) => {
-                    if (error) {
-                        fail(error);
-                    }
-                },
-                onChannel: (channel) => {
-                    activeChannel = channel;
-
-                    const maybeSendRequest = () => {
-                        if (isSettled || requestSent || !localAuthenticated || !peerAttendanceReady) return;
-                        try {
-                            if (typeof core.isChannelAuthenticated === 'function' &&
-                                core.isChannelAuthenticated(channel) !== true) {
-                                throw new Error('Canal P2P no autenticado al iniciar solicitud de asistencia.');
-                            }
-                            requestSent = true;
-                            notifyState('requesting', { message: `Solicitando asistencia a ${peerName}…` });
-                            channel.send(JSON.stringify(request));
-                            notifyState('receiving', { message: `Esperando respuesta de ${peerName}…` });
-                        } catch (sendErr) {
-                            fail(sendErr);
-                        }
-                    };
-
-                    // Install the application listener before trusted-auth completes so
-                    // an early Mini readiness frame cannot be lost.
-                    messageHandler = (event) => {
-                        try {
-                            if (typeof event?.data !== 'string') return;
-                            let parsed;
-                            try {
-                                parsed = JSON.parse(event.data);
-                            } catch (_) {
-                                return;
-                            }
-                            if (!parsed || typeof parsed !== 'object') return;
-                            if (parsed.protocol === 'sa-mini-p2p-control/v1' ||
-                                parsed.protocol === 'sa-mini-p2p-transfer/v1') {
-                                return;
-                            }
-                            if (parsed.schema === ATTENDANCE_READY_SCHEMA) {
-                                validateAttendanceReady(parsed);
-                                peerAttendanceReady = true;
-                                maybeSendRequest();
-                                return;
-                            }
-                            if (parsed.schema !== ATTENDANCE_RESPONSE_SCHEMA) return;
-                            if (!requestSent) {
-                                throw new Error('Mini respondió asistencia antes de declarar disponibilidad para la solicitud.');
-                            }
-                            if (typeof core.isChannelAuthenticated === 'function' &&
-                                core.isChannelAuthenticated(channel) !== true) {
-                                throw new Error('Canal P2P dejó de estar autenticado antes de recibir asistencia.');
-                            }
-                            const validated = validateAttendanceResponse(parsed, {
-                                expectedRequestId: request.requestId,
-                                expectedSaProjectId: request.saProjectId,
-                                expectedFromDate: request.fromDate,
-                                expectedToDate: request.toDate
-                            });
-                            succeed(validated);
-                        } catch (err) {
-                            fail(err);
-                        }
-                    };
-                    channel.addEventListener('message', messageHandler);
-
-                    try {
-                        notifyState('authenticating', { message: `Autenticando canal seguro con ${peerName}…` });
-                        trustedAttachment = pairing.attachTrusted(channel, {
-                            self,
-                            peer,
-                            store,
-                            onAuthenticated: () => {
-                                localAuthenticated = true;
-                                notifyState('authenticating', { message: `Canal autenticado con ${peerName}. Esperando disponibilidad de asistencia…` });
-                                maybeSendRequest();
-                            },
-                            onError: (authErr) => {
-                                fail(authErr);
-                            }
-                        });
-                    } catch (attachErr) {
-                        fail(attachErr);
-                    }
+        }
+        if (!response) {
+            // Conexión nueva: la presencia de este Mini se suelta mientras dura
+            // (ocupa la sala de señalización) y se retoma al terminar.
+            if (presenceMgr?.releasePeer) {
+                releasedPresence = true;
+                if (presenceMgr.releasePeer(peer.peerId)) {
+                    await new Promise(resolve => setTimeout(resolve, PRESENCE_RELEASE_SETTLE_MS));
                 }
+            }
+            const route = await core.deriveTrustedRoute(peer.linkToken);
+            const signaling = new core.SignalingClient({
+                room: route.room,
+                peerId: self.deviceId,
+                proof: route.proof
             });
-            sessionPromise.then(createdSession => {
-                session = createdSession;
-            }).catch(fail);
-        });
+            response = await new Promise((resolve, reject) => {
+                const fail = (error) => {
+                    if (isSettled) return;
+                    isSettled = true;
+                    if (timeoutTimer) clearTimeout(timeoutTimer);
+                    if (signal && abortHandler) {
+                        try { signal.removeEventListener('abort', abortHandler); } catch (_) {}
+                    }
+                    const normalized = error instanceof Error ? error : new Error(String(error));
+                    const isAbort = normalized.name === 'AbortError' || normalized.message?.includes('cancelada');
+                    const isTimeout = normalized.isTimeout || normalized.message?.includes('timeout');
+                    if (isAbort) {
+                        notifyState('cancelled', { error: normalized, message: 'Solicitud cancelada por el usuario.' });
+                    } else if (isTimeout) {
+                        notifyState('timeout', { error: normalized, message: normalized.message });
+                    } else {
+                        notifyState('error', { error: normalized, message: normalized.message || 'Error P2P' });
+                    }
+                    reject(normalized);
+                };
+
+                const succeed = (result) => {
+                    if (isSettled) return;
+                    isSettled = true;
+                    if (timeoutTimer) clearTimeout(timeoutTimer);
+                    if (signal && abortHandler) {
+                        try { signal.removeEventListener('abort', abortHandler); } catch (_) {}
+                    }
+                    resolve(result);
+                };
+
+                notifyState('connecting', { message: `Conectando con ${peerName}…` });
+
+                if (signal) {
+                    abortHandler = () => {
+                        const cancelErr = new Error('Solicitud cancelada por el usuario.');
+                        cancelErr.name = 'AbortError';
+                        fail(cancelErr);
+                    };
+                    if (signal.aborted) {
+                        abortHandler();
+                        return;
+                    }
+                    signal.addEventListener('abort', abortHandler, { once: true });
+                }
+
+                timeoutTimer = setTimeout(() => {
+                    const timeoutErr = new Error(`Mini "${peerName}" no respondió a tiempo (timeout de ${timeoutMs}ms).`);
+                    timeoutErr.isTimeout = true;
+                    fail(timeoutErr);
+                }, timeoutMs);
+
+                sessionPromise = core.createRtcSession({
+                    signaling,
+                    initiator: true,
+                    onState: (status, error) => {
+                        if (error) {
+                            fail(error);
+                        }
+                    },
+                    onChannel: (channel) => {
+                        activeChannel = channel;
+
+                        const maybeSendRequest = () => {
+                            if (isSettled || requestSent || !localAuthenticated || !peerAttendanceReady) return;
+                            try {
+                                if (typeof core.isChannelAuthenticated === 'function' &&
+                                    core.isChannelAuthenticated(channel) !== true) {
+                                    throw new Error('Canal P2P no autenticado al iniciar solicitud de asistencia.');
+                                }
+                                requestSent = true;
+                                notifyState('requesting', { message: `Solicitando asistencia a ${peerName}…` });
+                                channel.send(JSON.stringify(request));
+                                notifyState('receiving', { message: `Esperando respuesta de ${peerName}…` });
+                            } catch (sendErr) {
+                                fail(sendErr);
+                            }
+                        };
+
+                        // Install the application listener before trusted-auth completes so
+                        // an early Mini readiness frame cannot be lost.
+                        messageHandler = (event) => {
+                            try {
+                                if (typeof event?.data !== 'string') return;
+                                let parsed;
+                                try {
+                                    parsed = JSON.parse(event.data);
+                                } catch (_) {
+                                    return;
+                                }
+                                if (!parsed || typeof parsed !== 'object') return;
+                                if (parsed.protocol === 'sa-mini-p2p-control/v1' ||
+                                    parsed.protocol === 'sa-mini-p2p-transfer/v1') {
+                                    return;
+                                }
+                                if (parsed.schema === ATTENDANCE_READY_SCHEMA) {
+                                    validateAttendanceReady(parsed);
+                                    peerAttendanceReady = true;
+                                    maybeSendRequest();
+                                    return;
+                                }
+                                if (parsed.schema !== ATTENDANCE_RESPONSE_SCHEMA) return;
+                                if (!requestSent) {
+                                    throw new Error('Mini respondió asistencia antes de declarar disponibilidad para la solicitud.');
+                                }
+                                if (typeof core.isChannelAuthenticated === 'function' &&
+                                    core.isChannelAuthenticated(channel) !== true) {
+                                    throw new Error('Canal P2P dejó de estar autenticado antes de recibir asistencia.');
+                                }
+                                const validated = validateAttendanceResponse(parsed, {
+                                    expectedRequestId: request.requestId,
+                                    expectedSaProjectId: request.saProjectId,
+                                    expectedFromDate: request.fromDate,
+                                    expectedToDate: request.toDate
+                                });
+                                succeed(validated);
+                            } catch (err) {
+                                fail(err);
+                            }
+                        };
+                        channel.addEventListener('message', messageHandler);
+
+                        try {
+                            notifyState('authenticating', { message: `Autenticando canal seguro con ${peerName}…` });
+                            trustedAttachment = pairing.attachTrusted(channel, {
+                                self,
+                                peer,
+                                store,
+                                onAuthenticated: () => {
+                                    localAuthenticated = true;
+                                    notifyState('authenticating', { message: `Canal autenticado con ${peerName}. Esperando disponibilidad de asistencia…` });
+                                    maybeSendRequest();
+                                },
+                                onError: (authErr) => {
+                                    fail(authErr);
+                                }
+                            });
+                        } catch (attachErr) {
+                            fail(attachErr);
+                        }
+                    }
+                });
+                sessionPromise.then(createdSession => {
+                    session = createdSession;
+                }).catch(fail);
+            });
+        }
 
         // Import returned submissions into inboxStore if provided
         const importedRecords = [];
@@ -646,6 +765,9 @@ export async function requestAttendanceFromPeer({
         }
         if (sessionToClose) {
             try { sessionToClose.close?.('attendance-request-finished'); } catch (_) {}
+        }
+        if (releasedPresence) {
+            try { presenceMgr.resumePeer?.(peer.peerId); } catch (_) {}
         }
     }
 }
