@@ -7,6 +7,7 @@
 
 import icons from '../../ui/IconSystem.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
+import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
@@ -55,10 +56,12 @@ export function schedulePositionCardGridLayout() {
 }
 
 export function PositionCard(pos) {
-    const empCount = state.employees.filter(e => (e.positions || []).includes(pos.id) && e.active).length;
+    // Contadores de la obra activa; «se puede borrar» mira todas las obras.
+    const scopedEmployees = state.employees.filter(e => entityInScope(e, peekEntityScope()));
+    const empCount = scopedEmployees.filter(e => (e.positions || []).includes(pos.id) && e.active).length;
     const totalAssigned = state.employees.filter(e => (e.positions || []).includes(pos.id)).length;
     const canDelete = totalAssigned === 0 && !pos.active;
-    const employeesInPosition = state.employees.filter(e => (e.positions || []).includes(pos.id) && e.active);
+    const employeesInPosition = scopedEmployees.filter(e => (e.positions || []).includes(pos.id) && e.active);
     const hoursPerDay = getActivePayrollSettings(state).regularHoursPerDay || 8;
     const rateNum = Number(pos.hourlyRate);
     const hourlyRate = Number.isFinite(rateNum) ? rateNum : 0;

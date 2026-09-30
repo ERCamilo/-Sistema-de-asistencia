@@ -12,6 +12,7 @@ import { saveApplicationData } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { Modal } from '../../components/Modal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
+import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import { renderPositionIconSvg, renderPositionUiSvg, resolveLeaderIcon } from './PositionVisuals.js';
 
 let leaderGridFrame = null;
@@ -47,14 +48,17 @@ export function scheduleLeaderCardGridLayout() {
 }
 
 export function LeaderCard(ldr) {
-    const positionsLedList = state.positions.filter(p => p.leaderId === ldr.id && p.active);
+    // Solo puestos y empleados de la obra activa.
+    const scope = peekEntityScope();
+    const scopedEmployees = state.employees.filter(employee => entityInScope(employee, scope));
+    const positionsLedList = state.positions.filter(p => p.leaderId === ldr.id && p.active && entityInScope(p, scope));
     const positionsLed = positionsLedList.length;
     const leaderPositionIds = new Set(positionsLedList.map(position => position.id));
-    const supervisedEmployees = state.employees
+    const supervisedEmployees = scopedEmployees
         .filter(employee => employee.active && (employee.positions || []).some(id => leaderPositionIds.has(id)));
     const leaderId = escapeAttr(ldr.id);
     const positionsSections = positionsLedList.map(pos => {
-        const emps = state.employees
+        const emps = scopedEmployees
             .filter(e => e.active && (e.positions || []).includes(pos.id))
             .sort((a, b) => {
                 const aNum = parseInt(a.number, 10);
