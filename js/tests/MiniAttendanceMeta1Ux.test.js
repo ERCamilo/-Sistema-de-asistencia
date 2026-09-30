@@ -60,7 +60,12 @@ describe('Meta1 UX — technical Detalles popup (no inline <details>)', () => {
         const id = '11111111-1111-4111-8111-111111111111';
         await inbox.importSubmission(buildSubmission({
             id, workDate: '2026-09-06', deviceId: 'tech-device-uuid-aaa', sourceId: 'tech-source-uuid-bbb',
-            rows: [{ miniLocalId: 'm1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }]
+            rows: [
+                { miniLocalId: 'm1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' },
+                // Sin vincular: mantiene la etapa de revisión de Mini (una fuente limpia
+                // pasa directo a la conciliación).
+                { miniLocalId: 'm9', number: '009', name: 'Zeta', normalHours: 8, overtimeHours: 0, status: 'present' }
+            ]
         }), {
             expectedSaProjectId: SA_PROJECT,
             metadata: { sourcePeerName: 'Mini Norte', sourcePeerId: 'tech-peer-uuid-zzz' }
@@ -122,7 +127,8 @@ describe('Meta1 UX — technical Detalles popup (no inline <details>)', () => {
         // Consolidation row: primary never shows technical IDs.
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
         await modal.consolidateSelectedDrafts();
-        const rowEl = host.querySelector('[data-mini-consolidation-item]');
+        host.querySelector('[data-mini-action="toggle-resolved-rows"]')?.click();
+        const rowEl = host.querySelector('[data-mini-consolidation-item*="EMP-001"]');
         expect(rowEl).not.toBeNull();
         expect(rowEl.querySelector('details')).toBeNull();
         const rowTrigger = rowEl.querySelector('[data-mini-technical-trigger]');
@@ -166,25 +172,21 @@ describe('Hotfix UX — ignorar asistencia en comparación Mini→SA', () => {
         };
         modal.mount(host);
         modal.consolidatedResult = consolidation;
-        modal.multiDayResolver = createMultiDayAttendanceResolver({
-            consolidation, employees, attendance, positions, saProjectId: SA_PROJECT, entityScope: SA_SCOPE,
-            stage: 'sa', applyPlan
-        });
-        modal.connectedView = 'sa-comparison';
-        modal.consolidationDayIndex = 0;
-        modal.render();
+        // Comparing with SA goes through the pasted-text reconciliation.
+        modal.beginConnectedDayReview(consolidation);
+        expect(modal.connectedView).toBe('day-review');
+        const [item] = modal.buildReviewView().items;
+        modal.openIndividualReview([modal.reviewItemKey(item)]);
 
-        const ignore = host.querySelector('[data-mini-action="ignore-consolidated-attendance"]');
+        const ignore = host.querySelector('[data-mini-action="ignore-unit"]');
         expect(ignore).not.toBeNull();
-        expect(ignore.textContent).toBe('Ignorar esta asistencia');
-        expect(modal.multiDayResolver.getDayState('2026-09-06').applyPlan.writes).toHaveLength(1);
+        expect(ignore.textContent).toBe('Ignorar en esta importación');
 
         ignore.click();
         await wait();
         expect(confirmIgnore).toHaveBeenCalledTimes(1);
-        expect(modal.multiDayResolver.getDayState('2026-09-06').items).toHaveLength(0);
-        expect(modal.multiDayResolver.getDayState('2026-09-06').applyPlan.writes).toHaveLength(0);
-        expect(host.querySelector('[data-mini-consolidation-item="ignore-hotfix-row"]')).toBeNull();
+        expect(modal.draft.rows[0].excluded).toBe(true);
+        expect(modal.conflictPlan.rows).toHaveLength(0);
     });
 });
 
@@ -205,7 +207,9 @@ describe('Meta1 UX — sticky centered work date in consolidation topbar', () =>
         }), { expectedSaProjectId: SA_PROJECT });
         await inbox.importSubmission(buildSubmission({
             id: id2, workDate: '2026-09-07', deviceId: 'mini-a',
-            rows: [{ miniLocalId: 'a2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-002' }]
+            // Sin vincular: la revisión de Mini sigue abierta (una fuente limpia
+            // pasaría directo a la conciliación, que tiene su propio encabezado).
+            rows: [{ miniLocalId: 'a2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 0, status: 'present' }]
         }), { expectedSaProjectId: SA_PROJECT });
 
         const modal = makeModal({ db, employees, positions, attendance, applyPlan });
@@ -227,7 +231,7 @@ describe('Meta1 UX — sticky centered work date in consolidation topbar', () =>
         expect(host.querySelector('[data-mini-topbar-day]').textContent).toBe('Día 1 de 2');
         expect(center.getAttribute('aria-label')).toContain('06/09/2026');
         // Day X/N without competing generic step signals.
-        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Comparar con SA · Día 1 de 2');
+        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Revisar asistencia · Día 1 de 2');
         expect(host.querySelector('.mini-import-topbar-step').textContent).toBe('Día 1 de 2');
         expect(host.querySelector('.mini-import-topbar-subtitle').textContent).not.toContain('Paso 3');
         const progress = host.querySelector('.mini-import-progress-bar');
@@ -311,14 +315,13 @@ describe('Meta1 UX — consolidation footer zones and button hierarchy', () => {
         alertSpy.mockRestore();
         confirmSpy.mockRestore();
 
-        // SA stage stays contextual too: a one-day import keeps only the compact Volver navigation.
+        // Comparing with SA reuses the pasted-text reconciliation for the day.
         host.querySelector('[data-mini-action="create-mini-consolidated"]').click();
         await wait();
-        expect(modal.connectedView).toBe('sa-comparison');
-        expect(host.querySelector('[data-mini-footer-nav]')).not.toBeNull();
-        expect(host.querySelector('[data-mini-footer-global]')).not.toBeNull();
-        const saLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(b => b.textContent.trim());
-        expect(saLabels).toEqual(['← Volver', 'Aplicar listos', 'Finalizar']);
+        expect(modal.connectedView).toBe('day-review');
+        expect(host.querySelector('[data-mini-automatic-review]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-action="back-review"]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-action="accept-automatic"]')).not.toBeNull();
     });
 });
 

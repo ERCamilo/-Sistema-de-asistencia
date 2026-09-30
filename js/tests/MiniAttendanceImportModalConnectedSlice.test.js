@@ -895,11 +895,18 @@ describe('MiniAttendanceImportModal — connected wizard and proxy-safe reconcil
 
         host.querySelector(`[data-mini-draft-checkbox="${SUB_UUID_1}"]`).click();
         await modal.consolidateSelectedDrafts();
-        // One valid Mini skips the redundant Mini-review stage and goes directly to SA comparison.
-        expect(modal.connectedView).toBe('sa-comparison');
-        expect(host.querySelector('[data-mini-consolidation-skeleton]')).not.toBeNull();
+        // One valid Mini skips the redundant Mini-review stage and goes directly to the
+        // same SA reconciliation used by pasted text, one day at a time.
+        expect(modal.connectedView).toBe('day-review');
+        expect(modal.stage).toBe('review');
+        expect(host.querySelector('[data-mini-automatic-review]')).not.toBeNull();
         expect(host.querySelector('[data-mini-saved-drafts]')).toBeNull();
-        expect(host.querySelector('[data-mini-action="back-connected-inbox"]')).not.toBeNull();
+        const back = host.querySelector('[data-mini-action="back-review"]');
+        expect(back).not.toBeNull();
+        back.click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(modal.connectedView).toBe('inbox');
+        expect(host.querySelector('[data-mini-saved-drafts]')).not.toBeNull();
     });
 
 
@@ -983,12 +990,16 @@ describe('MiniAttendanceImportModal — connected wizard and proxy-safe reconcil
             sourceSnapshot: sampleSubmission()
         }];
         modal.selectedDraftIds.add(SUB_UUID_1);
-        modal.multiDayResolver = {
-            getMultiDaySummary: () => ({ totalDays: 1, appliedDaysCount: 1, workDates: ['2026-09-06'] })
+        modal.connectedReview = {
+            consolidation: { items: [] },
+            dates: ['2026-09-06'],
+            appliedDates: new Set(['2026-09-06']),
+            skippedDates: new Set(),
+            index: 0
         };
         modal.reviewStatusPromise = reviewStatusPromise;
 
-        const completion = modal.completeConnectedImport();
+        const completion = modal.completeConnectedDayReview();
         await Promise.resolve();
         expect(updateStatus).not.toHaveBeenCalled();
         releaseReview();

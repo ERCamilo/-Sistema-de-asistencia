@@ -73,9 +73,9 @@ describe('confirmMiniImportDates', () => {
     });
 });
 
-test('el importador pasa por la validación en los tres caminos de aplicar', () => {
+test('el importador pasa por la validación en su único camino de aplicar (pegado y conectados)', () => {
     const src = require('fs').readFileSync(require('path').resolve(__dirname, '../modules/ui/modals/MiniAttendanceImportModal.js'), 'utf8');
-    expect(src).toMatch(/guardMiniImportDates\(\[group\.workDate\]\);\s*if \(gate !== true && !\(await gate\)\) return;\s*await this\.multiDayResolver\.applyDay/);
-    expect(src).toMatch(/guardMiniImportDates\(readyDates\);\s*if \(gate !== true && !\(await gate\)\) return;\s*await this\.multiDayResolver\.applyReadyDays/);
+    // «Conectados» ya no aplica por su cuenta: cada día pasa por applyCurrentPlan.
+    expect(src).not.toMatch(/multiDayResolver\.applyDay\(|multiDayResolver\.applyReadyDays\(/);
     expect(src).toMatch(/guardMiniImportDates\(\[plan\.date\], \[plan\]\);\s*if \(gate !== true\) \{[\s\S]{0,120}if \(!\(await gate\)\) return null;/);
 });

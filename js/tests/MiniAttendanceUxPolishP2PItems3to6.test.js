@@ -63,7 +63,12 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         const id = '11111111-1111-4111-8111-111111111111';
         await inbox.importSubmission(buildSubmission({
             id, workDate: '2026-09-06', deviceId: 'tech-device-uuid-aaa', sourceId: 'tech-source-uuid-bbb',
-            rows: [{ miniLocalId: 'm1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }]
+            rows: [
+                { miniLocalId: 'm1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' },
+                // Sin vincular: mantiene la revisión de Mini (una fuente limpia pasa
+                // directo a la conciliación con SA).
+                { miniLocalId: 'm9', number: '009', name: 'Zeta', normalHours: 8, overtimeHours: 0, status: 'present' }
+            ]
         }), {
             expectedSaProjectId: SA_PROJECT,
             metadata: { sourcePeerName: 'Mini Norte', sourcePeerId: 'tech-peer-uuid-zzz' }
@@ -115,21 +120,23 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         // Consolidate and check row primary identity is employee # + name with human Mini provenance.
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
         await modal.consolidateSelectedDrafts();
-        const rowName = host.querySelector('[data-mini-consolidation-item] .mini-row-name');
-        const rowNumber = host.querySelector('[data-mini-consolidation-item] .mini-row-number');
+        host.querySelector('[data-mini-action="toggle-resolved-rows"]')?.click();
+        const anaRow = '[data-mini-consolidation-item*="EMP-001"]';
+        const rowName = host.querySelector(`${anaRow} .mini-row-name`);
+        const rowNumber = host.querySelector(`${anaRow} .mini-row-number`);
         expect(rowName.textContent).toContain('Ana');
         expect(rowNumber.textContent).toContain('#001');
-        const provenance = host.querySelector('[data-mini-source-provenance]');
+        const provenance = host.querySelector(`${anaRow} [data-mini-source-provenance]`);
         expect(provenance).not.toBeNull();
         expect(provenance.textContent).toContain('Mini Norte');
         expect(provenance.textContent).not.toContain('tech-device-uuid-aaa');
-        expect(host.querySelector('[data-mini-consolidation-item] details.mini-technical-details')).toBeNull();
-        const rowTrigger = host.querySelector('[data-mini-consolidation-item] [data-mini-technical-trigger]');
+        expect(host.querySelector(`${anaRow} details.mini-technical-details`)).toBeNull();
+        const rowTrigger = host.querySelector(`${anaRow} [data-mini-technical-trigger]`);
         expect(rowTrigger).not.toBeNull();
         expect(rowTrigger.textContent).toBe('Detalles');
         // saEmployeeId must not be primary visible text when human label exists.
         // It may only appear inside the optional Detalles popup.
-        const rowEl = host.querySelector('[data-mini-consolidation-item]');
+        const rowEl = host.querySelector(anaRow);
         const primaryTexts = [...rowEl.querySelectorAll('.mini-row-name, .mini-row-number, .mini-row-hours, .mini-row-status, .mini-row-provenance')]
             .map(el => el.textContent);
         expect(primaryTexts.some(t => t.includes('EMP-001'))).toBe(false);
@@ -184,21 +191,14 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         modal.render();
         host.querySelector(`[data-mini-draft-checkbox="${draftId}"]`).click();
         await modal.consolidateSelectedDrafts();
-        expect(modal.connectedView).toBe('sa-comparison');
-        const miniBannerStrong = host.querySelector('[data-mini-proposal-seam] strong').textContent;
-        const miniBannerCopy = host.querySelector('[data-mini-proposal-seam] p').textContent;
-        expect(miniBannerStrong).toContain('Comparar con SA');
-        expect(miniBannerCopy).toContain('consolidado Mini revisado');
-        expect(miniBannerCopy).toContain('Nada se aplica');
-
-        const saBannerStrong = host.querySelector('[data-mini-proposal-seam] strong').textContent;
-        expect(saBannerStrong).toContain('Comparar con SA');
-        const applyBtn = host.querySelector('[data-mini-action="apply-ready-days"]');
+        // Comparar con SA = the same reconciliation as pasted text; writes = Aplicar.
+        expect(modal.connectedView).toBe('day-review');
+        expect(host.querySelector('.mini-import-topbar-chip').textContent).toBe('CONCILIACIÓN');
+        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Conectados · Día 1 de 1 · 06/09/2026');
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+        const applyBtn = host.querySelector('[data-mini-action="apply"]');
         expect(applyBtn.textContent).toContain('Aplicar');
-        const saHint = host.querySelector('[data-mini-batch-actions] .mini-import-complete-hint').textContent;
-        expect(saHint).toContain('Compara');
-        expect(saHint).toContain('aplica');
-        expect(saHint).toContain('importación');
+        expect(applyPlan).not.toHaveBeenCalled();
     });
 
     test('(5) consolidation shell keeps one compact executive status; no duplicated counts or prose', async () => {
@@ -208,7 +208,11 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         const id = '33333333-3333-4333-8333-333333333333';
         await inbox.importSubmission(buildSubmission({
             id, workDate: '2026-09-11', deviceId: 'mini-a',
-            rows: [{ miniLocalId: 'm1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }]
+            rows: [
+                { miniLocalId: 'm1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' },
+                // Sin vincular: mantiene la revisión de Mini visible.
+                { miniLocalId: 'm9', number: '009', name: 'Zeta', normalHours: 8, overtimeHours: 0, status: 'present' }
+            ]
         }), { expectedSaProjectId: SA_PROJECT });
 
         const modal = makeModal({ db, employees, positions, attendance, applyPlan });
@@ -222,13 +226,15 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(badges).not.toBeNull();
         expect(badges.getAttribute('role')).toBe('status');
         const badgeTexts = [...badges.querySelectorAll('.mini-badge')].map(el => el.textContent);
-        expect(badgeTexts).toContain('Total: 1');
+        expect(badgeTexts).toContain('Total: 2');
 
+        // Single-Mini review shows no extra stage banner; when present it never repeats counts.
         const banner = host.querySelector('[data-mini-proposal-seam]');
-        expect(banner.textContent).not.toContain('Propuestas generadas');
-        expect(banner.textContent).not.toContain('Listas:');
-        expect(banner.textContent).not.toContain('Bloqueadas:');
-        expect(banner.textContent).not.toContain('Total:');
+        const bannerText = banner?.textContent || '';
+        expect(bannerText).not.toContain('Propuestas generadas');
+        expect(bannerText).not.toContain('Listas:');
+        expect(bannerText).not.toContain('Bloqueadas:');
+        expect(bannerText).not.toContain('Total:');
 
         // Back navigation lives in the contextual footer; the old large top nav is gone.
         expect(host.querySelector('.mini-import-connected-nav')).toBeNull();
@@ -244,7 +250,7 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(footerHint.textContent).not.toContain('Propuestas generadas');
     });
 
-    test('(6) progress skips single-Mini review when there are no exceptions and goes directly to Comparar', async () => {
+    test('(6) progress skips single-Mini review when there are no exceptions and goes day by day through the reconciliation', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const { positions, employees, attendance, applyPlan } = baseFixtures();
@@ -272,27 +278,21 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(host.querySelector('.mini-import-progress-bar')).not.toBeNull();
         expect(host.querySelector('.mini-attendance-import').getAttribute('aria-live')).toBe('polite');
 
-        // A single Mini without exceptions skips review and opens SA comparison directly.
-        expect(modal.connectedView).toBe('sa-comparison');
-        const saSubtitle = host.querySelector('.mini-import-topbar-subtitle').textContent;
-        const saStep = host.querySelector('.mini-import-topbar-step').textContent;
-        const saChip = host.querySelector('.mini-import-topbar-chip').textContent;
-        expect(saSubtitle).toBe('Comparar con SA · Día 1 de 2');
-        expect(saStep).toBe('Día 1 de 2');
-        expect(saChip).toBe('COMPARAR');
-        expect(saSubtitle).not.toContain('Paso 4');
-        expect(saStep).not.toContain('4/4');
-        const progress = host.querySelector('.mini-import-progress-bar');
-        expect(progress.getAttribute('role')).toBe('progressbar');
-        expect(progress.getAttribute('aria-valuenow')).toBe('1');
-        expect(progress.getAttribute('aria-valuemax')).toBe('2');
-        expect(progress.getAttribute('aria-label')).toBe('Comparar con SA · Día 1 de 2');
-        expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 1 de 2');
+        // A single Mini without exceptions skips review and opens the reconciliation of day 1.
+        expect(modal.connectedView).toBe('day-review');
+        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Conectados · Día 1 de 2 · 06/09/2026');
+        expect(host.querySelector('.mini-import-topbar-chip').textContent).toBe('CONCILIACIÓN');
+        expect(host.querySelector('.mini-import-progress-bar').getAttribute('role')).toBe('progressbar');
 
-        host.querySelector('[data-mini-action="next-consolidation-day"]').click();
+        // Applying day 1 offers the next day; day 2 opens in the same shell.
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+        host.querySelector('[data-mini-action="apply"]').click();
         await wait();
-        expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 2 de 2');
-        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Comparar con SA · Día 2 de 2');
+        const next = host.querySelector('[data-mini-action="next-connected-day"]');
+        expect(next.textContent).toBe('Siguiente día (queda 1)');
+        next.click();
+        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Conectados · Día 2 de 2 · 07/09/2026');
+        expect(host.querySelector('.mini-attendance-import').getAttribute('aria-live')).toBe('polite');
     });
 
     test('preserves numeric employee ordering and canonical safety (no SA writes before explicit Aplicar)', async () => {
