@@ -13,6 +13,8 @@ function enterReview(applyPlan) {
         employees,
         positions,
         proposedDate: DATE,
+        // Fecha fija de prueba: la validación por antigüedad se prueba aparte.
+        confirmImportDates: () => true,
         regularLimit: 8,
         applyPlan
     }).mount(host);
