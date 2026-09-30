@@ -10,8 +10,19 @@ import { resolveDailyTargetHours } from '../utils/AttendanceHours.js';
 import { Notification } from '../components/Notification.js';
 import { isProjectsEnabled } from '../config/FeatureFlags.js';
 import { entityInScope, peekEntityScope } from '../features/projects/ProjectContext.js';
-import { getActivePayrollSettings, setActivePayrollConfig } from '../features/payroll/ActivePayrollSettings.js';
+import { getActivePayrollSettings, setActivePayrollConfig, getActiveDayHours, updateActiveDayHours } from '../features/payroll/ActivePayrollSettings.js';
 import * as projectPayrollConfigStore from '../features/payroll/ProjectPayrollConfigStore.js';
+
+function usesObraDayHours() {
+    const scope = peekEntityScope();
+    return isProjectsEnabled() && Boolean(scope?.enabled && scope.projectId);
+}
+
+function persistObraDayHours(updates) {
+    updateActiveDayHours(updates, { state })
+        .then(saved => { if (!saved) Notification.error('No se pudieron guardar las horas base en la obra.'); })
+        .catch(error => Notification.error(`No se pudieron guardar las horas base: ${error?.message || error}`));
+}
 
 /**
  * ⏱️ Ajusta las horas base para el día seleccionado o la semana completa (+/- 0.5h)
@@ -22,6 +33,18 @@ export function changeBaseHours(delta) {
         ? DateUtils.getWeekDates(state.selectedDate)
         : [getDateKey(state.selectedDate)];
     
+    // Con obras, las horas base son de la obra activa (viajan con su configuración).
+    if (usesObraDayHours()) {
+        const current = getActiveDayHours(state);
+        const updates = {};
+        for (const dateKey of datesToUpdate) {
+            const currentHours = resolveDailyTargetHours(dateKey, current, getActivePayrollSettings(state).regularHoursPerDay);
+            updates[dateKey] = Math.max(0, Math.min(24, currentHours + delta));
+        }
+        persistObraDayHours(updates);
+        return;
+    }
+
     // ⚡ Fase 4 Paso 5: las N escrituras de dayHoursConfig (hasta 7 en semana) se
     // batchean → el proxy corre silencioso y batchSetState agenda 1 render al cerrar.
     stateManager.batchSetState(() => {
@@ -117,6 +140,11 @@ export function setDayHours(val) {
     const datesToUpdate = state.viewMode === 'week' 
         ? DateUtils.getWeekDates(state.selectedDate)
         : [getDateKey(state.selectedDate)];
+
+    if (usesObraDayHours()) {
+        persistObraDayHours(Object.fromEntries(datesToUpdate.map(dateKey => [dateKey, hours])));
+        return;
+    }
 
     // ⚡ Fase 4 Paso 5: batchear las N escrituras → 1 render al cerrar el batch.
     stateManager.batchSetState(() => {

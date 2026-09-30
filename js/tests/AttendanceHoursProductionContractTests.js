@@ -47,7 +47,7 @@ testRunner.addSuite('app.js — contrato productivo de horas de asistencia', {
     'handleWeekCheck preserva override diario cero mediante el resolver canónico'() {
         const body = between("window.handleWeekCheck = ", 'window.handleWeekCheckClick');
         testRunner.assert(
-            /resolveDailyTargetHours\s*\(\s*dateStr\s*,\s*state\.dayHoursConfig\s*,\s*getActivePayrollSettings\(state\)\.regularHoursPerDay\s*\)/.test(body),
+            /resolveDailyTargetHours\s*\(\s*dateStr\s*,\s*getActiveDayHours\(state\)\s*,\s*getActivePayrollSettings\(state\)\.regularHoursPerDay\s*\)/.test(body),
             'handleWeekCheck debe resolver la jornada diaria sin usar ||, que descarta el cero explícito'
         );
     },
@@ -64,7 +64,7 @@ testRunner.addSuite('app.js — contrato productivo de horas de asistencia', {
             'el detalle debe normalizar la jornada regular antes de calcular'
         );
         testRunner.assert(
-            /resolveDailyTargetHours\s*\(\s*dk\s*,\s*state\.dayHoursConfig\s*,\s*regularHours\s*\)/.test(detail),
+            /resolveDailyTargetHours\s*\(\s*dk\s*,\s*getActiveDayHours\(state\)\s*,\s*regularHours\s*\)/.test(detail),
             'extras y objetivo del período deben respetar la jornada configurada para cada fecha'
         );
     },

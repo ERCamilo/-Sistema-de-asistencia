@@ -3,7 +3,7 @@
  * Parte de la Fase 4: Modularización y Componentización
  */
 
-import { getActivePayrollSettings } from '../features/payroll/ActivePayrollSettings.js';
+import { getActivePayrollSettings, getActiveDayHours } from '../features/payroll/ActivePayrollSettings.js';
 import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.js';
 import icons from './IconSystem.js';
 import { entityInScope, peekEntityScope } from '../features/projects/ProjectContext.js';
@@ -221,7 +221,7 @@ export function formatSplitName(fullName) {
  */
 export function getDayHours(date) {
     const key = getDateKey(date);
-    return resolveDailyTargetHours(key, state.dayHoursConfig, getActivePayrollSettings(state).regularHoursPerDay);
+    return resolveDailyTargetHours(key, getActiveDayHours(state), getActivePayrollSettings(state).regularHoursPerDay);
 }
 
 /**
@@ -908,7 +908,7 @@ export function EmployeeRow(emp) {
         attendance: state.attendance,
         positions: state.positions,
         settings: getActivePayrollSettings(state),
-        dayHoursConfig: state.dayHoursConfig
+        dayHoursConfig: getActiveDayHours(state)
     });
 
     // ⚡ P4-OPT: Solo regenerar si algo relevante cambió
@@ -1213,7 +1213,7 @@ export function getFilteredEmployeesForDay() {
     // Filtrar por Estado (Presentes/Ausentes/Extras)
     if (state.employeeFilter) {
         const dateKey = getDateKey(state.selectedDate);
-        const dayHours = resolveDailyTargetHours(dateKey, state.dayHoursConfig, getActivePayrollSettings(state).regularHoursPerDay);
+        const dayHours = resolveDailyTargetHours(dateKey, getActiveDayHours(state), getActivePayrollSettings(state).regularHoursPerDay);
         employees = employees.filter(emp => {
             const att = state.attendance[`${emp.id}-${dateKey}`];
             const isChecked = att && att.present;
