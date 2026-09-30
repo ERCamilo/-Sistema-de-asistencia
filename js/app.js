@@ -362,6 +362,7 @@ import { EmployeeStatsService } from './modules/features/stats/EmployeeStatsServ
 import { EmployeeFloatingCard } from './modules/ui/components/EmployeeFloatingCard.js';
 import { InstallPromptManager } from './modules/services/InstallPromptManager.js';
 import './modules/ui/MaintenanceUI.js';
+import './modules/ui/DuplicatesScreenBoot.js';
 
 
 const ICON_SET_STORAGE_KEY = 'icon-set';
