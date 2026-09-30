@@ -47,9 +47,11 @@ import {
     sortEmployeeLoans,
     filterEmployeeLoans,
     getIndividualLoanRecords,
-    formatLoanShortDate
+    formatLoanShortDate,
+    refinanceBaseAmount
 } from './LoansService.js';
 import { detectLoanDuplicateCandidates } from './LoanDuplicateDetector.js';
+import { renderLoanHistoryPanel } from './LoanHistoryPanel.js';
 import { isPendingUpload } from '../../services/EntitiesSyncStamp.js';
 import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import {
@@ -221,6 +223,8 @@ function LedgerOverview() {
                         'Préstamos activos:\nNúmero de préstamos que se están cobrando actualmente en la empresa.\n\n* No incluye préstamos ya saldados al 100% ni anulados.'
                     )}
                 </div>
+
+                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: scopedState.employees || [] })}
 
                 ${inactiveWithDebt.length > 0 ? `
                     <div class="loans-inactive-debt-alert" role="status">
@@ -903,6 +907,8 @@ function EmployeeLoansDetail(empId) {
                 ${renderedCardsHtml}
             </div>
 
+            ${renderLoanHistoryPanel({ scope: String(emp.id), mode: 'employee', employees: [emp] })}
+
             ${duplicateCandidates.length > 0 ? `
                 <div style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.5); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
                     <div style="color: #fca5a5; font-weight: 800; font-size: 0.85rem; margin-bottom: 6px;">⚠️ Posibles préstamos duplicados</div>
@@ -1194,7 +1200,7 @@ function LoanCard(loan, emp = null) {
                                         <strong>+${formatCurrency(item.interestAmount)}</strong>
                                         <span>${formatDateShort(item.date)}</span>
                                     </div>
-                                    <small>${item.interestRate}% sobre ${item.basis === 'balance' ? 'saldo' : 'capital'} (${formatCurrency(item.baseAmount)})${item.note ? ` · ${escapeHTML(item.note)}` : ''}</small>
+                                    <small>${item.basis === 'pending' ? 'Interés pendiente, sin interés nuevo' : `${item.interestRate}% sobre ${item.basis === 'balance' ? 'saldo' : item.basis === 'capital' ? 'capital restante' : 'capital original'}`} (${formatCurrency(item.baseAmount)})${item.note ? ` · ${escapeHTML(item.note)}` : ''}</small>
                                 </div>
                                 ${isActive ? `<button type="button" class="loan-card__activity-void"
                                                       data-app-fn="voidRefinanceHandler" data-arg="${loan.id}" data-arg2="${item.id}"
@@ -1866,11 +1872,12 @@ function RefinanceForm(loan, balance, emp = null) {
         note: ''
     };
     const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-    const basis = draft.basis === 'principal' ? 'principal' : 'balance';
-    const isInstallments = draft.mode === 'installments';
-    const originalPrincipal = r2(Number(loan.principal || 0));
-    const baseAmount = basis === 'principal' ? originalPrincipal : balance;
-    const rate = Number(draft.interestRate || 0);
+    const basis = ['pending', 'capital', 'balance'].includes(draft.basis) ? draft.basis : 'capital';
+    const isInstallments = draft.mode === 'installments' || basis === 'pending';
+    const remainingCapital = refinanceBaseAmount(loan, 'capital', balance);
+    const pendingInterest = r2(Math.max(0, balance - remainingCapital));
+    const baseAmount = refinanceBaseAmount(loan, basis, balance);
+    const rate = basis === 'pending' ? 0 : Number(draft.interestRate || 0);
     const interestToAdd = r2(baseAmount * rate / 100);
     const newBalance = r2(balance + interestToAdd);
     const count = Number(draft.installmentCount || 2);
@@ -1899,23 +1906,25 @@ function RefinanceForm(loan, balance, emp = null) {
             <p style="color: #94a3b8; font-size: 0.82rem; margin: 0 0 12px;">Aplica un interés adicional por refinanciamiento y define la modalidad de pago.</p>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 14px;">
-                <!-- Base de cálculo toggle -->
-                <div>
-                    <label style="font-size: 0.72rem; color: #cbd5e1; display: block; margin-bottom: 6px; font-weight: 700;">Base de cálculo</label>
-                    <div class="segmented-control" role="group" aria-label="Base de cálculo" style="display: flex; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 3px; gap: 4px;">
-                        <button type="button"
-                                class="segmented-item ${basis === 'balance' ? 'active' : ''}"
-                                data-app-fn="setRefinanceDraftField" data-arg="basis" data-arg2="balance"
-                                style="flex: 1; padding: 8px 10px; border-radius: 6px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 180ms ease; ${basis === 'balance' ? 'background: #7c3aed; color: #ffffff; box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);' : 'background: transparent; color: #94a3b8;'}">
-                            Saldo (${formatCurrency(balance)})
-                        </button>
-                        <button type="button"
-                                class="segmented-item ${basis === 'principal' ? 'active' : ''}"
-                                data-app-fn="setRefinanceDraftField" data-arg="basis" data-arg2="principal"
-                                style="flex: 1; padding: 8px 10px; border-radius: 6px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 180ms ease; ${basis === 'principal' ? 'background: #7c3aed; color: #ffffff; box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);' : 'background: transparent; color: #94a3b8;'}">
-                            Capital (${formatCurrency(originalPrincipal)})
-                        </button>
+                <!-- Qué pasa con el interés: tres opciones -->
+                <div style="grid-column: 1 / -1;">
+                    <label style="font-size: 0.72rem; color: #cbd5e1; display: block; margin-bottom: 6px; font-weight: 700;">¿Qué hacemos con el interés?</label>
+                    <div class="loan-refinance-basis" role="radiogroup" aria-label="Interés del refinanciamiento">
+                        ${[
+                            ['pending', 'Dejarlo pendiente', 'No genera interés. El pendiente se cobra primero en el nuevo plan de cuotas.', `Interés nuevo ${formatCurrency(0)}`],
+                            ['capital', 'Interés sobre el capital', 'La tasa se cobra sobre el capital que queda.', `Base ${formatCurrency(remainingCapital)}`],
+                            ['balance', 'Capital + interés pendiente', 'La tasa se cobra también sobre el interés sin pagar.', `Base ${formatCurrency(balance)}`]
+                        ].map(([value, title, desc, calc]) => `
+                            <button type="button" role="radio" aria-checked="${basis === value}"
+                                    class="loan-refinance-basis__option ${basis === value ? 'is-selected' : ''}"
+                                    data-app-fn="setRefinanceDraftField" data-arg="basis" data-arg2="${value}">
+                                <strong>${title}</strong>
+                                <span>${desc}</span>
+                                <small>${calc}</small>
+                            </button>
+                        `).join('')}
                     </div>
+                    <div style="font-size: 0.72rem; color: #64748b; margin-top: 6px;">Capital restante ${formatCurrency(remainingCapital)} · interés pendiente ${formatCurrency(pendingInterest)} (cada abono paga primero el interés).</div>
                 </div>
 
                 <!-- Modalidad de pago toggle -->
@@ -1939,13 +1948,13 @@ function RefinanceForm(loan, balance, emp = null) {
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px;">
-                <div>
+                ${basis === 'pending' ? '' : `<div>
                     <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Tasa de interés (%)</label>
                     <input type="number" inputmode="decimal" autocomplete="off" value="${draft.interestRate || ''}"
                            min="0" max="${VALIDATION.MAX_INTEREST_PERCENT}" step="0.1"
                            oninput="setRefinanceDraftField('interestRate', this.value)" placeholder="0"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
-                </div>
+                </div>`}
                 ${isInstallments ? `
                 <div>
                     <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Frecuencia</label>
@@ -1981,7 +1990,7 @@ function RefinanceForm(loan, balance, emp = null) {
             <div class="loan-refinance-form__actions">
                 <button type="button" data-app-fn="submitRefinance" data-arg="${loan.id}"
                         class="loan-refinance-form__action loan-refinance-form__action--save">
-                    Aplicar refinanciamiento
+                    ${basis === 'pending' ? 'Crear nuevo plan de cuotas' : 'Aplicar refinanciamiento'}
                 </button>
                 <button type="button" data-app-fn="toggleRefinanceForm" data-arg="${loan.id}"
                         class="loan-refinance-form__action loan-refinance-form__action--cancel">

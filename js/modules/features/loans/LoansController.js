@@ -16,6 +16,7 @@
  *   }
  */
 
+import { registerLoanHistoryGlobals } from './LoanHistoryPanel.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
@@ -133,7 +134,7 @@ function ensureLedgerState() {
 }
 
 function createEmptyRefinanceDraft() {
-    return { basis: 'balance', mode: 'lump', interestRate: 0, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
+    return { basis: 'capital', mode: 'lump', interestRate: 0, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
 }
 
 function createEmptyLoanDraft() {
@@ -728,7 +729,7 @@ export function toggleRefinanceForm(loanId) {
         state.loansLedger.showRefinanceFormForLoan = open;
         if (open) state.loansLedger.showPaymentFormForLoan = null;
         state.loansLedger.refinanceDraft = {
-            basis: 'balance',
+            basis: 'capital',
             mode: 'lump',
             interestRate: rate,
             installmentCount: 2,
@@ -750,6 +751,13 @@ export function setRefinanceDraftField(field, value) {
         }
     } else if (field === 'interestRate' || field === 'installmentFrequencyWeeks') {
         draft[field] = Number(value) || 0;
+    } else if (field === 'basis') {
+        draft.basis = ['pending', 'capital', 'balance'].includes(value) ? value : 'capital';
+        // Dejar el interés pendiente solo tiene sentido al rehacer el plan de cuotas.
+        if (draft.basis === 'pending') draft.mode = 'installments';
+    } else if (field === 'mode') {
+        draft.mode = value === 'installments' ? 'installments' : 'lump';
+        if (draft.mode === 'lump' && draft.basis === 'pending') draft.basis = 'capital';
     } else {
         draft[field] = value;
     }
@@ -767,9 +775,10 @@ export function submitRefinance(loanId) {
     }
     const draft = state.loansLedger.refinanceDraft || {};
     const isInstallments = draft.mode !== 'lump' && (draft.mode === 'installments' || (draft.installmentCount != null && Number(draft.installmentCount) > 0));
+    const basis = ['pending', 'capital', 'balance'].includes(draft.basis) ? draft.basis : 'capital';
     const params = {
-        basis: draft.basis === 'principal' ? 'principal' : 'balance',
-        interestRate: Number(draft.interestRate || 0),
+        basis,
+        interestRate: basis === 'pending' ? 0 : Number(draft.interestRate || 0),
         note: (draft.note || '').trim()
     };
     if (isInstallments) {
@@ -783,7 +792,12 @@ export function submitRefinance(loanId) {
     try {
         const ev = refinanceLoan(emp, loanId, params, { projectScope: captureEntityProjectScope() });
         state.loansLedger.showRefinanceFormForLoan = null;
-        saveApplicationData({ immediate: true, announce: `Préstamo refinanciado: +${ev.interestAmount.toFixed(2)} de interés` });
+        saveApplicationData({
+            immediate: true,
+            announce: ev.basis === 'pending'
+                ? 'Nuevo plan de cuotas: el interés pendiente se mantiene'
+                : `Préstamo refinanciado: +${ev.interestAmount.toFixed(2)} de interés`
+        });
         render();
     } catch (err) {
         alertMsg(`❌ ${err.message}`);
@@ -1243,4 +1257,5 @@ export function registerLegacyGlobals() {
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;
+    registerLoanHistoryGlobals();
 }

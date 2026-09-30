@@ -135,7 +135,7 @@ testRunner.addSuite("Préstamos — announce honesto en LoansController", {
     "abono, saldar y refinanciar anuncian vía announce"() {
         testRunner.assert(/announce:\s*`Abono registrado/.test(LOANS_SRC), 'abono');
         testRunner.assert(/announce:\s*'Préstamo saldado'/.test(LOANS_SRC), 'saldado');
-        testRunner.assert(/announce:\s*`Préstamo refinanciado/.test(LOANS_SRC), 'refinanciado');
+        testRunner.assert(/announce:[\s\S]{0,200}`Préstamo refinanciado/.test(LOANS_SRC), 'refinanciado');
         testRunner.assert(!/notify\(`✅ Abono registrado/.test(LOANS_SRC), 'sin toast inmediato de abono');
         testRunner.assert(!/notify\('✅ Préstamo saldado'/.test(LOANS_SRC), 'sin toast inmediato de saldado');
     },

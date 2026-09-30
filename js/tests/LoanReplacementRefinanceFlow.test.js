@@ -18,16 +18,16 @@ describe('replacement refinance production flow', () => {
         expect(terms.installments).toHaveLength(4);
     });
 
-    it('wires lump-sum refinance on principal basis without creating replacement installments', () => {
+    it('wires lump-sum refinance on remaining-capital basis without creating replacement installments', () => {
         toggleRefinanceForm('l1');
-        setRefinanceDraftField('basis', 'principal');
+        setRefinanceDraftField('basis', 'capital');
         setRefinanceDraftField('mode', 'lump');
         setRefinanceDraftField('interestRate', '10');
         submitRefinance('l1');
         const ref = state.employees[0].loans[0].refinancings[0];
-        expect(ref.basis).toBe('principal');
-        expect(ref.baseAmount).toBe(1000);
-        expect(ref.interestAmount).toBe(100);
+        expect(ref.basis).toBe('capital'); // capital restante: 1000 − abono de 200 (sin interés que cubrir)
+        expect(ref.baseAmount).toBe(800);
+        expect(ref.interestAmount).toBe(80);
         expect(ref.replacementTerms).toBeUndefined();
     });
 
@@ -44,21 +44,21 @@ describe('replacement refinance production flow', () => {
         expect(ref.replacementTerms).toBeUndefined();
     });
 
-    it('wires replacement installments on principal basis', () => {
+    it('wires replacement installments on remaining-capital basis', () => {
         toggleRefinanceForm('l1');
-        setRefinanceDraftField('basis', 'principal');
+        setRefinanceDraftField('basis', 'capital');
         setRefinanceDraftField('mode', 'installments');
         setRefinanceDraftField('interestRate', '10');
         setRefinanceDraftField('installmentCount', '2');
         submitRefinance('l1');
         const ref = state.employees[0].loans[0].refinancings[0];
-        expect(ref.basis).toBe('principal');
-        expect(ref.baseAmount).toBe(1000);
-        expect(ref.interestAmount).toBe(100);
+        expect(ref.basis).toBe('capital'); // capital restante: 1000 − abono de 200 (sin interés que cubrir)
+        expect(ref.baseAmount).toBe(800);
+        expect(ref.interestAmount).toBe(80);
         expect(ref.replacementTerms).toBeDefined();
-        expect(ref.replacementTerms.totalDue).toBe(900); // 800 balance + 100 interest
+        expect(ref.replacementTerms.totalDue).toBe(880); // 800 balance + 80 interest
         expect(ref.replacementTerms.installments).toHaveLength(2);
-        expect(ref.replacementTerms.installments[0].scheduledAmount).toBe(450);
-        expect(ref.replacementTerms.installments[1].scheduledAmount).toBe(450);
+        expect(ref.replacementTerms.installments[0].scheduledAmount).toBe(440);
+        expect(ref.replacementTerms.installments[1].scheduledAmount).toBe(440);
     });
 });
