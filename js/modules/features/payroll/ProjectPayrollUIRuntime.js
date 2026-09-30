@@ -53,6 +53,7 @@ function configPayload(config, projectId) {
         payPeriod: source.payPeriod,
         defaultDeductionPercentage: source.defaultDeductionPercentage,
         payrollDefaults: source.payrollDefaults,
+        ...(source.dayHours && typeof source.dayHours === 'object' ? { dayHours: source.dayHours } : {}),
         schemaVersion: source.schemaVersion,
         updatedAt: source.updatedAt
     };

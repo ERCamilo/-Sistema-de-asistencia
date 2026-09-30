@@ -1,4 +1,4 @@
-import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
+import { getActivePayrollSettings, getActiveDayHours } from '../payroll/ActivePayrollSettings.js';
 import icons from '../../ui/IconSystem.js';
 import { EmptyState } from '../../components/EmptyState.js';
 
@@ -1489,7 +1489,7 @@ export async function exportEmployeeReportExcel() {
                     const att = state.attendance[`${emp.id}-${dateKey}`];
                     if (att && att.present) {
                         const hours = att.hoursWorked || 0;
-                        const dayLimit = state.dayHoursConfig[dateKey] ?? getActivePayrollSettings(state).regularHoursPerDay ?? 8;
+                        const dayLimit = getActiveDayHours(state)[dateKey] ?? getActivePayrollSettings(state).regularHoursPerDay ?? 8;
                         const extra = Math.max(0, hours - dayLimit);
                         
                         globalMetrics.totalHours += hours;
