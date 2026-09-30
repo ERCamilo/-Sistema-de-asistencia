@@ -73,7 +73,8 @@ export async function ensureDefaultSeed(defaultProjectId, legacySettings = {}, o
     const canonicalId = String(defaultProjectId);
     let existed = false;
     let resultPayload = null;
-    const config = createDefaultConfig(canonicalId, legacySettings || {});
+    // seeded: valores iniciales; una configuración real de otro dispositivo la reemplaza.
+    const config = { ...createDefaultConfig(canonicalId, legacySettings || {}), seeded: true };
     try {
         if (typeof idb.atomicMutate === 'function') {
             resultPayload = await idb.atomicMutate(STORE_NAME, canonicalId, (existing) => {
