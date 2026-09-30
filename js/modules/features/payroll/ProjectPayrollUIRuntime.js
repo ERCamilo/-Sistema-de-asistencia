@@ -120,6 +120,28 @@ export class ProjectPayrollUIRuntime {
         this.unsubscribe = typeof projectChanges?.subscribe === 'function'
             ? projectChanges.subscribe(change => this.handleProjectChange(change))
             : () => {};
+        // Configuración recibida de otro dispositivo (ProjectCatalogSync).
+        this.onExternalConfig = event => {
+            if (event?.detail?.source === 'catalog-sync' && event.detail.config) this.applyExternalConfig(event.detail.config);
+        };
+        if (typeof window !== 'undefined') window.addEventListener('payroll-config:changed', this.onExternalConfig);
+    }
+
+    /** Actualiza las sesiones abiertas de esa obra con la configuración recibida. */
+    applyExternalConfig(config) {
+        const projectId = String(config?.projectId || '');
+        if (!projectId) return false;
+        let updated = false;
+        for (const session of this.sessions.values()) {
+            if (session.projectId !== projectId || session.status !== 'ready') continue;
+            session.config = config;
+            session.settingsView = createProjectPayrollSettingsView(this.state.settings, config);
+            if (session.selectedPeriod?.source === 'configured' || session.preset === 'payPeriod') session.selectedPeriod = null;
+            session.previewRows = [];
+            session.previewKey = null;
+            updated = true;
+        }
+        return updated;
     }
 
     handleProjectChange({ projectId } = {}) {
@@ -375,7 +397,7 @@ export class ProjectPayrollUIRuntime {
         if (!request.enabled) {
             return { enabled: false, projectId: null, config: this.state.settings, request, session: null };
         }
-        const neutral = createDefaultConfig(request.projectId);
+        const neutral = { ...createDefaultConfig(request.projectId), seeded: true };
         validateProjectPayrollConfig(neutral);
         const persisted = await this.configStore.putConfig(neutral);
         announcePayrollConfigChanged(persisted);
@@ -391,6 +413,7 @@ export class ProjectPayrollUIRuntime {
     dispose() {
         this.disposed = true;
         this.unsubscribe();
+        if (typeof window !== 'undefined') window.removeEventListener('payroll-config:changed', this.onExternalConfig);
         this.sessions.clear();
         this.invalidationListeners.clear();
     }
