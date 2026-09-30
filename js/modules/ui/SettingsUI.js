@@ -292,7 +292,8 @@ const AUTO_SAVE_OPTION_VALUES = new Map([
     ['attendanceWatermarkVisibility', new Set(['always', 'present'])],
     ['attendanceWatermarkContent', new Set(['number', 'position'])],
     ['loansCapacityStyle', new Set(['gauge', 'stacked'])],
-    ['loansKpiDensity', new Set(['full', 'compact'])]
+    ['loansKpiDensity', new Set(['full', 'compact'])],
+    ['miniConnectedReviewMode', new Set(['daily', 'compare'])]
 ]);
 
 function commitAutoSaveSetting({ key, value, deps = {} } = {}) {

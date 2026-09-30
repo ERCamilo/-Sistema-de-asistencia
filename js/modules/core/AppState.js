@@ -153,6 +153,7 @@ const initialState = {
         holidayFactor: 2,
         holidays: [],
         scrollbarMode: 'on-scroll', // Opciones: 'always', 'on-scroll', 'hidden'
+        miniConnectedReviewMode: 'daily', // Mini conectados: 'daily' (día por día) | 'compare' (Comparar con SA)
         payPeriod: {
             periodStart: null,   // '2026-03-27' — primer día del período actual
             periodLength: 21,    // cantidad de días del ciclo

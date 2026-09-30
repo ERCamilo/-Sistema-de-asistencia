@@ -3444,6 +3444,7 @@ window.openMiniAttendanceImport = async () => {
         linkedMinis,
         inboxStore,
         consolidationStore: miniAttendanceConsolidationStore,
+        connectedReviewMode: state.settings?.miniConnectedReviewMode,
         onRequestSubmissions: async ({ miniId, targetMiniIds, date, rangeStart, rangeEnd, groupingMode, onProgress, signal }) => {
             const currentProjectId = await projectContext.getActiveProjectId();
             if (!currentProjectId) {

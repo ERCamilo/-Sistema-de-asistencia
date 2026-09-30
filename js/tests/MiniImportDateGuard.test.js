@@ -73,9 +73,12 @@ describe('confirmMiniImportDates', () => {
     });
 });
 
-test('el importador pasa por la validación en su único camino de aplicar (pegado y conectados)', () => {
+test('el importador pasa por la validación en todos sus caminos de aplicar', () => {
     const src = require('fs').readFileSync(require('path').resolve(__dirname, '../modules/ui/modals/MiniAttendanceImportModal.js'), 'utf8');
-    // «Conectados» ya no aplica por su cuenta: cada día pasa por applyCurrentPlan.
-    expect(src).not.toMatch(/multiDayResolver\.applyDay\(|multiDayResolver\.applyReadyDays\(/);
+    // Día por día (pegado y conectados) aplica en applyCurrentPlan; la vista
+    // «Comparar con SA» aplica por día o los días listos.
     expect(src).toMatch(/guardMiniImportDates\(\[plan\.date\], \[plan\]\);\s*if \(gate !== true\) \{[\s\S]{0,120}if \(!\(await gate\)\) return null;/);
+    expect(src).toMatch(/guardMiniImportDates\(\[group\.workDate\]\);\s*if \(gate !== true && !\(await gate\)\) return;\s*await this\.multiDayResolver\.applyDay/);
+    expect(src).toMatch(/guardMiniImportDates\(readyDates\);\s*if \(gate !== true && !\(await gate\)\) return;\s*await this\.multiDayResolver\.applyReadyDays/);
+    expect(src.match(/multiDayResolver\.apply(Day|ReadyDays)\(/g)).toHaveLength(2);
 });

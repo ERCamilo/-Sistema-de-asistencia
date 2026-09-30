@@ -381,6 +381,25 @@ export function SettingsGeneralTab(context) {
                             Exportar log de errores
                         </button>
                     </div>
+                    <fieldset class="stg-choice-fieldset" style="margin-top: 12px;">
+                        <legend>Revisión de Mini conectados</legend>
+                        <div class="stg-choice-group">
+                            <label class="stg-choice-option ${state.settings.miniConnectedReviewMode !== 'compare' ? 'is-selected' : ''}">
+                                <input type="radio"
+                                       name="miniConnectedReviewMode"
+                                       value="daily"
+                                       ${state.settings.miniConnectedReviewMode !== 'compare' ? 'checked' : ''}>
+                                <span>Día por día, como el texto pegado</span>
+                            </label>
+                            <label class="stg-choice-option ${state.settings.miniConnectedReviewMode === 'compare' ? 'is-selected' : ''}">
+                                <input type="radio"
+                                       name="miniConnectedReviewMode"
+                                       value="compare"
+                                       ${state.settings.miniConnectedReviewMode === 'compare' ? 'checked' : ''}>
+                                <span>Comparar con SA (todos los días juntos)</span>
+                            </label>
+                        </div>
+                    </fieldset>
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
                         <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
                             Olvida las relaciones guardadas entre nombres o números de Mini y empleados de SA.
