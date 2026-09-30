@@ -28,6 +28,7 @@ import {
 import {
     applyPayrollPreviewInclusion,
     filterPayablePayrollPreviewRows,
+    filterPayrollRowsByLeader,
     getPayrollPreviewCategoryCounts,
     getPayrollPreviewInclusion
 } from './PayrollPreview.js';
@@ -36,6 +37,7 @@ import {
     renderPayrollClosurePanel
 } from './PayrollClosureUI.js';
 import { renderPayrollHistoryView } from './PayrollHistoryUI.js';
+import { renderPayrollReviewTable } from './PayrollReviewTable.js';
 import {
     applyPayrollClosureEffects,
     buildPayrollClosureDraft,
@@ -156,6 +158,8 @@ let payrollHistoryState = {
     }
 };
 let payrollHistoryLoadToken = 0;
+// Montos desplegados en la vista previa ("empleado|categoría"); solo pantalla.
+const payrollReviewExpanded = new Set();
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-payroll-action)
@@ -199,6 +203,8 @@ const _ACTION_MAP = {
         event.stopPropagation();
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
     },
+    'toggle-payroll-review-detail': (key) => window.PayrollUI?.togglePayrollReviewDetail?.(key),
+    'clear-payroll-leader-filter': () => window.PayrollUI?.setLeaderFilter?.('all'),
     'toggle-payroll-paid': (_id, target) => window.PayrollUI?.togglePayrollPaidConfirmation?.(target.checked),
     'toggle-payroll-preview-category': (category, target) => window.PayrollUI?.togglePayrollPreviewCategory?.(
         category,
@@ -561,6 +567,46 @@ function getScopedEffectivePreviewRows(scopedView = null, state = getState()) {
     return applyPayrollLoanDeductions(baseRows, scopedEmployees, selection, periodEnd);
 }
 
+/** Líderes con posiciones en la obra de la nómina (para el filtro). */
+function getScopedPayrollLeaders(view, state = getState()) {
+    const activePid = view?.projectId ? String(view.projectId).trim() : null;
+    const scope = activePid ? { ...captureEntityProjectScope(), enabled: true, projectId: activePid } : null;
+    const leaderIds = new Set((state?.positions || [])
+        .filter(position => !scope || entityInScope(position, scope))
+        .map(position => position?.leaderId)
+        .filter(id => id != null && id !== '')
+        .map(String));
+    return (state?.leaders || [])
+        .filter(leader => leader && leader.active !== false && leaderIds.has(String(leader.id)))
+        .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'es'));
+}
+
+/** Líder elegido; uno que no pertenece a esta obra equivale a «Todos». */
+function getScopedLeaderFilter(view, state = getState()) {
+    const leaderId = String(state?.exportConfig?.leaderFilter || 'all');
+    if (leaderId === 'all') return 'all';
+    return getScopedPayrollLeaders(view, state).some(leader => String(leader.id) === leaderId) ? leaderId : 'all';
+}
+
+/**
+ * Filas que se revisan y se exportan: bonificaciones, deducciones y préstamos
+ * según sus casillas en la vista previa, y solo los empleados del líder
+ * elegido. El cierre usa byLeader:false (siempre cierra la obra completa).
+ */
+function getScopedReviewRows(view = null, state = getState(), { byLeader = true, withInclusion = true } = {}) {
+    const resolved = view || payrollRuntime?.getCurrentView?.();
+    const effective = getScopedEffectivePreviewRows(resolved, state);
+    const rows = withInclusion
+        ? applyPayrollPreviewInclusion(effective, state?.exportConfig?.payrollPreviewInclusion)
+        : effective;
+    if (!byLeader) return rows;
+    return filterPayrollRowsByLeader(rows, {
+        leaderId: getScopedLeaderFilter(resolved, state),
+        positions: state?.positions || [],
+        employees: getScopedProjectEmployees(resolved?.projectId, state)
+    });
+}
+
 /**
  * Top-level Nómina tab. Mirrors the Reports tab pattern: a header with two
  * sub-tab buttons that switch the inner view between the existing payroll
@@ -669,7 +715,13 @@ function ScopedPayrollTab(view) {
     const period = view.period || resolvePayrollPeriod(view.config.payPeriod, new Date());
     const configuredPeriod = resolvePayrollPeriod(view.config.payPeriod, new Date());
     const activePreset = view.preset || (period.periodStart === configuredPeriod.periodStart && period.periodEnd === configuredPeriod.periodEnd ? 'payPeriod' : (exportConfig.activePreset || null));
-    const rows = getScopedEffectivePreviewRows(view, state);
+    const rows = getScopedReviewRows(view, state);
+    const sourceRows = getScopedReviewRows(view, state, { withInclusion: false });
+    const allRowsCount = getScopedReviewRows(view, state, { byLeader: false }).length;
+    const leaders = getScopedPayrollLeaders(view, state);
+    const leaderFilter = getScopedLeaderFilter(view, state);
+    const activeLeader = leaders.find(leader => String(leader.id) === leaderFilter) || null;
+    const previewInclusion = getPayrollPreviewInclusion(exportConfig.payrollPreviewInclusion);
     const totalAmount = rows.reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
     const grossAmount = rows.reduce((sum, row) => sum + (Number(row._brutoOriginal) || 0), 0);
     const bonusAmount = rows.reduce((sum, row) => sum + (Number(row._bonuses) || 0), 0);
@@ -830,109 +882,45 @@ function ScopedPayrollTab(view) {
                             <h3>Vista previa · ${rows.length} empleados</h3>
                             <p>Revisá los cálculos y desglose de horas para la obra ${escapeHTML(view.projectId)}.</p>
                         </div>
-                        <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                            <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 16px;">
+                        <div class="payroll-review-card">
+                            <div class="payroll-review-toolbar">
+                                ${leaders.length > 0 ? `
+                                    <label class="payroll-review-leader" for="payroll-scoped-leader-filter">
+                                        ${icons.get('personnel', { size: 15 })}
+                                        <span>Líder</span>
+                                        <select id="payroll-scoped-leader-filter" name="leaderFilter" onchange="PayrollUI.setLeaderFilter(this.value)">
+                                            <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos</option>
+                                            ${leaders.map(leader => `<option value="${escapeHTML(String(leader.id))}" ${leaderFilter === String(leader.id) ? 'selected' : ''}>${escapeHTML(leader.name || 'Líder')}</option>`).join('')}
+                                        </select>
+                                    </label>
+                                ` : ''}
+                                ${activeLeader ? `
+                                    <span class="payroll-review-filter-chip" role="status">
+                                        ${rows.length} de ${allRowsCount} empleados
+                                        <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder">${icons.get('close', { size: 12 })}</button>
+                                    </span>
+                                ` : ''}
                                 <button type="button"
                                         data-payroll-action="export-payroll-pdf"
-                                        class="payroll-btn-secondary"
-                                        style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;"
+                                        class="payroll-btn-secondary payroll-review-toolbar__pdf"
                                         ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
                                     ${icons.get('file-pdf', { size: 14 })} Exportar PDF
                                 </button>
                             </div>
                             ${hasInvalidNetRows ? `
-                                <div role="alert" style="margin-bottom: 14px; padding: 12px; border: 1px solid #ef4444; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #fca5a5; font-weight: 700; font-size: 0.85rem;">
-                                    ⚠️ ${invalidNetRows.length} pago(s) negativos requieren revisión antes de continuar
+                                <div role="alert" class="payroll-review-alert">
+                                    ${icons.get('alert', { size: 15 })} ${invalidNetRows.length} pago(s) negativos requieren revisión antes de continuar
                                 </div>
                             ` : ''}
-                            <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina de la obra" tabindex="0">
-                                <table class="payroll-review-table">
-                                    <thead>
-                                        <tr>
-                                            <th class="payroll-review-table__number">#</th>
-                                            <th class="payroll-review-table__employee">EMPLEADO</th>
-                                            <th>HORAS</th>
-                                            <th>BRUTO</th>
-                                            ${bonusAmount > 0 ? '<th>BONIF.</th>' : ''}
-                                            ${deductionAmount > 0 ? '<th>DED.</th>' : ''}
-                                            ${loanAmount > 0 ? '<th>PRÉSTAMOS</th>' : ''}
-                                            <th>NETO</th>
-                                            <th>DESGLOSE</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${rows.map((row, idx) => {
-                                            const breakdown = row._positionBreakdown || [];
-                                            return `
-                                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''}">
-                                                    <td class="payroll-review-table__number">${escapeHTML(String(row._number || row.id))}</td>
-                                                    <td class="payroll-review-table__employee">
-                                                        <strong>${escapeHTML(row._employeeName)}</strong>
-                                                        ${getReviewNet(row) < 0 ? `<br><span style="color: #ef4444; font-size: 0.75rem;">Pago negativo: ajusta los descuentos</span>` : ''}
-                                                    </td>
-                                                    <td class="payroll-review-table__amount">
-                                                        <span>${row._totalHours ?? 0}h</span>
-                                                        ${(row._overtimeHours || 0) > 0 ? `<br><small style="color: #38bdf8; font-size: 0.7rem;">(${row._regularHours}h reg + ${row._overtimeHours}h extra)</small>` : ''}
-                                                    </td>
-                                                    <td class="payroll-review-table__amount">${formatCurrency(row._brutoOriginal)}</td>
-                                                    ${bonusAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #10b981;">${(row._bonuses || 0) > 0 ? `+${formatCurrency(row._bonuses)}` : '—'}</td>` : ''}
-                                                    ${deductionAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #ef4444;">${(row._deductions || 0) > 0 ? `-${formatCurrency(row._deductions)}` : '—'}</td>` : ''}
-                                                    ${loanAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #ef4444;">${(row._loans || 0) > 0 ? `-${formatCurrency(row._loans)}` : '—'}</td>` : ''}
-                                                    <td class="payroll-review-table__amount is-net">${formatCurrency(row.monto)}</td>
-                                                    <td>
-                                                        ${breakdown.length > 0 ? `
-                                                            <details class="payroll-breakdown-details" style="cursor: pointer;">
-                                                                <summary style="color: #06b6d4; font-size: 0.75rem; font-weight: 600; outline: none; user-select: none;">
-                                                                    Ver cálculo (${breakdown.length})
-                                                                </summary>
-                                                                <div style="margin-top: 6px; padding: 8px 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; font-size: 0.75rem; min-width: 200px;">
-                                                                    ${breakdown.map(b => `
-                                                                        <div style="padding: 4px 0; border-bottom: 1px solid #1e293b;">
-                                                                            <div style="font-weight: 700; color: #f1f5f9;">${escapeHTML(b.positionName || 'Puesto')}</div>
-                                                                            <div style="color: #94a3b8; display: flex; justify-content: space-between; gap: 8px;">
-                                                                                <span>Tarifa: ${formatCurrency(b.hourlyRate)}/h</span>
-                                                                                <span>Reg: ${b.regularHours}h (${formatCurrency(b.regularAmount)})</span>
-                                                                            </div>
-                                                                            ${(b.overtimeHours || 0) > 0 ? `
-                                                                                <div style="color: #38bdf8; display: flex; justify-content: space-between; gap: 8px;">
-                                                                                    <span>Extra (x${b.overtimeRate / (b.hourlyRate || 1)}): ${b.overtimeHours}h</span>
-                                                                                    <span>${formatCurrency(b.overtimeAmount)}</span>
-                                                                                </div>
-                                                                            ` : ''}
-                                                                            ${((b.holidayHours || 0) + (b.restDayHours || 0)) > 0 ? `
-                                                                                <div style="color: #a78bfa; display: flex; justify-content: space-between; gap: 8px;">
-                                                                                    <span>Feriado/Descanso: ${(b.holidayHours || 0) + (b.restDayHours || 0)}h</span>
-                                                                                    <span>${formatCurrency((b.holidayAmount || 0) + (b.restDayAmount || 0))}</span>
-                                                                                </div>
-                                                                            ` : ''}
-                                                                            <div style="text-align: right; font-weight: 600; color: #10b981; margin-top: 2px;">
-                                                                                Subtotal: ${formatCurrency(b.subtotal)}
-                                                                            </div>
-                                                                        </div>
-                                                                    `).join('')}
-                                                                </div>
-                                                            </details>
-                                                        ` : '<span style="color: #64748b; font-size: 0.75rem;">Sin desglose</span>'}
-                                                    </td>
-                                                </tr>
-                                            `;
-                                        }).join('')}
-                                        ${rows.length === 0 ? `<tr><td colspan="${6 + (bonusAmount > 0 ? 1 : 0) + (deductionAmount > 0 ? 1 : 0) + (loanAmount > 0 ? 1 : 0)}" style="text-align: center; padding: 24px; color: #94a3b8;">No hay registros de asistencia para esta obra en el período seleccionado.</td></tr>` : ''}
-                                    </tbody>
-                                    <tfoot>
-                                        <tr>
-                                            <td colspan="2">Totales (${rows.length} empleados)</td>
-                                            <td class="payroll-review-table__amount">${totalHours}h</td>
-                                            <td class="payroll-review-table__amount">${formatCurrency(grossAmount)}</td>
-                                            ${bonusAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #10b981;">+${formatCurrency(bonusAmount)}</td>` : ''}
-                                            ${deductionAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #ef4444;">-${formatCurrency(deductionAmount)}</td>` : ''}
-                                            ${loanAmount > 0 ? `<td class="payroll-review-table__amount" style="color: #ef4444;">-${formatCurrency(loanAmount)}</td>` : ''}
-                                            <td class="payroll-review-table__amount is-net">${formatCurrency(totalAmount)}</td>
-                                            <td></td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            </div>
+                            ${renderPayrollReviewTable({
+                                rows,
+                                sourceRows,
+                                inclusion: previewInclusion,
+                                expanded: payrollReviewExpanded,
+                                emptyMessage: activeLeader
+                                    ? `Ningún empleado de ${activeLeader.name || 'este líder'} tiene asistencia en el período.`
+                                    : 'No hay registros de asistencia para esta obra en el período seleccionado.'
+                            })}
 
                             ${guideStep === 'review' ? renderPayrollClosurePanel({
                                 gate: closureState.gate,
@@ -969,12 +957,12 @@ function ScopedPayrollTab(view) {
                             <strong>${formatDateShort(period.periodStart)} – ${formatDateShort(period.periodEnd)}</strong>
                         </div>
                         <dl class="payroll-guide-summary__values">
-                            <div class="payroll-guide-summary__employee-count"><dt>Empleados de obra</dt><dd>${rows.length}</dd></div>
+                            <div class="payroll-guide-summary__employee-count"><dt>${activeLeader ? `Líder: ${escapeHTML(activeLeader.name || '')}` : 'Empleados de obra'}</dt><dd>${rows.length}</dd></div>
                             <div><dt>Horas totales</dt><dd>${totalHours}h</dd></div>
                             <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
                             <div><dt>Deducciones</dt><dd style="${deductionAmount > 0 ? 'color: #ef4444;' : 'color: #64748b;'}">${deductionAmount > 0 ? `-${formatCurrency(deductionAmount)}` : '$0.00'}</dd></div>
                             <div><dt>Bonificaciones</dt><dd style="${bonusAmount > 0 ? 'color: #10b981;' : 'color: #64748b;'}">${bonusAmount > 0 ? `+${formatCurrency(bonusAmount)}` : '$0.00'}</dd></div>
-                            <div><dt>Préstamos</dt><dd style="${loanAmount > 0 ? 'color: #ef4444;' : 'color: #64748b;'}">${loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Préstamos</dt><dd style="${loanAmount > 0 ? 'color: #f59e0b;' : 'color: #64748b;'}">${loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00'}</dd></div>
                             <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                         </dl>
                         <div class="payroll-guide-summary__validation is-valid">
@@ -3185,7 +3173,19 @@ export function updateExportPeriod(type, value) {
 
 export function setLeaderFilter(leaderId) {
     const state = getState();
-    state.exportConfig.leaderFilter = leaderId;
+    stateManager.batchSetState(() => {
+        state.exportConfig.leaderFilter = leaderId || 'all';
+        state.exportConfig.payrollPaidConfirmation = null;
+    });
+    context.render();
+}
+
+/** Despliega o pliega el detalle de una categoría de un empleado en la vista previa. */
+export function togglePayrollReviewDetail(key) {
+    const value = String(key || '');
+    if (!/^.+\|(bonuses|deductions|loans)$/.test(value)) return;
+    if (payrollReviewExpanded.has(value)) payrollReviewExpanded.delete(value);
+    else payrollReviewExpanded.add(value);
     context.render();
 }
 
@@ -3273,7 +3273,7 @@ export function setExportPreset(preset) {
 function getEffectiveExportRows() {
     const scopedView = getScopedPayrollView();
     if (scopedView?.enabled) {
-        return getScopedEffectivePreviewRows(scopedView, getState());
+        return getScopedReviewRows(scopedView, getState());
     }
     return generateExportData();
 }
@@ -3407,6 +3407,16 @@ export async function exportPayrollPDF() {
         doc.text(dateRangeText, pageWidth - 14, yPosition - 6, { align: 'right' });
         const emissionText = `Emisión: ${new Date().toLocaleDateString('es-DO')} ${new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}`;
         doc.text(emissionText, pageWidth - 14, yPosition, { align: 'right' });
+        const pdfLeader = scopedView?.enabled && getScopedLeaderFilter(scopedView, state) !== 'all'
+            ? getScopedPayrollLeaders(scopedView, state).find(leader => String(leader.id) === getScopedLeaderFilter(scopedView, state))
+            : null;
+        if (pdfLeader) {
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(15, 23, 42);
+            doc.text(`Líder: ${pdfLeader.name || ''}`, 14, yPosition + 5);
+            doc.setFont('helvetica', 'normal');
+            yPosition += 5;
+        }
 
         yPosition += 8;
 
@@ -3829,7 +3839,7 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
     const state = getState();
     const scopedView = payrollRuntime?.getCurrentView?.();
     const isScoped = Boolean(isProjectsEnabled() && scopedView?.enabled && scopedView.status === 'ready' && scopedView.projectId);
-    const rows = isScoped ? getScopedEffectivePreviewRows(scopedView, state) : generateExportData();
+    const rows = isScoped ? getScopedReviewRows(scopedView, state, { byLeader: false }) : generateExportData();
     const periodStart = isScoped
         ? (scopedView.period?.periodStart || state.exportConfig.periodStart)
         : state.exportConfig.periodStart;
@@ -3858,6 +3868,10 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
         inProgress: ignoreInProgress ? false : payrollClosureInProgress
     });
     if (cache.error) gate = { ...gate, enabled: false, reason: 'history-error' };
+    // La tabla muestra solo un líder, pero el cierre guarda la obra completa.
+    if (isScoped && getScopedLeaderFilter(scopedView, state) !== 'all') {
+        gate = { ...gate, enabled: false, reason: 'leader-filtered' };
+    }
     return { state, rows, fingerprint, activeClosures: cache.items, gate, isScoped, projectId, periodStart, periodEnd };
 }
 
