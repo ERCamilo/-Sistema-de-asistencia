@@ -69,15 +69,17 @@ describe('syncProjectCatalog', () => {
 
         expect(result.received).toBe(1);
         expect(await db.get('projects', 'OTRA')).toMatchObject({ name: 'Torre norte', updatedAt: 7 });
-        expect(await db.get('projectPayrollConfigs', 'OTRA')).toMatchObject({ projectId: 'OTRA', regularHoursPerDay: 9, holidays: ['2026-12-25'] });
-        expect(written).toEqual([]);
+        expect(await db.get('projectPayrollConfigs', 'OTRA')).toMatchObject({ projectId: 'OTRA', regularHoursPerDay: 9, holidays: ['2026-12-25'], seeded: true });
+        // No se republican obras; solo se suben configuraciones que la nube no tenía.
+        expect(written.every(doc => doc.payrollConfig && !doc.name)).toBe(true);
     });
 
     test('publica las obras locales y no pisa una configuración existente', async () => {
         await db.update('projects', project('LOCAL', 'Obra local', 4));
         await db.update('projectPayrollConfigs', { projectId: 'LOCAL', regularHoursPerDay: 10, schemaVersion: 1, updatedAt: 1 });
         await syncProjectCatalog({ uid: 'u1', idb: db, writeDoc, readDocs: async () => snapshotOf([]) });
-        expect(written.map(doc => doc.id)).toEqual(['LOCAL']);
+        expect(written.filter(doc => doc.name).map(doc => doc.id)).toEqual(['LOCAL']);
+        expect(written.find(doc => doc.payrollConfig)).toMatchObject({ id: 'LOCAL', payrollConfig: { regularHoursPerDay: 10 } });
         expect((await db.get('projectPayrollConfigs', 'LOCAL')).regularHoursPerDay).toBe(10);
     });
 
@@ -116,5 +118,62 @@ describe('syncProjectCatalog', () => {
     test('sin sesión o sin red no hace nada y no lanza', async () => {
         expect(await syncProjectCatalog({ uid: null, idb: db })).toBeNull();
         expect(await syncProjectCatalog({ uid: 'u1', idb: db, readDocs: async () => { throw new Error('offline'); } })).toBeNull();
+    });
+});
+
+import { planConfigMerge, toConfigDoc } from '../modules/features/projects/ProjectCatalogSync.js';
+
+describe('configuración de nómina por obra entre dispositivos', () => {
+    const cfg = (updatedAt, extra = {}) => ({ projectId: 'O', regularHoursPerDay: 8, holidays: ['2026-12-25'], payPeriod: { periodStart: '2026-09-15', periodLength: 14 }, updatedAt, ...extra });
+
+    test('una real gana a una semilla; entre iguales gana la más reciente', () => {
+        expect(planConfigMerge(cfg(9, { seeded: true }), toConfigDoc(cfg(1)))).toBe('store');
+        expect(planConfigMerge(cfg(1), toConfigDoc(cfg(9, { seeded: true })))).toBe('publish');
+        expect(planConfigMerge(cfg(5), toConfigDoc(cfg(7)))).toBe('store');
+        expect(planConfigMerge(cfg(7), toConfigDoc(cfg(5)))).toBe('publish');
+        expect(planConfigMerge(cfg(5), toConfigDoc(cfg(5)))).toBeNull();
+        expect(planConfigMerge(cfg(5), null)).toBe('publish');
+        expect(planConfigMerge(null, toConfigDoc(cfg(5)))).toBe('store');
+    });
+
+    describe('sincronización', () => {
+        let db, written;
+        beforeEach(async () => {
+            localStorage.clear();
+            setProjectsEnabled(true);
+            db = new IndexedDBService('catalog-config-' + Math.random());
+            await db.init();
+            written = [];
+        });
+        afterEach(() => { try { db.db.close(); } catch (_) { /* ignore */ } localStorage.clear(); });
+        const writeDoc = async (ref, data, options) => { written.push({ data, options }); };
+
+        test('un dispositivo nuevo recibe la configuración real en vez de su semilla', async () => {
+            const seenEvents = [];
+            const listener = event => seenEvents.push(event.detail);
+            window.addEventListener('payroll-config:changed', listener);
+            try {
+                await db.update('projects', project('O', 'Obra', 1));
+                await db.update('projectPayrollConfigs', { ...cfg(Date.now(), { seeded: true }), regularHoursPerDay: 8, holidays: [] });
+                const result = await syncProjectCatalog({ uid: 'u1', idb: db, writeDoc,
+                    readDocs: async () => snapshotOf([{ ...project('O', 'Obra', 1), payrollConfig: toConfigDoc(cfg(100, { regularHoursPerDay: 9 })) }]) });
+                expect(result.configsReceived).toBe(1);
+                const stored = await db.get('projectPayrollConfigs', 'O');
+                expect(stored).toMatchObject({ regularHoursPerDay: 9, holidays: ['2026-12-25'], payPeriod: { periodStart: '2026-09-15' } });
+                expect(stored.seeded).toBeUndefined();
+                expect(seenEvents[0]).toMatchObject({ source: 'catalog-sync', config: { projectId: 'O' } });
+                expect(written).toEqual([]);
+            } finally {
+                window.removeEventListener('payroll-config:changed', listener);
+            }
+        });
+
+        test('la configuración editada aquí se publica con merge sin tocar el resto del documento', async () => {
+            await db.update('projects', project('O', 'Obra', 1));
+            await db.update('projectPayrollConfigs', cfg(500));
+            await syncProjectCatalog({ uid: 'u1', idb: db, writeDoc,
+                readDocs: async () => snapshotOf([{ ...project('O', 'Obra', 1), payrollConfig: toConfigDoc(cfg(100)) }]) });
+            expect(written).toEqual([{ data: { id: 'O', payrollConfig: expect.objectContaining({ updatedAt: 500, seeded: false }) }, options: { merge: true } }]);
+        });
     });
 });

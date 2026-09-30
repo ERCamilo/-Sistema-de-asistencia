@@ -12,9 +12,12 @@
  *   - users/{uid}/projectsV1/{id} guarda la identidad de cada obra (id, nombre,
  *     estado, fechas). La colección y sus reglas ya existían (ProjectRegistry).
  *   - Unión por id y LWW por updatedAt. Nunca se borra una obra por sincronizar.
- *   - Una obra recibida nace con configuración de nómina: copia de la obra por
- *     defecto (misma regla que la reconciliación). La configuración sigue
- *     siendo local; nunca se pisa una existente.
+ *   - La configuración de nómina de cada obra (período, horas por día,
+ *     feriados, factores) viaja en el mismo documento (campo payrollConfig).
+ *     Gana la más reciente; una configuración real siempre gana a una
+ *     «semilla» (valores iniciales creados localmente, seeded: true).
+ *   - Una obra recibida sin configuración en la nube nace con una semilla:
+ *     copia de la obra por defecto (misma regla que la reconciliación).
  *   - Las obras «Mi obra» que la adopción canónica deja vacías en cada
  *     dispositivo no se publican: si están vacías se retiran localmente.
  *   - Dos obras con el mismo nombre se informan (getCatalogNameDuplicates);
@@ -87,6 +90,47 @@ export function planCatalogMerge(localList = [], remoteList = [], { excludeIds =
         else if (mineAt > theirsAt) publish.push(toCatalogDoc(mine));
     }
     return { storeLocal, publish };
+}
+
+const CONFIG_FIELDS = ['regularHoursPerDay', 'overtimeFactor', 'holidayFactor', 'holidays', 'payPeriod',
+    'defaultDeductionPercentage', 'payrollDefaults', 'schemaVersion', 'updatedAt'];
+
+/** Solo los campos de nómina viajan; `seeded` marca valores iniciales. */
+export function toConfigDoc(config) {
+    const out = {};
+    for (const field of CONFIG_FIELDS) {
+        if (config?.[field] !== undefined && config?.[field] !== null) out[field] = JSON.parse(JSON.stringify(config[field]));
+    }
+    out.seeded = config?.seeded === true;
+    return out;
+}
+
+/**
+ * Qué hacer con la configuración de una obra: 'store' (traer la de la nube),
+ * 'publish' (subir la local) o null. Una real gana a una semilla; entre
+ * iguales, la de updatedAt más reciente.
+ */
+export function planConfigMerge(local, remote) {
+    const hasRemote = remote && typeof remote === 'object' && Number.isFinite(Number(remote.updatedAt));
+    if (!hasRemote) return local ? 'publish' : null;
+    if (!local) return 'store';
+    const localSeed = local.seeded === true;
+    const remoteSeed = remote.seeded === true;
+    if (localSeed && !remoteSeed) return 'store';
+    if (!localSeed && remoteSeed) return 'publish';
+    const localAt = Number(local.updatedAt) || 0;
+    const remoteAt = Number(remote.updatedAt) || 0;
+    if (remoteAt > localAt) return 'store';
+    if (localAt > remoteAt) return 'publish';
+    return null;
+}
+
+function announceConfig(config) {
+    try {
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('payroll-config:changed', { detail: { config, source: 'catalog-sync' } }));
+        }
+    } catch (_) { /* sin UI */ }
 }
 
 /** Grupos de obras con el mismo nombre normalizado (ignora mayúsculas y espacios). */
@@ -164,7 +208,7 @@ async function seedPayrollConfig(projectId, { idb = indexedDBService } = {}) {
         const seedId = trimId(peekEntityScope()?.defaultProjectId || readLocalStorage(DEFAULT_PROJECT_LS_KEY));
         const seed = seedId && seedId !== projectId ? await idb.get(PAYROLL_CONFIG_STORE, seedId) : null;
         const config = seed ? { ...cloneConfig(seed), projectId } : createDefaultConfig(projectId, {});
-        await idb.update(PAYROLL_CONFIG_STORE, { ...config, updatedAt: Date.now() });
+        await idb.update(PAYROLL_CONFIG_STORE, { ...config, seeded: true, updatedAt: Date.now() });
         return true;
     } catch (_) {
         return false;
@@ -211,13 +255,41 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
     let published = 0;
     for (const project of plan.publish) {
         try {
-            await writeDoc(catalogDoc(uid, project.id), project);
+            // merge: la configuración de nómina vive en el mismo documento.
+            await writeDoc(catalogDoc(uid, project.id), project, { merge: true });
             published++;
         } catch (error) {
             console.warn(`⚠️ Obras: no se pudo publicar «${project.name}» en la nube:`, error?.message || error);
         }
     }
     const finalList = await idb.getAll('projects');
+    // Configuración de nómina por obra.
+    const remoteById = new Map(remoteList.map(remote => [trimId(remote?.id), remote]));
+    const excluded = new Set(excludeIds);
+    let configsReceived = 0;
+    let configsPublished = 0;
+    for (const project of finalList || []) {
+        const id = trimId(project?.id);
+        if (!id || excluded.has(id)) continue;
+        let local = null;
+        try { local = await idb.get(PAYROLL_CONFIG_STORE, id); } catch (_) { continue; }
+        const remote = remoteById.get(id)?.payrollConfig || null;
+        const action = planConfigMerge(local, remote);
+        if (action === 'store') {
+            const incoming = { ...(local || {}), ...remote, projectId: id };
+            if (remote.seeded !== true) delete incoming.seeded;
+            await idb.update(PAYROLL_CONFIG_STORE, incoming);
+            announceConfig(incoming);
+            configsReceived++;
+        } else if (action === 'publish') {
+            try {
+                await writeDoc(catalogDoc(uid, id), { id, payrollConfig: toConfigDoc(local) }, { merge: true });
+                configsPublished++;
+            } catch (error) {
+                console.warn(`⚠️ Obras: no se pudo publicar la configuración de nómina de ${id}:`, error?.message || error);
+            }
+        }
+    }
     _lastDuplicates = findCatalogNameDuplicates(finalList || []);
     if (_lastDuplicates.length) {
         console.warn('⚠️ Obras con el mismo nombre:', _lastDuplicates.map(group => group.map(item => `${item.name} (${item.id})`).join(' = ')).join('; '));
@@ -225,7 +297,7 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
     if (plan.storeLocal.length || removed.length) {
         announceChange({ received: plan.storeLocal.map(project => project.id), removed });
     }
-    return { received: plan.storeLocal.length, published, removed, duplicates: getCatalogNameDuplicates() };
+    return { received: plan.storeLocal.length, published, removed, configsReceived, configsPublished, duplicates: getCatalogNameDuplicates() };
 }
 
 /**
@@ -300,7 +372,7 @@ export function stopProjectCatalogLiveSync() {
 }
 
 if (typeof window !== 'undefined') {
-    for (const eventName of ['projects:created', 'projects:setup-changed']) {
+    for (const eventName of ['projects:created', 'projects:setup-changed', 'payroll-config:changed']) {
         window.addEventListener(eventName, event => {
             if (event?.detail?.source === 'catalog-sync') return;
             scheduleProjectCatalogPublish();

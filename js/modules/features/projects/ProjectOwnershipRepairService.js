@@ -1222,7 +1222,7 @@ function planNewProjectPayrollConfig(reads, target, p) {
     const seedId = trimId(p.configurationSeedProjectId || peekEntityScope()?.defaultProjectId);
     const seed = seedId ? configs.find(config => trimId(config?.projectId) === seedId) : null;
     const config = seed ? { ...cloneConfig(seed), projectId: target } : createDefaultConfig(target, {});
-    return { ...config, updatedAt: p.repairTimestamp };
+    return { ...config, seeded: true, updatedAt: p.repairTimestamp };
 }
 
 function computeMapToExisting(reads, tx, p) {
