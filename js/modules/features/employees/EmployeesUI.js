@@ -656,7 +656,7 @@ export function EmployeesTab() {
                                         onfocus="this.closest('.filter-pill').classList.add('open')"
                                         onblur="this.closest('.filter-pill').classList.remove('open')">
                                     <option value="all" ${(leaderFilter || 'all') === 'all' ? 'selected' : ''}>Todos los lideres</option>
-                                    ${state.leaders.filter(l => l.active).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(l => `
+                                    ${state.leaders.filter(l => l.active && entityInScope(l, peekEntityScope())).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(l => `
                                         <option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>
                                             ${l.name}
                                         </option>

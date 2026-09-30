@@ -11,16 +11,20 @@
 import { state } from '../../core/AppState.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
 import icons from '../../ui/IconSystem.js';
+import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 
 export function NotesCenter() {
     if (!state.showNotesCenter) return '';
 
     // Group every attendance record that has a non-empty note by employee.
+    // Solo notas de la obra activa (asistencia y empleado de esa obra).
+    const scope = peekEntityScope();
     const attendanceItems = Object.values(state.attendance || {});
     const notesByEmployee = new Map();
 
     attendanceItems.forEach(att => {
         if (att.deletedAt != null) return; // Fase 1 (U2c): un día borrado no muestra su nota vieja
+        if (!entityInScope(att, scope)) return;
         const note = (att.notes || '').trim();
         if (!note) return;
         if (!notesByEmployee.has(att.employeeId)) {
@@ -39,7 +43,7 @@ export function NotesCenter() {
 
     // Sort employees by most recent note date, then by number for ties.
     const employeesWithNotes = state.employees
-        .filter(emp => notesByEmployee.has(emp.id))
+        .filter(emp => notesByEmployee.has(emp.id) && entityInScope(emp, scope))
         .sort((a, b) => {
             const aNotes = notesByEmployee.get(a.id) || [];
             const bNotes = notesByEmployee.get(b.id) || [];
