@@ -102,8 +102,8 @@ export function SettingsDataTab(context) {
                         <button type="button" data-settings-action="start-maintenance-wizard" class="stg-action" style="width: 100%;">
                             <span class="stg-action-icon cyan">&#9881;</span>
                             <span class="stg-action-copy">
-                                <strong>Iniciar Asistente de Saneamiento</strong>
-                                <small>Esto asegura que la nómina y las asistencias sean precisas.</small>
+                                <strong>Duplicados</strong>
+                                <small>Une copias de un mismo empleado y corrige fichas repetidas.</small>
                             </span>
                         </button>
                         ${renderProjectReconciliationSettingsAction()}
