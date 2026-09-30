@@ -3803,7 +3803,6 @@
 }
 .mini-consolidation-row.is-conflict,
 .mini-consolidation-row.is-identity_conflict,
-.mini-consolidation-row.is-awaiting-sa,
 .mini-consolidation-row.has-unresolved-identity { border-color: color-mix(in oklch, var(--mini-warn) 55%, var(--mini-border)); }
 .mini-row-head {
     display: grid;
@@ -3822,7 +3821,7 @@
     font-size: 14px;
     font-weight: 700;
 }
-.mini-consolidation-row.is-resolved:not(.is-awaiting-sa) .mini-row-avatar { background: var(--mini-good); color: oklch(0.17 0.03 158); }
+.mini-consolidation-row.is-resolved .mini-row-avatar { background: var(--mini-good); color: oklch(0.17 0.03 158); }
 .mini-row-identity { min-width: 0; display: grid; gap: 5px; }
 .mini-consolidation-row .mini-row-name {
     font-size: 15px;
@@ -4039,3 +4038,7 @@
 @media (prefers-reduced-motion: reduce) {
     .mini-hours-resolve-row .mini-import-action.mini-source-choice.is-selected { animation: none; }
 }
+
+/* El interruptor «Recordar esta asociación» respeta [hidden] (su display:flex lo anulaba). */
+.mini-import-remember[hidden],
+.mini-import-remembered[hidden] { display: none !important; }

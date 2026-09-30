@@ -291,7 +291,7 @@ describe('MiniAttendanceImportModal — exception-first day review + SA bulk', (
         expect(host.querySelector('[data-mini-action="toggle-resolved-rows"]')).toBeNull();
     });
 
-    test('fully reviewed day shows the useful result without hiding it behind a toggle', async () => {
+    test('a single Mini without exceptions goes straight to the pasted-text reconciliation', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const id = '33333333-3333-4333-8333-333333333333';
@@ -308,24 +308,24 @@ describe('MiniAttendanceImportModal — exception-first day review + SA bulk', (
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
         await modal.consolidateSelectedDrafts();
 
-        expect(host.querySelector('[data-mini-action="toggle-resolved-rows"]')).toBeNull();
-        expect(rowNumbers(host)).toEqual(['#001']);
-        expect(host.querySelector('.mini-row-resolved-icon')).not.toBeNull();
+        expect(modal.connectedView).toBe('day-review');
+        expect(modal.stage).toBe('review');
+        expect(host.querySelector('[data-mini-automatic-review]')).not.toBeNull();
+        expect(modal.buildReviewView().summary).toMatchObject({ total: 1, ready: 1, needsAttention: 0 });
+        expect(host.querySelector('[data-mini-consolidation-skeleton]')).toBeNull();
     });
 
-    test('SA comparison offers day bulk for safe hours rows only and reflects it immediately', async () => {
+    test('Mini vs current differences use the pasted-text bulk choice, defaulting to keep current', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const date = '2026-09-06';
         const id = '44444444-4444-4444-8444-444444444444';
         attendance[`EMP-001-${date}`] = { employeeId: 'EMP-001', date, present: true, hoursWorked: 9, overtimeHours: 0, selectedPosition: 'pos-1', positionHours: [{ positionId: 'pos-1', hours: 9, overtimeHours: 0 }] };
         attendance[`EMP-002-${date}`] = { employeeId: 'EMP-002', date, present: true, hoursWorked: 9, overtimeHours: 0, selectedPosition: 'pos-1', positionHours: [{ positionId: 'pos-1', hours: 9, overtimeHours: 0 }] };
-        attendance[`EMP-003-${date}`] = { employeeId: 'EMP-003', date, present: true, hoursWorked: 9, overtimeHours: 0, selectedPosition: 'pos-1', positionHours: [{ positionId: 'pos-1', hours: 9, overtimeHours: 0 }] };
         await inbox.importSubmission(buildSubmission({
             id, workDate: date, deviceId: 'mini-a', rows: [
                 { miniLocalId: 'm1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' },
-                { miniLocalId: 'm2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-002' },
-                { miniLocalId: 'm3', number: '003', name: 'David', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-003' }
+                { miniLocalId: 'm2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-002' }
             ]
         }), { expectedSaProjectId: SA_PROJECT });
 
@@ -338,44 +338,15 @@ describe('MiniAttendanceImportModal — exception-first day review + SA bulk', (
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
         await modal.consolidateSelectedDrafts();
 
-        // One valid Mini advances directly to SA comparison; there is no redundant day-confirm step.
-        expect(modal.connectedView).toBe('sa-comparison');
-        const bulkBar = host.querySelector('[data-mini-sa-bulk-actions]');
-        expect(bulkBar).not.toBeNull();
-        const keepBtn = host.querySelector('[data-mini-action="bulk-keep-sa"]');
-        const useBtn = host.querySelector('[data-mini-action="bulk-use-mini"]');
-        expect(keepBtn?.textContent).toBe('Conservar actuales');
-        expect(useBtn?.textContent).toBe('Usar Mini en cambios');
-        expect(keepBtn?.classList.contains('is-selected')).toBe(true);
-        expect(keepBtn?.getAttribute('aria-pressed')).toBe('true');
-        expect(host.querySelectorAll('[data-mini-sa-conflict]').length).toBe(3);
+        expect(modal.connectedView).toBe('day-review');
+        const decisions = () => modal.conflictPlan.rows.map(row => [row.employeeId, row.decision.action, row.decision.acknowledged]);
+        expect(decisions()).toEqual([['EMP-001', 'keep_existing', false], ['EMP-002', 'keep_existing', false]]);
 
-        useBtn.click();
-        // No native confirm/alert, same shell/day, immediate visual reflection.
+        host.querySelector('[data-mini-action="use-mini-all"]').click();
         expect(confirmSpy).not.toHaveBeenCalled();
-        expect(host.querySelector('[data-mini-consolidation-skeleton]')).not.toBeNull();
-        expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 1 de 1');
-        // Only the two safe single-position rows resolved; multi-position row stays pending.
-        const remaining = [...host.querySelectorAll('[data-mini-sa-conflict]')].map(el => el.dataset.miniSaConflict);
-        expect(remaining).toEqual(['EMP-003']);
-        expect(host.querySelector('[data-mini-sa-bulk-actions]')).toBeNull();
-        // Resolver state persisted through the canonical path (no direct attendance write).
-        const dayState = modal.multiDayResolver.getDayState(date);
-        expect(dayState.conflictPlan.rows.find(r => r.employeeId === 'EMP-001').decision).toMatchObject({ action: 'use_imported', acknowledged: true });
-        expect(dayState.conflictPlan.rows.find(r => r.employeeId === 'EMP-002').decision).toMatchObject({ action: 'use_imported', acknowledged: true });
-        expect(dayState.conflictPlan.rows.find(r => r.employeeId === 'EMP-003').decision.acknowledged).toBe(false);
+        expect(decisions()).toEqual([['EMP-001', 'use_imported', true], ['EMP-002', 'use_imported', true]]);
+        // Nothing is written until the final summary is applied.
         expect(attendance[`EMP-001-${date}`].hoursWorked).toBe(9);
-
-        // Exception-first still holds after bulk: pending first, resolved collapsed.
-        expect(rowNumbers(host)).toEqual(['#003']);
-        const toggle = host.querySelector('[data-mini-action="toggle-resolved-rows"]');
-        expect(toggle?.textContent).toContain('2 resueltos');
-        toggle.click();
-        expect(rowNumbers(host)).toEqual(['#003', '#001', '#002']);
-        // Expanded resolved rows remain inspectable and preserve their explicit Mini selection.
-        expect(host.querySelectorAll('[data-mini-sa-conflict]').length).toBe(3);
-        const emp1Conflict = host.querySelector('[data-mini-sa-conflict="EMP-001"]');
-        expect(emp1Conflict.querySelector('[data-mini-action="use-imported"]').getAttribute('aria-pressed')).toBe('true');
-        expect(emp1Conflict.querySelector('[data-mini-action="keep-sa"]').getAttribute('aria-pressed')).toBe('false');
+        expect(applyPlan).not.toHaveBeenCalled();
     });
 });

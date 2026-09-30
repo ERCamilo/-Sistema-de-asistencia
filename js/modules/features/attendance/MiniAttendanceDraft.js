@@ -454,6 +454,103 @@ export function createMiniAttendanceDraft({
     });
 }
 
+/**
+ * Convierte un día ya consolidado entre Minis («Conectados») en el mismo
+ * borrador que produce el texto pegado, para que ambos caminos compartan la
+ * conciliación con SA (automáticas → pendientes → resumen → aplicar).
+ *
+ * - Cada fila llega vinculada al empleado elegido en la consolidación
+ *   (`remembered_match`): no se vuelve a preguntar la identidad.
+ * - Las horas normales y extra se conservan tal como las mandó Mini.
+ * - `sources` guarda qué Mini aportó el dato (queda en miniImportAudit).
+ * - 0 h («sin asistencia» o pausado) solo entra si SA tiene asistencia ese
+ *   día: sin registro previo no cambia nada, igual que una persona que no
+ *   aparece en el texto pegado.
+ */
+export function createMiniAttendanceDraftFromConsolidatedDay({
+    date,
+    items = [],
+    employees = [],
+    attendance = {},
+    regularLimit = 8
+}) {
+    const eligibleEmployees = employees.filter(isMiniAttendanceEmployeeEligible);
+    const byId = new Map(employees.map(employee => [employee.id, employee]));
+    const dayItems = items.filter(item =>
+        item && item.workDate === date && !item.excluded && item.saEmployeeId
+    );
+    const rows = [];
+    for (const item of dayItems) {
+        // Vinculado a un empleado que ya no está en SA: entra sin vincular para
+        // elegirlo en la revisión, nunca se descarta en silencio.
+        const employee = byId.get(item.saEmployeeId) || null;
+        const normalHours = Number(item.normalHours) || 0;
+        const overtimeHours = Number(item.overtimeHours) || 0;
+        const totalHours = normalHours + overtimeHours;
+        const existing = employee ? attendance[`${employee.id}-${date}`] : null;
+        if (totalHours === 0 && (!existing || existing.deletedAt != null)) continue;
+        const eligible = Boolean(employee) && isMiniAttendanceEmployeeEligible(employee);
+        const candidate = employee ? employeeCandidate(employee) : null;
+        const sourceRow = {
+            rawNumber: String(item.displayNumber || employee?.number || ''),
+            rawName: String(item.displayName || employee?.name || ''),
+            rawHours: String(totalHours),
+            totalHours,
+            sourceSpan: null,
+            rawFragment: '',
+            errors: []
+        };
+        rows.push({
+            sourceRow,
+            match: eligible ? {
+                status: 'remembered_match',
+                employeeId: employee.id,
+                candidateIds: [employee.id],
+                candidatePositions: [candidate],
+                positionIds: candidate.positionIds,
+                requiresConfirmation: false
+            } : {
+                status: 'unmatched',
+                employeeId: null,
+                candidateIds: [],
+                candidatePositions: [],
+                positionIds: [],
+                requiresConfirmation: false
+            },
+            allocation: { normalHours, overtimeHours },
+            duplicateStatus: null,
+            inactiveIdentity: Boolean(employee) && !eligible,
+            inactiveEmployee: employee && !eligible ? candidate : null,
+            inactiveEmployeeId: employee && !eligible ? employee.id : null,
+            excluded: false,
+            exclusionReason: null,
+            reviewed: false,
+            approved: false,
+            sources: Array.isArray(item.sources) ? cloneValue(item.sources) : [],
+            consolidatedItemId: item.id || null
+        });
+    }
+    const parsed = {
+        source: '',
+        header: { dateHint: null, updateTimeHint: null },
+        rows: rows.map(row => row.sourceRow),
+        unparsedFragments: [],
+        unparsedText: '',
+        hasBlockingIssues: false
+    };
+    return finalize({
+        revision: 1,
+        origin: 'connected',
+        parsed,
+        proposedDate: date,
+        ...inspectDate(parsed, date, true),
+        regularLimit,
+        allocationMode: 'all_normal',
+        employeeOptions: eligibleEmployees.map(employeeCandidate),
+        rows
+    });
+}
+
 export function reactivateMiniAttendanceDraftEmployee(draft, employee) {
     if (!employee || !employee.id) throw new TypeError('Invalid employee for draft reactivation');
     const candidate = employeeCandidate(employee);

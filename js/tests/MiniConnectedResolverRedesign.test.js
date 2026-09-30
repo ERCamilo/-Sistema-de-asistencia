@@ -99,19 +99,4 @@ describe('Resolutor Conectados — lenguaje visual de «Duplicados»', () => {
         expect(choices[1].querySelector('.mini-source-choice-value').textContent).toBe('4h');
         expect(card.querySelector('.mini-control-label').textContent).toBe('¿Qué Mini tiene la asistencia correcta?');
     });
-
-    test('en la comparación con SA una fila pendiente dice «Cambio por revisar» en vez del check', async () => {
-        const date = '2026-09-06';
-        const attendance = {
-            [`EMP-003-${date}`]: { employeeId: 'EMP-003', date, present: true, hoursWorked: 9, overtimeHours: 0, selectedPosition: 'pos-1', positionHours: [{ positionId: 'pos-1', hours: 9, overtimeHours: 0 }] }
-        };
-        const modal = await openConnected(host, { attendance, submissions: [
-            [buildSubmission({ id: '75555555-5555-4555-8555-555555555555', workDate: date, deviceId: 'mini-a', rows: [row('001', 8), row('003', 8)] }), {}]
-        ] });
-        expect(modal.connectedView).toBe('sa-comparison');
-        const pending = host.querySelector('[data-mini-consolidation-item*="EMP-003"]');
-        expect(pending.classList.contains('is-awaiting-sa')).toBe(true);
-        expect(pending.querySelector('.mini-row-status').textContent).toBe('Cambio por revisar');
-        expect(pending.querySelector('.mini-row-resolved-icon')).toBeNull();
-    });
 });

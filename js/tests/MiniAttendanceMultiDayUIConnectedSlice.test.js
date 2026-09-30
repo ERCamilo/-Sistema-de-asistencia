@@ -38,6 +38,10 @@ function makeModal({
     });
 }
 
+function reviewItems(modal) {
+    return modal.buildReviewView().items;
+}
+
 describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA', () => {
     let host;
     let employees;
@@ -134,19 +138,20 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         expect(host.querySelector('[data-mini-action="create-mini-consolidated"]').disabled).toBe(false);
         host.querySelector('[data-mini-action="create-mini-consolidated"]').click(); await wait();
 
-        expect(modal.connectedView).toBe('sa-comparison');
-        expect(host.querySelector('[data-mini-day-date="2026-09-06"]').textContent).toBe('Listo para aplicar');
-        const conflict = host.querySelector('[data-mini-sa-conflict="EMP-001"]');
-        expect(conflict).not.toBeNull();
-        expect(conflict.querySelector('[data-mini-action="keep-sa"]').textContent).toBe('Conservar actual');
-        expect(conflict.querySelector('[data-mini-action="keep-sa"]').getAttribute('aria-pressed')).toBe('true');
-        expect(conflict.querySelector('[data-mini-action="use-imported"]').getAttribute('aria-pressed')).toBe('false');
-        expect(conflict.querySelector('[data-mini-sa-compare]')?.textContent).toContain('Mini');
-        expect(conflict.querySelector('[data-mini-sa-compare]')?.textContent).toContain('Actual');
+        // SA only enters now, through the same reconciliation used by pasted text.
+        expect(modal.connectedView).toBe('day-review');
+        expect(modal.stage).toBe('review');
+        const row = modal.conflictPlan.rows.find(candidate => candidate.employeeId === 'EMP-001');
+        expect(row.imported).toMatchObject({ normalHours: 8, overtimeHours: 0 });
+        expect(row.existing.record.hoursWorked).toBe(9);
+        expect(row.decision).toMatchObject({ action: 'keep_existing', acknowledged: false });
+        expect(row.sources.map(source => source.deviceId)).toEqual(['mini-a', 'mini-b']);
+        const [item] = reviewItems(modal);
+        expect(item.problems.map(problem => problem.kind)).toContain('decision');
         expect(appliedPlans).toHaveLength(0);
     });
 
-    test('SA comparison shows overtime merge checked by default and toggles the final apply plan', async () => {
+    test('final summary shows overtime merge checked by default and it controls the applied record', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const id = '66666666-6666-4666-8666-666666666666';
@@ -157,17 +162,38 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         const modal = makeModal({ db, employees, positions, attendance, applyPlan });
         modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click(); await modal.consolidateSelectedDrafts();
-        expect(modal.connectedView).toBe('sa-comparison');
+        expect(modal.connectedView).toBe('day-review');
+        expect(modal.conflictPlan.rows[0].imported).toMatchObject({ normalHours: 8, overtimeHours: 3.5 });
 
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+        expect(modal.reviewStep).toBe('summary');
         const checkbox = host.querySelector('[data-mini-merge-overtime]');
         expect(checkbox).not.toBeNull();
         expect(checkbox.checked).toBe(true);
-        let record = modal.multiDayResolver.buildDayApplyPlan('2026-09-10').writes[0].record;
-        expect(record).toMatchObject({ hoursWorked: 11.5, overtimeHours: 0 });
-
         checkbox.click();
-        record = modal.multiDayResolver.buildDayApplyPlan('2026-09-10').writes[0].record;
-        expect(record).toMatchObject({ hoursWorked: 8, overtimeHours: 3.5 });
+        expect(modal.mergeOvertimeIntoNormal).toBe(false);
+        host.querySelector('[data-mini-action="apply"]').click();
+        await wait();
+        expect(appliedPlans[0].writes[0].record).toMatchObject({ hoursWorked: 8, overtimeHours: 3.5 });
+        expect(appliedPlans[0].writes[0].record.miniImportAudit.sources[0].deviceId).toBe('mini-a');
+        // Last day: the result offers completing the import.
+        expect(host.querySelector('[data-mini-action="complete-connected-import"]')).not.toBeNull();
+    });
+
+    test('overtime merge stays on by default when applying', async () => {
+        const db = new MemoryDB();
+        const inbox = new AttendanceSubmissionInboxStore({ db });
+        const id = '67676767-6767-4676-8676-676767676767';
+        await inbox.importSubmission(buildSubmission({ id, workDate: '2026-09-10', deviceId: 'mini-a', rows: [
+            { miniLocalId: 'm2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 3.5, status: 'present', saEmployeeId: 'EMP-002' }
+        ] }), { expectedSaProjectId: SA_PROJECT });
+        const modal = makeModal({ db, employees, positions, attendance, applyPlan });
+        modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
+        host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click(); await modal.consolidateSelectedDrafts();
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+        host.querySelector('[data-mini-action="apply"]').click();
+        await wait();
+        expect(appliedPlans[0].writes[0].record).toMatchObject({ hoursWorked: 11.5, overtimeHours: 0 });
     });
 
     test('keeps the chosen Mini visibly selected and can apply one Mini to the whole day', async () => {
@@ -240,7 +266,7 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
     });
 
 
-    test('hides zero summary badges and keeps footer actions concise and ordered', async () => {
+    test('a clean single Mini skips Mini review and names the day in the reconciliation', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -252,22 +278,10 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click(); await modal.consolidateSelectedDrafts();
 
-        const miniBadges = [...host.querySelectorAll('.mini-consolidation-summary-badges .mini-badge')].map(el => el.textContent);
-        expect(miniBadges).toContain('Total: 1');
-        expect(miniBadges).toContain('Resueltos: 1');
-        expect(miniBadges.some(text => text.startsWith('Conflictos entre Minis:'))).toBe(false);
-        expect(miniBadges.some(text => text.startsWith('Identidades no resueltas:'))).toBe(false);
-        expect(miniBadges.some(text => text.startsWith('Días revisados:'))).toBe(false);
-
-        expect(modal.connectedView).toBe('sa-comparison');
-        let footerLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(button => button.textContent.trim());
-        expect(footerLabels).toEqual(['← Volver', 'Aplicar listos', 'Finalizar']);
-
-        const saBadges = [...host.querySelectorAll('.mini-consolidation-summary-badges .mini-badge')].map(el => el.textContent);
-        expect(saBadges).toContain('Días listos: 1');
-        expect(saBadges.some(text => text.startsWith('Días aplicados:'))).toBe(false);
-        footerLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(button => button.textContent.trim());
-        expect(footerLabels).toEqual(['← Volver', 'Aplicar listos', 'Finalizar']);
+        expect(modal.connectedView).toBe('day-review');
+        expect(host.querySelector('[data-mini-consolidation-skeleton]')).toBeNull();
+        expect(host.querySelector('.mini-import-topbar-subtitle').textContent).toBe('Conectados · Día 1 de 1 · 11/09/2026');
+        expect(modal.buildReviewView().summary).toMatchObject({ total: 1, ready: 1, needsAttention: 0 });
     });
 
     test('single Mini is presented as review, offers ignore before SA and orders link candidates numerically', async () => {
@@ -318,10 +332,13 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         ignore.click(); await wait();
 
         expect(confirmIgnore).toHaveBeenCalledTimes(1);
-        expect(modal.connectedView).toBe('sa-comparison');
-        expect(modal.multiDayResolver.getDayState('2026-09-12').items).toHaveLength(0);
-        expect(modal.multiDayResolver.items).toHaveLength(0);
-        expect(modal.activeConsolidationRecord.items).toHaveLength(0);
+        // Nothing left to reconcile: the import completes and the draft is incorporated.
+        expect(modal.connectedView).toBe('inbox');
+        expect(modal.completionStatusMessage).toContain('Importación completada');
+        const [record] = await modal.consolidationStore.list({ saProjectId: SA_PROJECT });
+        expect(record.status).toBe('incorporated');
+        expect(record.items).toHaveLength(0);
+        expect(appliedPlans).toHaveLength(0);
     });
 
     test('shows a ranked employee suggestion by number/name and links it only after user confirmation', async () => {
@@ -375,7 +392,8 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         link.click();
         await wait();
 
-        expect(modal.multiDayResolver.items[0].saEmployeeId).toBe('EMP-600');
+        expect(modal.connectedView).toBe('day-review');
+        expect(modal.draft.rows[0].match).toMatchObject({ status: 'remembered_match', employeeId: 'EMP-600' });
         expect(aliasStore.record).toHaveBeenCalledTimes(1);
     });
 
@@ -410,11 +428,11 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         host.querySelector('[data-mini-action="resolve-identity"]').click();
         await wait();
 
-        expect(modal.connectedView).toBe('sa-comparison');
-        expect(modal.multiDayResolver.items.filter(item => !item.excluded)).toHaveLength(2);
-        expect(modal.multiDayResolver.items.every(item => item.saEmployeeId === 'EMP-002')).toBe(true);
-        expect(modal.multiDayResolver.getDayState('2026-09-13').status).toBe('ready');
-        expect(modal.multiDayResolver.getDayState('2026-09-14').status).toBe('ready');
+        expect(modal.connectedView).toBe('day-review');
+        expect(modal.consolidatedResult.items.filter(item => !item.excluded)).toHaveLength(2);
+        expect(modal.consolidatedResult.items.every(item => item.saEmployeeId === 'EMP-002')).toBe(true);
+        expect(modal.connectedReview.dates).toEqual(['2026-09-13', '2026-09-14']);
+        expect(modal.draft.rows[0].match.employeeId).toBe('EMP-002');
         expect(aliasStore.record).toHaveBeenCalledTimes(1);
         expect(aliasStore.record.mock.calls[0][0]).toMatchObject({
             scope: { ownerUid: 'owner-sa', siteId: SA_PROJECT, sourceId: 'source:mini-source-a|device:mini-a' },
@@ -450,14 +468,13 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
             rawNumber: '600',
             rawName: 'Kk'
         }));
-        expect(futureModal.connectedView).toBe('sa-comparison');
-        expect(futureModal.multiDayResolver.items[0].saEmployeeId).toBe('EMP-002');
-        expect(futureModal.multiDayResolver.getDayState('2026-09-15').status).toBe('ready');
+        expect(futureModal.connectedView).toBe('day-review');
+        expect(futureModal.draft.rows[0].match.employeeId).toBe('EMP-002');
         expect(futureHost.querySelector('[data-mini-unresolved-identity]')).toBeNull();
-        expect(futureHost.querySelector('[data-mini-day-date="2026-09-15"]').textContent).toBe('Listo para aplicar');
+        expect(futureModal.buildReviewView().summary).toMatchObject({ total: 1, ready: 1 });
     });
 
-    test('multi-position choice is deferred to SA comparison after Mini review', async () => {
+    test('multi-position choice is asked in the reconciliation after Mini review', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const id = '55555555-5555-4555-8555-555555555555';
@@ -468,19 +485,19 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         const modal = makeModal({ db, employees, positions, attendance, applyPlan });
         modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click(); await modal.consolidateSelectedDrafts();
-        expect(modal.connectedView).toBe('sa-comparison');
-        expect(host.querySelector('[data-mini-day-date="2026-09-09"]').textContent).toBe('Cambio por revisar');
-        expect(host.querySelector('[data-mini-select-position="EMP-003"]')).toBeNull();
-        const choices = [...host.querySelectorAll('[data-mini-action="resolve-position"][data-mini-employee-id="EMP-003"]')];
-        expect(choices.map(button => button.textContent.trim())).toEqual(['Albañil', 'Fierrero']);
-        expect(choices.every(button => button.getAttribute('aria-pressed') === 'false')).toBe(true);
+        expect(modal.connectedView).toBe('day-review');
+        expect(modal.conflictPlan.rows[0].blockers).toContain('target_position_required');
+        const [item] = reviewItems(modal);
+        expect(item.needsAttention).toBe(true);
+        expect(item.targetPositionOptions.map(option => option.name)).toEqual(['Albañil', 'Fierrero']);
 
-        choices.find(button => button.dataset.miniPositionId === 'pos-2').click();
-
-        const selected = host.querySelector('[data-mini-action="resolve-position"][data-mini-position-id="pos-2"]');
-        expect(selected.classList.contains('is-selected')).toBe(true);
-        expect(selected.getAttribute('aria-pressed')).toBe('true');
-        expect(modal.multiDayResolver.buildDayApplyPlan('2026-09-09').writes[0].record.selectedPosition).toBe('pos-2');
+        modal.openIndividualReview([modal.reviewItemKey(item)]);
+        const unit = host.querySelector('[data-mini-review-unit]');
+        unit.querySelector('[data-mini-position-allocation="pos-2"] [data-mini-target-position-option]').click();
+        unit.querySelector('[data-mini-action="confirm-unit"]').click();
+        await wait();
+        expect(modal.conflictPlan.rows[0].positionAllocations.map(allocation => allocation.positionId)).toEqual(['pos-2']);
+        expect(modal.conflictPlan.rows[0].blockers).not.toContain('target_position_required');
     });
 
     test('using a 0h Mini attendance never asks a multi-position employee for a position', async () => {
@@ -509,15 +526,20 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
         await modal.consolidateSelectedDrafts();
 
-        expect(modal.connectedView).toBe('sa-comparison');
-        expect(host.querySelector('[data-mini-position-conflict="EMP-003"]')).toBeNull();
+        expect(modal.connectedView).toBe('day-review');
+        const zeroItem = reviewItems(modal).find(item => item.employee?.id === 'EMP-003');
+        expect(zeroItem.allocation).toEqual({ normalHours: 0, overtimeHours: 0 });
 
-        host.querySelector('[data-mini-action="use-imported"][data-mini-employee-id="EMP-003"]').click();
+        modal.chooseAllAttentionSources([zeroItem], 'use_imported');
+        const zeroRow = modal.conflictPlan.rows.find(row => row.employeeId === 'EMP-003');
+        expect(zeroRow.decision).toMatchObject({ action: 'use_imported', acknowledged: true });
+        expect(zeroRow.blockers).not.toContain('target_position_required');
 
-        expect(host.querySelector('[data-mini-position-conflict="EMP-003"]')).toBeNull();
-        expect(modal.multiDayResolver.getDayState(date).status).toBe('ready');
-        const plan = modal.multiDayResolver.buildDayApplyPlan(date);
-        const write = plan.writes.find(entry => entry.key === `EMP-003-${date}`).record;
+        host.querySelector('[data-mini-action="accept-automatic"]')?.click();
+        modal.showFinalSummary();
+        host.querySelector('[data-mini-action="apply"]').click();
+        await wait();
+        const write = appliedPlans[0].writes.find(entry => entry.key === `EMP-003-${date}`).record;
         expect(write).toMatchObject({
             present: false,
             hoursWorked: 0,
