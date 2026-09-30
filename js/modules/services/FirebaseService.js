@@ -1093,6 +1093,62 @@ class FirebaseService {
     }
 
     /**
+     * Sube la asistencia de varias fechas en UNA transacción (subida agrupada
+     * del outbox). Mismo contrato por fecha que saveDailyAttendance: sólo
+     * viajan los registros del alcance del remitente, fusionados LWW contra el
+     * documento remoto releído dentro de la transacción. Todo o nada: si una
+     * fecha falla no se escribe ninguna y el caller reintenta fecha por fecha
+     * para aislar la que falla.
+     * @param {{dateKey: string, records: Object, scope?: Object}[]} items fechas distintas
+     */
+    async saveDailyAttendanceBatch(items) {
+        if (!auth.currentUser) return;
+        const list = (items || []).filter(item => item && item.dateKey);
+        if (list.length === 0) return;
+        const dateKeys = list.map(item => item.dateKey);
+        if (new Set(dateKeys).size !== dateKeys.length) {
+            throw new TypeError('saveDailyAttendanceBatch: fechas repetidas en el mismo lote');
+        }
+        const uid = auth.currentUser.uid;
+        const prepared = list.map(item => {
+            const scope = item.scope || peekEntityScope();
+            const own = {};
+            Object.entries(item.records || {}).forEach(([key, record]) => {
+                if (entityInScope(record, scope)) own[key] = record;
+            });
+            return {
+                dateKey: item.dateKey,
+                scope,
+                records: JSON.parse(JSON.stringify(own)),
+                ref: doc(db, 'users', uid, 'attendance', item.dateKey)
+            };
+        });
+        const deviceId = getDeviceId();
+        await runTransaction(db, async (tx) => {
+            // Firestore exige todas las lecturas antes de la primera escritura.
+            const snaps = await Promise.all(prepared.map(item => tx.get(item.ref)));
+            prepared.forEach((item, index) => {
+                const snap = snaps[index];
+                const remote = snap && typeof snap.exists === 'function' && snap.exists()
+                    ? (snap.data()?.records || {})
+                    : {};
+                const merged = mergeAttendanceRecords(item.records, remote);
+                const scopedPayload = {};
+                Object.entries(merged).forEach(([key, record]) => {
+                    if (entityInScope(record, item.scope)) scopedPayload[key] = record;
+                });
+                tx.set(item.ref, {
+                    records: scopedPayload,
+                    updatedAt: serverTimestamp(),
+                    date: item.dateKey,
+                    deviceId
+                }, { merge: true });
+            });
+        });
+        console.log(`☁️ Asistencia sincronizada en lote: ${dateKeys.length} fecha(s) (${dateKeys[0]} … ${dateKeys[dateKeys.length - 1]})`);
+    }
+
+    /**
      * Sincroniza todo el historial de asistencia local con la nube
      * Útil para la primera migración o reconstrucción de datos
      * @param {object} allAttendance Objeto con todo el historial de asistencia

@@ -127,6 +127,28 @@ function _resolveCloudCall(entry, guards) {
     return null; // kind desconocido — no debería pasar; no tocar la entrada
 }
 
+/** Máximo de fechas por transacción agrupada (lejos del límite de 500 escrituras de Firestore). */
+export const MAX_DAILY_BATCH = 20;
+
+/**
+ * Grupo de entradas 'daily' consecutivas desde `start`, con fechas distintas
+ * y hasta MAX_DAILY_BATCH. Consecutivas para no alterar el orden respecto de
+ * otras entradas de la cola (p.ej. un empleado que debe subir antes que su
+ * asistencia). Sin guard de lote ⇒ grupo vacío (camino de a una).
+ */
+function _dailyBatchAt(pending, start, guards) {
+    if (typeof guards.saveDailyBatch !== 'function') return [];
+    const group = [];
+    const dates = new Set();
+    for (let i = start; i < pending.length && group.length < MAX_DAILY_BATCH; i++) {
+        const entry = pending[i];
+        if (!entry || entry.kind !== 'daily' || !entry.dateKey || dates.has(entry.dateKey)) break;
+        dates.add(entry.dateKey);
+        group.push(entry);
+    }
+    return group;
+}
+
 export const MainSyncStore = {
 
     /**
@@ -309,6 +331,7 @@ export const MainSyncStore = {
      *   cloudWatermark: () => number,
      *   saveMirror: (snapshot) => Promise,
      *   saveDaily: (dateKey, records, scope) => Promise,
+     *   saveDailyBatch?: (items: {dateKey, records, scope}[]) => Promise,
      *   saveEntities: (employees, positions, leaders, schemaVersion) => Promise,
      *   saveSettings: (settingsMap) => Promise,
      *   savePayrollEmployees: (employees, schemaVersion) => Promise,
@@ -336,10 +359,36 @@ export const MainSyncStore = {
                     .filter(e => e && e.status === 'pending')
                     .sort((a, b) => (a.key || 0) - (b.key || 0));
 
-                for (const entry of pending) {
+                // Subida agrupada: fechas de asistencia consecutivas en la cola
+                // viajan en una sola transacción, en su lugar de la cola. Si el
+                // lote falla, esas entradas siguen el camino normal de a una,
+                // así el reintento y el error quedan en la fecha que falla.
+                let retryOneByOneUntil = -1;
+                for (let index = 0; index < pending.length; index++) {
                     // JD-F5: si hubo una purga desde que arrancó este flush, la
                     // lista en memoria es stale — cortar sin subir nada más.
                     if (generationAtStart !== _purgeGeneration) break;
+                    const group = index > retryOneByOneUntil ? _dailyBatchAt(pending, index, guards) : [];
+                    if (group.length >= 2) {
+                        try {
+                            await guards.saveDailyBatch(group.map(e => ({
+                                dateKey: e.dateKey, records: e.records, scope: e.scope || null
+                            })));
+                        } catch (err) {
+                            console.warn(`⚠️ Subida agrupada de ${group.length} fecha(s) falló; se reintenta fecha por fecha:`, err);
+                            retryOneByOneUntil = index + group.length - 1;
+                        }
+                        if (retryOneByOneUntil < index) {
+                            for (const e of group) {
+                                await _deleteQuiet(e.key);
+                                guards.onCloudResult(true, null, e);
+                            }
+                            index += group.length - 1;
+                            continue;
+                        }
+                    }
+
+                    const entry = pending[index];
                     const cloudCall = _resolveCloudCall(entry, guards);
                     if (!cloudCall) continue; // diferido (watermark/schemaVersion) — no es un fallo
 

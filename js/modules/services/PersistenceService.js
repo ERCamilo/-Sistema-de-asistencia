@@ -500,6 +500,7 @@ function _mainSyncGuards() {
         // las escribe por su cuenta; sin este flag se subirían dos veces.
         saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot, { skipEntities: true }),
         saveDaily: (dateKey, records, scope) => FirebaseService.saveDailyAttendance(dateKey, records, { scope }),
+        saveDailyBatch: (items) => FirebaseService.saveDailyAttendanceBatch(items),
         saveEntities: (employees, positions, leaders, schemaVersion) => FirebaseService.saveEntities(employees, positions, leaders, schemaVersion),
         // Fase 2B U2: settings viaja por su propio kind del outbox
         // (MainSyncStore.enqueueSettings en _executeSave), sin gate de
