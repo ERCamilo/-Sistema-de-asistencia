@@ -67,3 +67,27 @@ export function filterPayablePayrollPreviewRows(rows = []) {
         || (row._deductionDetails || []).length > 0
     );
 }
+
+/**
+ * Filtro por líder de la vista previa. Un empleado entra si trabajó en el
+ * período en una posición de ese líder (desglose por posición de su fila) o si
+ * alguna de sus posiciones actuales es de ese líder. 'all' o un líder que no
+ * existe en la obra devuelve todas las filas.
+ */
+export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positions = [], employees = [] } = {}) {
+    const leader = String(leaderId || 'all');
+    if (leader === 'all') return rows;
+    const leaderPositions = new Set((positions || [])
+        .filter(position => position?.leaderId != null && String(position.leaderId) === leader)
+        .map(position => String(position.id)));
+    if (leaderPositions.size === 0) return [];
+    const employeesById = new Map((employees || []).map(employee => [String(employee.id), employee]));
+    return rows.filter(row => {
+        const worked = (row._positionBreakdown || []).map(item => String(item?.positionId));
+        const employee = employeesById.get(String(row._employeeId ?? row.id));
+        const current = [...(employee?.positions || []), employee?.position]
+            .filter(id => id != null)
+            .map(String);
+        return [...worked, ...current].some(id => leaderPositions.has(id));
+    });
+}
