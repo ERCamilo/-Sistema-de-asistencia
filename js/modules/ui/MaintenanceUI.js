@@ -1337,8 +1337,5 @@ export class MaintenanceUI {
     }
 }
 
-// Exportar helper para global
-window.startMaintenanceWizard = async () => {
-    const ui = new MaintenanceUI();
-    await ui.start();
-};
+// El punto de entrada global es la pantalla «Duplicados» (DuplicatesScreenBoot).
+// Este asistente queda disponible para la limpieza avanzada de la nube.
