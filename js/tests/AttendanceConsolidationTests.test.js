@@ -219,6 +219,28 @@ describe('AttendanceConsolidation — pure cross-Mini consolidation', () => {
         expect(item.conflictReasons).toContain('roster_status_conflict');
     });
 
+    test('todos los Minis en 0 horas se resuelve solo aunque difiera el estado o la cobertura', () => {
+        const unmarked = buildSubmission({
+            submissionId: '11111111-1111-1111-1111-111111111111',
+            deviceId: 'dev-1', sourceId: 'mini-1', coverageMode: 'linked-roster-full',
+            rows: [{ miniLocalId: 'm1', number: '1', name: 'Ana', normalHours: 0, overtimeHours: 0, status: 'unmarked', rosterStatus: 'active', saEmployeeId: 'EMP-001' }]
+        });
+        const pausedAbsent = buildSubmission({
+            submissionId: '22222222-2222-2222-2222-222222222222',
+            deviceId: 'dev-2', sourceId: 'mini-2', coverageMode: 'linked-roster-full',
+            rows: [{ miniLocalId: 'm2', number: '1', name: 'Ana', normalHours: 0, overtimeHours: 0, status: 'absent', rosterStatus: 'paused', saEmployeeId: 'EMP-001' }]
+        });
+        const notInRoster = buildSubmission({
+            submissionId: '33333333-3333-3333-3333-333333333333',
+            deviceId: 'dev-3', sourceId: 'mini-3', coverageMode: 'linked-roster-full', rows: []
+        });
+        const item = consolidateAttendanceSubmissions([unmarked, pausedAbsent, notInRoster]).items[0];
+        expect(item.status).toBe('resolved');
+        expect(item.autoResolved).toBe('all_zero_hours');
+        expect(item.totalHours).toBe(0);
+        expect(item.sources).toHaveLength(3);
+    });
+
     test('preserves total hours above eight instead of displaying only normal hours', () => {
         const sub = buildSubmission({
             coverageMode: 'linked-roster-full',
