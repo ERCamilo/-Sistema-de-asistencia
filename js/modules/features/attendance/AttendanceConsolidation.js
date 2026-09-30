@@ -250,6 +250,12 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
         if (explicitRosterStates.size > 1) conflictReasons.push('roster_status_conflict');
         if (attendanceStatusSet.size > 1) conflictReasons.push('attendance_status_conflict');
         if (normalHoursSet.size > 1 || overtimeHoursSet.size > 1) conflictReasons.push('hours_conflict');
+        // Todos los Minis dicen 0 horas (ausente, sin marcar, pausado o fuera de
+        // su roster): no hay horas que elegir, se resuelve solo como 0.
+        const allZero = sources.every(source =>
+            Number(source.normalHours || 0) === 0 && Number(source.overtimeHours || 0) === 0);
+        const autoResolvedZero = allZero && conflictReasons.length > 0;
+        if (autoResolvedZero) conflictReasons.length = 0;
 
         if (conflictReasons.length === 0) {
             const normalHours = Number(firstReal?.normalHours || 0);
@@ -270,7 +276,8 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
                 sourceStatus: firstReal?.status || 'present',
                 rosterStatus: firstReal?.rosterStatus || null,
                 sources,
-                blockers: []
+                blockers: [],
+                ...(autoResolvedZero ? { autoResolved: 'all_zero_hours' } : {})
             });
         } else {
             const conflictType = conflictReasons.length === 1 ? conflictReasons[0] : 'multi_source_conflict';

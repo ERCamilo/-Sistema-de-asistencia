@@ -488,7 +488,12 @@ export function createMiniAttendanceDraftFromConsolidatedDay({
         const overtimeHours = Number(item.overtimeHours) || 0;
         const totalHours = normalHours + overtimeHours;
         const existing = employee ? attendance[`${employee.id}-${date}`] : null;
-        if (totalHours === 0 && (!existing || existing.deletedAt != null)) continue;
+        const existingHours = existing && existing.deletedAt == null
+            ? (Number(existing.hoursWorked) || 0) + (Number(existing.overtimeHours) || 0)
+            : 0;
+        // Mini manda 0 y SA no tiene horas ese día (sin registro o con 0): no
+        // hay nada que cambiar ni que revisar.
+        if (totalHours === 0 && existingHours === 0) continue;
         const eligible = Boolean(employee) && isMiniAttendanceEmployeeEligible(employee);
         const candidate = employee ? employeeCandidate(employee) : null;
         const sourceRow = {
