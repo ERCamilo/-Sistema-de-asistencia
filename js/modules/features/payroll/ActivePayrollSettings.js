@@ -50,6 +50,40 @@ export function getActivePayrollSettings(state) {
     return view;
 }
 
+/**
+ * Horas base por día (dateKey → horas) de la obra activa. Mientras la obra no
+ * tenga las suyas, se usan las generales (datos anteriores a multi-obra).
+ */
+export function getActiveDayHours(state) {
+    const base = state?.dayHoursConfig || {};
+    if (!isProjectsEnabled()) return base;
+    const pid = activeProjectId();
+    if (!pid || cache.projectId !== pid || !cache.config) return base;
+    const own = cache.config.dayHours;
+    return own && typeof own === 'object' ? own : base;
+}
+
+/**
+ * Guarda horas base por día en la configuración de la obra activa y la
+ * publica (payroll-config:changed). Devuelve false sin obras activas.
+ */
+export async function updateActiveDayHours(updates, { state = null, store = configStore } = {}) {
+    if (!isProjectsEnabled()) return false;
+    const pid = activeProjectId();
+    if (!pid) return false;
+    const current = cache.projectId === pid && cache.config ? cache.config : await store.getConfig(pid);
+    if (!current) return false;
+    const dayHours = { ...getActiveDayHours(state || { dayHoursConfig: {} }), ...(current.dayHours || {}), ...updates };
+    // Vista inmediata; luego se persiste.
+    setActivePayrollConfig({ ...current, dayHours });
+    const saved = await store.putConfig({ ...current, dayHours });
+    setActivePayrollConfig(saved);
+    try {
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('payroll-config:changed', { detail: { config: saved } }));
+    } catch (_) { /* sin UI */ }
+    return true;
+}
+
 /** Feriados de la obra activa (o los generales sin obras). */
 export function getActiveHolidays(state) {
     const holidays = getActivePayrollSettings(state).holidays;

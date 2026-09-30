@@ -93,7 +93,7 @@ export function planCatalogMerge(localList = [], remoteList = [], { excludeIds =
 }
 
 const CONFIG_FIELDS = ['regularHoursPerDay', 'overtimeFactor', 'holidayFactor', 'holidays', 'payPeriod',
-    'defaultDeductionPercentage', 'payrollDefaults', 'schemaVersion', 'updatedAt'];
+    'defaultDeductionPercentage', 'payrollDefaults', 'dayHours', 'schemaVersion', 'updatedAt'];
 
 /** Solo los campos de nómina viajan; `seeded` marca valores iniciales. */
 export function toConfigDoc(config) {

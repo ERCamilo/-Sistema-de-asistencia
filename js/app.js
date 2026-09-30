@@ -45,7 +45,7 @@ import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { initProjectsInfrastructure } from './modules/features/projects/ProjectsBoot.js';
 import { stopProjectCatalogLiveSync } from './modules/features/projects/ProjectCatalogSync.js';
-import { getActivePayrollSettings } from './modules/features/payroll/ActivePayrollSettings.js';
+import { getActivePayrollSettings, getActiveDayHours } from './modules/features/payroll/ActivePayrollSettings.js';
 import { absorbIncomingMergeMarkers, persistDuplicateResolution } from './modules/features/employees/EmployeeDuplicateService.js';
 import { resetEntityScope, getScopedSidebarCounters } from './modules/features/projects/EntityProjectScope.js';
 import { MainSyncStore } from './modules/services/MainSyncStore.js';
@@ -3554,7 +3554,7 @@ window.handleWeekCheck = (empId, dateStr, event, element) => {
         // 🔥 Unificación: respetar incluso un override diario explícito de cero.
         const hours = resolveDailyTargetHours(
             dateStr,
-            state.dayHoursConfig,
+            getActiveDayHours(state),
             getActivePayrollSettings(state).regularHoursPerDay
         );
 
@@ -4407,7 +4407,7 @@ function _AttendanceDetailPanelInner() {
             const att = (attRaw && entityInScope(attRaw)) ? attRaw : null;
             if (att && att.present) {
                 const workedHours = Number(att.hoursWorked) || 0;
-                const dailyTargetHours = resolveDailyTargetHours(dk, state.dayHoursConfig, regularHours);
+                const dailyTargetHours = resolveDailyTargetHours(dk, getActiveDayHours(state), regularHours);
                 periodDays++;
                 periodHours += workedHours;
                 if (workedHours > dailyTargetHours) overtimeHours += (workedHours - dailyTargetHours);
@@ -4458,7 +4458,7 @@ function _AttendanceDetailPanelInner() {
     for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
         const dk = getDateKey(new Date(d));
         if (worksOnDay(d) && !holidays.includes(dk)) {
-            periodTargetHours += resolveDailyTargetHours(dk, state.dayHoursConfig, regularHours);
+            periodTargetHours += resolveDailyTargetHours(dk, getActiveDayHours(state), regularHours);
         }
     }
     const periodHoursPct = periodTargetHours > 0
