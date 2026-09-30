@@ -134,6 +134,25 @@ function resolvedCheckSvg(label = 'Resuelto') {
     return wrap;
 }
 
+/**
+ * Tarjeta de resumen: cifra grande y etiqueta corta. El texto accesible y el
+ * textContent siguen siendo «Etiqueta: N».
+ */
+function summaryTile(label, value, className) {
+    const tile = element('span', null, { className: `mini-badge mini-summary-tile ${className}` });
+    // Orden de lectura «Etiqueta: N»; el CSS pone la cifra arriba.
+    tile.append(
+        element('span', label, { className: 'mini-summary-label' }),
+        element('span', ': ', { className: 'mini-summary-sep' }),
+        element('span', String(value), { className: 'mini-summary-value' })
+    );
+    return tile;
+}
+
+function personInitials(name) {
+    return String(name || '?').trim().split(/\s+/).map(part => part[0] || '').join('').slice(0, 2).toUpperCase() || '?';
+}
+
 function selectedCheckSvg() {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 24 24');
@@ -2724,7 +2743,7 @@ export class MiniAttendanceImportModal {
         const appendPositiveBadge = (value, label, className) => {
             const count = Number(value || 0);
             if (count <= 0) return;
-            badges.append(element('span', `${label}: ${count}`, { className: `mini-badge ${className}` }));
+            badges.append(summaryTile(label, count, className));
         };
         appendPositiveBadge(summary.totalItems, 'Total', 'mini-badge-total');
         appendPositiveBadge(summary.resolvedCount, 'Resueltos', 'mini-badge-resolved');
@@ -2736,9 +2755,7 @@ export class MiniAttendanceImportModal {
             if (isMiniStage) {
                 const reviewedDays = this.multiDayResolver.completedMiniDates?.size || 0;
                 if (reviewedDays > 0) {
-                    badges.append(element('span', `Días revisados: ${reviewedDays}/${multiSummary.totalDays}`, {
-                        className: 'mini-badge mini-badge-ready-days'
-                    }));
+                    badges.append(summaryTile('Días revisados', `${reviewedDays}/${multiSummary.totalDays}`, 'mini-badge-ready-days'));
                 }
             } else {
                 appendPositiveBadge(multiSummary.readyDaysCount, 'Días listos', 'mini-badge-ready-days');
@@ -2871,32 +2888,51 @@ export class MiniAttendanceImportModal {
                     const hideRepeatedIdentityStatus = singleMiniReview &&
                         (item.status === 'identity_conflict' || !item.saEmployeeId);
                     if (hideRepeatedIdentityStatus) rowEl.classList.add('has-unresolved-identity');
-                    rowEl.append(
+                    // Encabezado de la tarjeta: avatar · nombre y ficha · horas y estado.
+                    const rowHead = element('div', null, { className: 'mini-row-head' });
+                    const rowIdentity = element('div', null, { className: 'mini-row-identity' });
+                    const rowMeta = element('div', null, { className: 'mini-row-meta' });
+                    const rowTrail = element('div', null, { className: 'mini-row-trail' });
+                    rowIdentity.append(
                         element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
-                        element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }),
-                        element('span', item.normalHours !== null
-                            ? this.formatConnectedHours(item.normalHours, item.overtimeHours, { status: item.sourceStatus, rosterStatus: item.rosterStatus })
-                            : 'Requiere resolución', { className: 'mini-row-hours' })
+                        rowMeta
                     );
+                    rowMeta.append(element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }));
+                    rowTrail.append(element('span', item.normalHours !== null
+                        ? this.formatConnectedHours(item.normalHours, item.overtimeHours, { status: item.sourceStatus, rosterStatus: item.rosterStatus })
+                        : 'Por decidir', { className: `mini-row-hours${item.normalHours === null ? ' is-pending' : ''}` }));
+                    // En la comparación con SA, «resuelto entre Minis» no basta: si
+                    // falta elegir entre Mini y el valor actual, se dice así.
+                    const awaitingSaDecision = isSaStage && item.status === 'resolved' &&
+                        this.isConsolidationRowPending(item, dayState, isMiniStage);
+                    if (awaitingSaDecision) rowEl.classList.add('is-awaiting-sa');
                     if (!hideRepeatedIdentityStatus) {
-                        rowEl.append(item.status === 'resolved'
+                        rowTrail.append(item.status === 'resolved' && !awaitingSaDecision
                             ? resolvedCheckSvg('Resuelto')
-                            : element('span', statusLabel, { className: `mini-row-status is-${item.status}` }));
+                            : element('span', awaitingSaDecision ? 'Cambio por revisar' : statusLabel, {
+                                className: `mini-row-status is-${awaitingSaDecision ? 'conflict' : item.status}`
+                            }));
                     }
+                    rowHead.append(
+                        element('span', personInitials(item.displayName), { className: 'mini-row-avatar', 'aria-hidden': 'true' }),
+                        rowIdentity,
+                        rowTrail
+                    );
+                    rowEl.append(rowHead);
                     if (singleMiniReview && this.isConsolidationRowPending(item, dayState, isMiniStage)) {
                         const pendingIndex = __partition.pending.findIndex(candidate => candidate.id === item.id);
                         if (pendingIndex >= 0 && __partition.pending.length > 0) {
-                            rowEl.append(element('span', `${pendingIndex + 1}/${__partition.pending.length}`, {
+                            rowTrail.append(element('span', `${pendingIndex + 1}/${__partition.pending.length}`, {
                                 className: 'mini-row-review-index',
                                 'aria-label': `Incidencia ${pendingIndex + 1} de ${__partition.pending.length}`
                             }));
                         }
                     }
                     if (sourcesText) {
-                        rowEl.append(element('span', `Mini: ${sourcesText}`, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
+                        rowMeta.append(element('span', `Mini: ${sourcesText}`, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
                     }
                     const itemTechnical = technicalDetailsDisclosure(consolidationTechnicalLines(item));
-                    if (itemTechnical) rowEl.append(itemTechnical);
+                    if (itemTechnical) rowMeta.append(itemTechnical);
 
                     // Multi-day Resolver interactive controls
                     if (this.multiDayResolver) {
@@ -2915,8 +2951,8 @@ export class MiniAttendanceImportModal {
                                 dataset: { miniHoursConflict: item.id }
                             });
                             resolveHoursEl.append(element('span', item.resolutionSource
-                                ? 'Versión seleccionada para el consolidado:'
-                                : 'Elegir versión para el consolidado:', { className: 'mini-control-label' }));
+                                ? 'Versión elegida'
+                                : '¿Qué Mini tiene la asistencia correcta?', { className: 'mini-control-label' }));
                             item.sources.forEach((src, srcIndex) => {
                                 if (src.missingRoster === true) return;
                                 const sourceName = humanSourceLabel(src);
@@ -2926,7 +2962,14 @@ export class MiniAttendanceImportModal {
                                     missingRoster: false
                                 });
                                 const selected = Boolean(item.resolutionSource?.deviceId && item.resolutionSource.deviceId === src.deviceId);
-                                const srcBtn = actionButton(`${sourceName}: ${sourceDetail}`, 'resolve-hours');
+                                const srcBtn = actionButton('', 'resolve-hours');
+                                srcBtn.classList.add('mini-source-choice');
+                                srcBtn.setAttribute('aria-label', `${sourceName}: ${sourceDetail}`);
+                                srcBtn.append(
+                                    element('span', sourceName, { className: 'mini-source-choice-name' }),
+                                    element('span', ': ', { className: 'mini-summary-sep' }),
+                                    element('span', sourceDetail, { className: 'mini-source-choice-value' })
+                                );
                                 srcBtn.dataset.miniItemId = item.id;
                                 srcBtn.dataset.miniSourceIndex = String(srcIndex);
                                 srcBtn.classList.toggle('is-selected', selected);
