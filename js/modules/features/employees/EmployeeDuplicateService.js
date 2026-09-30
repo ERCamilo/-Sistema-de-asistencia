@@ -131,6 +131,44 @@ export function deleteDuplicateEmployee(employeeId, { purgeAttendance = true, at
 }
 
 /**
+ * Aplica las decisiones de un grupo de la pantalla «Duplicados» (plan de
+ * DuplicateGroups.planGroupDecisions). Un solo camino para las cuatro
+ * acciones: unir, cambiar ficha, eliminar y conservar.
+ *   - Un integrante que solo está en la nube y se queda (conservar u otra
+ *     persona) se trae a la lista antes de tocarlo.
+ *   - Las fichas se cambian antes de unir, para que el principal no herede un
+ *     número repetido.
+ * No guarda: llamar a persistDuplicateResolution() al terminar.
+ * @returns {{ merged: number, renumbered: number, deleted: number, skipped: string[] }}
+ */
+export function applyDuplicateGroupPlan(group, plan) {
+    const result = { merged: 0, renumbered: 0, deleted: 0, skipped: [] };
+    if (!group || !plan?.ok) return result;
+    const members = (group.members || []).map(member => ({ ...(member.record || member), id: member.id }));
+    const staying = new Set([plan.keeperId, ...plan.renumber.map(item => item.id)].filter(Boolean));
+    for (const member of members) {
+        if (!staying.has(member.id) || findEmployee(member.id)) continue;
+        stateManager.batchSetState(() => { state.employees.push(stripHelpers(member)); });
+    }
+    for (const { id, number } of plan.renumber) {
+        // allowCollision: la ficha ya se validó dentro de su obra; otra obra
+        // puede usar el mismo número sin conflicto.
+        if (changeEmployeeNumber(id, number, { allowCollision: true })) result.renumbered++;
+        else result.skipped.push(id);
+    }
+    if (plan.keeperId && plan.mergeIds.length) {
+        const merged = mergeDuplicateEmployees({ masterId: plan.keeperId, duplicateIds: plan.mergeIds, members });
+        result.merged += merged.merged;
+        result.skipped.push(...merged.skipped);
+    }
+    const at = Date.now();
+    for (const id of plan.deleteIds) {
+        if (deleteDuplicateEmployee(id, { at })) result.deleted++;
+    }
+    return result;
+}
+
+/**
  * Antes de aplicar la lista de la nube:
  *   - una lápida con `mergedIntoId` cuya copia sigue viva aquí se une a ese
  *     empleado (su asistencia o préstamos solo-locales no se pierden);

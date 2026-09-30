@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0930.002352'
+const CACHE_VERSION = '2026.0930.015048'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -141,6 +141,8 @@ const APP_SHELL = [
     './js/modules/ui/Header.js',
     './js/modules/ui/IconSystem.js',
     './js/modules/ui/MaintenanceUI.js',
+    './js/modules/ui/DuplicatesScreen.js',
+    './js/modules/ui/DuplicatesScreenBoot.js',
     './js/modules/ui/ModalManager.js',
     './js/modules/ui/QuickViewComponents.js',
     './js/modules/ui/RestoreUI.js',
@@ -175,6 +177,7 @@ const APP_SHELL = [
     './js/modules/features/attendance/MiniAttendanceParser.js',
     './js/modules/features/employees/Employee.js',
     './js/modules/features/employees/EmployeeDuplicateService.js',
+    './js/modules/features/employees/DuplicateGroups.js',
     './js/modules/features/employees/EmployeeMergeRegistry.js',
     './js/modules/features/employees/EmployeeNumberIdentity.js',
     './js/modules/features/employees/EmployeesUI.js',

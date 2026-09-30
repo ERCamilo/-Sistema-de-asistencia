@@ -7,10 +7,11 @@ import icons from '../ui/IconSystem.js';
 // 🎯 EVENT DELEGATION (data-alerts-action)
 // ============================================
 const _ALERTS_ACTION_MAP = {
-    'show-resolution-dialog': () => window._systemAlerts?.showResolutionDialog(),
+    // El aviso abre directamente la pantalla «Duplicados» (sin diálogo previo).
+    'show-resolution-dialog': () => window.startMaintenanceWizard?.(),
     'start-maintenance-from-alert': () => {
         if (window._systemAlerts?.currentModal) window._systemAlerts.currentModal.close();
-        window._maintenanceUI?.start();
+        window.startMaintenanceWizard?.();
     },
     'ignore-temporarily': () => window._systemAlerts?.ignoreTemporarily(),
     'ignore-permanently': () => window._systemAlerts?.ignorePermanently()
