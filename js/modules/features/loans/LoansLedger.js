@@ -52,6 +52,7 @@ import {
 } from './LoansService.js';
 import { detectLoanDuplicateCandidates } from './LoanDuplicateDetector.js';
 import { renderLoanHistoryPanel } from './LoanHistoryPanel.js';
+import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { isPendingUpload } from '../../services/EntitiesSyncStamp.js';
 import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import {
@@ -223,6 +224,8 @@ function LedgerOverview() {
                         'Préstamos activos:\nNúmero de préstamos que se están cobrando actualmente en la empresa.\n\n* No incluye préstamos ya saldados al 100% ni anulados.'
                     )}
                 </div>
+
+                ${renderLoanDuplicateReview({ scope: 'general', employees: scopedState.employees || [] })}
 
                 ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: scopedState.employees || [] })}
 
@@ -906,6 +909,8 @@ function EmployeeLoansDetail(empId) {
             <div class="loans-employee-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px;">
                 ${renderedCardsHtml}
             </div>
+
+            ${renderLoanDuplicateReview({ scope: String(emp.id), employees: [emp] })}
 
             ${renderLoanHistoryPanel({ scope: String(emp.id), mode: 'employee', employees: [emp] })}
 

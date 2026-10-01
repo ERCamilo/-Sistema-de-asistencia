@@ -17,6 +17,7 @@
  */
 
 import { registerLoanHistoryGlobals } from './LoanHistoryPanel.js';
+import { registerLoanDuplicateReviewGlobals } from './LoanDuplicateReview.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
@@ -1258,4 +1259,5 @@ export function registerLegacyGlobals() {
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;
     registerLoanHistoryGlobals();
+    registerLoanDuplicateReviewGlobals();
 }
