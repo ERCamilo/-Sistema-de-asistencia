@@ -46,6 +46,7 @@ import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { initProjectsInfrastructure } from './modules/features/projects/ProjectsBoot.js';
 import { stopProjectCatalogLiveSync } from './modules/features/projects/ProjectCatalogSync.js';
 import { getActivePayrollSettings, getActiveDayHours } from './modules/features/payroll/ActivePayrollSettings.js';
+import { computeAttendanceDetailEarnings } from './modules/features/attendance/AttendanceDetailEarnings.js';
 import { absorbIncomingMergeMarkers, persistDuplicateResolution } from './modules/features/employees/EmployeeDuplicateService.js';
 import { resetEntityScope, getScopedSidebarCounters } from './modules/features/projects/EntityProjectScope.js';
 import { MainSyncStore } from './modules/services/MainSyncStore.js';
@@ -4467,12 +4468,17 @@ function _AttendanceDetailPanelInner() {
         ? Math.min(100, Math.round((periodHours / periodTargetHours) * 100))
         : 0;
 
-    // Approx salary based on first position tarifa × period hours.
-    // TODO: if the employee worked under multiple positions in the period,
-    // sum each position's rate × its own hours (per-position breakdown).
-    const firstPos = scopedDetailPositions.find(p => p.id === emp.positions[0]);
-    const hourlyRate = (firstPos && firstPos.hourlyRate) || 0;
-    const salaryEstimate = periodHours * hourlyRate;
+    // Sueldo del período con el mismo cálculo de Nómina (sueldo propio por
+    // posición, por hora o por día, extra, feriados y días libres), hasta el
+    // día seleccionado.
+    const earnings = computeAttendanceDetailEarnings(state, emp.id, getDateKey(rangeStart), getDateKey(iterEnd));
+    const salaryEstimate = earnings.gross;
+    const salaryPositions = earnings.breakdown.filter(item => Number(item.subtotal) > 0);
+    const salaryNote = !earnings.available
+        ? 'No disponible'
+        : salaryPositions.length > 1
+            ? salaryPositions.map(item => `${item.positionName || 'Posición'} ${(Number(item.subtotal) || 0).toLocaleString('es-DO', { maximumFractionDigits: 0 })}`).join(' · ')
+            : 'Bruto según Nómina';
 
     // Pending loan balance — use the canonical active refinance contract.
     let pendingLoanBalance = 0;
@@ -4557,7 +4563,7 @@ function _AttendanceDetailPanelInner() {
                     <div class="detail-finance-copy">
                     <div class="detail-stat-label">Salario (período)</div>
                     <div class="detail-stat-value ok">${money(salaryEstimate)}</div>
-                    <div class="detail-stat-sub">Estimado por horas</div>
+                    <div class="detail-stat-sub">${escapeHTML(salaryNote)}</div>
                     </div>
                 </div>
                 <div class="detail-stat detail-finance-stat loan">

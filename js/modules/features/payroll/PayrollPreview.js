@@ -68,13 +68,93 @@ export function filterPayablePayrollPreviewRows(rows = []) {
     );
 }
 
+export const LEADER_HOURS_SCOPES = Object.freeze({ ALL: 'all', LEADER: 'leader' });
+
+export function normalizeLeaderHoursScope(value) {
+    return value === LEADER_HOURS_SCOPES.LEADER ? LEADER_HOURS_SCOPES.LEADER : LEADER_HOURS_SCOPES.ALL;
+}
+
+function scaleDetails(details = [], ratio) {
+    let fixed = 0;
+    let scaled = 0;
+    const out = details.map(item => {
+        if (item?.type !== 'percentage') {
+            fixed += amount(item?.amount);
+            return item;
+        }
+        const next = { ...item, amount: money(amount(item.amount) * ratio), appliedTo: money(amount(item.appliedTo) * ratio) };
+        scaled += next.amount;
+        return next;
+    });
+    return { details: out, total: money(fixed + scaled) };
+}
+
+/**
+ * Deja en la fila solo las horas y el bruto de las posiciones indicadas.
+ * Las bonificaciones y deducciones porcentuales se recalculan sobre el bruto
+ * nuevo; las de monto fijo y los préstamos quedan completos (son del
+ * empleado, no de la posición). Devuelve null si no trabajó en ninguna.
+ */
+export function limitPayrollRowToPositions(row, positionIds) {
+    const breakdown = row?._positionBreakdown || [];
+    const kept = breakdown.filter(item => positionIds.has(String(item?.positionId)));
+    if (kept.length === breakdown.length) return row;
+    if (kept.length === 0) return null;
+    const sum = field => kept.reduce((total, item) => total + amount(item?.[field]), 0);
+    const oldGross = amount(row._brutoOriginal);
+    const gross = money(sum('subtotal'));
+    const ratio = oldGross > 0 ? gross / oldGross : 0;
+    const bonuses = scaleDetails(row._bonusDetails, ratio);
+    const deductions = scaleDetails(row._deductionDetails, ratio);
+    const newBonuses = (row._bonusDetails || []).length ? bonuses.total : amount(row._bonuses);
+    const newDeductions = (row._deductionDetails || []).length ? deductions.total : amount(row._deductions);
+    const delta = (gross - oldGross) + (newBonuses - amount(row._bonuses)) - (newDeductions - amount(row._deductions));
+    const regularHours = sum('regularHours');
+    const overtimeHours = sum('overtimeHours');
+    const holidayHours = sum('holidayHours');
+    const restDayHours = sum('restDayHours');
+    const net = money(amount(row.monto) + delta);
+    return {
+        ...row,
+        monto: net,
+        _montoBeforeLoans: money(amount(row._montoBeforeLoans ?? amount(row.monto) + amount(row._loans)) + delta),
+        _brutoOriginal: gross,
+        _bruto: money(amount(row._bruto ?? oldGross) + (gross - oldGross)),
+        _bonuses: newBonuses,
+        _deductions: newDeductions,
+        _bonusDetails: bonuses.details,
+        _deductionDetails: deductions.details,
+        _regularHours: regularHours,
+        _overtimeHours: overtimeHours,
+        _holidayHours: holidayHours,
+        _restDayHours: restDayHours,
+        _totalHours: regularHours + overtimeHours + holidayHours + restDayHours,
+        _positionBreakdown: kept,
+        _leaderExcludedPositions: breakdown
+            .filter(item => !positionIds.has(String(item?.positionId)))
+            .map(item => ({
+                positionId: item.positionId,
+                positionName: item.positionName || 'Puesto',
+                days: amount(item.days),
+                hours: amount(item.regularHours) + amount(item.overtimeHours) + amount(item.holidayHours) + amount(item.restDayHours),
+                subtotal: money(item.subtotal)
+            })),
+        _invalidLoanNet: amount(row._loans) > 0 && net < 0
+    };
+}
+
 /**
  * Filtro por líder de la vista previa. Un empleado entra si trabajó en el
  * período en una posición de ese líder (desglose por posición de su fila) o si
  * alguna de sus posiciones actuales es de ese líder. 'all' o un líder que no
  * existe en la obra devuelve todas las filas.
+ *
+ * hoursScope:
+ *   - 'all' (por defecto): el empleado entra con las horas de todos sus puestos.
+ *   - 'leader': solo con las horas y días de los puestos de ese líder; quien no
+ *     trabajó en ninguno de ellos en el período queda fuera.
  */
-export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positions = [], employees = [] } = {}) {
+export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positions = [], employees = [], hoursScope = LEADER_HOURS_SCOPES.ALL } = {}) {
     const leader = String(leaderId || 'all');
     if (leader === 'all') return rows;
     const leaderPositions = new Set((positions || [])
@@ -82,12 +162,22 @@ export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positio
         .map(position => String(position.id)));
     if (leaderPositions.size === 0) return [];
     const employeesById = new Map((employees || []).map(employee => [String(employee.id), employee]));
-    return rows.filter(row => {
-        const worked = (row._positionBreakdown || []).map(item => String(item?.positionId));
+    const currentPositions = row => {
         const employee = employeesById.get(String(row._employeeId ?? row.id));
-        const current = [...(employee?.positions || []), employee?.position]
+        return [...(employee?.positions || []), employee?.position]
             .filter(id => id != null)
             .map(String);
-        return [...worked, ...current].some(id => leaderPositions.has(id));
+    };
+    if (normalizeLeaderHoursScope(hoursScope) === LEADER_HOURS_SCOPES.LEADER) {
+        return rows
+            .map(row => ((row._positionBreakdown || []).length
+                // Sin horas en el período: va con el líder de su puesto asignado.
+                ? limitPayrollRowToPositions(row, leaderPositions)
+                : (currentPositions(row).some(id => leaderPositions.has(id)) ? row : null)))
+            .filter(Boolean);
+    }
+    return rows.filter(row => {
+        const worked = (row._positionBreakdown || []).map(item => String(item?.positionId));
+        return [...worked, ...currentPositions(row)].some(id => leaderPositions.has(id));
     });
 }
