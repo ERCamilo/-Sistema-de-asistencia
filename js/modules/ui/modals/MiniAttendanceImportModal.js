@@ -730,7 +730,7 @@ export class MiniAttendanceImportModal {
         const previous = this.conflictPlan;
         // Copia plana: un registro congelado detrás del proxy de AppState
         // rompe los invariantes del Proxy al clonarlo (ver consolidateSelectedDrafts).
-        let next = createMiniAttendanceConflictPlan(this.draft, toRaw(this.attendance));
+        let next = createMiniAttendanceConflictPlan(this.draft, toRaw(this.attendance), { positions: toRaw(this.positions) });
         if (previous?.rows?.length) {
             next.rows.forEach((row, rowIndex) => {
                 const reviewed = previous.rows.find(candidate =>

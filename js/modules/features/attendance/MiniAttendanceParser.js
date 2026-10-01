@@ -19,7 +19,8 @@ const DATE_HEADER_PATTERN =
 const UPDATE_TIME_PATTERN =
     /([*_]?)\s*(?:Última|Ultima)\s+actualización:\s*(\d{1,2}):(\d{2})\s*([ap])\.?\s*m\.?\s*\1/iu;
 const RECORD_START_PATTERN = /(?:^|\s)(\d+)\.\s+/gu;
-const RECORD_PATTERN = /^(\d+)\.\s+([\s\S]*?)\s+\*([^*]*?)h\*/iu;
+// Mini >= 2.15 appends " _Position_" (same line) for employees with more than one position.
+const RECORD_PATTERN = /^(\d+)\.\s+([\s\S]*?)\s+\*([^*]*?)h\*(?:[ \t\u00a0]+_([^_\n]+?)_)?/iu;
 
 function normalizeCapturedText(value) {
     return String(value ?? '').trim();
@@ -130,6 +131,7 @@ function parseRows(source, consumedRanges) {
         const rawNumber = normalizeCapturedText(match[1]);
         const rawName = normalizeCapturedText(match[2]);
         const rawHours = normalizeCapturedText(match[3]);
+        const rawPosition = normalizeCapturedText(match[4]);
         if (!rawName || !rawHours) {
             continue;
         }
@@ -139,7 +141,7 @@ function parseRows(source, consumedRanges) {
         const rawFragment = source.slice(start, end);
         const sourceSpan = createSourceSpan(start, end);
 
-        rows.push({
+        const row = {
             rawNumber,
             rawName,
             rawHours,
@@ -147,7 +149,10 @@ function parseRows(source, consumedRanges) {
             sourceSpan,
             rawFragment,
             errors
-        });
+        };
+        // Only present when Mini sent it, so older reports keep the same row shape.
+        if (rawPosition) row.rawPosition = rawPosition;
+        rows.push(row);
         consumedRanges.push(sourceSpan);
     }
 

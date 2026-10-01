@@ -28,6 +28,7 @@ import {
 } from './MiniAttendanceDraft.js';
 import { applyMiniAttendancePlan } from './MiniAttendanceImportService.js';
 import { entityInScope } from '../projects/ProjectContext.js';
+import { resolveMiniPositionId } from './MiniPositionMatch.js';
 
 function deepFreeze(value, seen = new WeakSet()) {
     if (value === null || typeof value !== 'object' || seen.has(value)) return value;
@@ -77,7 +78,8 @@ export function adaptResolvedDayToConflictPlan({
     attendance = {},
     decisions = new Map(),
     revision = 1,
-    draftRevision = 1
+    draftRevision = 1,
+    positions = []
 }) {
     if (!date || typeof date !== 'string') {
         throw new TypeError('Valid date string is required');
@@ -118,6 +120,11 @@ export function adaptResolvedDayToConflictPlan({
             existingOvertime === imported.overtimeHours;
 
         const userDecision = decisions.get(key);
+        // Mini >= 2.15 reports the day's position for multi-position employees.
+        const reportedPositionId = resolveMiniPositionId({
+            positionIds, positions, id: item.saPositionId || null, name: item.positionName || null
+        });
+        const defaultPositionId = reportedPositionId || (positionIds.length === 1 ? positionIds[0] : null);
 
         let decision;
         let targetPositionId = null;
@@ -129,7 +136,7 @@ export function adaptResolvedDayToConflictPlan({
                 acknowledged: userDecision.acknowledged === true,
                 defaulted: userDecision.defaulted === true
             };
-            targetPositionId = userDecision.targetPositionId || (positionIds.length === 1 ? positionIds[0] : null);
+            targetPositionId = userDecision.targetPositionId || defaultPositionId;
             positionAllocations = userDecision.positionAllocations || (targetPositionId ? [{
                 positionId: targetPositionId,
                 normalHours: imported.normalHours,
@@ -142,7 +149,7 @@ export function adaptResolvedDayToConflictPlan({
                 acknowledged: true,
                 defaulted: false
             };
-            targetPositionId = positionIds[0] || null;
+            targetPositionId = reportedPositionId || positionIds[0] || null;
             positionAllocations = targetPositionId ? [{
                 positionId: targetPositionId,
                 normalHours: imported.normalHours,
@@ -159,7 +166,7 @@ export function adaptResolvedDayToConflictPlan({
                 acknowledged: defaultKeepCurrent,
                 defaulted: defaultKeepCurrent
             };
-            targetPositionId = positionIds.length === 1 ? positionIds[0] : null;
+            targetPositionId = defaultPositionId;
             positionAllocations = targetPositionId ? [{
                 positionId: targetPositionId,
                 normalHours: imported.normalHours,
@@ -172,7 +179,7 @@ export function adaptResolvedDayToConflictPlan({
                 acknowledged: true,
                 defaulted: false
             };
-            targetPositionId = positionIds.length === 1 ? positionIds[0] : null;
+            targetPositionId = defaultPositionId;
             positionAllocations = targetPositionId ? [{
                 positionId: targetPositionId,
                 normalHours: imported.normalHours,
@@ -396,7 +403,8 @@ export class MultiDayAttendanceResolver {
             attendance: this.attendance,
             decisions: this.dayDecisions,
             revision: 1,
-            draftRevision: 1
+            draftRevision: 1,
+            positions: this.positions || []
         });
 
         const stageBBlockers = [];
