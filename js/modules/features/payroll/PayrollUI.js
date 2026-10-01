@@ -29,6 +29,8 @@ import {
     applyPayrollPreviewInclusion,
     filterPayablePayrollPreviewRows,
     filterPayrollRowsByLeader,
+    normalizeLeaderHoursScope,
+    LEADER_HOURS_SCOPES,
     getPayrollPreviewCategoryCounts,
     getPayrollPreviewInclusion
 } from './PayrollPreview.js';
@@ -205,6 +207,7 @@ const _ACTION_MAP = {
     },
     'toggle-payroll-review-detail': (key) => window.PayrollUI?.togglePayrollReviewDetail?.(key),
     'clear-payroll-leader-filter': () => window.PayrollUI?.setLeaderFilter?.('all'),
+    'set-payroll-leader-hours-scope': (scope) => window.PayrollUI?.setLeaderHoursScope?.(scope),
     'toggle-payroll-paid': (_id, target) => window.PayrollUI?.togglePayrollPaidConfirmation?.(target.checked),
     'toggle-payroll-preview-category': (category, target) => window.PayrollUI?.togglePayrollPreviewCategory?.(
         category,
@@ -603,7 +606,8 @@ function getScopedReviewRows(view = null, state = getState(), { byLeader = true,
     return filterPayrollRowsByLeader(rows, {
         leaderId: getScopedLeaderFilter(resolved, state),
         positions: state?.positions || [],
-        employees: getScopedProjectEmployees(resolved?.projectId, state)
+        employees: getScopedProjectEmployees(resolved?.projectId, state),
+        hoursScope: state?.exportConfig?.leaderHoursScope
     });
 }
 
@@ -721,6 +725,7 @@ function ScopedPayrollTab(view) {
     const leaders = getScopedPayrollLeaders(view, state);
     const leaderFilter = getScopedLeaderFilter(view, state);
     const activeLeader = leaders.find(leader => String(leader.id) === leaderFilter) || null;
+    const leaderHoursScope = normalizeLeaderHoursScope(exportConfig.leaderHoursScope);
     const previewInclusion = getPayrollPreviewInclusion(exportConfig.payrollPreviewInclusion);
     const totalAmount = rows.reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
     const grossAmount = rows.reduce((sum, row) => sum + (Number(row._brutoOriginal) || 0), 0);
@@ -895,6 +900,23 @@ function ScopedPayrollTab(view) {
                                     </label>
                                 ` : ''}
                                 ${activeLeader ? `
+                                    <div class="payroll-review-hours-scope" role="group" aria-label="Horas que se incluyen de cada empleado">
+                                        <span>Horas</span>
+                                        <button type="button"
+                                                data-payroll-action="set-payroll-leader-hours-scope"
+                                                data-value="${LEADER_HOURS_SCOPES.ALL}"
+                                                aria-pressed="${leaderHoursScope === LEADER_HOURS_SCOPES.ALL}"
+                                                title="Cada empleado del líder entra con las horas y días de todos sus puestos">
+                                            Todos sus puestos
+                                        </button>
+                                        <button type="button"
+                                                data-payroll-action="set-payroll-leader-hours-scope"
+                                                data-value="${LEADER_HOURS_SCOPES.LEADER}"
+                                                aria-pressed="${leaderHoursScope === LEADER_HOURS_SCOPES.LEADER}"
+                                                title="Solo las horas y días en puestos de ${escapeHTML(activeLeader.name || 'este líder')}; quien no trabajó en ellos queda fuera">
+                                            Solo puestos de ${escapeHTML(activeLeader.name || 'este líder')}
+                                        </button>
+                                    </div>
                                     <span class="payroll-review-filter-chip" role="status">
                                         ${rows.length} de ${allRowsCount} empleados
                                         <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder">${icons.get('close', { size: 12 })}</button>
@@ -3171,6 +3193,15 @@ export function updateExportPeriod(type, value) {
     context.render();
 }
 
+export function setLeaderHoursScope(scope) {
+    const state = getState();
+    stateManager.batchSetState(() => {
+        state.exportConfig.leaderHoursScope = normalizeLeaderHoursScope(scope);
+        state.exportConfig.payrollPaidConfirmation = null;
+    });
+    context.render();
+}
+
 export function setLeaderFilter(leaderId) {
     const state = getState();
     stateManager.batchSetState(() => {
@@ -3413,7 +3444,10 @@ export async function exportPayrollPDF() {
         if (pdfLeader) {
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(15, 23, 42);
-            doc.text(`Líder: ${pdfLeader.name || ''}`, 14, yPosition + 5);
+            const pdfHoursScope = normalizeLeaderHoursScope(state?.exportConfig?.leaderHoursScope) === LEADER_HOURS_SCOPES.LEADER
+                ? ' · solo horas en sus puestos'
+                : ' · horas de todos los puestos';
+            doc.text(`Líder: ${pdfLeader.name || ''}${pdfHoursScope}`, 14, yPosition + 5);
             doc.setFont('helvetica', 'normal');
             yPosition += 5;
         }

@@ -106,6 +106,16 @@ function detailRow({ row, source, categories, inclusion, expandedKinds, colspan 
         </tr>`;
 }
 
+/** Puestos que quedaron fuera al ver solo las horas de un líder. */
+function excludedPositionsNote(row) {
+    const excluded = row._leaderExcludedPositions || [];
+    if (excluded.length === 0) return '';
+    const text = excluded
+        .map(item => `${item.positionName} ${item.hours}h (${formatCurrency(item.subtotal)})`)
+        .join(', ');
+    return `<small class="payroll-review-table__scope-note" title="No se incluyen en esta nómina">Sin ${escapeHTML(text)}</small>`;
+}
+
 function breakdownCell(row) {
     const breakdown = row._positionBreakdown || [];
     if (breakdown.length === 0) return '<td><span class="payroll-review-table__muted">Sin desglose</span></td>';
@@ -178,6 +188,7 @@ export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion
                 <td class="payroll-review-table__employee">
                     ${escapeHTML(row._employeeName)}
                     ${negative ? '<span>Pago negativo: ajusta los descuentos</span>' : ''}
+                    ${excludedPositionsNote(row)}
                 </td>
                 <td class="payroll-review-table__amount">
                     ${row._totalHours ?? 0}h
