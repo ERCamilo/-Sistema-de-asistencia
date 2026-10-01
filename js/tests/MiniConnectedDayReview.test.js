@@ -83,6 +83,21 @@ describe('createMiniAttendanceDraftFromConsolidatedDay', () => {
         expect(draft.rows[0].allocation).toEqual({ normalHours: 0, overtimeHours: 0 });
     });
 
+    test('Mini en 0 y SA en 0 (registro de ausencia) no entra a revisión', () => {
+        const attendance = {
+            [`EMP-001-${date}`]: { employeeId: 'EMP-001', date, present: false, hoursWorked: 0, overtimeHours: 0 },
+            [`EMP-002-${date}`]: { employeeId: 'EMP-002', date, present: true, hoursWorked: 0, overtimeHours: 2 }
+        };
+        const draft = createMiniAttendanceDraftFromConsolidatedDay({
+            date, employees, attendance, items: [
+                item('a', 'EMP-001', date, 0, 0, { sourceStatus: 'absent' }),
+                item('b', 'EMP-002', date, 0, 0, { sourceStatus: 'unmarked' })
+            ]
+        });
+        // EMP-001: 0 contra 0 se resuelve solo; EMP-002: SA tiene 2h extra, se revisa.
+        expect(draft.rows.map(row => row.match.employeeId)).toEqual(['EMP-002']);
+    });
+
     test('an inactive or missing employee is never dropped: it asks for a decision', () => {
         const draft = createMiniAttendanceDraftFromConsolidatedDay({
             date, employees, items: [item('a', 'EMP-009', date, 8), item('b', 'EMP-404', date, 8)]
