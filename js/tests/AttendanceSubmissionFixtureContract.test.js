@@ -164,7 +164,11 @@ describe('attendance-submission/v1 fixture — frozen F3.4 contract', () => {
                 'overtimeHours',
                 'status',
                 'rosterStatus',
-                'saEmployeeId'
+                'saEmployeeId',
+                // Optional, additive (Mini >= 2.15): day position of employees with
+                // more than one position. Older Minis never send them.
+                'positionName',
+                'saPositionId'
             ].sort()
         );
     });

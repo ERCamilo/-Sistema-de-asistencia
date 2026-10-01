@@ -49,9 +49,14 @@ export const SA_MINI_ROSTER_ROW_KEYS = Object.freeze([
     'number',
     'name',
     'position',
+    // Mini >= 2.15: up to 3 positions [{ id, name }], principal first. Only sent
+    // for employees with more than one, so rows of other employees stay as before.
+    'positions',
     'sueldo',
     'paused'
 ]);
+
+const MAX_MINI_POSITIONS = 3;
 
 const REQUIRED_ROW_KEYS = Object.freeze(['saEmployeeId', 'number', 'name']);
 
@@ -157,6 +162,20 @@ export function selectSaMiniRosterEmployees(employees, scope) {
     return (employees || [])
         .filter(emp => !!emp && !emp.deletedAt)
         .filter(emp => entityInScope(emp, scope) && effectiveProjectId(emp, scope) === saProjectId);
+}
+
+// Positions of the employee inside the exported project, in order (max 3).
+function findMiniPositions(employee, scopedPositions) {
+    const ids = Array.isArray(employee.positions) ? employee.positions : [];
+    const out = [];
+    for (const id of ids) {
+        const pos = (scopedPositions || []).find(p => p && p.id === id);
+        const name = pos && typeof pos.name === 'string' ? pos.name.trim() : '';
+        if (!name || out.some(item => item.id === id)) continue;
+        out.push({ id, name });
+        if (out.length === MAX_MINI_POSITIONS) break;
+    }
+    return out;
 }
 
 function findPositionName(employee, positions) {
@@ -376,6 +395,8 @@ export function buildSaMiniRosterPayload({
 
         const position = findPositionName(employee, scopedPositions);
         if (position) row.position = position;
+        const miniPositions = findMiniPositions(employee, scopedPositions);
+        if (miniPositions.length > 1) row.positions = miniPositions;
 
         if (withSalary) {
             const sueldo = deriveSueldoViaLegacy(employee, scopedPositions, settings);

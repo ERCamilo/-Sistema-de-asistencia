@@ -173,7 +173,9 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
                 status: row.status || 'present',
                 rosterStatus: row.rosterStatus || null,
                 missingRoster: false,
-                saEmployeeId: normalizedSaId
+                saEmployeeId: normalizedSaId,
+                ...(row.positionName ? { positionName: row.positionName } : {}),
+                ...(row.saPositionId ? { saPositionId: row.saPositionId } : {})
             };
 
             if (!hasSaId) {
@@ -257,6 +259,17 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
         const autoResolvedZero = allZero && conflictReasons.length > 0;
         if (autoResolvedZero) conflictReasons.length = 0;
 
+        // Day position reported by Mini (multi-position employees): only when every
+        // source that reported one agrees; otherwise SA asks, as before.
+        const reportedPositions = new Map();
+        for (const source of sources) {
+            if (source.missingRoster || !source.positionName) continue;
+            reportedPositions.set(`${source.saPositionId || ''}|${source.positionName}`, source);
+        }
+        const dayPosition = reportedPositions.size === 1
+            ? (({ positionName, saPositionId }) => ({ positionName, ...(saPositionId ? { saPositionId } : {}) }))([...reportedPositions.values()][0])
+            : {};
+
         if (conflictReasons.length === 0) {
             const normalHours = Number(firstReal?.normalHours || 0);
             const overtimeHours = Number(firstReal?.overtimeHours || 0);
@@ -277,6 +290,7 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
                 rosterStatus: firstReal?.rosterStatus || null,
                 sources,
                 blockers: [],
+                ...dayPosition,
                 ...(autoResolvedZero ? { autoResolved: 'all_zero_hours' } : {})
             });
         } else {

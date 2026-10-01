@@ -1,3 +1,5 @@
+import { resolveMiniPositionId } from './MiniPositionMatch.js';
+
 const ALLOCATION_MODES = new Set(['all_normal', 'split_at_regular_limit']);
 const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
 function normalizeName(value) {
@@ -503,7 +505,9 @@ export function createMiniAttendanceDraftFromConsolidatedDay({
             totalHours,
             sourceSpan: null,
             rawFragment: '',
-            errors: []
+            errors: [],
+            ...(item.positionName ? { rawPosition: item.positionName } : {}),
+            ...(item.saPositionId ? { saPositionId: item.saPositionId } : {})
         };
         rows.push({
             sourceRow,
@@ -784,7 +788,7 @@ function groupDraftRows(draft) {
     return [...groups.values()];
 }
 
-export function createMiniAttendanceConflictPlan(draft, attendance = {}) {
+export function createMiniAttendanceConflictPlan(draft, attendance = {}, { positions = [] } = {}) {
     const rows = groupDraftRows(draft).map(group => {
         const representative = group[0].row;
         const employeeId = representative.match.employeeId || representative.inactiveEmployeeId || null;
@@ -808,8 +812,16 @@ export function createMiniAttendanceConflictPlan(draft, attendance = {}) {
             draftBlockers.push('conflicting_duplicate');
         }
         const imported = { ...representative.allocation };
-        const positionAllocations = positionIds.length === 1 ? [{
-            positionId: positionIds[0],
+        // Mini >= 2.15: day position from WhatsApp " _Position_" or P2P rows.
+        const reportedPositionId = resolveMiniPositionId({
+            positionIds,
+            positions,
+            id: representative.sourceRow?.saPositionId || null,
+            name: representative.sourceRow?.rawPosition || null
+        });
+        const defaultPositionId = reportedPositionId || (positionIds.length === 1 ? positionIds[0] : null);
+        const positionAllocations = defaultPositionId ? [{
+            positionId: defaultPositionId,
             normalHours: imported.normalHours,
             overtimeHours: imported.overtimeHours
         }] : [];
@@ -828,7 +840,7 @@ export function createMiniAttendanceConflictPlan(draft, attendance = {}) {
             decision: existing
                 ? { action: 'keep_existing', acknowledged: false }
                 : { action: 'use_imported', acknowledged: true },
-            targetPositionId: positionIds.length === 1 ? positionIds[0] : null,
+            targetPositionId: defaultPositionId,
             employeePositionIds: positionIds,
             positionAllocations,
             sources: representative.sources || group.flatMap(item => item.row.sources || [])

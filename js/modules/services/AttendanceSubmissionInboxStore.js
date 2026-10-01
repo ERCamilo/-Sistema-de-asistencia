@@ -61,7 +61,10 @@ export const ATTENDANCE_SUBMISSION_ROW_KEYS = Object.freeze([
     'overtimeHours',
     'status',
     'rosterStatus',
-    'saEmployeeId'
+    'saEmployeeId',
+    // Mini >= 2.15: day position of employees with more than one position.
+    'positionName',
+    'saPositionId'
 ]);
 
 export const ATTENDANCE_SUBMISSION_SCOPE_KEYS = Object.freeze([
@@ -250,6 +253,16 @@ function validateRow(row, index) {
     }
     if ('saEmployeeId' in row) {
         safe.saEmployeeId = saId(row.saEmployeeId, `rows[${index}].saEmployeeId`);
+    }
+    if ('positionName' in row) {
+        if (typeof row.positionName !== 'string' || !row.positionName.trim() || row.positionName.trim().length > 80) {
+            throw new TypeError(`rows[${index}].positionName must be a non-empty string of at most 80 characters`);
+        }
+        safe.positionName = row.positionName.trim();
+    }
+    if ('saPositionId' in row) {
+        if (!safe.positionName) throw new TypeError(`rows[${index}].saPositionId requires positionName`);
+        safe.saPositionId = saId(row.saPositionId, `rows[${index}].saPositionId`);
     }
     return safe;
 }
