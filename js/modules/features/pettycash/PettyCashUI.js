@@ -90,7 +90,8 @@ import {
     getOfficialProjectId,
     resolveBirthOfficialId
 } from './PettyCashOfficialLink.js';
-import { projectContext } from '../projects/ProjectContext.js';
+import { projectContext, peekEntityScope } from '../projects/ProjectContext.js';
+import { filterCajasByObra, pickCajaForObra, cajaObraRelation } from './PettyCashObraFilter.js';
 import { defaultProjectService } from '../projects/DefaultProject.js';
 
 const SEL_KEY = '_pettycash_sel_v1'; // solo la selección de UI (los datos van a IndexedDB)
@@ -759,12 +760,38 @@ export async function drainPendingReceiptDeletes() {
 }
 
 // ══ render ═════════════════════════════════════════════════════════════
+/** Obra activa y obras conocidas, solo con Projects ON. */
+function _obraScope() {
+    if (!isProjectsEnabled()) return { obraId: null, knownObraIds: [], obras: [] };
+    const scope = peekEntityScope();
+    const snapshot = getProjectReconciliationSnapshot();
+    const obras = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
+    return {
+        obraId: scope?.enabled && scope?.projectId ? scope.projectId : null,
+        knownObraIds: obras.map(obra => obra.id),
+        obras
+    };
+}
+
 export function PettyCashTab() {
     const d = pc();
+    const obra = _obraScope();
+    // Al cambiar de obra (o al abrir), la caja seleccionada pasa a una de la
+    // obra activa si la que estaba es de otra obra.
+    if (d.lastObraId !== obra.obraId) {
+        d.lastObraId = obra.obraId;
+        const next = pickCajaForObra(d.projects, d.selectedProjectId, obra);
+        if (next !== d.selectedProjectId) {
+            d.selectedProjectId = next;
+            d.selectedPeriodId = null;
+            d.movementSearchQuery = '';
+            persist();
+        }
+    }
     // Auto-seleccionar el primer proyecto/periodo si no hay nada seleccionado
     // (en un dispositivo nuevo selectedProjectId viene null aunque haya datos).
     if (!d.selectedProjectId && d.projects.length) {
-        d.selectedProjectId = d.projects[0].id;
+        d.selectedProjectId = pickCajaForObra(d.projects, null, obra);
     }
     if (d.selectedProjectId && !d.selectedPeriodId) {
         const pers = periodsOfProject(d.periods, d.selectedProjectId);
@@ -779,9 +806,9 @@ export function PettyCashTab() {
             </h2>
         </div>
         ${_receiptQueueBanner(d)}
-        ${_projectBar(d)}
+        ${_projectBar(d, obra)}
         ${_officialLinkDiagnostic(d, proj)}
-        ${proj ? _projectBody(proj) : _emptyProjects()}
+        ${proj ? _projectBody(proj) : _emptyProjects(obra)}
     </div>`;
 }
 
@@ -873,10 +900,26 @@ function _receiptSourcePickerModal(open) {
     </div>`;
 }
 
-function _projectBar(d) {
-    const options = d.projects.map(p =>
-        `<option value="${p.id}" ${p.id === d.selectedProjectId ? 'selected' : ''}>${esc(p.name)}</option>`
+function _projectBar(d, obra = { obraId: null, knownObraIds: [], obras: [] }) {
+    const view = filterCajasByObra(d.projects, { ...obra, showAll: !!d.showAllObras, selectedId: d.selectedProjectId });
+    const obraName = id => obra.obras.find(item => item.id === id)?.name || 'otra obra';
+    const suffix = p => {
+        if (!view.scoped) return '';
+        const relation = cajaObraRelation(p, obra.obraId, obra.knownObraIds);
+        if (relation === 'orphan') return ' (sin obra)';
+        return relation === 'other' ? ` (${obraName(getOfficialProjectId(p))})` : '';
+    };
+    const options = view.visible.map(p =>
+        `<option value="${p.id}" ${p.id === d.selectedProjectId ? 'selected' : ''}>${esc(p.name + suffix(p))}</option>`
     ).join('');
+    const scopeLink = view.scoped && view.hiddenCount > 0
+        ? `<button type="button" data-app-fn="pcToggleAllObras" data-petty-obra-filter
+            style="flex-basis:100%;background:none;border:0;padding:0;color:#38bdf8;font-size:.8rem;text-align:left;cursor:pointer;">
+            ${d.showAllObras
+                ? `Ver solo las cajas de ${esc(obraName(obra.obraId))}`
+                : `Ver cajas de todas las obras (${view.hiddenCount} más)`}
+        </button>`
+        : '';
     return `
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px;">
         <select onchange="window.pcSelectProject(this.value)"
@@ -891,6 +934,7 @@ function _projectBar(d) {
             style="background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:8px;padding:9px 12px;cursor:pointer;">🗑️</button>` : ''}
         <button type="button" data-app-fn="pcNewProject"
             style="background:#0ea5e9;color:#fff;border:none;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;">+ Proyecto</button>
+        ${scopeLink}
     </div>`;
 }
 
@@ -919,10 +963,11 @@ function _officialLinkDiagnostic(d, proj) {
         + '<button type="button" class="btn-secondary" data-app-fn="openProjectReconciliation">Asignar obra</button></div>';
 }
 
-function _emptyProjects() {
+function _emptyProjects(obra = {}) {
+    const elsewhere = obra.obraId && pc().projects.length > 0;
     return `<div style="text-align:center;padding:48px 20px;color:#64748b;">
         <div style="font-size:3rem;opacity:.4;">🏗️</div>
-        <p>Crea tu primer proyecto/obra para empezar.</p>
+        <p>${elsewhere ? 'Esta obra todavía no tiene caja chica. Crea una con «+ Proyecto».' : 'Crea tu primer proyecto/obra para empezar.'}</p>
     </div>`;
 }
 
@@ -1470,6 +1515,12 @@ export function registerPettyCashGlobals() {
         d.selectedPeriodId = null;
         d.movementSearchQuery = '';
         persist(); saveProject(p, 'Proyecto creado'); window.render?.();
+    };
+
+    window.pcToggleAllObras = () => {
+        const d = pc();
+        d.showAllObras = !d.showAllObras;
+        window.render?.();
     };
 
     window.pcSelectProject = (id) => {
