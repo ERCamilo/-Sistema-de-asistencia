@@ -57,6 +57,7 @@ import {
     resolveLoanPaymentDraft,
     PAYMENT_PLAN_MODE
 } from './LoanPaymentPlan.js';
+import { renderLoanTimelineCard } from './LoanTimelineCard.js';
 
 // Tres fechas por tarjeta: último préstamo/refinanciamiento, último pago y
 // última actualización. La del orden activo se resalta.
@@ -231,6 +232,12 @@ function LedgerOverview() {
                         </div>
                     </div>
                 ` : ''}
+
+                <!-- Línea de tiempo histórica y evolución de deuda de la obra -->
+                ${renderLoanTimelineCard(scopedState.employees, {
+                    selectedDate: ledger.overviewTimelineDate,
+                    showChart: ledger.overviewTimelineChart
+                })}
 
                 <!-- Toolbar de Vistas, Búsqueda, Filtros y Orden -->
                 <div class="loans-toolbar-card" style="background: #1e293b; border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 12px;">
@@ -954,6 +961,12 @@ function EmployeeLoansDetail(empId) {
                     ` : ''}
                 </div>
             ` : ''}
+
+            <!-- Línea de tiempo histórica y evolución de deuda del empleado -->
+            ${renderLoanTimelineCard(emp, {
+                selectedDate: ledger.timelineSelectedDate,
+                showChart: ledger.timelineShowChart
+            })}
 
             <!-- Active loans -->
             ${active.length > 0 ? `

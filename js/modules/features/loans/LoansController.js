@@ -79,7 +79,11 @@ function ensureLedgerState() {
                 amountFilter: 'all',
                 dateFilter: 'all',
                 showFilterMenu: false,
-                displayMode: 'grouped'
+                displayMode: 'grouped',
+                timelineSelectedDate: null,
+                timelineShowChart: false,
+                overviewTimelineDate: null,
+                overviewTimelineChart: false
             };
         } else {
             // Backfill new fields on pre-existing ledger objects (older sessions)
@@ -127,6 +131,18 @@ function ensureLedgerState() {
             }
             if (typeof state.loansLedger.showSettingsModal === 'undefined') {
                 state.loansLedger.showSettingsModal = false;
+            }
+            if (typeof state.loansLedger.timelineSelectedDate === 'undefined') {
+                state.loansLedger.timelineSelectedDate = null;
+            }
+            if (typeof state.loansLedger.timelineShowChart === 'undefined') {
+                state.loansLedger.timelineShowChart = false;
+            }
+            if (typeof state.loansLedger.overviewTimelineDate === 'undefined') {
+                state.loansLedger.overviewTimelineDate = null;
+            }
+            if (typeof state.loansLedger.overviewTimelineChart === 'undefined') {
+                state.loansLedger.overviewTimelineChart = false;
             }
         }
     });
@@ -208,6 +224,8 @@ export function selectLoansEmployee(employeeId) {
         state.loansLedger.selectedEmployeeId = employeeId;
         state.loansLedger.showAddForm = false;
         state.loansLedger.showPaymentFormForLoan = null;
+        state.loansLedger.timelineSelectedDate = null;
+        state.loansLedger.timelineShowChart = false;
     });
 }
 
@@ -1186,6 +1204,43 @@ export function resetLoansKpiCards() {
 }
 
 /**
+ * Historical Loan Timeline Handlers
+ */
+export function loanTimelineNav(targetDate) {
+    ensureLedgerState();
+    if (!targetDate) return;
+    stateManager.batchSetState(() => {
+        if (state.loansLedger.selectedEmployeeId) {
+            state.loansLedger.timelineSelectedDate = targetDate;
+        } else {
+            state.loansLedger.overviewTimelineDate = targetDate;
+        }
+    });
+    render();
+}
+
+export function loanTimelineToggleChart() {
+    ensureLedgerState();
+    stateManager.batchSetState(() => {
+        if (state.loansLedger.selectedEmployeeId) {
+            state.loansLedger.timelineShowChart = !state.loansLedger.timelineShowChart;
+        } else {
+            state.loansLedger.overviewTimelineChart = !state.loansLedger.overviewTimelineChart;
+        }
+    });
+    render();
+}
+
+export function showLoanTimelineHelp() {
+    if (typeof window !== 'undefined' && window.showNotification) {
+        window.showNotification(
+            'Línea de tiempo histórica: Los pagos amortizan 100% del interés pendiente antes de abonar a capital. Los refinanciamientos recapitalizan el interés impago.',
+            'info'
+        );
+    }
+}
+
+/**
  * Register handlers on window.* for the data-app-fn dispatcher used by the
  * Ledger UI. Called once at app boot from app.js.
  */
@@ -1240,6 +1295,10 @@ export function registerLegacyGlobals() {
     window.toggleLoansKpiCard = toggleLoansKpiCard;
     window.moveLoansKpiCard = moveLoansKpiCard;
     window.resetLoansKpiCards = resetLoansKpiCards;
+    // Historical Loan Timeline handlers
+    window.loanTimelineNav = loanTimelineNav;
+    window.loanTimelineToggleChart = loanTimelineToggleChart;
+    window.showLoanTimelineHelp = showLoanTimelineHelp;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;
