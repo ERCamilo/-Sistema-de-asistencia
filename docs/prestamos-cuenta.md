@@ -57,3 +57,21 @@ En la sincronización entre dispositivos, `loan.edits[]` y `emp.loanAgreements[]
 - 17 abonos están ligados a los 2 cierres vigentes.
 - 132 de 149 abonos no tienen origen; se muestran como «directo» hasta la fase D.
 - Ningún préstamo abierto tiene nómina de cobro guardada; se completa en la fase D.
+
+## Fase B (ficha del empleado)
+
+`LoanAccountView.js` dibuja la ficha nueva y `LoanAccountController.js` maneja sus acciones (`window.la*`). Los estilos están en `css/loan-account.css` y los periodos de nómina en `LoanPayPeriods.js`, que los calcula desde `payPeriod` de la configuración de Nómina.
+
+- **Tarjeta principal:**
+  - lo que debe en total, con la barra de lo pagado (interés y capital) y lo pendiente;
+  - la próxima nómina: el acuerdo, si hay uno, o lo que vence;
+  - lo que gana por periodo y el último abono.
+- **Botones:** Abonar, Refinanciar, + Préstamo y Acuerdo.
+- **Pestaña «Préstamos»:** los préstamos numerados, que se abren para ver su detalle y sus acciones (Pagar #n, Refinanciar #n, Editar y Anular préstamo).
+- **Pestaña «Movimientos de la cuenta»:** cada movimiento con su origen y el candado 🔒 si está en un cierre de nómina, más la ✕ para anular, ajustar o corregir el cierre.
+- **Nómina por defecto en las ventanas:**
+  - al abonar y al refinanciar, la última nómina ya pagada;
+  - al crear un préstamo y en el acuerdo, la próxima.
+- Las nóminas que ya tienen un cierre aparecen como «cerrada» y no se pueden elegir.
+- **«Vista anterior»** vuelve a la ficha de antes, solo en ese dispositivo (`localStorage` `loans-account-view = classic`). Las pruebas de la ficha anterior la fijan así.
+- **Consolidar** solo queda en la vista anterior; se quita en la fase C.

@@ -390,6 +390,7 @@ export function recordPayment(emp, loanId, params, options = {}) {
     // Cuenta de préstamos: de dónde vino el abono y cómo se repartió al registrarlo.
     if (params.origin) payment.origin = String(params.origin);
     if (params.accountTxId) payment.accountTxId = String(params.accountTxId);
+    if (params.channel) payment.channel = String(params.channel); // nómina, efectivo o transferencia
     if (params.allocation && typeof params.allocation === 'object') {
         payment.allocation = {
             interest: round2(params.allocation.interest || 0),

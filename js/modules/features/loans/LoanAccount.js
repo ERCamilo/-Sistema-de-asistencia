@@ -281,7 +281,7 @@ function paymentParams(params, part, txId, origin) {
         accountTxId: txId,
         allocation: { interest: part.interest, capital: part.capital }
     };
-    for (const field of ['recordedAt', 'source', 'payrollPeriodStart', 'payrollPeriodEnd', 'payrollClosureId']) {
+    for (const field of ['recordedAt', 'source', 'channel', 'payrollPeriodStart', 'payrollPeriodEnd', 'payrollClosureId']) {
         if (params[field] != null) out[field] = params[field];
     }
     return out;
