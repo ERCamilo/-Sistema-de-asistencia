@@ -26,6 +26,7 @@ import {
 import { buildPayPeriods, nextPayPeriod, followingPayPeriod } from './LoanPayPeriods.js';
 import { renderLoanHistoryPanel, isLoanHistoryOpen } from './LoanHistoryPanel.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
+import { findConsolidations, previewUndoConsolidation, CONSOLIDATION_REASON } from './LoanConsolidationUndo.js';
 
 const M = (value, decimals = 2) => {
     const n = Number(value || 0);
@@ -38,7 +39,8 @@ export const REFINANCE_REASON_LABEL = Object.freeze({
     [REFINANCE_REASON.PAYROLL_SHORT]: 'No le alcanzó la nómina',
     [REFINANCE_REASON.NOT_WORKED]: 'No trabajó el periodo',
     [REFINANCE_REASON.AGREEMENT]: 'Acuerdo con el empleado',
-    [REFINANCE_REASON.OTHER]: 'Otro motivo'
+    [REFINANCE_REASON.OTHER]: 'Otro motivo',
+    [CONSOLIDATION_REASON]: 'Consolidación deshecha'
 });
 export const CLOSE_REASON_LABEL = Object.freeze({
     [CLOSE_REASON.ERROR]: 'Error de registro',
@@ -111,6 +113,7 @@ function originPill(origin) {
     if (origin === MOVEMENT_ORIGIN.ACCOUNT) return '<span class="la-pill la-pill--acc">desde la cuenta</span>';
     if (origin === MOVEMENT_ORIGIN.PAYROLL) return '<span class="la-pill la-pill--pay">nómina</span>';
     if (origin === MOVEMENT_ORIGIN.ADJUSTMENT) return '<span class="la-pill la-pill--warn">ajuste</span>';
+    if (origin === 'conversion') return '<span class="la-pill la-pill--refi" title="Venía de una consolidación que se deshizo">conversión</span>';
     return '<span class="la-pill">directo</span>';
 }
 
@@ -143,6 +146,8 @@ export function LoanAccountDetail(emp) {
     const historyDays = new Set(replayAllDates(emp)).size;
     const historyOpen = isLoanHistoryOpen(historyScope);
     const duplicates = renderLoanDuplicateReview({ scope: historyScope, employees: [emp], embedded: true });
+    const consolidations = findConsolidations(emp);
+    const numbersAll = getLoanNumbers(emp.loans || []);
 
     return `
     <div class="la" data-employee="${escapeAttr(emp.id)}">
@@ -169,6 +174,7 @@ export function LoanAccountDetail(emp) {
             </div>
             ${historyOpen ? `<div class="la-hub__history">${renderLoanHistoryPanel({ scope: historyScope, mode: 'employee', employees: [emp], embedded: true })}</div>` : ''}
             ${duplicates ? `<div class="la-hub__dup">${duplicates}</div>` : ''}
+            ${consolidations.map(c => `<div class="la-hub__cons"><span>🔗 <b>Consolidación por deshacer:</b> el préstamo #${numbersAll.get(c.loan.id)} reúne ${c.sources.map(s => '#' + numbersAll.get(s.id)).join(', ')}. Se vuelven préstamos separados.</span><button type="button" class="la-btn la-btn--sm la-btn--refi" data-app-fn="laOpen" data-arg="unconsolidate" data-arg2="${escapeAttr(c.loan.id)}">Revisar y deshacer</button></div>`).join('')}
         </section>
 
         <div class="la-actions">
@@ -222,7 +228,9 @@ function LoanRow(emp, loan, numbers, payDates, today, isOpen) {
         lock ? '<span class="la-pill" title="Tiene movimientos en un cierre de nómina">🔒 con cierre</span>' : '',
         refis.length ? '<span class="la-pill la-pill--refi">Refinanciado</span>' : '',
         terms.installmentMode === INSTALLMENT_MODE.INSTALLMENTS ? `<span class="la-pill">${(terms.installments || []).length} cuotas</span>` : '',
-        loan.closure ? `<span class="la-pill ${loan.closure.reason === CLOSE_REASON.ERROR ? 'la-pill--bad' : 'la-pill--int'}">${escapeHTML(CLOSE_REASON_LABEL[loan.closure.reason] || '')}</span>`
+        loan.consolidationUndone ? '<span class="la-pill la-pill--refi">Consolidación deshecha</span>'
+            : loan.consolidatedIntoLoanId ? `<span class="la-pill la-pill--refi">Consolidado en #${numbers.get(loan.consolidatedIntoLoanId) ?? '?'}</span>`
+            : loan.closure ? `<span class="la-pill ${loan.closure.reason === CLOSE_REASON.ERROR ? 'la-pill--bad' : 'la-pill--int'}">${escapeHTML(CLOSE_REASON_LABEL[loan.closure.reason] || '')}</span>`
             : loan.status === LOAN_STATUS.PAID ? '<span class="la-pill la-pill--pay">Saldado</span>'
             : loan.status === LOAN_STATUS.WRITTEN_OFF ? '<span class="la-pill la-pill--bad">Anulado</span>' : ''
     ].join('');
@@ -256,6 +264,8 @@ function LoanRow(emp, loan, numbers, payDates, today, isOpen) {
                 <button type="button" class="la-btn la-btn--refi" data-app-fn="laOpen" data-arg="refi" data-arg2="${escapeAttr(loan.id)}">Refinanciar #${n}</button>
                 <button type="button" class="la-btn la-btn--edit" data-app-fn="laOpen" data-arg="edit" data-arg2="${escapeAttr(loan.id)}">Editar</button>
                 <button type="button" class="la-btn la-btn--danger" data-app-fn="laOpen" data-arg="close" data-arg2="${escapeAttr(loan.id)}">Anular préstamo</button>
+            </div>` : loan.consolidationUndone ? `<div class="la-loan-acts">
+                <button type="button" class="la-btn" data-app-fn="laRestoreConsolidation" data-arg="${escapeAttr(loan.id)}" title="Deja los préstamos como estaban antes de deshacer">Volver a consolidar</button>
             </div>` : loan.status === LOAN_STATUS.WRITTEN_OFF && !loan.closure ? `<div class="la-loan-acts">
                 <button type="button" class="la-btn" data-app-fn="reopenLoanHandler" data-arg="${escapeAttr(loan.id)}">Reactivar</button>
                 <button type="button" class="la-btn la-btn--danger" data-app-fn="deleteLoanWithConfirm" data-arg="${escapeAttr(loan.id)}">Eliminar</button>
@@ -408,7 +418,8 @@ function AccountModal(emp, modal, ctx) {
         : modal.type === 'loan' ? NewLoanModal(emp, modal, ctx)
         : modal.type === 'edit' ? EditModal(emp, modal, ctx)
         : modal.type === 'close' ? CloseModal(emp, modal)
-        : modal.type === 'agree' ? AgreeModal(emp, modal, ctx) : '';
+        : modal.type === 'agree' ? AgreeModal(emp, modal, ctx)
+        : modal.type === 'unconsolidate' ? UnconsolidateModal(emp, modal) : '';
     return `<div class="la-ov" data-app-close-on-self="laClose"><div class="la-md" role="dialog" aria-modal="true">${body}</div></div>`;
 }
 
@@ -562,6 +573,23 @@ function CloseModal(emp, m) {
         <p class="la-hint">Se puede deshacer desde los movimientos con la ✕.</p>
     </div>
     ${footer(m.reason === CLOSE_REASON.ERROR ? `Sale de la cuenta: <b>${M(pending.balance)}</b>` : m.reason ? `La cuenta baja <b>${M(pending.balance)}</b>` : 'Saldo ' + M(pending.balance), m.reason === CLOSE_REASON.ERROR ? 'Anular préstamo' : m.reason === CLOSE_REASON.FORGIVEN ? `Perdonar ${M(pending.balance)}` : m.reason ? 'Cerrar préstamo' : 'Elige un motivo', 'danger', ok)}`;
+}
+
+function UnconsolidateModal(emp, m) {
+    let pv;
+    try { pv = previewUndoConsolidation(emp, m.loanId); } catch (error) { return head('refi', 'Deshacer consolidación', '') + `<div class="la-md__b"><div class="la-warnbox">${escapeHTML(error.message)}</div></div>` + footer('', 'Deshacer', 'refi', false); }
+    return `${head('refi', `Deshacer la consolidación #${pv.consolidatedNumber}`, 'los préstamos vuelven a ser separados')}
+    <div class="la-md__b">
+        <p class="la-line">El préstamo #${pv.consolidatedNumber} juntó ${pv.sources.length} préstamos como si fueran uno nuevo: su interés pasó a ser capital y los de origen quedaron «saldados» aunque debían. Al deshacerlo:</p>
+        <div class="la-tbl"><table><thead><tr><th>Préstamo</th><th>Capital</th><th>Interés pend.</th><th>Capital pend.</th><th>Queda</th></tr></thead><tbody>
+            ${pv.sources.map(s => `<tr><td><b>#${s.number}</b> ${dmy(s.startDate)}</td><td>${M(s.principal, 0)}</td><td class="la-t-int">${M(s.interest, 0)}</td><td class="la-t-cap">${M(s.capital, 0)}</td><td>${s.balance <= 0.004 ? '<span class="la-pill la-pill--pay">Saldado</span>' : `<b>${M(s.balance)}</b>`}</td></tr>`).join('')}
+        </tbody></table></div>
+        <div class="la-line">· Abonos del #${pv.consolidatedNumber} que se reparten (interés de todos, luego capital del más viejo): <b>${M(pv.movedPayments)}</b></div>
+        <div class="la-line">· Interés de la consolidación y sus refinanciamientos, repartido según lo que debía cada uno: <b class="la-t-refi">${M(pv.movedInterest)}</b></div>
+        <div class="la-line">· Lo que debe en total no cambia: <b>${M(pv.before)}</b> → <b>${M(pv.after)}</b></div>
+        <p class="la-hint">Si algún abono se cobró en una nómina con cierre, el total de esa nómina no cambia: solo a qué préstamo se aplicó. Queda como «conversión» y se puede revertir con «Volver a consolidar».</p>
+    </div>
+    ${footer(`El #${pv.consolidatedNumber} queda anulado como «consolidación deshecha»`, 'Deshacer consolidación', 'refi', true)}`;
 }
 
 function AgreeModal(emp, m, { periods, today, summary, salary, agreement }) {

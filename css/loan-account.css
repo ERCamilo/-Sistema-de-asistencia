@@ -222,3 +222,6 @@
 .lf-r.is-tot { border-top: 1px solid #334155; margin-top: 4px; padding-top: 5px; }
 .lf-r.is-tot span, .lf-r.is-tot b { font-weight: 800; color: #f1f5f9; }
 .lf-note { margin: 4px 0; font-size: .74rem; color: #94a3b8; }
+
+.la-hub__cons { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid rgba(168, 85, 247, .45); background: rgba(168, 85, 247, .08); font-size: .8rem; color: var(--la-dim); }
+.la-hub__cons b { color: #d8b4fe; }

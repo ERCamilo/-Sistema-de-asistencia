@@ -25,6 +25,7 @@ import {
     saveLoanAgreement, cancelLoanAgreement, getActiveLoanAgreement, suggestedAgreementMinimum
 } from './LoanAccount.js';
 import { getAccountPayPeriods, closedPeriodEnds } from './LoanAccountView.js';
+import { undoConsolidation, restoreConsolidation } from './LoanConsolidationUndo.js';
 import { nextPayPeriod, followingPayPeriod } from './LoanPayPeriods.js';
 
 const CLASSIC_KEY = 'loans-account-view';
@@ -137,6 +138,8 @@ export function laOpen(type, loanId = null) {
         modal = { type, loanId: loan.id, amount: loan.principal, rate: loan.interestRate, date: loan.startDate, dueDate: loan.dueDate || getLoanDueDate(loan) || '', concept: loan.concept || '', reason: '' };
     } else if (type === 'close' && loan) {
         modal = { type, loanId: loan.id, reason: '', note: '' };
+    } else if (type === 'unconsolidate' && loan) {
+        modal = { type, loanId: loan.id };
     } else if (type === 'agree') {
         const future = periods.filter(p => p.payDate >= today);
         modal = agreement
@@ -236,6 +239,9 @@ export function laSave() {
         act(emp => editLoan(emp, m.loanId, changes, options({ reason: m.reason })), r => `Préstamo corregido: saldo ${r.balanceBefore.toFixed(2)} → ${r.balanceAfter.toFixed(2)}`);
     } else if (m.type === 'close') {
         act(emp => closeLoanWithReason(emp, m.loanId, { reason: m.reason, note: m.note, by: options().by }, options()), 'Préstamo cerrado');
+    } else if (m.type === 'unconsolidate') {
+        act(emp => undoConsolidation(emp, m.loanId, { by: options().by }),
+            r => `Consolidación deshecha: ${r.sources.length} préstamos separados; se repartieron ${r.movedPayments.toFixed(2)} en abonos`, view => { view.modal = null; view.tab = 'loans'; });
     } else if (m.type === 'agree') {
         act(emp => saveLoanAgreement(emp, {
             amount: money(m.amount), startPayDate: m.startPayDate, interestMode: m.interestMode, rate: money(m.rate),
@@ -285,6 +291,10 @@ export function laFix(key) {
         r => `Cierre corregido: saldo ${Number(r.before).toFixed(2)} → ${Number(r.after).toFixed(2)}`);
 }
 
+export function laRestoreConsolidation(loanId) {
+    return act(emp => restoreConsolidation(emp, loanId, { by: options().by }), 'La consolidación volvió a quedar como antes');
+}
+
 export function laUndoClosure(loanId) { return act(emp => undoLoanClosure(emp, loanId, options()), 'Cierre deshecho'); }
 export function laCancelAgreement(id) { return act(emp => cancelLoanAgreement(emp, id, options()), 'Acuerdo cancelado'); }
 
@@ -293,7 +303,7 @@ export function registerLoanAccountGlobals() {
     Object.assign(window, {
         laUseClassicView, laSetTab, laToggleLoan, laToggleShowVoid, laAsk, laCancelAsk, laFixWhy, laClose,
         laOpen, laField, laFieldQuiet, laToggleSel, laCopySummary, laSave, laVoid, laAdjust, laFix,
-        laUndoClosure, laCancelAgreement
+        laUndoClosure, laCancelAgreement, laRestoreConsolidation
     });
 }
 

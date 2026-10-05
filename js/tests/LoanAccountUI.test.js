@@ -1,10 +1,10 @@
 import { state } from '../modules/core/AppState.js';
-import { createLoan, recordPayment, refinanceLoan } from '../modules/features/loans/LoansService.js';
+import { createLoan, recordPayment, refinanceLoan, consolidateLoans } from '../modules/features/loans/LoansService.js';
 import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
 import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
 import {
     laOpen, laField, laFieldQuiet, laSave, laSetTab, laAsk, laAdjust, laFix, laFixWhy, laVoid, laClose,
-    laToggleLoan, laUseClassicView, useAccountView
+    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation
 } from '../modules/features/loans/LoanAccountController.js';
 import { getAccountSummary, getAccountMovements, getActiveLoanAgreement } from '../modules/features/loans/LoanAccount.js';
 import { movementKey } from '../modules/features/loans/LoanAccountView.js';
@@ -197,5 +197,24 @@ describe('Ficha cuenta de préstamos', () => {
         laAdjust(key, '2026-10-03');
         toggleLoanHistory(String(emp.id));
         expect(text()).toContain('Ajuste de una nómina cerrada');
+    });
+
+    test('una consolidación se revisa, se deshace y se puede volver a consolidar', () => {
+        const { emp } = seed();
+        const [, , l6, l7] = emp.loans;
+        const { consolidatedLoan } = consolidateLoans(emp, { loanIds: [l6.id, l7.id], installmentCount: 1, interestRate: 0, startDate: '2026-09-25' });
+        const cons = emp.loans.find(l => l.id === consolidatedLoan.id);
+        const before = getAccountSummary(emp).balance;
+        expect(text()).toContain('Consolidación por deshacer');
+        laOpen('unconsolidate', cons.id);
+        expect(text()).toContain('Lo que debe en total no cambia');
+        laSave();
+        expect(getAccountSummary(emp).balance).toBe(before);
+        expect(cons.consolidationUndone).toBeTruthy();
+        expect(emp.loans.find(l => l.id === l6.id).status).toBe('active');
+        expect(text()).not.toContain('Consolidación por deshacer');
+        laRestoreConsolidation(cons.id);
+        expect(cons.status).toBe('active');
+        expect(text()).toContain('Consolidación por deshacer');
     });
 });

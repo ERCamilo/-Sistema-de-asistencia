@@ -75,3 +75,22 @@ En la sincronización entre dispositivos, `loan.edits[]` y `emp.loanAgreements[]
 - Las nóminas que ya tienen un cierre aparecen como «cerrada» y no se pueden elegir.
 - **«Vista anterior»** vuelve a la ficha de antes, solo en ese dispositivo (`localStorage` `loans-account-view = classic`). Las pruebas de la ficha anterior la fijan así.
 - **Consolidar** solo queda en la vista anterior; se quita en la fase C.
+
+## Fase C (Consolidar se quita; las consolidaciones se deshacen)
+
+Decidido el 2026-10-05: las consolidaciones se deshacen y los préstamos vuelven a ser separados (`LoanConsolidationUndo.js`).
+
+- **Qué hace al deshacer:**
+  - **Préstamos de origen:** se reabren con su capital e interés reales.
+  - **Interés propio del consolidado y sus refinanciamientos:** pasan a los de origen como refinanciamientos con motivo `consolidation`, repartidos según lo que debía cada uno.
+  - **Abonos del consolidado:** se reparten con la regla de la cuenta (`origin: 'conversion'`, `convertedFrom`), con la misma fecha, nómina y cierre. El original queda anulado con `voidReason: 'consolidation-undone'`.
+  - **Préstamo consolidado:** queda anulado con `consolidationUndone` (incluye una copia para revertir).
+- **Saldo y cierres:**
+  - El total por cobrar no cambia.
+  - El cierre de nómina tampoco: sigue vigente mientras existan las partes convertidas.
+  - Si se deshace el cierre, también se anulan esas partes.
+- **Revertir:** «Volver a consolidar» (`restoreConsolidation`) anula las partes convertidas (no las borra, para que la sincronización no las resucite) y reactiva lo original.
+- **En la app:**
+  - La tarjeta principal avisa de cada consolidación pendiente y abre una vista previa antes de deshacerla.
+  - El botón y el formulario de Consolidar se quitaron de la vista anterior.
+- **En la página de pruebas:** «Deshacer todas (prueba)» comprueba con un respaldo que el total no cambia.

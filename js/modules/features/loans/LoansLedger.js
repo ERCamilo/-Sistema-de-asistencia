@@ -853,7 +853,6 @@ function EmployeeLoansDetail(empId) {
 
     const ledger = state.loansLedger || {};
     const showAddForm = !!ledger.showAddForm;
-    const showConsolidateForm = !!ledger.showConsolidateForm;
 
     // Fase 2 U4: detector post-merge de posibles duplicados por creación
     // concurrente (doble señal: mismo seq + monto igual + fechas cercanas).
@@ -952,23 +951,15 @@ function EmployeeLoansDetail(empId) {
                 </div>
             ` : ''}
 
-            <!-- Action buttons: New loan & Consolidate (if >= 2 active) -->
-            ${showConsolidateForm ? ConsolidateLoansForm(emp, active) : ''}
+            <!-- Action buttons: New loan (Consolidar se quitó: la cuenta de préstamos lo reemplaza) -->
             ${showAddForm ? NewLoanForm(emp) : ''}
 
-            ${!showAddForm && !showConsolidateForm ? `
+            ${!showAddForm ? `
                 <div style="display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;">
                     <button type="button" data-app-fn="toggleAddLoanForm"
                             style="flex: 1; min-width: 220px; padding: 14px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 10px; font-weight: 800; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;">
                         ${icons.get('add')} Nuevo préstamo / adelanto
                     </button>
-                    ${active.length >= 2 ? `
-                        <button type="button" data-app-fn="toggleConsolidateForm"
-                                style="flex: 1; min-width: 220px; padding: 14px; background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fff; border: none; border-radius: 10px; font-weight: 800; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                            Consolidar préstamos (${active.length} activos)
-                        </button>
-                    ` : ''}
                 </div>
             ` : ''}
 
@@ -1705,171 +1696,6 @@ function LoanCapacityMeter(capacity) {
 }
 
 // ─── CONSOLIDATE (consolidación de deuda) FORM ──────────────────────────────
-
-function ConsolidateLoansForm(emp, activeLoans) {
-    const draft = (state.loansLedger || {}).consolidateDraft || {
-        installmentCount: 1,
-        installmentFrequencyWeeks: Math.round(getCalendarPeriodWeeks(state)) || 2,
-        interestRate: 0,
-        note: '',
-        startDate: getDateKey(new Date()),
-        showAdvanced: false
-    };
-
-    const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-    const totalBalance = r2(activeLoans.reduce((sum, l) => sum + getBalance(l), 0));
-    const count = Math.max(1, Number(draft.installmentCount !== undefined ? draft.installmentCount : 1));
-    const rate = Number(draft.interestRate || 0);
-    const interestToAdd = r2(totalBalance * rate / 100);
-    const consolidatedTotal = r2(totalBalance + interestToAdd);
-    const approxInstallment = r2(consolidatedTotal / count);
-    const isAdvancedOpen = !!draft.showAdvanced || count > 1;
-
-    const calendarWeeks = getCalendarPeriodWeeks(state);
-    const frequencyWeeks = Number(draft.installmentFrequencyWeeks) || calendarWeeks;
-    const periodSalary = getEmployeePeriodSalary(emp, frequencyWeeks, state);
-
-    // Las deudas viejas se cancelan al consolidar, por lo que la retención
-    // previa en cola pasa a ser reemplazada íntegramente por esta cuota.
-    const capacity = calculateRepaymentCapacity({
-        installmentAmount: approxInstallment,
-        existingDeductions: 0,
-        periodSalary,
-        frequencyWeeks,
-        stateObj: state
-    });
-
-    return `
-        <div class="loan-consolidate-form">
-            <div class="loan-consolidate-form__topbar">
-                <div class="loan-consolidate-form__headline">
-                    <span class="loan-consolidate-form__icon">${icons.get('briefcase', { size: 18 })}</span>
-                    <span class="loan-consolidate-form__title">
-                        Consolidación de Deuda (${activeLoans.length} préstamo${activeLoans.length === 1 ? '' : 's'})
-                    </span>
-                </div>
-                <button type="button" class="loan-consolidate-form__close-btn" data-app-fn="toggleConsolidateForm">
-                    ✕ Cerrar
-                </button>
-            </div>
-
-            <div class="loan-consolidate-form__subtitle">
-                Unifica los saldos pendientes de los préstamos activos en un único plan viable, aliviando la nómina de retenciones asfixiantes.
-            </div>
-
-            <!-- Resumen de préstamos a unificar -->
-            <div class="loan-consolidate-form__loans-box">
-                <div class="loan-consolidate-form__loans-hdr">Préstamos incluidos en la consolidación</div>
-                ${activeLoans.map(l => `
-                    <div class="loan-consolidate-form__loan-item">
-                        <span class="loan-consolidate-form__loan-item-desc">
-                            <span class="loan-consolidate-form__loan-dot"></span>
-                            ${escapeHTML(l.concept || 'Préstamo')} (${formatDateShort(l.startDate)})
-                        </span>
-                        <strong class="loan-consolidate-form__loan-amount">${formatCurrency(getBalance(l))}</strong>
-                    </div>
-                `).join('')}
-                <div class="loan-consolidate-form__loans-total">
-                    <span>Total saldo vivo a consolidar:</span>
-                    <strong>${formatCurrency(totalBalance)}</strong>
-                </div>
-            </div>
-
-            ${!isAdvancedOpen ? `
-                <!-- Modo por defecto: 1 sola cuota al próximo cierre -->
-                <div class="loan-consolidate-form__single-bar">
-                    <div class="loan-consolidate-form__single-info">
-                        <span class="loan-consolidate-form__single-badge">Modalidad por defecto</span>
-                        <div class="loan-consolidate-form__single-text">
-                            <span>Deducción en <strong>1 sola cuota</strong> al próximo cierre de nómina:</span>
-                            <strong class="loan-consolidate-form__amount-highlight">${formatCurrency(consolidatedTotal)}</strong>
-                        </div>
-                    </div>
-                    <button type="button"
-                            class="loan-consolidate-form__advanced-toggle-btn"
-                            data-app-fn="toggleConsolidateAdvancedOptions">
-                        ${icons.get('chevron-down', { size: 14 })} Diferir en cuotas o ajustar
-                    </button>
-                </div>
-            ` : `
-                <!-- Apartado de Opciones Avanzadas / Diferimiento -->
-                <div class="loan-consolidate-form__advanced-panel">
-                    <div class="loan-consolidate-form__advanced-hdr">
-                        <span class="loan-consolidate-form__advanced-title">
-                            ${icons.get('settings', { size: 14 })} Opciones del plan y diferimiento
-                        </span>
-                        <button type="button"
-                                class="loan-consolidate-form__advanced-toggle-btn is-open"
-                                data-app-fn="toggleConsolidateAdvancedOptions">
-                            ${icons.get('chevron-up', { size: 14 })} Ocultar opciones
-                        </button>
-                    </div>
-
-                    <div class="loan-consolidate-form__inputs-grid">
-                        <div class="loan-consolidate-form__field">
-                            <label>Número de cuotas</label>
-                            <input type="number" inputmode="numeric" value="${draft.installmentCount !== undefined ? draft.installmentCount : 1}" min="1" max="24" step="1"
-                                   oninput="setConsolidateDraftField('installmentCount', this.value)">
-                        </div>
-                        <div class="loan-consolidate-form__field">
-                            <label>Frecuencia</label>
-                            <select onchange="setConsolidateDraftField('installmentFrequencyWeeks', this.value)">
-                                ${VALIDATION.ALLOWED_FREQUENCY_WEEKS.map(w =>
-                                    `<option value="${w}" ${Number(draft.installmentFrequencyWeeks || calendarWeeks) === w ? 'selected' : ''}>Cada ${w} semana${w === 1 ? '' : 's'}</option>`
-                                ).join('')}
-                            </select>
-                        </div>
-                        <div class="loan-consolidate-form__field">
-                            <label>Tasa adicional (%)</label>
-                            <input type="number" inputmode="decimal" value="${draft.interestRate || 0}" min="0" max="100" step="0.5"
-                                   oninput="setConsolidateDraftField('interestRate', this.value)">
-                        </div>
-                        <div class="loan-consolidate-form__field">
-                            <label>Nota (opcional)</label>
-                            <input type="text" value="${escapeAttr(draft.note || '')}" placeholder="Acuerdo con empleado"
-                                   oninput="setConsolidateDraftField('note', this.value)">
-                        </div>
-                    </div>
-
-                    <!-- Proyección del nuevo plan -->
-                    <div class="loan-consolidate-form__projection-row">
-                        <div class="loan-consolidate-form__proj-item">
-                            <span class="loan-consolidate-form__proj-label">Deuda base</span>
-                            <strong class="loan-consolidate-form__proj-val">${formatCurrency(totalBalance)}</strong>
-                        </div>
-                        ${rate > 0 ? `
-                            <div class="loan-consolidate-form__proj-item">
-                                <span class="loan-consolidate-form__proj-label">Interés</span>
-                                <strong class="loan-consolidate-form__proj-val loan-consolidate-form__proj-val--warn">+${formatCurrency(interestToAdd)} (${rate}%)</strong>
-                            </div>
-                        ` : ''}
-                        <div class="loan-consolidate-form__proj-item">
-                            <span class="loan-consolidate-form__proj-label">Nuevo saldo</span>
-                            <strong class="loan-consolidate-form__proj-val">${formatCurrency(consolidatedTotal)}</strong>
-                        </div>
-                        <div class="loan-consolidate-form__proj-item loan-consolidate-form__proj-item--highlight">
-                            <span class="loan-consolidate-form__proj-label">Nueva cuota periódica</span>
-                            <strong class="loan-consolidate-form__quota-highlight">${count} × ~${formatCurrency(approxInstallment)}</strong>
-                        </div>
-                    </div>
-                </div>
-            `}
-
-            <!-- Medidor de capacidad para la nueva cuota consolidada (preservado como está actualmente incorporado) -->
-            ${LoanCapacityMeter(capacity)}
-
-            <div class="loan-consolidate-form__actions">
-                <button type="button" class="loan-consolidate-form__submit-btn" data-app-fn="submitConsolidateLoans">
-                    ${icons.get('check', { size: 16 })} Confirmar y consolidar deuda (${formatCurrency(consolidatedTotal)})
-                </button>
-                <button type="button" class="loan-consolidate-form__cancel-btn" data-app-fn="toggleConsolidateForm">
-                    Cancelar
-                </button>
-            </div>
-        </div>
-    `;
-}
-
 
 // ─── REFINANCE (refinanciamiento) FORM ────────────────────────────────────────
 

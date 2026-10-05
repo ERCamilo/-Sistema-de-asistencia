@@ -23,11 +23,11 @@ import {
     assertLoanEmployeeInScope
 } from '../modules/features/loans/LoansService.js';
 import { state } from '../modules/core/AppState.js';
+import { undoConsolidation } from '../modules/features/loans/LoanConsolidationUndo.js';
 import {
     submitNewLoan,
     submitPayment,
     submitRefinance,
-    submitConsolidateLoans,
     settleLoanByFullPayment,
     writeOffLoanWithConfirm,
     deleteLoanWithConfirm,
@@ -568,21 +568,14 @@ describe('Loans Project-Scoped CRUD — LoansController Scope Rejection and Form
         expect(state.employees[0].loans[0].refinancings).toHaveLength(0);
     });
 
-    test('controller submitConsolidateLoans rejects foreign employee in-flight project switch', () => {
+    test('undoConsolidation rejects a foreign employee after a project switch', () => {
         state.employees[0].loans = [
-            { id: 'l1', principal: 200, status: 'active', payments: [] },
-            { id: 'l2', principal: 300, status: 'active', payments: [] }
+            { id: 'l1', principal: 200, status: 'paid', consolidatedIntoLoanId: 'c1', payments: [] },
+            { id: 'l2', principal: 300, status: 'paid', consolidatedIntoLoanId: 'c1', payments: [] },
+            { id: 'c1', principal: 500, status: 'active', consolidatedFromLoanIds: ['l1', 'l2'], payments: [] }
         ];
-        state.loansLedger = {
-            selectedEmployeeId: 'emp-a',
-            showConsolidateForm: true,
-            consolidateDraft: { installmentCount: 2, interestRate: 0, startDate: '2026-09-01' }
-        };
-
         replaceEntityScope(SCOPE_B);
-
-        submitConsolidateLoans();
-        expect(state.employees[0].loans).toHaveLength(2);
-        expect(state.employees[0].loans.every(l => l.status === 'active')).toBe(true);
+        expect(() => undoConsolidation(state.employees[0], 'c1')).toThrow(ProjectScopedGateError);
+        expect(state.employees[0].loans.find(l => l.id === 'c1').status).toBe('active');
     });
 });
