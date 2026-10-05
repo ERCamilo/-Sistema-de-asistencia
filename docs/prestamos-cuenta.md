@@ -1,0 +1,59 @@
+# Cuenta de préstamos · fase A (cómo se guardan los registros)
+
+Módulo: `js/modules/features/loans/LoanAccount.js`. Pruebas: `js/tests/LoanAccount.test.js`.
+Página de pruebas sin conexión: `pruebas/cuenta-prestamos.html`. Carga un respaldo .json en memoria; no guarda ni envía nada.
+
+Esta fase solo agrega el registro y las reglas. Las pantallas actuales no cambian. Los formularios y la pantalla nueva llegan en la fase B, y la conversión de los datos viejos en la fase D.
+
+## Qué es la cuenta
+
+Son todos los préstamos abiertos del empleado en su obra: el `projectId` del préstamo o, si no tiene, el del empleado. Los préstamos llevan un número (#1, #2…) según el orden de creación (`getLoanNumbers`).
+
+## Qué se guarda
+
+| Registro | Dónde | Campos nuevos |
+|---|---|---|
+| Abono a la cuenta | Un `payment` por cada préstamo que toca | `origin: 'account'`, `accountTxId` (el mismo en todas las partes), `allocation {interest, capital}` (el reparto del momento) |
+| Abono directo / de nómina | `payment` | `origin: 'direct' \| 'payroll'`, `allocation` |
+| Refinanciamiento | `refinancing` en cada préstamo | `origin`, `accountTxId`, `reason` (`payroll-short`, `not-worked`, `agreement`, `other`), `payrollPeriodStart/End` (la nómina que no alcanzó), `nextDueDate` (la nómina que cobra ahora) |
+| Nómina de cobro | `loan.dueDate`, `loan.dueDateSetAt` | `getLoanDueDate` usa el último refinanciamiento, salvo que una edición posterior la haya cambiado |
+| Edición | `loan.edits[]` | `before`, `after`, `reason`, `balanceBefore/After`, `closureEdit`, `closureIds`, `voided` |
+| Cierre con motivo | `loan.closure`, `loan.closureHistory[]` | `reason` (`error`, `forgiven`, `other`), `note`, `forgiven {capital, interest}` |
+| Ajuste de un movimiento cerrado | `payment` con monto negativo o `refinancing` con interés negativo | `adjustment {ofId, ofKind, interest, capital, lockedClosureId}`; el original queda con `adjustedBy` |
+| Corrección de un cierre | En el movimiento anulado | `closureFix {reason, by, at, closureIds, before.accountBalance, after.accountBalance}` |
+| Acuerdo de pago | `emp.loanAgreements[]` | `amount`, `startPayDate`, `interestMode`/`rate`, `onNewLoan`, `belowInterest`, `replaces`/`replacedBy`, `voided` |
+
+En la sincronización entre dispositivos, `loan.edits[]` y `emp.loanAgreements[]` se unen por id, igual que los abonos (`EmployeeMerge`).
+
+## Reglas
+
+1. **Abono a la cuenta:** primero el interés de todos los préstamos y después el capital del más viejo. No acepta más de lo que debe. Si falla en algún préstamo, no queda nada a medias.
+2. **Refinanciar la cuenta:**
+   - el motivo es obligatorio, y con «otro» también la nota;
+   - por defecto toma todo lo vencido hasta esa nómina;
+   - cada préstamo pasa a cobrarse en `nextDueDate`.
+3. **Candado por cierre:**
+   - un movimiento con `payrollClosureId` de un cierre vigente no se anula directo;
+   - un préstamo con al menos uno de esos movimientos está «con cierre»;
+   - si el cierre se deshace, el candado desaparece.
+4. **Anular algo sin cierre:** se anula, en todos los préstamos si vino de la cuenta. Los abonos a la cuenta posteriores sin cierre se vuelven a repartir; sus partes anteriores quedan anuladas con `voidReason: 'reallocated'`.
+5. **Corregir algo con cierre:** hay dos caminos.
+   - **Ajuste** en la nómina abierta: devuelve exactamente lo que el movimiento tocó y el cierre no cambia.
+   - **Corregir el cierre:** solo por error. Exige motivo y guarda el saldo antes y el resultado.
+6. **Editar un préstamo:** sin cierre se puede editar libremente; con cierre el motivo es obligatorio y queda marcado como «cierre editado». Se puede deshacer la última edición.
+7. **Cerrar con motivo:**
+   - **error:** solo si el préstamo no tiene abonos ni refinanciamientos; queda anulado;
+   - **perdonado:** guarda el capital y el interés que se perdonaron;
+   - **otro:** exige una nota.
+8. **Acuerdo de pago:**
+   - el mínimo sugerido cubre el interés pendiente, pero es solo una sugerencia;
+   - un acuerdo nuevo reemplaza al anterior y queda enlazado con él;
+   - la proyección se hace nómina por nómina.
+
+## Respaldo real (Johan, 2026-10-05)
+
+- 165 préstamos, 43 abiertos y 22 cuentas con saldo: $167,185.40, igual que la suma de saldos de la app.
+- La línea de tiempo coincide con el saldo en los 43 préstamos abiertos.
+- 17 abonos están ligados a los 2 cierres vigentes.
+- 132 de 149 abonos no tienen origen; se muestran como «directo» hasta la fase D.
+- Ningún préstamo abierto tiene nómina de cobro guardada; se completa en la fase D.

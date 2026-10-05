@@ -387,6 +387,16 @@ export function recordPayment(emp, loanId, params, options = {}) {
         voidedAt: null
     };
     if (params.source) payment.source = String(params.source);
+    // Cuenta de préstamos: de dónde vino el abono y cómo se repartió al registrarlo.
+    if (params.origin) payment.origin = String(params.origin);
+    if (params.accountTxId) payment.accountTxId = String(params.accountTxId);
+    if (params.allocation && typeof params.allocation === 'object') {
+        payment.allocation = {
+            interest: round2(params.allocation.interest || 0),
+            capital: round2(params.allocation.capital || 0)
+        };
+    }
+    if (Array.isArray(params.reallocatedFrom)) payment.reallocatedFrom = params.reallocatedFrom.map(String);
     if (params.payrollBatchId) payment.payrollBatchId = String(params.payrollBatchId);
     if (params.payrollClosureId) payment.payrollClosureId = String(params.payrollClosureId);
     if (params.payrollPreviewFingerprint) {
@@ -518,6 +528,10 @@ export function refinanceLoan(emp, loanId, params = {}, options = {}) {
         voided: false,
         voidedAt: null
     };
+    // Cuenta de préstamos: origen, motivo, nómina que no alcanzó y nueva nómina de cobro.
+    for (const field of ['origin', 'accountTxId', 'reason', 'payrollPeriodStart', 'payrollPeriodEnd', 'nextDueDate']) {
+        if (params[field]) event[field] = String(params[field]);
+    }
 
     if (createsReplacement) {
         const count = Number(params.installmentCount);
@@ -742,7 +756,7 @@ function refinancingOrder(left, right) {
 
 /** Number of times this loan has been refinanced (excludes voided events). */
 export function getRefinanceCount(loan) {
-    return (loan.refinancings || []).filter(r => !r.voided).length;
+    return (loan.refinancings || []).filter(r => !r.voided && !r.adjustment).length;
 }
 
 /** Accrued total interest: original loan interest + all refinancing interest. */

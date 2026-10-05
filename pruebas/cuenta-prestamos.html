@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Pruebas · Cuenta de préstamos</title>
+<style>
+:root{color-scheme:dark;--bg:#111518;--app:#171d22;--surface:#1e252b;--surface-2:#1a2025;--line:#2a3239;--line-2:#363f47;--text:#ebeef0;--dim:#a2abb3;--faint:#78838d;
+--cap:#1fb6ff;--int:#ffc61a;--refi:#a855f7;--pay:#10d98a;--pay-int:#0a8f5b;--danger:#ef4444;--warn:#fb923c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;padding:16px 16px 60px}
+main{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:0 0 8px}
+p{margin:0}.dim{color:var(--dim)}.faint{color:var(--faint);font-size:12.5px}
+.box{background:var(--app);border:1px solid var(--line);border-radius:12px;padding:14px}
+.warnbar{border:1px solid rgba(251,146,60,.5);background:rgba(251,146,60,.08);border-radius:10px;padding:8px 12px;font-size:13px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim);font-weight:600}
+input,select,button,textarea{font:inherit;color:inherit}
+input,select{background:var(--bg);border:1px solid var(--line-2);border-radius:7px;padding:6px 8px;font-size:13px}
+button{border:1px solid var(--line-2);background:none;border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer}
+button.pay{background:var(--pay);border-color:var(--pay);color:#04140d}button.refi{background:var(--refi);border-color:var(--refi);color:#fff}
+button.danger{border-color:rgba(239,68,68,.6);color:#ff8585}button:disabled{opacity:.45;cursor:not-allowed}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media(max-width:640px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}.kpi span{display:block;font-size:12px;color:var(--faint)}.kpi b{font-size:17px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:6px 8px;border-top:1px solid var(--line);vertical-align:top}
+td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tw{overflow-x:auto}
+.pill{display:inline-block;font-size:11px;font-weight:600;border-radius:4px;padding:0 6px;border:1px solid var(--line-2);color:var(--dim);margin-left:4px;white-space:nowrap}
+.pill.lock{color:var(--dim)}.pill.acc{color:var(--int);border-color:rgba(255,198,26,.45)}.pill.pay{color:var(--pay);border-color:rgba(16,217,138,.4)}
+.pill.adj,.pill.due{color:var(--warn);border-color:rgba(251,146,60,.5)}.pill.bad{color:#ff8585;border-color:rgba(239,68,68,.5)}.pill.ok{color:var(--pay);border-color:rgba(16,217,138,.4)}
+.void{opacity:.45}.void td.n{text-decoration:line-through}
+.cap{color:var(--cap)}.int{color:var(--int)}.paid{color:var(--pay)}.refic{color:#c084fc}.warn{color:var(--warn)}.bad{color:#ff8585}
+.panel{border:1px solid var(--line-2);border-radius:10px;padding:10px;background:var(--surface-2);display:flex;flex-direction:column;gap:8px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}.tabs button[aria-pressed="true"]{border-color:var(--int);color:var(--int)}
+.toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:var(--app);border:1px solid var(--int);border-radius:10px;padding:8px 14px;max-width:90vw;z-index:9}
+.err{color:#ff8585}
+</style>
+</head>
+<body>
+<main>
+  <header style="display:flex;flex-direction:column;gap:6px">
+    <h1>Pruebas · Cuenta de préstamos (fase A)</h1>
+    <p class="dim">Carga un respaldo (.json) para ver cómo el código nuevo lee los préstamos reales y probar abonos, refinanciamientos, anulaciones, ajustes, ediciones, cierres y acuerdos.</p>
+    <p class="warnbar">Todo pasa en la memoria de esta pestaña: <b>no se guarda nada y no se envía nada</b>. Al recargar la página se pierde. Para volver a empezar, carga el archivo otra vez.</p>
+  </header>
+
+  <section class="box">
+    <div class="row">
+      <label for="file">Respaldo (.json)<input id="file" type="file" accept=".json,application/json"></label>
+      <span class="faint" id="fileinfo">Sin archivo.</span>
+    </div>
+  </section>
+
+  <section class="box" id="checks" hidden></section>
+  <section class="box" id="pick" hidden></section>
+  <section class="box" id="account" hidden></section>
+</main>
+
+<script type="module">
+import {
+    VOID_MODE, CLOSE_REASON, REFINANCE_REASON, AGREEMENT_INTEREST, AGREEMENT_NEW_LOANS, LoanMovementLockedError,
+    activeClosureIdsFrom, getAccountSummary, getLoanNumbers, getLoanLock, getLoanPending, previewAccountPayment,
+    recordAccountPayment, refinanceAccount, voidAccountMovement, getAccountMovements, editLoan, undoLoanEdit,
+    closeLoanWithReason, undoLoanClosure, saveLoanAgreement, cancelLoanAgreement, getActiveLoanAgreement,
+    suggestedAgreementMinimum, projectLoanAgreement
+} from '../js/modules/features/loans/LoanAccount.js';
+import { getBalance, LOAN_STATUS } from '../js/modules/features/loans/LoansService.js';
+import { replayLoan } from '../js/modules/features/loans/LoanTimeline.js';
+
+const M = v => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const today = new Date().toISOString().slice(0, 10);
+const $ = id => document.getElementById(id);
+const toast = t => { const el = document.createElement('div'); el.className = 'toast'; el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 3500); };
+
+const S = { data: null, closures: new Set(), empId: null, tab: 'loans', act: null, ask: null };
+const opts = () => ({ activeClosureIds: S.closures, by: 'pruebas' });
+const emp = () => S.data.employees.find(e => String(e.id) === String(S.empId));
+const empLabel = e => `${e.number != null ? '#' + e.number + ' · ' : ''}${e.name || e.id}`;
+
+$('file').onchange = async ev => {
+    const file = ev.target.files[0]; if (!file) return;
+    try {
+        const raw = JSON.parse(await file.text());
+        const data = raw.data || raw;
+        if (!Array.isArray(data.employees)) throw new Error('El archivo no tiene employees[]');
+        S.data = data;
+        S.closures = activeClosureIdsFrom(data.payrollClosures || []);
+        S.empId = null; S.act = null; S.ask = null;
+        $('fileinfo').textContent = `${file.name} · ${data.employees.length} empleados · ${(data.payrollClosures || []).length} cierres de nómina (${S.closures.size} vigentes)`;
+        renderChecks(); renderPick(); $('account').hidden = true;
+    } catch (e) { $('fileinfo').innerHTML = `<span class="err">No se pudo leer: ${esc(e.message)}</span>`; }
+};
+
+// ── Revisión de los datos reales ──
+function renderChecks() {
+    const emps = S.data.employees;
+    let loans = 0, active = 0, noDue = 0, locked = 0, pays = 0, paysOrigin = 0, paysClosure = 0, mismatches = [], total = 0, accounts = 0, capital = 0, interest = 0;
+    for (const e of emps) {
+        const s = getAccountSummary(e, { activeClosureIds: S.closures });
+        if (s.count) { accounts++; total += s.balance; capital += s.capital; interest += s.interest; }
+        for (const l of e.loans || []) {
+            loans++;
+            if (l.status === LOAN_STATUS.ACTIVE) { active++; if (!l.dueDate) noDue++; }
+            if (getLoanLock(l, { activeClosureIds: S.closures })) locked++;
+            for (const p of l.payments || []) { pays++; if (p.origin || p.source) paysOrigin++; if (p.payrollClosureId) paysClosure++; }
+            if (l.status === LOAN_STATUS.ACTIVE) {
+                const r = replayLoan(l).balance, b = getBalance(l);
+                if (Math.abs(r - b) > 0.01) mismatches.push({ e, l, r, b });
+            }
+        }
+    }
+    const activeSum = emps.reduce((t, e) => t + (e.loans || []).filter(l => l.status === LOAN_STATUS.ACTIVE).reduce((u, l) => u + getBalance(l), 0), 0);
+    const ok = Math.abs(activeSum - total) < 0.05;
+    $('checks').hidden = false;
+    $('checks').innerHTML = `<h2>Revisión de los datos cargados</h2>
+      <div class="kpis"><div class="kpi"><span>Por cobrar (cuentas)</span><b>${M(total)}</b></div><div class="kpi"><span>Capital / interés</span><b><span class="cap">${M(capital)}</span></b><span class="int">${M(interest)} interés</span></div>
+      <div class="kpi"><span>Cuentas con saldo</span><b>${accounts}</b></div><div class="kpi"><span>Préstamos</span><b>${loans}</b><span>${active} abiertos</span></div></div>
+      <div class="tw" style="margin-top:10px"><table><tbody>
+        <tr><td>La suma de las cuentas coincide con la suma de saldos de la app (${M(activeSum)})</td><td class="n">${ok ? '<span class="pill ok">sí</span>' : '<span class="pill bad">no</span>'}</td></tr>
+        <tr><td>Préstamos abiertos donde la línea de tiempo y el saldo no coinciden</td><td class="n">${mismatches.length ? `<span class="pill bad">${mismatches.length}</span>` : '<span class="pill ok">0</span>'}</td></tr>
+        <tr><td>Préstamos con algún movimiento en un cierre vigente (🔒, se corrigen con ajuste)</td><td class="n">${locked}</td></tr>
+        <tr><td>Abonos ligados a un cierre de nómina</td><td class="n">${paysClosure} de ${pays}</td></tr>
+        <tr><td>Abonos sin origen guardado (se mostrarán como «directo»; se completa en la fase D)</td><td class="n">${pays - paysOrigin} de ${pays}</td></tr>
+        <tr><td>Préstamos abiertos sin nómina de cobro guardada (no pueden marcarse vencidos hasta la fase D)</td><td class="n">${noDue} de ${active}</td></tr>
+      </tbody></table></div>
+      ${mismatches.length ? `<p class="faint" style="margin-top:6px">No coinciden: ${mismatches.slice(0, 8).map(x => `${esc(empLabel(x.e))} (${M(x.r)} vs ${M(x.b)})`).join(' · ')}</p>` : ''}`;
+}
+
+function renderPick() {
+    const list = S.data.employees.map(e => ({ e, s: getAccountSummary(e, { activeClosureIds: S.closures }) })).filter(x => (x.e.loans || []).length)
+        .sort((a, b) => b.s.balance - a.s.balance);
+    $('pick').hidden = false;
+    $('pick').innerHTML = `<h2>Elegir empleado</h2><div class="row"><label for="emp">Empleado (ordenados por saldo)<select id="emp"><option value="">—</option>${list.map(x => `<option value="${esc(x.e.id)}" ${String(x.e.id) === String(S.empId) ? 'selected' : ''}>${esc(empLabel(x.e))} · ${M(x.s.balance)} · ${x.s.count} abiertos</option>`).join('')}</select></label></div>`;
+    $('emp').onchange = ev => { S.empId = ev.target.value || null; S.act = null; S.ask = null; renderAccount(); };
+}
+
+// ── Cuenta del empleado ──
+const REASONS = { [REFINANCE_REASON.PAYROLL_SHORT]: 'No le alcanzó la nómina', [REFINANCE_REASON.NOT_WORKED]: 'No trabajó el periodo', [REFINANCE_REASON.AGREEMENT]: 'Acuerdo con el empleado', [REFINANCE_REASON.OTHER]: 'Otro motivo' };
+const ORIGIN = { account: ['acc', 'desde la cuenta'], direct: ['', 'directo'], payroll: ['pay', 'nómina'], adjustment: ['adj', 'ajuste'] };
+
+function run(fn, ok) { try { const r = fn(); toast(ok(r)); S.act = null; S.ask = null; renderAccount(); renderChecks(); renderPick(); } catch (e) { toast((e instanceof LoanMovementLockedError ? '🔒 ' : 'Error: ') + e.message); } }
+
+function renderAccount() {
+    const e = emp(); if (!e) { $('account').hidden = true; return; }
+    const s = getAccountSummary(e, opts()), agr = getActiveLoanAgreement(e);
+    const numbers = getLoanNumbers(e.loans || []);
+    $('account').hidden = false;
+    $('account').innerHTML = `<h2>${esc(empLabel(e))}</h2>
+      <div class="kpis"><div class="kpi"><span>Debe en total</span><b>${M(s.balance)}</b></div><div class="kpi"><span>Capital</span><b class="cap">${M(s.capital)}</b></div><div class="kpi"><span>Interés</span><b class="int">${M(s.interest)}</b></div>
+      <div class="kpi"><span>Acuerdo</span><b>${agr ? M(agr.amount) + ' / nómina' : '—'}</b></div></div>
+      <div class="tabs" style="margin:10px 0">${[['loans', 'Préstamos'], ['mov', 'Movimientos']].map(([k, l]) => `<button data-tab="${k}" aria-pressed="${S.tab === k}">${l}</button>`).join('')}
+        <span style="flex:1"></span>${[['pay', 'Abonar a la cuenta', 'pay'], ['refi', 'Refinanciar', 'refi'], ['agree', 'Acuerdo', '']].map(([k, l, c]) => `<button class="${c}" data-act="${k}" ${s.count || k === 'agree' ? '' : 'disabled'}>${l}</button>`).join('')}</div>
+      <div id="actpanel">${actPanel(e, s)}</div>
+      ${S.tab === 'loans' ? loansTable(e, s, numbers) : movTable(e)}`;
+    document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; renderAccount(); });
+    document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => { S.act = S.act?.type === b.dataset.act ? null : { type: b.dataset.act }; renderAccount(); });
+    bindAccount(e, s);
+}
+
+function loansTable(e, s, numbers) {
+    const rows = [...(e.loans || [])].sort((a, b) => numbers.get(a.id) - numbers.get(b.id));
+    return `<div class="tw"><table><thead><tr><th>#</th><th>Préstamo</th><th>Estado</th><th style="text-align:right">Interés pend.</th><th style="text-align:right">Capital pend.</th><th style="text-align:right">Saldo</th><th></th></tr></thead><tbody>
+      ${rows.map(l => { const p = getLoanPending(l), lock = getLoanLock(l, opts());
+        const st = l.closure ? `<span class="pill ${l.closure.reason === 'error' ? 'bad' : 'adj'}">${{ error: 'anulado por error', forgiven: 'perdonado', other: 'cerrado' }[l.closure.reason]}</span>` : l.status === 'active' ? '<span class="pill acc">abierto</span>' : l.status === 'paid' ? '<span class="pill ok">saldado</span>' : '<span class="pill bad">anulado</span>';
+        return `<tr><td><b>#${numbers.get(l.id)}</b></td><td>${esc(l.startDate)} · ${M(l.principal)} al ${l.interestRate} %<div class="faint">${esc(l.concept || '')}${l.dueDate ? ' · cobro ' + esc(l.dueDate) : ''}${(l.edits || []).filter(x => !x.voided).length ? ' · editado' : ''}</div></td>
+          <td>${st}${lock ? `<span class="pill lock" title="cierre ${esc(lock)}">🔒 con cierre</span>` : ''}</td>
+          <td class="n int">${M(p.interest)}</td><td class="n cap">${M(p.capital)}</td><td class="n"><b>${M(l.status === 'active' ? p.balance : getBalance(l))}</b></td>
+          <td class="n">${l.status === 'active' ? `<button data-edit="${esc(l.id)}">Editar</button> <button class="danger" data-close="${esc(l.id)}">Cerrar</button>` : l.closure ? `<button data-reopen="${esc(l.id)}">Deshacer cierre</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+}
+
+function movTable(e) {
+    const mv = getAccountMovements(e, opts());
+    return `<div class="tw"><table><thead><tr><th>Fecha</th><th>Movimiento</th><th style="text-align:right">Monto</th><th></th></tr></thead><tbody>
+      ${mv.map(m => { const key = `${m.kind}:${m.id}`;
+        let title = '', detail = '', amt = '', cls = '';
+        if (m.kind === 'loan') { title = `Préstamo #${m.number}`; amt = '+' + M(m.amount); cls = 'cap'; }
+        else if (m.kind === 'payment' || m.kind === 'refinancing' || m.kind === 'adjustment') {
+            const [oc, ol] = ORIGIN[m.origin] || ['', m.origin];
+            title = m.kind === 'payment' ? (m.origin === 'account' ? 'Abono a la cuenta' : 'Abono') : m.kind === 'refinancing' ? 'Refinanciamiento' + (m.reason ? ' · ' + (REASONS[m.reason] || m.reason) : '') : 'Ajuste';
+            title += ` <span class="pill ${oc}">${ol}</span>${m.lock ? `<span class="pill lock">🔒 cierre</span>` : ''}${m.adjustedBy ? '<span class="pill adj">ajustado</span>' : ''}${m.closureFix ? '<span class="pill adj">quitado del cierre</span>' : ''}`;
+            detail = m.parts.filter(p => !p.voided || m.voided).map(p => `#${p.number} ${m.kind === 'payment' ? `${M(p.amount)} (${M(p.interest)} int. · ${M(p.capital)} cap.)` : m.kind === 'adjustment' && p.adjustment?.ofKind === 'payment' ? `+${M(-p.amount)}` : M(p.amount)}`).join(' · ')
+              + (m.closureFix ? ` · motivo: ${esc(m.closureFix.reason)} · saldo ${M(m.closureFix.before.accountBalance)} → ${M(m.closureFix.after.accountBalance)}` : '') + (m.note ? ' · ' + esc(m.note) : '');
+            amt = (m.kind === 'payment' ? '−' : m.kind === 'adjustment' && m.amount < 0 ? '+' : '+') + M(Math.abs(m.amount)); cls = m.kind === 'payment' ? 'paid' : m.kind === 'refinancing' ? 'refic' : 'warn';
+        } else if (m.kind === 'edit') { title = `Préstamo #${m.number} corregido${m.closureEdit ? ' <span class="pill adj">cierre editado</span>' : ''}`; detail = Object.keys(m.after).map(k => `${k}: ${esc(m.before[k])} → ${esc(m.after[k])}`).join(' · ') + (m.reason ? ' · ' + esc(m.reason) : '') + ` · saldo ${M(m.balanceBefore)} → ${M(m.balanceAfter)}`; cls = 'cap'; }
+        else if (m.kind === 'close') { title = `Préstamo #${m.number} ${{ error: 'anulado por error', forgiven: 'perdonado', other: 'cerrado' }[m.reason]}`; detail = (m.forgiven ? `${M(m.forgiven.capital)} cap. · ${M(m.forgiven.interest)} int.` : '') + (m.note ? ' · ' + esc(m.note) : ''); cls = 'bad'; }
+        else if (m.kind === 'agreement') { const a = m.agreement; title = 'Acuerdo de pago'; detail = `desde ${esc(a.startPayDate)} · ${a.interestMode === 'rate' ? a.rate + ' % sobre lo pendiente' : 'sin interés mientras cumpla'} · préstamos nuevos: ${a.onNewLoan === 'review' ? 'avisar' : 'se suman'}${a.note ? ' · ' + esc(a.note) : ''}`; amt = M(a.amount) + ' / nómina'; cls = 'int'; }
+        const canVoid = !m.voided && !m.adjustedBy && ['payment', 'refinancing', 'adjustment', 'edit', 'agreement'].includes(m.kind);
+        const ask = S.ask === key ? askBox(m) : '';
+        return `<tr class="${m.voided ? 'void' : ''}"><td style="white-space:nowrap">${esc(m.date)}</td><td>${title}${m.voided ? ' <span class="pill bad">anulado</span>' : ''}<div class="faint">${detail}</div>${ask}</td><td class="n ${cls}">${amt}</td><td class="n">${canVoid ? `<button data-ask="${esc(key)}" title="Anular">✕</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+}
+
+function askBox(m) {
+    if (m.kind === 'edit') return `<div class="panel">Se deshace la corrección y vuelven los datos de antes. <div class="row"><button class="danger" data-undoedit="${esc(m.loanId)}|${esc(m.id)}">Deshacer</button><button data-cancel>Cancelar</button></div></div>`;
+    if (m.kind === 'agreement') return `<div class="panel">Se cancela el acuerdo. <div class="row"><button class="danger" data-cancelagr="${esc(m.id)}">Cancelar acuerdo</button><button data-cancel>Cancelar</button></div></div>`;
+    if (m.lock) return `<div class="panel" style="border-color:rgba(251,146,60,.5)">🔒 Está en un cierre de nómina vigente.
+      <div><b>1 · Ajuste en la nómina abierta</b><div class="faint">El cierre no cambia; se devuelve exactamente lo que tocó.</div><div class="row"><label for="adj-date">Fecha del ajuste<input id="adj-date" type="date" value="${today}"></label><button data-adjust>Crear ajuste</button></div></div>
+      <div><b>2 · Corregir el cierre (fue un error)</b><div class="faint">Se quita como si no hubiera existido y lo posterior se vuelve a repartir. Guarda motivo, antes y resultado.</div><div class="row"><label for="fix-why" style="flex:1">Motivo (obligatorio)<input id="fix-why" type="text"></label><button class="danger" data-fix>Corregir el cierre</button></div></div>
+      <div class="row"><button data-cancel>Cancelar</button></div></div>`;
+    return `<div class="panel">No tiene cierre: se anula${m.origin === 'account' ? ' en todos los préstamos que tocó' : ''} y los abonos a la cuenta posteriores se vuelven a repartir.<div class="row"><button class="danger" data-void>Anular</button><button data-cancel>Cancelar</button></div></div>`;
+}
+
+function actPanel(e, s) {
+    const a = S.act; if (!a) return '';
+    if (a.type === 'pay') { const amt = a.amount ?? Math.min(3000, s.balance); const pv = previewAccountPayment(e, amt, opts());
+        return `<div class="panel"><b>Abonar a la cuenta</b><div class="row"><label for="p-amt">Monto<input id="p-amt" type="text" inputmode="decimal" value="${amt}"></label><label for="p-date">Fecha<input id="p-date" type="date" value="${a.date || today}"></label><button data-fill="${s.interest}">Solo interés ${M(s.interest)}</button><button data-fill="${s.balance}">Todo ${M(s.balance)}</button><button class="pay" data-save="pay">Guardar abono</button></div>
+          <div class="tw"><table><thead><tr><th>#</th><th style="text-align:right">Interés</th><th style="text-align:right">Capital</th></tr></thead><tbody>${pv.parts.map(p => `<tr><td>#${p.number}</td><td class="n int">${M(p.interest)}</td><td class="n cap">${M(p.capital)}</td></tr>`).join('')}</tbody></table></div>${pv.excess > 0.01 ? `<p class="err">Pasa de lo que debe por ${M(pv.excess)}.</p>` : ''}</div>`; }
+    if (a.type === 'refi') return `<div class="panel"><b>Refinanciar lo vencido</b><div class="row"><label for="r-date">Nómina que no alcanzó (día de pago)<input id="r-date" type="date" value="${today}"></label><label for="r-next">Nueva nómina de cobro<input id="r-next" type="date"></label><label for="r-rate">Interés %<input id="r-rate" type="text" value="20"></label>
+        <label for="r-basis">Sobre<select id="r-basis"><option value="balance">Saldo</option><option value="capital">Solo capital</option></select></label><label for="r-why">Motivo *<select id="r-why"><option value="">Elige…</option>${Object.entries(REASONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label><label for="r-note">Nota<input id="r-note" type="text"></label><button class="refi" data-save="refi">Generar cargo</button></div>
+        <p class="faint">Sin nómina de cobro guardada (préstamos viejos), todos los abiertos cuentan como vencidos.</p></div>`;
+    if (a.type === 'agree') { const cur = getActiveLoanAgreement(e); const amt = a.amount ?? cur?.amount ?? Math.max(suggestedAgreementMinimum(e), 1000);
+        const dates = Array.from({ length: 12 }, (_, i) => { const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() + 21 * (i + 1)); return d.toISOString().slice(0, 10); });
+        const pr = projectLoanAgreement(s.balance, { amount: amt, interestMode: a.mode || 'none', rate: 5 }, dates);
+        return `<div class="panel"><b>${cur ? 'Cambiar acuerdo' : 'Acuerdo de pago'}</b><div class="row"><label for="a-amt">Monto por nómina<input id="a-amt" type="text" value="${amt}"></label><label for="a-start">Desde la nómina<input id="a-start" type="date" value="${dates[0]}"></label>
+          <label for="a-mode">Interés<select id="a-mode"><option value="none">Sin interés mientras cumpla</option><option value="rate" ${a.mode === 'rate' ? 'selected' : ''}>Cobrar 5 %</option></select></label><label for="a-new">Si pide otro préstamo<select id="a-new"><option value="include">Se suma</option><option value="review">Avisar para revisar</option></select></label><button class="pay" data-save="agree">Guardar acuerdo</button></div>
+          <p class="faint">Mínimo sugerido (cubre el interés): ${M(suggestedAgreementMinimum(e))}. ${pr.done ? `Termina en ${pr.rows.length} nóminas (cada 21 días, solo para la prueba)` : 'No termina en 12 nóminas'}${pr.extraTotal ? ` · interés extra ${M(pr.extraTotal)}` : ''}.</p></div>`; }
+    if (a.type === 'edit') { const l = e.loans.find(x => String(x.id) === a.loanId); const lock = getLoanLock(l, opts());
+        return `<div class="panel"><b>Editar préstamo</b>${lock ? '<p class="warn">🔒 Tiene movimientos en un cierre: el motivo es obligatorio y queda como «cierre editado».</p>' : ''}<div class="row"><label for="e-amt">Monto<input id="e-amt" type="text" value="${l.principal}"></label><label for="e-rate">Interés %<input id="e-rate" type="text" value="${l.interestRate}"></label><label for="e-date">Entrega<input id="e-date" type="date" value="${esc(l.startDate)}"></label><label for="e-due">Nómina de cobro<input id="e-due" type="date" value="${esc(l.dueDate || '')}"></label><label for="e-why">Por qué se corrige<input id="e-why" type="text"></label><button data-save="edit">Guardar cambios</button></div></div>`; }
+    if (a.type === 'close') return `<div class="panel"><b>Cerrar préstamo</b><div class="row"><label for="c-why">Motivo *<select id="c-why"><option value="">Elige…</option><option value="error">Error de registro</option><option value="forgiven">Perdonado</option><option value="other">Otro motivo</option></select></label><label for="c-note" style="flex:1">Nota (obligatoria con «otro»)<input id="c-note" type="text"></label><button class="danger" data-save="close">Cerrar préstamo</button></div></div>`;
+    return '';
+}
+
+function bindAccount(e, s) {
+    const on = (sel, fn) => document.querySelectorAll(sel).forEach(b => b.onclick = () => fn(b));
+    const val = id => $(id)?.value;
+    on('[data-fill]', b => { S.act.amount = Number(b.dataset.fill); renderAccount(); });
+    const pa = $('p-amt'); if (pa) pa.onchange = ev => { S.act.amount = Number(ev.target.value) || 0; S.act.date = val('p-date'); renderAccount(); };
+    const am = $('a-amt'); if (am) am.onchange = ev => { S.act.amount = Number(ev.target.value) || 0; renderAccount(); };
+    const amode = $('a-mode'); if (amode) amode.onchange = ev => { S.act.mode = ev.target.value; renderAccount(); };
+    on('[data-edit]', b => { S.act = { type: 'edit', loanId: b.dataset.edit }; renderAccount(); window.scrollTo({ top: $('account').offsetTop }); });
+    on('[data-close]', b => { S.act = { type: 'close', loanId: b.dataset.close }; renderAccount(); window.scrollTo({ top: $('account').offsetTop }); });
+    on('[data-reopen]', b => run(() => undoLoanClosure(e, b.dataset.reopen, opts()), () => 'Cierre deshecho: el préstamo volvió a abrirse.'));
+    on('[data-ask]', b => { S.ask = S.ask === b.dataset.ask ? null : b.dataset.ask; renderAccount(); });
+    on('[data-cancel]', () => { S.ask = null; renderAccount(); });
+    const askedMv = () => getAccountMovements(e, opts()).find(m => `${m.kind}:${m.id}` === S.ask);
+    const refOf = m => m.accountTxId ? { accountTxId: m.accountTxId } : m.kind === 'refinancing' || (m.kind === 'adjustment' && m.parts[0].adjustment?.ofKind === 'refinancing') ? { loanId: m.parts[0].loanId, refinancingId: m.parts[0].itemId } : { loanId: m.parts[0].loanId, paymentId: m.parts[0].itemId };
+    on('[data-void]', () => run(() => voidAccountMovement(e, refOf(askedMv()), opts()), r => `Anulado.${r.reallocated?.length ? ` Se volvieron a repartir ${r.reallocated.length} abono(s) posteriores.` : ''}`));
+    on('[data-adjust]', () => run(() => voidAccountMovement(e, refOf(askedMv()), { ...opts(), mode: VOID_MODE.ADJUST, date: val('adj-date') }), () => 'Ajuste creado; el cierre no cambió.'));
+    on('[data-fix]', () => run(() => voidAccountMovement(e, refOf(askedMv()), { ...opts(), mode: VOID_MODE.FIX_CLOSURE, reason: val('fix-why') }), r => `Cierre corregido: saldo ${M(r.before)} → ${M(r.after)}.`));
+    on('[data-undoedit]', b => { const [loanId, editId] = b.dataset.undoedit.split('|'); run(() => undoLoanEdit(e, loanId, editId, opts()), () => 'Corrección deshecha.'); });
+    on('[data-cancelagr]', b => run(() => cancelLoanAgreement(e, b.dataset.cancelagr, opts()), () => 'Acuerdo cancelado.'));
+    on('[data-save]', b => {
+        const t = b.dataset.save;
+        if (t === 'pay') run(() => recordAccountPayment(e, { amount: Number(val('p-amt')), date: val('p-date') }, opts()), r => `Abono guardado en ${r.payments.length} préstamo(s).`);
+        if (t === 'refi') run(() => refinanceAccount(e, { date: val('r-date'), nextDueDate: val('r-next') || undefined, interestRate: Number(val('r-rate')), basis: val('r-basis'), reason: val('r-why'), note: val('r-note') }, opts()), r => `Cargo de ${M(r.total)} en ${r.events.length} préstamo(s).`);
+        if (t === 'agree') run(() => saveLoanAgreement(e, { amount: Number(val('a-amt')), startPayDate: val('a-start'), interestMode: val('a-mode') === 'rate' ? AGREEMENT_INTEREST.RATE : AGREEMENT_INTEREST.NONE, rate: 5, onNewLoan: val('a-new') === 'review' ? AGREEMENT_NEW_LOANS.REVIEW : AGREEMENT_NEW_LOANS.INCLUDE }, opts()), a => `Acuerdo guardado${a.belowInterest ? ' (no cubre el interés: solo es aviso)' : ''}.`);
+        if (t === 'edit') { const l = e.loans.find(x => String(x.id) === S.act.loanId); const ch = { principal: Number(val('e-amt')), interestRate: Number(val('e-rate')), startDate: val('e-date') }; if (val('e-due')) ch.dueDate = val('e-due');
+            run(() => editLoan(e, l.id, ch, { ...opts(), reason: val('e-why') }), r => `Préstamo corregido: saldo ${M(r.balanceBefore)} → ${M(r.balanceAfter)}.`); }
+        if (t === 'close') run(() => closeLoanWithReason(e, S.act.loanId, { reason: val('c-why'), note: val('c-note'), by: 'pruebas' }, opts()), () => 'Préstamo cerrado.');
+    });
+}
+</script>
+</body>
+</html>

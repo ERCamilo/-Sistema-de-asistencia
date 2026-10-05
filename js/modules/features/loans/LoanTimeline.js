@@ -12,6 +12,9 @@
  *   - payment     → − interés primero, luego − capital
  *   - writeoff    → el saldo que quedaba sale del total (préstamo anulado)
  *   - settled     → préstamo marcado saldado que aún tenía saldo: se cierra
+ *   - adjustment  → ajuste que devuelve lo que tocó un movimiento de una
+ *                   nómina cerrada (+ capital, + interés, o − interés si
+ *                   devuelve un refinanciamiento)
  *
  * Un abono mayor al saldo de ese momento deja un excedente (p. ej. el mismo
  * abono registrado dos veces). El excedente no cuenta como abono en la línea
@@ -30,10 +33,11 @@ export const TIMELINE_KINDS = Object.freeze({
     PAYMENT: 'payment',
     REFINANCING: 'refinancing',
     WRITEOFF: 'writeoff',
-    SETTLED: 'settled'
+    SETTLED: 'settled',
+    ADJUSTMENT: 'adjustment'
 });
 
-const KIND_ORDER = { loan: 0, refinancing: 1, payment: 2, settled: 3, writeoff: 4 };
+const KIND_ORDER = { loan: 0, refinancing: 1, payment: 2, adjustment: 3, settled: 4, writeoff: 5 };
 
 function isoDate(value) {
     if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
@@ -66,6 +70,13 @@ export function collectLoanEvents(loan = {}) {
         if (event?.voided) continue;
         const date = isoDate(event.date) || isoDate(event.effectiveAt ?? event.createdAt);
         if (!date) continue;
+        if (event.adjustment) {
+            events.push({
+                kind: TIMELINE_KINDS.ADJUSTMENT, date, at: stamp(event.createdAt), loanId: loan.id, id: event.id,
+                capital: 0, interest: round2(Number(event.interestAmount || 0))
+            });
+            continue;
+        }
         events.push({
             kind: TIMELINE_KINDS.REFINANCING, date, at: stamp(event.effectiveAt ?? event.createdAt), loanId: loan.id,
             id: event.id, basis: event.basis || 'balance', replacement: !!event.replacementTerms,
@@ -76,6 +87,14 @@ export function collectLoanEvents(loan = {}) {
         if (payment?.voided) continue;
         const date = isoDate(payment.date) || isoDate(payment.recordedAt);
         if (!date) continue;
+        if (payment.adjustment) {
+            events.push({
+                kind: TIMELINE_KINDS.ADJUSTMENT, date, at: stamp(payment.recordedAt), loanId: loan.id, id: payment.id,
+                capital: round2(Number(payment.adjustment.capital || 0)),
+                interest: round2(Number(payment.adjustment.interest || 0))
+            });
+            continue;
+        }
         events.push({
             kind: TIMELINE_KINDS.PAYMENT, date, at: stamp(payment.recordedAt), loanId: loan.id,
             id: payment.id, amount: round2(Number(payment.amount || 0)),
@@ -118,6 +137,11 @@ export function replayLoan(loan = {}) {
             const i = absorb(event.interest);
             interest += i.net;
             push(event, { capital: 0, interest: round2(i.net) }, { creditUsed: i.used });
+        } else if (event.kind === TIMELINE_KINDS.ADJUSTMENT) {
+            // Devuelve exactamente lo que tocó el movimiento original; no usa el saldo a favor.
+            capital += event.capital;
+            interest += event.interest;
+            push(event, { capital: event.capital, interest: event.interest });
         } else {
             const toInterest = Math.min(event.amount, Math.max(0, interest));
             const toCapital = Math.min(event.amount - toInterest, Math.max(0, capital));
@@ -201,6 +225,7 @@ export function buildTimeline(entries = []) {
             newLoans: sum(TIMELINE_KINDS.LOAN),
             refinancings: sum(TIMELINE_KINDS.REFINANCING),
             writeOffs: round2(sum(TIMELINE_KINDS.WRITEOFF) + sum(TIMELINE_KINDS.SETTLED)),
+            adjustments: sum(TIMELINE_KINDS.ADJUSTMENT),
             excess: round2(items.reduce((total, item) => total + (item.excess || 0), 0)),
             result: round2(capital + interest),
             capital: round2(capital),
