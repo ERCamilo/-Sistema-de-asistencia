@@ -18,6 +18,7 @@
 
 import { registerLoanHistoryGlobals } from './LoanHistoryPanel.js';
 import { registerLoanDuplicateReviewGlobals } from './LoanDuplicateReview.js';
+import { registerLoanAccountGlobals } from './LoanAccountController.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
@@ -1205,6 +1206,7 @@ export function resetLoansKpiCards() {
  * Ledger UI. Called once at app boot from app.js.
  */
 export function registerLegacyGlobals() {
+    registerLoanAccountGlobals();
     if (typeof window === 'undefined') return;
     window.selectLoansEmployee = selectLoansEmployee;
     window.clearLoansEmployee = clearLoansEmployee;

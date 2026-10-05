@@ -53,6 +53,8 @@ import {
 import { detectLoanDuplicateCandidates } from './LoanDuplicateDetector.js';
 import { renderLoanHistoryPanel } from './LoanHistoryPanel.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
+import { LoanAccountDetail } from './LoanAccountView.js';
+import { useAccountView } from './LoanAccountController.js';
 import { isPendingUpload } from '../../services/EntitiesSyncStamp.js';
 import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import {
@@ -96,8 +98,10 @@ export function LoansLedger() {
     const selectedEmployee = ledger.selectedEmployeeId
         ? findScopedLoanEmployee(ledger.selectedEmployeeId)
         : null;
+    // Fase B: la ficha nueva («cuenta de préstamos»); se puede volver a la
+    // anterior por dispositivo con «Vista anterior».
     const body = selectedEmployee
-        ? EmployeeLoansDetail(selectedEmployee.id)
+        ? (useAccountView() ? LoanAccountDetail(selectedEmployee) : EmployeeLoansDetail(selectedEmployee.id))
         : LedgerOverview();
     // The picker and settings modal are overlays that can appear over either mode.
     return body +
@@ -893,6 +897,8 @@ function EmployeeLoansDetail(empId) {
                     <div style="font-size: 1.5rem; font-weight: 900; color: #f59e0b;">${formatCurrency(totalBalance)}</div>
                 </div>
             </div>
+
+            <div class="la-classic-note">Estás en la ficha anterior. <button type="button" class="la-link" data-app-fn="laUseClassicView" data-arg="0">Usar la cuenta de préstamos</button></div>
 
             <!-- Employee KPI stats cards & unified gear customization -->
             <div class="loan-kpis-header">
