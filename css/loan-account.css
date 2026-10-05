@@ -196,3 +196,29 @@
 .la-hub__history .loan-history.is-embedded { margin: 0; background: none; border: 0; box-shadow: none; padding: 0; }
 .la-hub__dup .loan-dup--embedded { margin: 0; border: 0; border-top: 1px solid rgba(245, 158, 11, .45); border-radius: 0; }
 .la-hub__dup .loan-dup--embedded .loan-dup__summary { padding: 10px 16px; }
+
+/* 📊 Historial «Por mes» / «Por periodo» (LoanFlowChart) — también en la vista general */
+.loan-history__views { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.lf-tabs { display: inline-flex; gap: 4px; background: rgba(15, 23, 42, .6); border: 1px solid #334155; border-radius: 10px; padding: 3px; }
+.lf-tabs button { border: 0; background: none; color: #94a3b8; font: inherit; font-size: .8rem; font-weight: 700; padding: 6px 12px; border-radius: 7px; cursor: pointer; }
+.lf-tabs button[aria-selected="true"] { background: #334155; color: #f1f5f9; }
+.lf-detail { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 700; color: #f1f5f9; border: 1px solid #475569; border-radius: 9px; padding: 5px 10px; cursor: pointer; }
+.lf-detail input { accent-color: #ffc61a; margin: 0; }
+.lf-card .lf-chart { width: 100%; height: auto; display: block; }
+.lf-chart .lf-sel { fill: rgba(255, 255, 255, .06); }
+.lf-chart .lf-hit { cursor: pointer; }
+.lf-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .72rem; color: #cbd5e1; margin: 4px 0 6px; }
+.lf-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.lf-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.lf-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; background: rgba(15, 23, 42, .55); border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; margin-top: 10px; font-size: .8rem; color: #cbd5e1; }
+.lf-panel__t { grid-column: 1 / -1; color: #f1f5f9; }
+.lf-panel h5 { margin: 0 0 4px; font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: #94a3b8; }
+@media (max-width: 620px) { .lf-panel { grid-template-columns: 1fr; } }
+.lf-r { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; padding: 2px 0; }
+.lf-r i { width: 10px; height: 10px; border-radius: 2px; }
+.lf-r b { color: #f1f5f9; font-variant-numeric: tabular-nums; font-weight: 600; }
+.lf-r.is-sub { grid-template-columns: 1fr auto; padding-left: 18px; font-size: .74rem; color: #94a3b8; }
+.lf-r.is-sub2 { padding-left: 14px; font-size: .76rem; }
+.lf-r.is-tot { border-top: 1px solid #334155; margin-top: 4px; padding-top: 5px; }
+.lf-r.is-tot span, .lf-r.is-tot b { font-weight: 800; color: #f1f5f9; }
+.lf-note { margin: 4px 0; font-size: .74rem; color: #94a3b8; }

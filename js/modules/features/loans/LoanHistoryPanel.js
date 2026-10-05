@@ -10,6 +10,12 @@
  * pantalla, por panel.
  */
 import { buildTimeline } from './LoanTimeline.js';
+import { state } from '../../core/AppState.js';
+import { getDateKey } from '../../utils/DateUtils.js';
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
+import {
+    buildFlowBuckets, computeLoanFlows, closedPeriodEndsOf, renderFlowChart, renderFlowLegend, renderFlowPanel
+} from './LoanFlowChart.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 
@@ -30,7 +36,7 @@ const PRIORITY = ['refinancing', 'loan', 'writeoff', 'settled', 'adjustment', 'p
 const panels = new Map();
 
 function panelState(scope) {
-    if (!panels.has(scope)) panels.set(scope, { open: false, range: 'Todo', date: null });
+    if (!panels.has(scope)) panels.set(scope, { open: false, range: 'Todo', date: null, view: 'saldo', detailed: false, bucket: null });
     return panels.get(scope);
 }
 
@@ -195,6 +201,27 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
     // embedded: dentro de la tarjeta principal de la cuenta (que ya muestra el saldo); solo el cuerpo abierto.
     if (!panel.open) return embedded ? '' : `<section class="loan-history" data-loan-history="${scopeArg}">${summary}</section>`;
 
+    const viewTabs = `
+                <div class="loan-history__views">
+                    <div class="lf-tabs" role="tablist" aria-label="Vista del historial">
+                        ${[['saldo', 'Saldo'], ['month', 'Por mes'], ['period', 'Por periodo']].map(([key, label]) => `<button type="button" role="tab" aria-selected="${panel.view === key}" data-app-fn="setLoanHistoryView" data-arg="${scopeArg}" data-arg2="${key}">${label}</button>`).join('')}
+                    </div>
+                    ${panel.view !== 'saldo' ? `<label class="lf-detail"><input type="checkbox" ${panel.detailed ? 'checked' : ''} onchange="toggleLoanHistoryDetail('${scopeArg}')"> Detallado</label>` : ''}
+                </div>`;
+    if (panel.view !== 'saldo') {
+        return `
+        <section class="loan-history is-open${embedded ? ' is-embedded' : ''}" data-loan-history="${scopeArg}">
+            ${embedded ? '' : summary}
+            <div class="loan-history__body">
+                ${viewTabs}
+                <div class="loan-history__ranges" role="group" aria-label="Periodo">
+                    ${HISTORY_RANGES.map(([key]) => `<button type="button" data-app-fn="setLoanHistoryRange" data-arg="${scopeArg}" data-arg2="${key}" aria-pressed="${panel.range === key}">${key}</button>`).join('')}
+                </div>
+                ${renderFlowSection(panel, scope, employees, all)}
+            </div>
+        </section>`;
+    }
+
     const days = daysInRange(all, panel.range);
     let selected = days.find(day => day.date === panel.date) || days.at(-1);
     if (panel.step) {
@@ -216,6 +243,7 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
         <section class="loan-history is-open${embedded ? ' is-embedded' : ''}" data-loan-history="${scopeArg}">
             ${embedded ? '' : summary}
             <div class="loan-history__body">
+                ${viewTabs}
                 <div class="loan-history__ranges" role="group" aria-label="Periodo">
                     ${HISTORY_RANGES.map(([key]) => `<button type="button" data-app-fn="setLoanHistoryRange" data-arg="${scopeArg}" data-arg2="${key}" aria-pressed="${panel.range === key}">${key}</button>`).join('')}
                 </div>
@@ -271,6 +299,51 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
         </section>`;
 }
 
+/** «Por mes» / «Por periodo»: barras de lo que se debía frente a lo cobrado y lo que faltó. */
+function renderFlowSection(panel, scope, employees, allDays) {
+    const kind = panel.view === 'period' ? 'period' : 'month';
+    const today = getDateKey(new Date());
+    const payPeriod = getActivePayrollSettings(state).payPeriod;
+    if (kind === 'period' && !(Number(payPeriod?.periodLength) > 0)) {
+        return '<p class="lf-note">Configura el periodo de Nómina para ver la vista por periodo.</p>';
+    }
+    const visible = daysInRange(allDays, panel.range);
+    const from = (visible[0] || allDays[0]).date;
+    const buckets = buildFlowBuckets(kind, { from, to: today, payPeriod });
+    if (!buckets.length) return '';
+    const flows = computeLoanFlows(employees.flatMap(emp => emp.loans || []), buckets);
+    // Sin elección: el último mes o nómina con movimientos (el en curso puede estar vacío).
+    const active = o => o.nNew || o.nRefi || o.payOld + o.paySame + o.excess + o.gift + o.adjustUp + o.adjustDown > 0.004;
+    const selected = buckets.some(b => b.key === panel.bucket) ? panel.bucket
+        : ([...buckets].reverse().find(b => active(flows.get(b.key))) || buckets.at(-1)).key;
+    const bucket = buckets.find(b => b.key === selected);
+    return `
+        <div class="loan-history__chart-card lf-card">
+            <div class="loan-history__chart-head"><div><h4><span aria-hidden="true">📊</span> ${kind === 'period' ? 'Por periodo de nómina' : 'Por mes'}</h4><small>Barra izquierda: lo que se debía · derecha: lo que se cobró${panel.detailed ? ' y lo que faltó' : ''}. Toca una barra para ver el detalle.</small></div></div>
+            ${renderFlowLegend(panel.detailed)}
+            ${renderFlowChart({ scope, buckets, flows, selected, detailed: panel.detailed, today, closedEnds: closedPeriodEndsOf(employees) })}
+        </div>
+        ${renderFlowPanel({ kind, bucket, flow: flows.get(selected), buckets, today })}`;
+}
+
+export function setLoanHistoryView(scope, view) {
+    const panel = panelState(String(scope));
+    panel.view = ['saldo', 'month', 'period'].includes(view) ? view : 'saldo';
+    panel.bucket = null;
+    rerender();
+}
+
+export function toggleLoanHistoryDetail(scope) {
+    const panel = panelState(String(scope));
+    panel.detailed = !panel.detailed;
+    rerender();
+}
+
+export function selectLoanHistoryBucket(scope, key) {
+    panelState(String(scope)).bucket = String(key);
+    rerender();
+}
+
 function rerender() {
     try { (typeof window !== 'undefined' && window.render)?.(); } catch (_) {}
 }
@@ -312,6 +385,9 @@ export function loanHistoryKey(event, scope) {
 export function registerLoanHistoryGlobals() {
     if (typeof window === 'undefined') return;
     window.toggleLoanHistory = toggleLoanHistory;
+    window.setLoanHistoryView = setLoanHistoryView;
+    window.toggleLoanHistoryDetail = toggleLoanHistoryDetail;
+    window.selectLoanHistoryBucket = selectLoanHistoryBucket;
     window.setLoanHistoryRange = setLoanHistoryRange;
     window.selectLoanHistoryDate = selectLoanHistoryDate;
     window.stepLoanHistory = stepLoanHistory;
