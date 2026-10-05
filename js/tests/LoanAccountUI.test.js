@@ -252,4 +252,14 @@ describe('Ficha cuenta de préstamos', () => {
         expect(emp.loans[2].payments.at(-1)).toMatchObject({ origin: 'direct', needsReview: false });
         expect(text()).not.toContain('Abonos por revisar');
     });
+
+    test('el movimiento del préstamo muestra capital (azul) e interés (amarillo)', () => {
+        const { emp } = seed();
+        laSetTab('mov');
+        const body = html();
+        const row = [...body.querySelectorAll('.la-mv')].find(r => r.textContent.includes('Préstamo #3'));
+        expect(row.querySelector('.la-mv__a .la-t-cap').textContent).toBe('$3,000 capital');
+        expect(row.querySelector('.la-mv__a .la-t-int').textContent).toBe('$600 interés');
+        expect(emp.loans.length).toBe(5);
+    });
 });
