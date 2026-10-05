@@ -34,7 +34,7 @@ import {
 } from '../features/payroll/PayrollAdjustmentInstallmentPlan.js';
 
 const ARRAY_FIELDS_BY_ID = ['loans', 'advances', 'bonuses', 'deductions'];
-const LOAN_NESTED_BY_ID  = ['payments', 'installments', 'refinancings'];
+const LOAN_NESTED_BY_ID  = ['payments', 'installments', 'refinancings', 'edits'];
 
 function hasUsableId(item, idKey) {
     const k = item?.[idKey];
@@ -310,6 +310,10 @@ export function mergeEmployees(server, local) {
     out.loans = unionById(server.loans, local.loans, 'id',
         (winLoan, loseLoan, sL, lL) => mergeLoan(winLoan, loseLoan, sL, lL));
     out.advances = unionById(server.advances, local.advances);
+    // Acuerdos de pago de la cuenta de préstamos: registro por id (se anulan, no se borran).
+    if (Array.isArray(server.loanAgreements) || Array.isArray(local.loanAgreements)) {
+        out.loanAgreements = unionById(server.loanAgreements, local.loanAgreements);
+    }
     out.bonuses = mergeAdjustmentEntries(
         server.bonuses,
         local.bonuses,
