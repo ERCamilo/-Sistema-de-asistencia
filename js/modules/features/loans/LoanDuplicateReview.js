@@ -179,14 +179,14 @@ function countText(counts) {
  * @param {string} args.scope   'general' o el id del empleado
  * @param {Array}  args.employees empleados ya filtrados por obra
  */
-export function renderLoanDuplicateReview({ scope = 'general', employees = [] } = {}) {
+export function renderLoanDuplicateReview({ scope = 'general', employees = [], embedded = false } = {}) {
     const result = findLoanRecordDuplicates(employees);
     if (result.counts.total === 0) return '';
     const isOpen = openScopes.has(String(scope));
     const loansById = new Map(employees.flatMap(emp => (emp.loans || []).map(loan => [String(loan.id), loan])));
     const selectedCount = result.loans.reduce((total, item) => total + selectedFor(item).size, 0);
     return `
-        <section class="loan-dup" aria-label="Posibles registros repetidos">
+        <section class="loan-dup${embedded ? ' loan-dup--embedded' : ''}" aria-label="Posibles registros repetidos">
             <button type="button" class="loan-dup__summary" data-app-fn="toggleLoanDuplicateReview" data-arg="${escapeAttr(String(scope))}" aria-expanded="${isOpen}">
                 <span class="loan-dup__icon" aria-hidden="true">${icons.get('alert', { size: 18 })}</span>
                 <span class="loan-dup__title">

@@ -674,8 +674,12 @@ export function listPayrollLoanSettlementBatches(employees, {
             : [...linkedById.values()];
         const missingPaymentCount = Math.max(0, expectedCount - foundExpected.length);
         const incomplete = expectedCount === 0 || missingPaymentCount > 0;
+        // Un abono anulado al deshacer una consolidación sigue vivo en sus partes
+        // convertidas: el cierre solo cuenta como anulado si esas partes también lo están.
+        const isVoid = payment => payment.voided === true && (payment.voidReason !== 'consolidation-undone' ||
+            entries.filter(entry => text(entry.payment.convertedFrom?.paymentId) === text(payment.id)).every(entry => entry.payment.voided));
         const voided = !incomplete && foundExpected.length > 0 &&
-            foundExpected.every(({ payment }) => payment.voided === true);
+            foundExpected.every(({ payment }) => isVoid(payment));
         const voidedPayment = voided
             ? foundExpected.map(entry => entry.payment)
                 .sort((left, right) => Number(right.voidedAt || 0) - Number(left.voidedAt || 0))[0]
@@ -745,6 +749,14 @@ export function undoPayrollLoanSettlementBatch(employees, batchId, {
         return target;
     });
     let voidedCount = 0;
+    // Un abono de un préstamo consolidado que luego se deshizo vive en las partes
+    // convertidas (convertedFrom): al deshacer el cierre se anulan también.
+    for (const { payment } of [...targets]) {
+        if (!(payment.voided && payment.voidReason === 'consolidation-undone')) continue;
+        for (const entry of entries) {
+            if (entry.payment.convertedFrom?.paymentId === payment.id && !entry.payment.voided) targets.push(entry);
+        }
+    }
     for (const { employee, loan, payment } of targets) {
         if (payment.voided) continue;
         if (isProjectsEnabled()) {

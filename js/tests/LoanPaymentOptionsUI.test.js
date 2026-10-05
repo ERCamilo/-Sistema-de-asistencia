@@ -6,6 +6,10 @@ import {
     updateLoanPaymentDraft
 } from '../modules/features/loans/LoanPaymentPlan.js';
 
+// Estas pruebas cubren la ficha anterior (sigue disponible con «Vista anterior»).
+beforeEach(() => { localStorage.setItem('loans-account-view', 'classic'); });
+afterAll(() => { localStorage.removeItem('loans-account-view'); });
+
 function seedInstallmentPaymentForm() {
     const loan = {
         id: 'loan-1',

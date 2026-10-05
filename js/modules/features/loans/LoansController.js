@@ -18,6 +18,8 @@
 
 import { registerLoanHistoryGlobals } from './LoanHistoryPanel.js';
 import { registerLoanDuplicateReviewGlobals } from './LoanDuplicateReview.js';
+import { registerLoanAccountGlobals } from './LoanAccountController.js';
+import { nextLoanNumber } from './LoanDataBackfill.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
@@ -31,7 +33,6 @@ import {
     deleteLoan,
     refinanceLoan,
     voidRefinancing,
-    consolidateLoans,
     getCalendarPeriodWeeks,
     migrateAdvancesToLoans,
     getBalance,
@@ -443,7 +444,9 @@ export function setLoanDraftField(field, value) {
 function _doCreateLoan(emp) {
     const draft = state.loansLedger.newLoanDraft;
     try {
+        const number = nextLoanNumber(emp.loans);
         const loan = createLoan(emp, draft, { projectScope: captureEntityProjectScope() });
+        if (number) { const stored = (emp.loans || []).find(l => l.id === loan.id); if (stored) stored.number = number; }
         state.loansLedger.showAddForm = false;
         state.loansLedger.newLoanDraft = createEmptyLoanDraft();
         // Toast honesto: lo emite SaveOutcomeNotifier con el resultado REAL.
@@ -840,89 +843,6 @@ export function voidRefinanceHandler(loanId, refinId) {
 
 // ─── Consolidación de deuda ──────────────────────────────────────────────────
 
-export function toggleConsolidateForm() {
-    ensureLedgerState();
-    stateManager.batchSetState(() => {
-        state.loansLedger.showConsolidateForm = !state.loansLedger.showConsolidateForm;
-        if (state.loansLedger.showConsolidateForm) {
-            state.loansLedger.showAddForm = false;
-            state.loansLedger.showRefinanceFormForLoan = null;
-            state.loansLedger.showPaymentFormForLoan = null;
-            state.loansLedger.consolidateDraft = {
-                installmentCount: 1,
-                installmentFrequencyWeeks: Math.round(getCalendarPeriodWeeks(state)) || 2,
-                interestRate: 0,
-                note: '',
-                startDate: getDateKey(new Date()),
-                showAdvanced: false
-            };
-        } else {
-            state.loansLedger.consolidateDraft = null;
-        }
-    });
-    render();
-}
-
-export function toggleConsolidateAdvancedOptions() {
-    ensureLedgerState();
-    const draft = state.loansLedger?.consolidateDraft;
-    if (draft) {
-        draft.showAdvanced = !draft.showAdvanced;
-        render();
-    }
-}
-
-export function setConsolidateDraftField(field, value) {
-    ensureLedgerState();
-    const draft = state.loansLedger.consolidateDraft;
-    if (!draft) return;
-    if (field === 'installmentCount' || field === 'installmentFrequencyWeeks' || field === 'interestRate') {
-        draft[field] = Number(value) || 0;
-    } else {
-        draft[field] = value;
-    }
-    render();
-}
-
-export function submitConsolidateLoans() {
-    ensureLedgerState();
-    const empId = state.loansLedger.selectedEmployeeId;
-    if (!empId) {
-        alertMsg('Selecciona un empleado primero');
-        return;
-    }
-    const emp = findScopedLoanEmployee(empId);
-    if (!emp) {
-        alertMsg('Empleado no disponible en el proyecto activo');
-        return;
-    }
-
-    const draft = state.loansLedger.consolidateDraft || {};
-    try {
-        const { consolidatedLoan, closedLoans } = consolidateLoans(emp, {
-            installmentCount: Number(draft.installmentCount || 1),
-            installmentFrequencyWeeks: Number(draft.installmentFrequencyWeeks || 2),
-            interestRate: Number(draft.interestRate || 0),
-            startDate: draft.startDate,
-            note: draft.note
-        }, null, { projectScope: captureEntityProjectScope() });
-
-        stateManager.batchSetState(() => {
-            state.loansLedger.showConsolidateForm = false;
-            state.loansLedger.consolidateDraft = null;
-        });
-
-        saveApplicationData({
-            immediate: true,
-            announce: `Deuda consolidada: ${closedLoans.length} préstamos unificados en $${consolidatedLoan.principal.toFixed(2)}`
-        });
-        render();
-    } catch (err) {
-        alertMsg(`❌ ${err.message}`);
-    }
-}
-
-
 export function toggleInactiveHistory() {
     ensureLedgerState();
     stateManager.batchSetState(() => {
@@ -1072,21 +992,14 @@ export function setLoansKpiDensity(density) {
 
 /**
  * Aplica la cantidad de cuotas sugerida por el asistente de viabilidad
- * al borrador del formulario activo (alta, refinanciamiento o consolidación).
+ * al borrador del formulario activo (alta o refinanciamiento).
  */
 export function applySuggestedInstallmentCount(count) {
     const num = parseInt(count, 10);
     if (!num || num <= 0) return;
 
     const ledger = state.loansLedger || {};
-    if (ledger.showConsolidateForm) {
-        stateManager.batchSetState(() => {
-            if (state.loansLedger?.consolidateDraft) {
-                state.loansLedger.consolidateDraft.showAdvanced = true;
-            }
-        });
-        setConsolidateDraftField('installmentCount', num);
-    } else if (ledger.refinancingLoanId) {
+    if (ledger.refinancingLoanId) {
         setRefinanceDraftField('mode', 'installments');
         setRefinanceDraftField('installmentCount', num);
     } else {
@@ -1205,6 +1118,7 @@ export function resetLoansKpiCards() {
  * Ledger UI. Called once at app boot from app.js.
  */
 export function registerLegacyGlobals() {
+    registerLoanAccountGlobals();
     if (typeof window === 'undefined') return;
     window.selectLoansEmployee = selectLoansEmployee;
     window.clearLoansEmployee = clearLoansEmployee;
@@ -1233,10 +1147,6 @@ export function registerLegacyGlobals() {
     window.setRefinanceDraftField = setRefinanceDraftField;
     window.submitRefinance = submitRefinance;
     window.voidRefinanceHandler = voidRefinanceHandler;
-    window.toggleConsolidateForm = toggleConsolidateForm;
-    window.toggleConsolidateAdvancedOptions = toggleConsolidateAdvancedOptions;
-    window.setConsolidateDraftField = setConsolidateDraftField;
-    window.submitConsolidateLoans = submitConsolidateLoans;
     window.setLoansFilterView = setLoansFilterView;
     window.setLoansSortBy = setLoansSortBy;
     window.setLoansSortOrder = setLoansSortOrder;

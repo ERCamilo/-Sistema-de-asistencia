@@ -183,6 +183,11 @@ const createdOrder = loan => Number(loan?.createdAt) || Date.parse(loan?.startDa
 
 /** Número de cada préstamo del empleado (#1, #2…) por orden de creación. */
 export function getLoanNumbers(loans = []) {
+    // Número fijo guardado (fase D): se usa si todos lo tienen y no se repite.
+    const list = loans || [];
+    if (list.length && list.every(l => Number.isInteger(l.number)) && new Set(list.map(l => l.number)).size === list.length) {
+        return new Map(list.map(l => [l.id, l.number]));
+    }
     const sorted = [...(loans || [])].sort((a, b) => createdOrder(a) - createdOrder(b)
         || String(a.startDate || '').localeCompare(String(b.startDate || ''))
         || String(a.id).localeCompare(String(b.id)));
@@ -281,7 +286,7 @@ function paymentParams(params, part, txId, origin) {
         accountTxId: txId,
         allocation: { interest: part.interest, capital: part.capital }
     };
-    for (const field of ['recordedAt', 'source', 'payrollPeriodStart', 'payrollPeriodEnd', 'payrollClosureId']) {
+    for (const field of ['recordedAt', 'source', 'channel', 'payrollPeriodStart', 'payrollPeriodEnd', 'payrollClosureId']) {
         if (params[field] != null) out[field] = params[field];
     }
     return out;
@@ -753,7 +758,7 @@ export function getAccountMovements(emp, options = {}) {
                 accountTxId: payment.accountTxId || null
             });
             const split = isAdj ? { interest: payment.adjustment.interest, capital: payment.adjustment.capital } : getPaymentSplit(loan, payment);
-            g.parts.push({ loanId: loan.id, number, itemId: payment.id, amount: Number(payment.amount || 0), ...split, voided: !!payment.voided, voidReason: payment.voidReason || null, lock: getMovementLock(payment, options), adjustedBy: payment.adjustedBy || null, closureFix: payment.closureFix || null, adjustment: payment.adjustment || null });
+            g.parts.push({ loanId: loan.id, number, itemId: payment.id, amount: Number(payment.amount || 0), ...split, voided: !!payment.voided, needsReview: !!payment.needsReview, voidReason: payment.voidReason || null, lock: getMovementLock(payment, options), adjustedBy: payment.adjustedBy || null, closureFix: payment.closureFix || null, adjustment: payment.adjustment || null });
         }
         for (const event of loan.refinancings || []) {
             const isAdj = !!event.adjustment;

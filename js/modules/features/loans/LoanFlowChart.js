@@ -1,0 +1,240 @@
+/**
+ * 📊 LoanFlowChart — «Por mes» y «Por periodo» del historial de préstamos.
+ *
+ * Para cada mes o nómina compara lo que se debía con lo que pasó:
+ *   izquierda  = venía de antes (de eso, capital refinanciado) + capital nuevo
+ *                + interés al prestar + interés por refinanciar (+ ajustes)
+ *   derecha    = cobrado (interés / capital) + pagado de más (rayado: posible
+ *                error) + lo que faltó por cobrar de lo que venía
+ *
+ * Reglas (verificadas con la maqueta de la pantalla de Préstamos):
+ *   - Todo sale de reproducir cada préstamo (LoanTimeline: interés primero).
+ *   - Los préstamos anulados son errores de registro: no entran.
+ *   - El capital refinanciado se cuenta una vez por préstamo y periodo; si el
+ *     préstamo es del mismo periodo ya está en «capital nuevo».
+ *   - Faltó = venía de antes + interés refinanciado de préstamos viejos
+ *             − perdonado de préstamos viejos − cobrado a préstamos viejos.
+ *   - Cada periodo cuadra: venía + nuevo + interés + refinanciado ± ajustes
+ *     − cobrado − perdonado = quedó.
+ * Funciones puras salvo renderFlowChart/renderFlowPanel, que solo arman HTML.
+ */
+
+import { LOAN_STATUS, round2 } from './LoansService.js';
+import { replayLoan } from './LoanTimeline.js';
+import { buildPayPeriods } from './LoanPayPeriods.js';
+import { formatCurrency } from '../../utils/Formatters.js';
+import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
+
+const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const DAY = 86_400_000;
+const toTime = key => Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)));
+const lastDayOfMonth = (y, m) => new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+const dmShort = key => `${Number(key.slice(8, 10))}/${Number(key.slice(5, 7))}`;
+
+/** Meses o nóminas desde `from` hasta `to` (incluidos). */
+export function buildFlowBuckets(kind, { from, to, payPeriod = null } = {}) {
+    if (!from || !to || from > to) return [];
+    if (kind === 'period') {
+        const length = Number(payPeriod?.periodLength);
+        if (!Number.isInteger(length) || length < 1) return [];
+        const before = Math.ceil((toTime(to) - toTime(from)) / (length * DAY)) + 2;
+        return buildPayPeriods(payPeriod, to, { before, after: 0 })
+            .filter(p => p.end >= from)
+            .map(p => ({ key: `${p.start}|${p.end}`, start: p.start, end: p.end, payDate: p.payDate, label: `${dmShort(p.start)}–${dmShort(p.end)}`, long: `Periodo ${dmShort(p.start)} – ${dmShort(p.end)}` }));
+    }
+    const out = [];
+    let y = Number(from.slice(0, 4));
+    let m = Number(from.slice(5, 7));
+    const endY = Number(to.slice(0, 4));
+    const endM = Number(to.slice(5, 7));
+    while (y < endY || (y === endY && m <= endM)) {
+        const key = `${y}-${String(m).padStart(2, '0')}`;
+        out.push({ key, start: `${key}-01`, end: lastDayOfMonth(y, m), label: MONTHS[m - 1], long: `${MONTHS_LONG[m - 1]} ${y}` });
+        m++;
+        if (m > 12) { m = 1; y++; }
+    }
+    return out;
+}
+
+const empty = () => ({
+    open: 0, newCap: 0, newInt: 0, nNew: 0, refiInt: 0, refiIntOld: 0, refiCap: 0, refiCapOld: 0, nRefi: 0, nRefiOld: 0,
+    refiFrom: {}, payOld: 0, paySame: 0, payInt: 0, payCap: 0, payFrom: {}, excess: 0, gift: 0, giftOld: 0,
+    adjustUp: 0, adjustDown: 0, missing: 0, end: 0
+});
+
+/**
+ * Calcula cada mes o nómina para un conjunto de préstamos.
+ * @param {Array<object>} loans
+ * @param {Array<{key,start,end}>} buckets
+ * @returns {Map<string, object>} por clave de bucket
+ */
+export function computeLoanFlows(loans = [], buckets = []) {
+    const out = new Map(buckets.map(b => [b.key, empty()]));
+    if (!buckets.length) return out;
+    const bucketOf = date => buckets.find(b => b.start <= date && date <= b.end) || null;
+    const steps = [];
+    for (const loan of loans) {
+        if (!loan || loan.status === LOAN_STATUS.WRITTEN_OFF) continue;
+        const replay = replayLoan(loan);
+        const born = replay.steps.find(s => s.kind === 'loan')?.date || loan.startDate || '';
+        for (const step of replay.steps) steps.push({ ...step, born, bornKey: bucketOf(born)?.key || null });
+    }
+    for (const bucket of buckets) {
+        const o = out.get(bucket.key);
+        const old = step => step.born < bucket.start;
+        let open = 0;
+        let end = 0;
+        const refinanced = new Set();
+        for (const step of steps) {
+            const value = step.delta.capital + step.delta.interest;
+            if (step.date < bucket.start) open += value;
+            if (step.date <= bucket.end) end += value;
+            if (step.date < bucket.start || step.date > bucket.end) continue;
+            if (step.kind === 'loan') {
+                o.newCap += step.delta.capital; o.newInt += step.delta.interest; o.nNew++;
+            } else if (step.kind === 'refinancing') {
+                o.refiInt += step.delta.interest;
+                if (old(step)) o.refiIntOld += step.delta.interest;
+                if (!refinanced.has(step.loanId)) {
+                    refinanced.add(step.loanId);
+                    o.refiCap += step.capitalAfter; o.nRefi++;
+                    if (old(step)) {
+                        o.refiCapOld += step.capitalAfter; o.nRefiOld++;
+                        const from = step.bornKey || 'antes';
+                        o.refiFrom[from] = (o.refiFrom[from] || 0) + step.capitalAfter;
+                    }
+                }
+            } else if (step.kind === 'payment') {
+                const paid = -value;
+                o.payInt += -step.delta.interest; o.payCap += -step.delta.capital;
+                if (old(step)) o.payOld += paid; else o.paySame += paid;
+                const from = step.bornKey || 'antes';
+                o.payFrom[from] = (o.payFrom[from] || 0) + paid;
+                o.excess += step.excess || 0;
+            } else if (step.kind === 'adjustment') {
+                if (value >= 0) o.adjustUp += value; else o.adjustDown += -value;
+            } else if (step.kind === 'settled' || step.kind === 'writeoff') {
+                o.gift += -value;
+                if (old(step)) o.giftOld += -value;
+            }
+        }
+        o.open = open;
+        o.end = end;
+        o.missing = Math.max(0, open + o.refiIntOld - o.giftOld - o.payOld);
+        for (const key of Object.keys(o)) {
+            if (typeof o[key] === 'number') o[key] = round2(o[key]);
+            else if (o[key] && typeof o[key] === 'object') for (const k of Object.keys(o[key])) o[key][k] = round2(o[key][k]);
+        }
+    }
+    return out;
+}
+
+/** Nóminas (fin de periodo) con abonos ligados a un cierre vigente. */
+export function closedPeriodEndsOf(employees = []) {
+    const ends = new Set();
+    for (const emp of employees) for (const loan of emp.loans || []) for (const p of loan.payments || []) {
+        if (!p.voided && p.payrollClosureId && p.payrollPeriodEnd) ends.add(p.payrollPeriodEnd);
+    }
+    return ends;
+}
+
+// ─── Dibujo ──────────────────────────────────────────────────────────────────
+
+const M0 = v => '$' + Math.round(Number(v || 0)).toLocaleString('en-US');
+const left = (o, detailed) => o.open + o.newCap + o.newInt + o.refiInt + o.adjustUp;
+const right = o => o.payInt + o.payCap + o.excess + o.missing + o.adjustDown;
+const niceStep = max => { const raw = max / 4; const p = 10 ** Math.floor(Math.log10(raw || 1)); return [1, 2, 2.5, 5, 10].map(f => f * p).find(s => s >= raw) || p * 10; };
+
+/**
+ * Barras dobles por mes o nómina. `detailed` separa el capital refinanciado,
+ * el interés y lo que faltó; sin detalle muestra lo que se debía y lo cobrado.
+ */
+export function renderFlowChart({ scope, buckets, flows, selected, detailed, today, closedEnds = new Set() }) {
+    const W = 680, H = 250, Lp = 42, Rp = 8, T = 14, B = 30;
+    const max0 = Math.max(1, ...buckets.map(b => Math.max(left(flows.get(b.key)), right(flows.get(b.key)))));
+    const step = niceStep(max0);
+    const max = Math.ceil(max0 / step) * step;
+    const y = v => T + (H - T - B) * (1 - v / max);
+    const cw = (W - Lp - Rp) / Math.max(1, buckets.length);
+    const bw = Math.max(3, Math.min(22, cw * 0.3));
+    const scopeArg = escapeAttr(scope);
+    let g = '<defs><pattern id="lf-stripe" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(16,217,138,.16)"></rect><rect width="2.6" height="6" fill="#10d98a"></rect></pattern>'
+        + '<pattern id="lf-stripe-adj" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(251,146,60,.16)"></rect><rect width="2.6" height="6" fill="#fb923c"></rect></pattern></defs>';
+    for (let v = 0; v <= max; v += step) {
+        g += `<line x1="${Lp}" x2="${W - Rp}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"></line><text x="${Lp - 6}" y="${y(v) + 4}" fill="#7c858d" font-size="10" text-anchor="end">${v >= 1000 ? `${round2(v / 1000)}k` : v}</text>`;
+    }
+    const labelEvery = Math.ceil(buckets.length / 12);
+    buckets.forEach((b, i) => {
+        const o = flows.get(b.key);
+        const cx = Lp + cw * i + cw / 2;
+        const isSel = b.key === selected;
+        const current = b.start <= today && today <= b.end;
+        const closed = b.payDate && closedEnds.has(b.end);
+        if (isSel) g += `<rect class="lf-sel" x="${Lp + cw * i + 2}" y="${T - 8}" width="${cw - 4}" height="${H - T - B + 8}" rx="6"></rect>`;
+        const stack = (x, list) => {
+            let acc = 0;
+            for (const [v, fill, title] of list) {
+                if (!(v > 0.004)) continue;
+                g += `<rect x="${x.toFixed(1)}" y="${y(acc + v).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5, y(acc) - y(acc + v)).toFixed(1)}" fill="${fill}"><title>${escapeHTML(b.label)} · ${escapeHTML(title)} ${M0(v)}</title></rect>`;
+                acc += v;
+            }
+        };
+        if (detailed) {
+            stack(cx - bw - 2, [[o.refiCapOld, '#0b6fa3', 'venía de antes: capital refinanciado'], [o.open - o.refiCapOld, '#5b6670', 'venía de antes'], [o.newCap, '#1fb6ff', 'capital nuevo'], [o.newInt, '#ffc61a', 'interés al prestar'], [o.refiInt, '#a855f7', 'interés por refinanciar'], [o.adjustUp, 'url(#lf-stripe-adj)', 'ajuste de nómina cerrada']]);
+            stack(cx + 2, [[o.payInt, '#0a8f5b', 'cobrado: interés'], [o.payCap, '#10d98a', 'cobrado: capital'], [o.excess, 'url(#lf-stripe)', 'pagado de más (posible error)'], [o.adjustDown, 'url(#lf-stripe-adj)', 'ajuste de nómina cerrada'], [o.missing, 'rgba(162,171,179,.28)', current ? 'falta por cobrar de lo que venía' : 'faltó por cobrar de lo que venía']]);
+        } else {
+            stack(cx - bw - 2, [[o.open, '#5b6670', 'venía de antes'], [o.newCap + o.newInt, '#1fb6ff', 'prestado (capital + interés)'], [o.refiInt + o.adjustUp, '#a855f7', 'interés por refinanciar']]);
+            stack(cx + 2, [[o.payInt + o.payCap, '#10d98a', 'cobrado'], [o.excess, 'url(#lf-stripe)', 'pagado de más (posible error)']]);
+        }
+        if (i % labelEvery === 0 || isSel) {
+            g += `<text x="${cx}" y="${H - 15}" fill="${isSel ? '#ebeef0' : '#a2abb3'}" font-size="${buckets.length > 8 ? 9 : 10.5}" font-weight="${isSel ? 700 : 400}" text-anchor="middle">${escapeHTML(b.label)}</text>`;
+        }
+        if (closed || current) g += `<text x="${cx}" y="${H - 4}" fill="#7c858d" font-size="8.5" text-anchor="middle">${current ? 'en curso' : 'cerrado'}</text>`;
+        g += `<rect class="lf-hit" x="${Lp + cw * i}" y="0" width="${cw}" height="${H}" fill="transparent" data-app-fn="selectLoanHistoryBucket" data-arg="${scopeArg}" data-arg2="${escapeAttr(b.key)}" role="button" aria-label="${escapeAttr(b.long)}"><title>${escapeHTML(b.long)}: toca para ver el detalle</title></rect>`;
+    });
+    return `<svg class="lf-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Lo que se debía, lo cobrado y lo que faltó">${g}</svg>`;
+}
+
+export function renderFlowLegend(detailed) {
+    const item = (bg, text) => `<span><i style="background:${bg}"></i>${escapeHTML(text)}</span>`;
+    const striped = 'repeating-linear-gradient(45deg,#10d98a 0 2px,rgba(16,217,138,.2) 2px 5px)';
+    return `<div class="lf-legend">${detailed
+        ? [item('#5b6670', 'Venía de antes'), item('#0b6fa3', 'de eso, refinanciado'), item('#1fb6ff', 'Capital nuevo'), item('#ffc61a', 'Interés al prestar'), item('#a855f7', 'Interés por refinanciar'), item('#0a8f5b', 'Cobrado: interés'), item('#10d98a', 'Cobrado: capital'), item(striped, 'Pagado de más (rayado = posible error)'), item('rgba(162,171,179,.45)', 'Faltó por cobrar')].join('')
+        : [item('#5b6670', 'Venía de antes'), item('#1fb6ff', 'Prestado'), item('#a855f7', 'Refinanciado'), item('#10d98a', 'Cobrado'), item(striped, 'Pagado de más (posible error)')].join('')}</div>`;
+}
+
+/** Detalle del mes o nómina elegido: lo que se debía y lo que pasó. */
+export function renderFlowPanel({ kind, bucket, flow: o, buckets, today }) {
+    if (!bucket || !o) return '';
+    const current = bucket.start <= today && today <= bucket.end;
+    const here = kind === 'month' ? 'de este mes' : 'de este periodo';
+    const nameOf = key => key === bucket.key ? here : key === 'antes' ? 'de antes' : `de ${buckets.find(b => b.key === key)?.label || key}`;
+    const from = (obj, onlyOld) => Object.entries(obj).filter(([key, v]) => v > 0.004 && (!onlyOld || key !== bucket.key))
+        .sort(([a], [b]) => b.localeCompare(a)).map(([key, v]) => `<div class="lf-r is-sub"><span>${escapeHTML(nameOf(key))}</span><b>${formatCurrency(v)}</b></div>`).join('');
+    const r = (color, text, value, extra = '') => `<div class="lf-r${extra}"><i style="background:${color}"></i><span>${escapeHTML(text)}</span><b>${value}</b></div>`;
+    const sameRefi = round2(o.refiCap - o.refiCapOld);
+    return `<div class="lf-panel">
+        <div class="lf-panel__t"><b>${escapeHTML(bucket.long)}${current ? ' · en curso' : ''}</b></div>
+        <div><h5>Lo que se debía</h5>
+            ${r('#5b6670', 'Venía de antes', formatCurrency(o.open))}
+            ${o.refiCapOld > 0.004 ? r('#0b6fa3', `de eso, refinanciado (${o.nRefiOld})`, formatCurrency(o.refiCapOld), ' is-sub2') + from(o.refiFrom, true) : ''}
+            ${r('#1fb6ff', `Capital nuevo (${o.nNew} préstamo${o.nNew === 1 ? '' : 's'})`, formatCurrency(o.newCap))}
+            ${r('#ffc61a', 'Interés al prestar', formatCurrency(o.newInt))}
+            ${r('#a855f7', `Interés por refinanciar (${o.nRefi})`, formatCurrency(o.refiInt))}
+            ${o.adjustUp > 0.004 ? r('#fb923c', 'Ajustes de nóminas cerradas', formatCurrency(o.adjustUp)) : ''}
+            ${sameRefi > 0.004 ? `<p class="lf-note">Además se refinanciaron ${formatCurrency(sameRefi)} de préstamos ${here}; ese capital ya está en «Capital nuevo».</p>` : ''}
+            ${r('transparent', 'Total que se debía', formatCurrency(o.open + o.newCap + o.newInt + o.refiInt + o.adjustUp), ' is-tot')}
+        </div>
+        <div><h5>Lo que pasó</h5>
+            ${r('#10d98a', 'Cobrado', (o.payOld + o.paySame > 0.004 ? '−' : '') + formatCurrency(o.payOld + o.paySame))}
+            ${r('#0a8f5b', 'a interés', formatCurrency(o.payInt), ' is-sub2')}${r('#10d98a', 'a capital', formatCurrency(o.payCap), ' is-sub2')}
+            ${o.payOld + o.paySame > 0.004 ? `<div class="lf-r is-sub"><span>por préstamos…</span><b></b></div>${from(o.payFrom, false)}` : ''}
+            ${o.excess > 0.004 ? r('repeating-linear-gradient(45deg,#10d98a 0 2px,rgba(16,217,138,.2) 2px 5px)', 'Pagado de más: posible error (abono repetido); no baja la deuda', formatCurrency(o.excess)) : ''}
+            ${o.adjustDown > 0.004 ? r('#fb923c', 'Ajustes que bajan la deuda', '−' + formatCurrency(o.adjustDown)) : ''}
+            ${o.gift > 0.004 ? r('#78838d', 'Perdonado o cerrado con saldo', '−' + formatCurrency(o.gift)) : ''}
+            ${r('rgba(162,171,179,.45)', `${current ? 'Falta' : 'Faltó'} por cobrar de lo que venía`, formatCurrency(o.missing))}
+            ${r('transparent', current ? 'Saldo hoy' : 'Quedó al cerrar', formatCurrency(o.end), ' is-tot')}
+        </div>
+    </div>`;
+}
