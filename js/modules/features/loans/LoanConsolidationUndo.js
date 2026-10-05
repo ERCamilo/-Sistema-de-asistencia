@@ -28,8 +28,16 @@ import { getAccountSummary, allocateAccountPayment, getLoanPending, getLoanNumbe
 export const CONSOLIDATION_REASON = 'consolidation';
 const AUDIT_RE = /\s*\[Consolidado en [^\]]*\]/g;
 
-let _seq = 0;
-const genId = prefix => `${prefix}-${Date.now().toString(36)}-${(++_seq).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+// Ids deterministas: si dos dispositivos deshacen la misma consolidación, generan
+// los mismos registros y la sincronización (unión por id) no los duplica.
+const convId = (...parts) => ['CONV', ...parts.map(String)].join('-');
+
+/** Agrega o reactiva (mismo id) un registro: deshacer → revertir → deshacer no duplica. */
+function upsert(list, item) {
+    const index = list.findIndex(existing => String(existing.id) === String(item.id));
+    if (index >= 0) list[index] = { ...list[index], ...item };
+    else list.push(item);
+}
 const clone = value => JSON.parse(JSON.stringify(value));
 const order = (a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (Number(a.recordedAt ?? a.createdAt) || 0) - (Number(b.recordedAt ?? b.createdAt) || 0);
 
@@ -84,17 +92,17 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
         src.updatedAt = at;
     }
     const open = () => sources.filter(s => s.status === LOAN_STATUS.ACTIVE && getBalance(s) > 0.004);
-    const addCharge = (amount, date, note, extra = {}) => {
+    const addCharge = (amount, date, note, extra = {}, key = '') => {
         if (!(amount > 0.004)) return 0;
         const targets = open().length ? open() : sources;
         proportional(targets, amount).forEach((value, i) => {
             if (!(value > 0)) return;
             const target = targets[i];
             if (!Array.isArray(target.refinancings)) target.refinancings = [];
-            target.refinancings.push({
-                id: genId('REFIN'), date, basis: REFINANCE_BASES.PENDING, baseAmount: 0, interestRate: 0, interestAmount: value,
+            upsert(target.refinancings, {
+                id: convId(key, target.id), date, basis: REFINANCE_BASES.PENDING, baseAmount: 0, interestRate: 0, interestAmount: value,
                 note, reason: CONSOLIDATION_REASON, origin: MOVEMENT_ORIGIN.ACCOUNT, accountTxId: extra.txId || null,
-                convertedFrom: extra.convertedFrom || null, createdBy: by, createdAt: at, updatedAt: at, voided: false, voidedAt: null
+                convertedFrom: extra.convertedFrom || null, createdBy: by, createdAt: at, updatedAt: at, voided: false, voidedAt: null, voidedBy: null, voidReason: null
             });
             if (target.status !== LOAN_STATUS.ACTIVE && getBalance(target) > 0.01) { target.status = LOAN_STATUS.ACTIVE; target.closedAt = null; }
         });
@@ -102,7 +110,7 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
     };
 
     // 2. Interés propio del consolidado
-    let movedInterest = addCharge(ownInterest(cons), cons.startDate, `Interés de la consolidación (${cons.interestRate} %)`, { txId: genId('CONV'), convertedFrom: { loanId: cons.id, kind: 'interest' } });
+    let movedInterest = addCharge(ownInterest(cons), cons.startDate, `Interés de la consolidación (${cons.interestRate} %)`, { txId: convId('INT', cons.id), convertedFrom: { loanId: cons.id, kind: 'interest' } }, `INT-${cons.id}`);
 
     // 3. Refinanciamientos y abonos del consolidado, en orden
     const events = [
@@ -113,27 +121,27 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
     for (const event of events) {
         const original = event.item;
         if (event.kind === 'refi') {
-            movedInterest += addCharge(Number(original.interestAmount || 0), original.date, original.note || 'Refinanciamiento de la consolidación', { txId: genId('CONV'), convertedFrom: { loanId: cons.id, refinancingId: original.id } });
+            movedInterest += addCharge(Number(original.interestAmount || 0), original.date, original.note || 'Refinanciamiento de la consolidación', { txId: convId(original.id), convertedFrom: { loanId: cons.id, refinancingId: original.id } }, original.id);
             original.voided = true; original.voidedAt = at; original.voidedBy = by; original.voidReason = 'consolidation-undone'; original.updatedAt = at;
             continue;
         }
         const pool = [...sources].sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || '')))
             .map(loan => ({ loan, number: 0, ...getLoanPending({ ...loan, status: LOAN_STATUS.ACTIVE }) })).filter(x => x.balance > 0.004);
         const { parts, excess } = allocateAccountPayment(pool, Number(original.amount || 0));
-        const txId = genId('CONV');
+        const txId = convId(original.id);
         const pieces = parts.map(p => ({ loan: sources.find(s => s.id === p.loanId), amount: p.amount, allocation: { interest: p.interest, capital: p.capital } }));
         if (excess > 0.004) pieces.push({ loan: sources[sources.length - 1], amount: excess, allocation: { interest: 0, capital: 0 }, excess: true });
         for (const piece of pieces) {
             const payment = {
-                id: genId('PAY'), date: original.date, amount: round2(piece.amount), note: original.note || '',
+                id: convId(original.id, piece.loan.id, piece.excess ? 'x' : 'p'), date: original.date, amount: round2(piece.amount), note: original.note || '',
                 recordedBy: original.recordedBy || null, recordedAt: Number(original.recordedAt) || at, updatedAt: at,
-                voided: false, voidedAt: null, origin: 'conversion', accountTxId: txId, allocation: piece.allocation,
+                voided: false, voidedAt: null, voidedBy: null, voidReason: null, origin: 'conversion', accountTxId: txId, allocation: piece.allocation,
                 convertedFrom: { loanId: cons.id, paymentId: original.id }
             };
             for (const field of ['source', 'channel', 'payrollClosureId', 'payrollPeriodStart', 'payrollPeriodEnd']) {
                 if (original[field] != null) payment[field] = original[field];
             }
-            piece.loan.payments.push(payment);
+            upsert(piece.loan.payments, payment);
             piece.loan.updatedAt = at;
         }
         original.voided = true; original.voidedAt = at; original.voidedBy = by; original.voidReason = 'consolidation-undone'; original.updatedAt = at;

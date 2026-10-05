@@ -4,7 +4,7 @@ import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
 import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
 import {
     laOpen, laField, laFieldQuiet, laSave, laSetTab, laAsk, laAdjust, laFix, laFixWhy, laVoid, laClose,
-    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation
+    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations
 } from '../modules/features/loans/LoanAccountController.js';
 import { getAccountSummary, getAccountMovements, getActiveLoanAgreement } from '../modules/features/loans/LoanAccount.js';
 import { movementKey } from '../modules/features/loans/LoanAccountView.js';
@@ -216,5 +216,19 @@ describe('Ficha cuenta de préstamos', () => {
         laRestoreConsolidation(cons.id);
         expect(cons.status).toBe('active');
         expect(text()).toContain('Consolidación por deshacer');
+    });
+
+    test('«Deshacer todas» en la pantalla principal separa todas las consolidaciones', () => {
+        const { emp } = seed();
+        const [, , l6, l7, l8] = emp.loans;
+        consolidateLoans(emp, { loanIds: [l6.id, l7.id, l8.id], installmentCount: 1, interestRate: 0, startDate: '2026-09-25' });
+        const before = getAccountSummary(emp).balance;
+        state.loansLedger.selectedEmployeeId = null;
+        expect(text()).toContain('1 consolidación por deshacer');
+        window.showConfirm = o => o.onConfirm();
+        laUndoAllConsolidations();
+        delete window.showConfirm;
+        expect(getAccountSummary(emp).balance).toBe(before);
+        expect(text()).not.toContain('consolidación por deshacer');
     });
 });

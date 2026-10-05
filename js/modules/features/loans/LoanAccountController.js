@@ -25,7 +25,7 @@ import {
     saveLoanAgreement, cancelLoanAgreement, getActiveLoanAgreement, suggestedAgreementMinimum
 } from './LoanAccount.js';
 import { getAccountPayPeriods, closedPeriodEnds } from './LoanAccountView.js';
-import { undoConsolidation, restoreConsolidation } from './LoanConsolidationUndo.js';
+import { undoConsolidation, restoreConsolidation, findConsolidations } from './LoanConsolidationUndo.js';
 import { nextPayPeriod, followingPayPeriod } from './LoanPayPeriods.js';
 
 const CLASSIC_KEY = 'loans-account-view';
@@ -295,6 +295,35 @@ export function laRestoreConsolidation(loanId) {
     return act(emp => restoreConsolidation(emp, loanId, { by: options().by }), 'La consolidación volvió a quedar como antes');
 }
 
+/** Deshace todas las consolidaciones de la obra activa, después de confirmar con el total antes/después. */
+export function laUndoAllConsolidations() {
+    const employees = (state.employees || []).filter(emp => entityInScope(emp, peekEntityScope()));
+    const work = employees.flatMap(emp => findConsolidations(emp).map(c => ({ emp, id: c.loan.id })));
+    if (!work.length) return;
+    const total = list => round2(list.reduce((t, emp) => t + getAccountSummary(emp).balance, 0));
+    const run = () => {
+        const before = total(employees);
+        const errors = [];
+        let done = 0;
+        for (const { emp, id } of work) {
+            try { undoConsolidation(emp, id, { by: options().by, projectScope: captureEntityProjectScope() }); done++; } catch (error) { errors.push(error.message); }
+        }
+        const after = total(employees);
+        commit(`Consolidaciones deshechas: ${done} de ${work.length}. Por cobrar ${before.toFixed(2)} → ${after.toFixed(2)}`);
+        if (errors.length) alertMsg(`No se pudieron deshacer ${errors.length}: ${errors.join(' · ')}`);
+        render();
+    };
+    if (typeof window !== 'undefined' && typeof window.showConfirm === 'function') {
+        window.showConfirm({
+            title: 'Deshacer consolidaciones',
+            message: `Se deshacen ${work.length} consolidación(es): los préstamos de origen se reabren con su capital e interés reales y los abonos del consolidado se reparten entre ellos. Lo que deben en total no cambia (${total(employees).toFixed(2)}). Cada una se puede revertir desde la ficha con «Volver a consolidar».`,
+            confirmText: 'Sí, deshacer todas', cancelText: 'Cancelar', type: 'warning', onConfirm: run
+        });
+        return;
+    }
+    run();
+}
+
 export function laUndoClosure(loanId) { return act(emp => undoLoanClosure(emp, loanId, options()), 'Cierre deshecho'); }
 export function laCancelAgreement(id) { return act(emp => cancelLoanAgreement(emp, id, options()), 'Acuerdo cancelado'); }
 
@@ -303,7 +332,7 @@ export function registerLoanAccountGlobals() {
     Object.assign(window, {
         laUseClassicView, laSetTab, laToggleLoan, laToggleShowVoid, laAsk, laCancelAsk, laFixWhy, laClose,
         laOpen, laField, laFieldQuiet, laToggleSel, laCopySummary, laSave, laVoid, laAdjust, laFix,
-        laUndoClosure, laCancelAgreement, laRestoreConsolidation
+        laUndoClosure, laCancelAgreement, laRestoreConsolidation, laUndoAllConsolidations
     });
 }
 

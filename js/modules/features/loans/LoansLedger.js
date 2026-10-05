@@ -54,6 +54,7 @@ import { detectLoanDuplicateCandidates } from './LoanDuplicateDetector.js';
 import { renderLoanHistoryPanel } from './LoanHistoryPanel.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { LoanAccountDetail } from './LoanAccountView.js';
+import { findConsolidations } from './LoanConsolidationUndo.js';
 import { useAccountView } from './LoanAccountController.js';
 import { isPendingUpload } from '../../services/EntitiesSyncStamp.js';
 import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
@@ -230,6 +231,8 @@ function LedgerOverview() {
                 </div>
 
                 ${renderLoanDuplicateReview({ scope: 'general', employees: scopedState.employees || [] })}
+
+                ${ConsolidationsBanner(scopedState.employees || [])}
 
                 ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: scopedState.employees || [] })}
 
@@ -578,6 +581,18 @@ function LedgerOverview() {
             </aside>
         </div>
     `;
+}
+
+/** Aviso de consolidaciones por deshacer (Consolidar se quitó; vuelven a ser préstamos separados). */
+function ConsolidationsBanner(employees) {
+    const found = employees.flatMap(emp => findConsolidations(emp));
+    if (!found.length) return '';
+    const people = new Set(employees.filter(emp => findConsolidations(emp).length).map(emp => emp.id)).size;
+    return `
+        <div class="la-cons-banner" role="status">
+            <span>🔗 <b>${found.length} consolidación${found.length === 1 ? '' : 'es'} por deshacer</b> en ${people} empleado${people === 1 ? '' : 's'}. Los préstamos vuelven a ser separados; lo que deben no cambia.</span>
+            <button type="button" class="la-btn la-btn--sm la-btn--refi" data-app-fn="laUndoAllConsolidations">Deshacer todas</button>
+        </div>`;
 }
 
 function kpiCard(label, value, color, iconName, subLabel = '', subValue = '', tooltip = '') {

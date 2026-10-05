@@ -2,6 +2,7 @@ import { createLoan, consolidateLoans, recordPayment, refinanceLoan, getBalance,
 import { getAccountSummary } from '../modules/features/loans/LoanAccount.js';
 import { findConsolidations, undoConsolidation, previewUndoConsolidation, restoreConsolidation } from '../modules/features/loans/LoanConsolidationUndo.js';
 import { buildFlowBuckets, computeLoanFlows } from '../modules/features/loans/LoanFlowChart.js';
+import mergeEmployees from '../modules/services/EmployeeMerge.js';
 import { buildPayrollLoanSettlementBatch, applyPayrollLoanSettlementBatch, undoPayrollLoanSettlementBatch } from '../modules/features/payroll/PayrollLoanSettlement.js';
 
 /** A: $1,000 al 10 % · B: $500 al 0 % → consolidados el 10/08 en C de $1,600 al 5 % (total $1,680). */
@@ -93,5 +94,31 @@ describe('Deshacer consolidaciones', () => {
         undoPayrollLoanSettlementBatch([emp], batch.id, { now: 100_200 });
         expect([...a.payments, ...b.payments].filter(p => p.origin === 'conversion').every(p => p.voided)).toBe(true);
         expect(getAccountSummary(emp).balance).toBe(1680);
+    });
+
+    test('dos dispositivos que deshacen la misma consolidación no duplican nada al sincronizar', () => {
+        const { emp, c } = consolidated();
+        recordPayment(emp, c.id, { amount: 300, date: '2026-08-20', recordedAt: 10 });
+        const server = JSON.parse(JSON.stringify(emp));
+        const local = JSON.parse(JSON.stringify(emp));
+        undoConsolidation(server, c.id, { at: 100 });
+        undoConsolidation(local, c.id, { at: 200 });
+        const ids = side => side.loans.flatMap(l => [...l.payments, ...(l.refinancings || [])].map(x => x.id)).sort();
+        expect(ids(server)).toEqual(ids(local));
+        const merged = mergeEmployees(server, local);
+        expect(ids(merged)).toEqual(ids(local));
+        expect(getAccountSummary(merged).balance).toBe(1380);
+    });
+
+    test('deshacer, revertir y volver a deshacer no duplica registros', () => {
+        const { emp, a, c } = consolidated();
+        recordPayment(emp, c.id, { amount: 300, date: '2026-08-20', recordedAt: 10 });
+        undoConsolidation(emp, c.id);
+        const count = a.payments.length;
+        restoreConsolidation(emp, c.id);
+        undoConsolidation(emp, c.id);
+        expect(a.payments.length).toBe(count);
+        expect(a.payments.filter(p => p.origin === 'conversion').every(p => !p.voided && !p.voidReason)).toBe(true);
+        expect(getAccountSummary(emp).balance).toBe(1380);
     });
 });
