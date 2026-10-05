@@ -189,3 +189,10 @@
 .la-opt.is-dis { opacity: .5; cursor: not-allowed; }
 .la-hint { margin: 0; font-size: .75rem; color: var(--la-faint); }
 .la-wsum { background: var(--la-app); border: 1px solid var(--la-line-2); border-radius: 8px; padding: 7px 9px; font-size: .8rem; font-weight: 400; color: var(--la-text); line-height: 1.45; }
+
+/* Historial del saldo y aviso de repetidos dentro de la tarjeta principal */
+.la-hub__hist { grid-column: 1 / -1; justify-self: end; margin-top: 2px; }
+.la-hub__history { border-top: 1px solid var(--la-line); padding: 12px 16px; }
+.la-hub__history .loan-history.is-embedded { margin: 0; background: none; border: 0; box-shadow: none; padding: 0; }
+.la-hub__dup .loan-dup--embedded { margin: 0; border: 0; border-top: 1px solid rgba(245, 158, 11, .45); border-radius: 0; }
+.la-hub__dup .loan-dup--embedded .loan-dup__summary { padding: 10px 16px; }

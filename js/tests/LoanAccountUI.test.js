@@ -9,6 +9,7 @@ import {
 import { getAccountSummary, getAccountMovements, getActiveLoanAgreement } from '../modules/features/loans/LoanAccount.js';
 import { movementKey } from '../modules/features/loans/LoanAccountView.js';
 import { buildPayPeriods, nextPayPeriod } from '../modules/features/loans/LoanPayPeriods.js';
+import { toggleLoanHistory, resetLoanHistoryPanels } from '../modules/features/loans/LoanHistoryPanel.js';
 
 let clock = 1_000;
 function loan(emp, principal, startDate, extra = {}) {
@@ -169,5 +170,32 @@ describe('Ficha cuenta de préstamos', () => {
         expect(text()).toContain('Estás en la ficha anterior');
         laUseClassicView(0);
         expect(text()).toContain('Debe en total');
+    });
+
+    test('el historial y el aviso de repetidos van dentro de la tarjeta principal', () => {
+        resetLoanHistoryPanels();
+        const { emp, l4 } = seed();
+        // un abono repetido para que aparezca el aviso
+        const dup = { ...l4.payments[0], id: 'dup-1', recordedAt: l4.payments[0].recordedAt + 1000, payrollClosureId: undefined };
+        l4.payments.push(dup);
+        const body = html();
+        const hub = body.querySelector('.la-hub');
+        expect(hub.textContent).toContain('Ver historial');
+        expect(body.textContent).not.toContain('Saldo del empleado');
+        expect(hub.querySelector('.loan-dup--embedded')).not.toBeNull();
+        toggleLoanHistory(String(emp.id));
+        const open = html().querySelector('.la-hub');
+        expect(open.querySelector('.loan-history.is-embedded')).not.toBeNull();
+        expect(open.textContent).toContain('Evolución del saldo');
+        expect(open.textContent).toContain('Ocultar historial');
+    });
+
+    test('el historial muestra un ajuste de nómina cerrada sin fallar', () => {
+        resetLoanHistoryPanels();
+        const { emp } = seed();
+        const key = movementKey(getAccountMovements(emp).find(m => m.kind === 'payment'));
+        laAdjust(key, '2026-10-03');
+        toggleLoanHistory(String(emp.id));
+        expect(text()).toContain('Ajuste de una nómina cerrada');
     });
 });

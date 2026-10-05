@@ -22,9 +22,10 @@ const KINDS = {
     loan: { label: 'Nuevo préstamo', plural: 'préstamos nuevos', css: 'is-loan', sign: '+' },
     refinancing: { label: 'Refinanciamiento', plural: 'refinanciamientos', css: 'is-refinancing', sign: '+' },
     writeoff: { label: 'Préstamo anulado', plural: 'préstamos anulados', css: 'is-off', sign: '−' },
-    settled: { label: 'Cerrado como saldado', plural: 'cierres', css: 'is-off', sign: '−' }
+    settled: { label: 'Cerrado como saldado', plural: 'cierres', css: 'is-off', sign: '−' },
+    adjustment: { label: 'Ajuste de una nómina cerrada', plural: 'ajustes', css: 'is-off', sign: '+' }
 };
-const PRIORITY = ['refinancing', 'loan', 'writeoff', 'settled', 'payment'];
+const PRIORITY = ['refinancing', 'loan', 'writeoff', 'settled', 'adjustment', 'payment'];
 
 const panels = new Map();
 
@@ -35,6 +36,9 @@ function panelState(scope) {
 
 /** Solo para pruebas. */
 export function resetLoanHistoryPanels() { panels.clear(); }
+
+/** ¿Está abierto el historial de ese panel? (la cuenta de préstamos lo abre desde su tarjeta). */
+export function isLoanHistoryOpen(scope) { return panelState(scope).open; }
 
 function parts(iso) {
     const [y, m, d] = iso.split('-').map(Number);
@@ -165,7 +169,7 @@ function describeChanges(day, mode, nameById) {
  * @param {'general'|'employee'} args.mode
  * @param {Array} args.employees  empleados (ya filtrados por obra) cuyos préstamos entran
  */
-export function renderLoanHistoryPanel({ scope, mode = 'general', employees = [] } = {}) {
+export function renderLoanHistoryPanel({ scope, mode = 'general', employees = [], embedded = false } = {}) {
     const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))));
     const all = timeline.days;
     if (all.length === 0) return '';
@@ -188,7 +192,8 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
                 </span>
             </span>
         </button>`;
-    if (!panel.open) return `<section class="loan-history" data-loan-history="${scopeArg}">${summary}</section>`;
+    // embedded: dentro de la tarjeta principal de la cuenta (que ya muestra el saldo); solo el cuerpo abierto.
+    if (!panel.open) return embedded ? '' : `<section class="loan-history" data-loan-history="${scopeArg}">${summary}</section>`;
 
     const days = daysInRange(all, panel.range);
     let selected = days.find(day => day.date === panel.date) || days.at(-1);
@@ -208,8 +213,8 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
     const capitalAfter = selected.result > 0 ? selected.capital / selected.result * 100 : 0;
 
     return `
-        <section class="loan-history is-open" data-loan-history="${scopeArg}">
-            ${summary}
+        <section class="loan-history is-open${embedded ? ' is-embedded' : ''}" data-loan-history="${scopeArg}">
+            ${embedded ? '' : summary}
             <div class="loan-history__body">
                 <div class="loan-history__ranges" role="group" aria-label="Periodo">
                     ${HISTORY_RANGES.map(([key]) => `<button type="button" data-app-fn="setLoanHistoryRange" data-arg="${scopeArg}" data-arg2="${key}" aria-pressed="${panel.range === key}">${key}</button>`).join('')}

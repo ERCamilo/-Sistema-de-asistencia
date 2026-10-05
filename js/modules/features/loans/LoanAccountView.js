@@ -24,7 +24,7 @@ import {
     projectLoanAgreement, getMovementLock
 } from './LoanAccount.js';
 import { buildPayPeriods, nextPayPeriod, followingPayPeriod } from './LoanPayPeriods.js';
-import { renderLoanHistoryPanel } from './LoanHistoryPanel.js';
+import { renderLoanHistoryPanel, isLoanHistoryOpen } from './LoanHistoryPanel.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 
 const M = (value, decimals = 2) => {
@@ -83,6 +83,11 @@ export function loanPaidSplit(loan) {
     return { interest: round2(Math.max(0, interest)), capital: round2(Math.max(0, capital)) };
 }
 
+/** Fechas con movimientos (las mismas que recorre el historial del saldo). */
+function replayAllDates(emp) {
+    return (emp.loans || []).flatMap(loan => replayLoan(loan).steps.map(step => step.date));
+}
+
 function bar(parts, { big = false } = {}) {
     const total = parts.reduce((t, p) => t + p.value, 0) || 1;
     const paid = parts.filter(p => p.paid).reduce((t, p) => t + p.value, 0);
@@ -133,6 +138,11 @@ export function LoanAccountDetail(emp) {
         ? `<span class="la-chip la-chip--agree"><i></i>Con acuerdo: ${M(agreement.amount, 0)} por nómina</span>`
         : overdue ? `<span class="la-chip la-chip--warn"><i></i>${overdue} préstamo${overdue === 1 ? '' : 's'} vencido${overdue === 1 ? '' : 's'}</span>` : '';
     const nameParts = String(emp.name || '').trim().split(/\s+/).filter(Boolean);
+    // Historial del saldo y aviso de repetidos viven dentro de la tarjeta principal.
+    const historyScope = String(emp.id);
+    const historyDays = new Set(replayAllDates(emp)).size;
+    const historyOpen = isLoanHistoryOpen(historyScope);
+    const duplicates = renderLoanDuplicateReview({ scope: historyScope, employees: [emp], embedded: true });
 
     return `
     <div class="la" data-employee="${escapeAttr(emp.id)}">
@@ -150,12 +160,15 @@ export function LoanAccountDetail(emp) {
                 ${chip || '<span></span>'}
                 <span class="la-hub__big">${M(summary.balance)}</span>
                 <div class="la-hub__bar">${splitBar(paid, summary, { big: true })}</div>
+                ${historyDays ? `<button type="button" class="la-link la-hub__hist" data-app-fn="toggleLoanHistory" data-arg="${escapeAttr(historyScope)}" aria-expanded="${historyOpen}">${historyOpen ? '▾ Ocultar historial' : `▸ Ver historial (${historyDays})`}</button>` : ''}
             </div>
             <div class="la-hub__facts">
                 <div><span>Próxima nómina${next ? ' · pago ' + dm(next.payDate) : ''}</span><b>${M(nextAmount)}</b><small class="${!agreement && salary > 0 && nextAmount > salary * 0.6 ? 'la-t-bad' : ''}">${agreement ? 'según el acuerdo' : salary > 0 ? `${Math.round(nextAmount / salary * 100)} % de lo que gana` : 'sin sueldo calculado'}</small></div>
                 <div><span>Gana por periodo</span><b>${salary > 0 ? '≈' + M(salary, 0) : '—'}</b><small>cálculo de Nómina</small></div>
                 <div><span>Último abono</span><b>${lastPay ? M(lastPay.amount, 0) : '—'}</b><small>${lastPay ? `${dmy(lastPay.date)} · ${lastPay.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'a la cuenta' : lastPay.parts.length === 1 ? 'préstamo #' + lastPay.parts[0].number : lastPay.parts.length + ' préstamos'}` : ''}</small></div>
             </div>
+            ${historyOpen ? `<div class="la-hub__history">${renderLoanHistoryPanel({ scope: historyScope, mode: 'employee', employees: [emp], embedded: true })}</div>` : ''}
+            ${duplicates ? `<div class="la-hub__dup">${duplicates}</div>` : ''}
         </section>
 
         <div class="la-actions">
@@ -171,10 +184,6 @@ export function LoanAccountDetail(emp) {
         </div>
         ${ui.tab === 'mov' ? MovementsPanel(emp, movements) : LoansPanel(emp, periods, payDates, today)}
 
-        <div class="la-extra">
-            ${renderLoanDuplicateReview({ scope: String(emp.id), employees: [emp] })}
-            ${renderLoanHistoryPanel({ scope: String(emp.id), mode: 'employee', employees: [emp] })}
-        </div>
         ${ui.modal ? AccountModal(emp, ui.modal, { periods, today, summary, salary, agreement }) : ''}
     </div>`;
 }
