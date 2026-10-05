@@ -4,7 +4,7 @@ import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
 import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
 import {
     laOpen, laField, laFieldQuiet, laSave, laSetTab, laAsk, laAdjust, laFix, laFixWhy, laVoid, laClose,
-    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations
+    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment
 } from '../modules/features/loans/LoanAccountController.js';
 import { getAccountSummary, getAccountMovements, getActiveLoanAgreement } from '../modules/features/loans/LoanAccount.js';
 import { movementKey } from '../modules/features/loans/LoanAccountView.js';
@@ -230,5 +230,26 @@ describe('Ficha cuenta de préstamos', () => {
         delete window.showConfirm;
         expect(getAccountSummary(emp).balance).toBe(before);
         expect(text()).not.toContain('consolidación por deshacer');
+    });
+
+    test('«Completar datos» y la revisión de abonos en la pantalla principal', () => {
+        const { emp } = seed();
+        emp.loans.forEach(l => { delete l.dueDate; delete l.number; });
+        const l6 = emp.loans[2];
+        recordPayment(emp, l6.id, { amount: 100, date: '2026-09-20', recordedAt: (clock += 1_000) }); // fuera de los días de pago
+        state.loansLedger.selectedEmployeeId = null;
+        expect(text()).toContain('Completar datos de préstamos');
+        window.showConfirm = o => o.onConfirm();
+        laApplyBackfill();
+        delete window.showConfirm;
+        expect(emp.loans.map(l => l.number)).toEqual([1, 2, 3, 4, 5]);
+        expect(emp.loans[2].dueDate).toBe('2026-10-03');
+        const t = text();
+        expect(t).not.toContain('Completar datos de préstamos');
+        expect(t).toContain('Abonos por revisar (1)');
+        const pay = emp.loans[2].payments.at(-1);
+        laReviewPayment(`${emp.id}|${l6.id}|${pay.id}`, 'direct');
+        expect(emp.loans[2].payments.at(-1)).toMatchObject({ origin: 'direct', needsReview: false });
+        expect(text()).not.toContain('Abonos por revisar');
     });
 });

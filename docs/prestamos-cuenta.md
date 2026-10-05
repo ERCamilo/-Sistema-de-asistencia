@@ -94,3 +94,20 @@ Decidido el 2026-10-05: las consolidaciones se deshacen y los préstamos vuelven
   - La tarjeta principal avisa de cada consolidación pendiente y abre una vista previa antes de deshacerla.
   - El botón y el formulario de Consolidar se quitaron de la vista anterior.
 - **En la página de pruebas:** «Deshacer todas (prueba)» comprueba con un respaldo que el total no cambia.
+
+## Fase D (completar los datos viejos)
+
+`LoanDataBackfill.js` solo rellena lo que falta: no cambia montos, saldos ni abonos. Es determinista (dos dispositivos llegan a lo mismo) y se puede aplicar varias veces.
+
+- **Número fijo** (`loan.number`): por orden de creación. Los préstamos nuevos toman el siguiente (`nextLoanNumber`).
+- **Nómina de cobro** (`loan.dueDate`) de pago único: el día de pago del periodo en que se entregó. Los refinanciamientos sin `nextDueDate` reciben la nómina siguiente a su fecha. Con esto se activa «Vencido».
+- **Origen de abonos:** del último día del periodo hasta 3 días después del día de pago es descuento de nómina (`origin: 'payroll'`, con su periodo). Fuera de esa ventana queda como directo con `needsReview`. Los anulados no se revisan.
+- **En la app:**
+  - la pantalla principal de Préstamos muestra «Completar datos de préstamos» (con confirmación);
+  - «Abonos por revisar» tiene los botones Nómina y Directo;
+  - en movimientos aparece la etiqueta «revisar».
+- **Respaldo real del 2026-09-29:**
+  - 165 números fijos y 164 nóminas de cobro;
+  - 23 refinanciamientos con la nómina siguiente;
+  - 137 abonos de nómina, 5 directos anulados y 7 por revisar;
+  - lo que se debe no cambia: $167,185.40.

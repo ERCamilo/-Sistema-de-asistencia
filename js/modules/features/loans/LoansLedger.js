@@ -55,6 +55,8 @@ import { renderLoanHistoryPanel } from './LoanHistoryPanel.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { LoanAccountDetail } from './LoanAccountView.js';
 import { findConsolidations } from './LoanConsolidationUndo.js';
+import { planLoanBackfill, listPaymentsToReview } from './LoanDataBackfill.js';
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { useAccountView } from './LoanAccountController.js';
 import { isPendingUpload } from '../../services/EntitiesSyncStamp.js';
 import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
@@ -233,6 +235,8 @@ function LedgerOverview() {
                 ${renderLoanDuplicateReview({ scope: 'general', employees: scopedState.employees || [] })}
 
                 ${ConsolidationsBanner(scopedState.employees || [])}
+                ${BackfillBanner(scopedState.employees || [])}
+                ${ReviewPaymentsPanel(scopedState.employees || [])}
 
                 ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: scopedState.employees || [] })}
 
@@ -581,6 +585,39 @@ function LedgerOverview() {
             </aside>
         </div>
     `;
+}
+
+/** Aviso «Completar datos» (fase D): número fijo, nómina de cobro y origen de abonos. */
+function BackfillBanner(employees) {
+    const plan = planLoanBackfill(employees, getActivePayrollSettings(state).payPeriod);
+    if (!plan.total) return '';
+    const parts = [
+        plan.numbers ? `${plan.numbers} sin número fijo` : '',
+        plan.dueDates ? `${plan.dueDates} sin nómina de cobro` : '',
+        plan.payrollPayments + plan.directPayments + plan.reviewPayments ? `${plan.payrollPayments + plan.directPayments + plan.reviewPayments} abonos sin origen` : ''
+    ].filter(Boolean).join(' · ');
+    return `
+        <div class="la-cons-banner la-fill-banner" role="status">
+            <span>🧩 <b>Completar datos de préstamos:</b> ${escapeHTML(parts)}. Solo rellena lo que falta; no cambia montos.</span>
+            <button type="button" class="la-btn la-btn--sm la-btn--cap" data-app-fn="laApplyBackfill">Completar</button>
+        </div>`;
+}
+
+/** Abonos fuera de los días de pago: se revisan uno por uno. */
+function ReviewPaymentsPanel(employees) {
+    const list = listPaymentsToReview(employees);
+    if (!list.length) return '';
+    return `
+        <details class="la-review">
+            <summary>🔎 <b>Abonos por revisar (${list.length})</b> · cayeron fuera de los días de pago: ¿fueron descuento de nómina o directos?</summary>
+            <div class="la-review__list">
+                ${list.map(({ emp, loan, payment }) => {
+                    const ref = escapeAttr(`${emp.id}|${loan.id}|${payment.id}`);
+                    return `<div class="la-review__row"><span><b>${escapeHTML(emp.name || '')}</b> #${escapeHTML(emp.number ?? '')} · ${formatDateShort(payment.date)} · <b>${formatCurrency(payment.amount)}</b>${payment.note ? ` · ${escapeHTML(payment.note)}` : ''}</span>
+                        <span class="la-review__acts"><button type="button" class="la-btn la-btn--sm" data-app-fn="laReviewPayment" data-arg="${ref}" data-arg2="payroll">Nómina</button><button type="button" class="la-btn la-btn--sm" data-app-fn="laReviewPayment" data-arg="${ref}" data-arg2="direct">Directo</button></span></div>`;
+                }).join('')}
+            </div>
+        </details>`;
 }
 
 /** Aviso de consolidaciones por deshacer (Consolidar se quitó; vuelven a ser préstamos separados). */

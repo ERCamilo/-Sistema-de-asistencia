@@ -27,6 +27,7 @@ import { buildPayPeriods, nextPayPeriod, followingPayPeriod } from './LoanPayPer
 import { renderLoanHistoryPanel, isLoanHistoryOpen } from './LoanHistoryPanel.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { findConsolidations, previewUndoConsolidation, CONSOLIDATION_REASON } from './LoanConsolidationUndo.js';
+import { nextLoanNumber } from './LoanDataBackfill.js';
 
 const M = (value, decimals = 2) => {
     const n = Number(value || 0);
@@ -372,7 +373,7 @@ function MovementRow(m, { loanId = null } = {}) {
     return `
     <div class="la-mv${m.voided ? ' is-void' : ''}">
         <span class="la-dot la-c-${t.tone}"></span>
-        <div class="la-mv__w"><b>${escapeHTML(t.title)}</b>${isPayRefi ? originPill(m.origin) : ''}${m.lock ? `<span class="la-pill" title="Está en un cierre de nómina">🔒 cierre</span>` : ''}${m.adjustedBy ? '<span class="la-pill la-pill--warn">ajustado</span>' : ''}${m.closureFix ? '<span class="la-pill la-pill--warn">quitado del cierre</span>' : ''}${m.voided ? '<span class="la-pill la-pill--bad">anulado</span>' : ''}
+        <div class="la-mv__w"><b>${escapeHTML(t.title)}</b>${isPayRefi ? originPill(m.origin) : ''}${m.lock ? `<span class="la-pill" title="Está en un cierre de nómina">🔒 cierre</span>` : ''}${m.adjustedBy ? '<span class="la-pill la-pill--warn">ajustado</span>' : ''}${m.closureFix ? '<span class="la-pill la-pill--warn">quitado del cierre</span>' : ''}${(m.parts || []).some(p => p.needsReview) ? '<span class="la-pill la-pill--warn" title="Fuera de los días de pago: revísalo en la pantalla principal de Préstamos">revisar</span>' : ''}${m.voided ? '<span class="la-pill la-pill--bad">anulado</span>' : ''}
             <small>${dmy(m.date)}${t.sub ? ' · ' + escapeHTML(t.sub) : ''}${m.closureFix ? ` · motivo: ${escapeHTML(m.closureFix.reason)} · saldo ${M(m.closureFix.before.accountBalance, 0)} → ${M(m.closureFix.after.accountBalance, 0)}` : ''}${m.note && isPayRefi ? ' · ' + escapeHTML(m.note) : ''}</small></div>
         <div class="la-mv__a la-t-${t.tone}">${escapeHTML(t.amount)}${t.detail ? `<small>${escapeHTML(t.detail)}</small>` : ''}</div>
         ${canVoid ? `<button type="button" class="la-x" data-app-fn="laAsk" data-arg="${escapeAttr(key)}" data-arg2="${escapeAttr(where)}" aria-label="Anular este movimiento" title="Anular">✕</button>` : '<span></span>'}
@@ -497,7 +498,7 @@ function RefiModal(emp, m, { periods, today, summary }) {
 
 function NewLoanModal(emp, m, { periods, today, summary, salary }) {
     const numbers = getLoanNumbers(emp.loans || []);
-    const nextNumber = (emp.loans || []).length + 1;
+    const nextNumber = nextLoanNumber(emp.loans) || Math.max(0, ...getLoanNumbers(emp.loans || []).values()) + 1;
     const amount = Number(m.amount) || 0;
     const rate = Number(m.rate) || 0;
     const interest = round2(amount * rate / 100);

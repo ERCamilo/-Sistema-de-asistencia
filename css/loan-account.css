@@ -229,3 +229,15 @@
 .la-cons-banner { --la-refi: #a855f7; --la-line-2: #475569; --la-text: #f1f5f9; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; padding: 12px 16px; border: 1px solid rgba(168, 85, 247, .45); background: rgba(168, 85, 247, .08); border-radius: 12px; font-size: .82rem; color: #cbd5e1; }
 .la-cons-banner b { color: #d8b4fe; }
 .la-cons-banner .la-btn { font-family: inherit; }
+
+.la-fill-banner { --la-cap: #1fb6ff; border-color: rgba(31, 182, 255, .45); background: rgba(31, 182, 255, .07); }
+.la-fill-banner b { color: #7dd3fc; }
+.la-review { --la-line-2: #475569; --la-text: #f1f5f9; margin-bottom: 16px; border: 1px solid rgba(251, 146, 60, .45); background: rgba(251, 146, 60, .06); border-radius: 12px; font-size: .82rem; color: #cbd5e1; }
+.la-review summary { cursor: pointer; padding: 12px 16px; }
+.la-review summary b { color: #fdba74; }
+.la-review__list { border-top: 1px solid rgba(251, 146, 60, .3); }
+.la-review__row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 16px; border-top: 1px solid #334155; }
+.la-review__row:first-child { border-top: 0; }
+.la-review__acts { display: inline-flex; gap: 6px; }
+.la-review__row > span:first-child { flex: 1; min-width: 220px; }
+.la-review__acts { flex: none; }

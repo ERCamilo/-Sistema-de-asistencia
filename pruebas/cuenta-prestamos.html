@@ -72,6 +72,7 @@ import {
 import { getBalance, LOAN_STATUS } from '../js/modules/features/loans/LoansService.js';
 import { replayLoan } from '../js/modules/features/loans/LoanTimeline.js';
 import { findConsolidations, undoConsolidation } from '../js/modules/features/loans/LoanConsolidationUndo.js';
+import { planLoanBackfill, applyLoanBackfill } from '../js/modules/features/loans/LoanDataBackfill.js';
 
 const M = v => '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -117,6 +118,7 @@ function renderChecks() {
         }
     }
     const cons = emps.flatMap(e => findConsolidations(e).map(c => ({ e, c })));
+    const fill = planLoanBackfill(emps, S.data.settings?.payPeriod);
     const activeSum = emps.reduce((t, e) => t + (e.loans || []).filter(l => l.status === LOAN_STATUS.ACTIVE).reduce((u, l) => u + getBalance(l), 0), 0);
     const ok = Math.abs(activeSum - total) < 0.05;
     $('checks').hidden = false;
@@ -130,10 +132,19 @@ function renderChecks() {
         <tr><td>Abonos ligados a un cierre de nómina</td><td class="n">${paysClosure} de ${pays}</td></tr>
         <tr><td>Abonos sin origen guardado (se mostrarán como «directo»; se completa en la fase D)</td><td class="n">${pays - paysOrigin} de ${pays}</td></tr>
         <tr><td>Préstamos abiertos sin nómina de cobro guardada (no pueden marcarse vencidos hasta la fase D)</td><td class="n">${noDue} de ${active}</td></tr>
+        <tr><td>Completar datos (fase D): ${fill.numbers} números fijos · ${fill.dueDates} nóminas de cobro · ${fill.refinancings} refinanciamientos con nómina siguiente · ${fill.payrollPayments} abonos de nómina · ${fill.directPayments} directos (anulados) · ${fill.reviewPayments} por revisar</td><td class="n">${fill.total ? '<button data-fill>Completar (prueba)</button>' : '<span class="pill ok">completo</span>'}</td></tr>
         <tr><td>Consolidaciones por deshacer${cons.length ? ` (${new Set(cons.map(x => x.e.id)).size} empleados)` : ''}</td><td class="n">${cons.length}${cons.length ? ' <button data-undo-all>Deshacer todas (prueba)</button>' : ''}</td></tr>
       </tbody></table></div>
       ${S.consResult ? `<p class="faint" style="margin-top:6px">${S.consResult}</p>` : ''}
       ${mismatches.length ? `<p class="faint" style="margin-top:6px">No coinciden: ${mismatches.slice(0, 8).map(x => `${esc(empLabel(x.e))} (${M(x.r)} vs ${M(x.b)})`).join(' · ')}</p>` : ''}`;
+    const fb = document.querySelector('[data-fill]');
+    if (fb) fb.onclick = () => {
+        const before = emps.reduce((t, e) => t + getAccountSummary(e, { activeClosureIds: S.closures }).balance, 0);
+        const c = applyLoanBackfill(emps, S.data.settings?.payPeriod);
+        const after = emps.reduce((t, e) => t + getAccountSummary(e, { activeClosureIds: S.closures }).balance, 0);
+        S.consResult = `Datos completados: ${c.numbers} números, ${c.dueDates} nóminas de cobro, ${c.payrollPayments} abonos de nómina, ${c.reviewPayments} por revisar. Por cobrar ${M(before)} → ${M(after)} ${Math.abs(before - after) < 0.05 ? '(igual ✔)' : '(¡cambió!)'}`;
+        renderChecks(); renderPick(); if (S.empId) renderAccount();
+    };
     const ua = document.querySelector('[data-undo-all]');
     if (ua) ua.onclick = () => {
         const before = emps.reduce((t, e) => t + getAccountSummary(e, { activeClosureIds: S.closures }).balance, 0);

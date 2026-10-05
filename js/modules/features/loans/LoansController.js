@@ -19,6 +19,7 @@
 import { registerLoanHistoryGlobals } from './LoanHistoryPanel.js';
 import { registerLoanDuplicateReviewGlobals } from './LoanDuplicateReview.js';
 import { registerLoanAccountGlobals } from './LoanAccountController.js';
+import { nextLoanNumber } from './LoanDataBackfill.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
@@ -443,7 +444,9 @@ export function setLoanDraftField(field, value) {
 function _doCreateLoan(emp) {
     const draft = state.loansLedger.newLoanDraft;
     try {
+        const number = nextLoanNumber(emp.loans);
         const loan = createLoan(emp, draft, { projectScope: captureEntityProjectScope() });
+        if (number) { const stored = (emp.loans || []).find(l => l.id === loan.id); if (stored) stored.number = number; }
         state.loansLedger.showAddForm = false;
         state.loansLedger.newLoanDraft = createEmptyLoanDraft();
         // Toast honesto: lo emite SaveOutcomeNotifier con el resultado REAL.

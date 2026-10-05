@@ -26,6 +26,8 @@ import {
 } from './LoanAccount.js';
 import { getAccountPayPeriods, closedPeriodEnds } from './LoanAccountView.js';
 import { undoConsolidation, restoreConsolidation, findConsolidations } from './LoanConsolidationUndo.js';
+import { nextLoanNumber, planLoanBackfill, applyLoanBackfill, resolvePaymentReview } from './LoanDataBackfill.js';
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { nextPayPeriod, followingPayPeriod } from './LoanPayPeriods.js';
 
 const CLASSIC_KEY = 'loans-account-view';
@@ -217,9 +219,11 @@ export function laSave() {
             installmentCount: Math.max(2, Math.round(Number(m.count) || 2)), installmentFrequencyWeeks: Number(m.freq) || 2
         };
         const create = () => act(e => {
+            const number = nextLoanNumber(e.loans);
             const created = createLoan(e, draft, { projectScope: captureEntityProjectScope() });
             // El estado guarda su propia copia del préstamo: la nómina de cobro se pone en esa.
             const loan = (e.loans || []).find(l => l.id === created.id) || created;
+            if (number) loan.number = number;
             if (m.plan === 'lump' && /^\d{4}-\d{2}-\d{2}$/.test(String(m.period || ''))) { loan.dueDate = m.period; loan.dueDateSetAt = Date.now(); }
             return loan;
         }, loan => `Préstamo registrado: ${escapeHTML(loan.concept)}`, view => { view.modal = null; view.tab = 'loans'; });
@@ -324,6 +328,44 @@ export function laUndoAllConsolidations() {
     run();
 }
 
+function scopedEmployees() {
+    return (state.employees || []).filter(emp => entityInScope(emp, peekEntityScope()));
+}
+
+/** Completa los datos viejos (número fijo, nómina de cobro, origen de abonos) de la obra activa. */
+export function laApplyBackfill() {
+    const employees = scopedEmployees();
+    const payPeriod = getActivePayrollSettings(state).payPeriod;
+    const plan = planLoanBackfill(employees, payPeriod);
+    if (!plan.total) return;
+    const run = () => {
+        const counts = applyLoanBackfill(employees, payPeriod);
+        commit(`Datos completados: ${counts.numbers} números, ${counts.dueDates} nóminas de cobro, ${counts.payrollPayments + counts.directPayments + counts.reviewPayments} orígenes (${counts.reviewPayments} por revisar)`);
+        render();
+    };
+    if (typeof window !== 'undefined' && typeof window.showConfirm === 'function') {
+        window.showConfirm({
+            title: 'Completar datos de préstamos',
+            message: `Solo se rellenan datos que faltan; no cambian montos ni saldos.<br>· ${plan.numbers} préstamos reciben su número fijo<br>· ${plan.dueDates} préstamos reciben su nómina de cobro (la del periodo en que se entregaron) y ${plan.refinancings} refinanciamientos la nómina siguiente<br>· ${plan.payrollPayments} abonos quedan como descuento de nómina (caen junto al día de pago)${plan.directPayments ? `<br>· ${plan.directPayments} abonos anulados quedan como directos` : ''}<br>· ${plan.reviewPayments} abonos fuera de los días de pago quedan para revisar uno por uno`,
+            confirmText: 'Completar', cancelText: 'Cancelar', type: 'info', onConfirm: run
+        });
+        return;
+    }
+    run();
+}
+
+/** Abono revisado: arg = "empId|loanId|paymentId", kind = 'payroll' | 'direct'. */
+export function laReviewPayment(ref, kind) {
+    const [empId, loanId, paymentId] = String(ref).split('|');
+    const emp = scopedEmployees().find(e => String(e.id) === empId);
+    if (!emp) return;
+    try {
+        resolvePaymentReview(emp, loanId, paymentId, kind === 'payroll' ? 'payroll' : 'direct', getActivePayrollSettings(state).payPeriod);
+        commit(kind === 'payroll' ? 'Abono marcado como descuento de nómina' : 'Abono marcado como directo');
+        render();
+    } catch (error) { alertMsg(`❌ ${error.message}`); }
+}
+
 export function laUndoClosure(loanId) { return act(emp => undoLoanClosure(emp, loanId, options()), 'Cierre deshecho'); }
 export function laCancelAgreement(id) { return act(emp => cancelLoanAgreement(emp, id, options()), 'Acuerdo cancelado'); }
 
@@ -332,7 +374,7 @@ export function registerLoanAccountGlobals() {
     Object.assign(window, {
         laUseClassicView, laSetTab, laToggleLoan, laToggleShowVoid, laAsk, laCancelAsk, laFixWhy, laClose,
         laOpen, laField, laFieldQuiet, laToggleSel, laCopySummary, laSave, laVoid, laAdjust, laFix,
-        laUndoClosure, laCancelAgreement, laRestoreConsolidation, laUndoAllConsolidations
+        laUndoClosure, laCancelAgreement, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment
     });
 }
 
