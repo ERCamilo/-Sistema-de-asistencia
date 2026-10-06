@@ -306,7 +306,11 @@ function movementText(m, loanId) {
     const splitTxt = p => `${p.interest ? M(p.interest, 0) + ' interés' : ''}${p.interest && p.capital ? ' · ' : ''}${p.capital ? M(p.capital, 0) + ' capital' : ''}`;
     switch (m.kind) {
     case 'loan':
-        return { title: `Préstamo #${m.number}`, sub: '', amount: '+' + M(m.amount), tone: 'cap' };
+        // Al crearse: cuánto es capital (azul) y cuánto interés (amarillo).
+        return {
+            title: `Préstamo #${m.number}`, sub: '', amount: '+' + M(m.amount), tone: 'cap',
+            detailHtml: `<span class="la-t-cap">${M(m.capital, 0)} capital</span>${m.interest > 0.004 ? ` · <span class="la-t-int">${M(m.interest, 0)} interés</span>` : ''}`
+        };
     case 'payment': {
         const parts = m.parts.filter(p => m.voided || !p.voided);
         const title = part && m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Parte del abono a la cuenta' : m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Abono a la cuenta' : `Abono al préstamo #${parts[0]?.number ?? ''}`;
@@ -377,7 +381,7 @@ function MovementRow(m, { loanId = null } = {}) {
         <span class="la-dot la-c-${t.tone}"></span>
         <div class="la-mv__w"><b>${escapeHTML(t.title)}</b>${isPayRefi ? originPill(m.origin) : ''}${m.lock ? `<span class="la-pill" title="Está en un cierre de nómina">🔒 cierre</span>` : ''}${m.adjustedBy ? '<span class="la-pill la-pill--warn">ajustado</span>' : ''}${m.closureFix ? '<span class="la-pill la-pill--warn">quitado del cierre</span>' : ''}${(m.parts || []).some(p => p.needsReview) ? '<span class="la-pill la-pill--warn" title="Fuera de los días de pago: revísalo en la pantalla principal de Préstamos">revisar</span>' : ''}${m.voided ? '<span class="la-pill la-pill--bad">anulado</span>' : ''}
             <small>${dmy(m.date)}${t.sub ? ' · ' + escapeHTML(t.sub) : ''}${m.closureFix ? ` · motivo: ${escapeHTML(m.closureFix.reason)} · saldo ${M(m.closureFix.before.accountBalance, 0)} → ${M(m.closureFix.after.accountBalance, 0)}` : ''}${m.note && isPayRefi ? ' · ' + escapeHTML(m.note) : ''}</small></div>
-        <div class="la-mv__a la-t-${t.tone}">${escapeHTML(t.amount)}${t.detail ? `<small>${escapeHTML(t.detail)}</small>` : ''}</div>
+        <div class="la-mv__a la-t-${t.tone}">${escapeHTML(t.amount)}${t.detailHtml ? `<small>${t.detailHtml}</small>` : t.detail ? `<small>${escapeHTML(t.detail)}</small>` : ''}</div>
         ${canVoid ? `<button type="button" class="la-x" data-app-fn="laAsk" data-arg="${escapeAttr(key)}" data-arg2="${escapeAttr(where)}" aria-label="Anular este movimiento" title="Anular">✕</button>` : '<span></span>'}
         ${asking ? ConfirmBox(m, key) : ''}
     </div>`;
