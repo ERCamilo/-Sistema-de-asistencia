@@ -111,3 +111,38 @@ Decidido el 2026-10-05: las consolidaciones se deshacen y los préstamos vuelven
   - 23 refinanciamientos con la nómina siguiente;
   - 137 abonos de nómina, 5 directos anulados y 7 por revisar;
   - lo que se debe no cambia: $167,185.40.
+
+## Pantalla principal de Préstamos
+
+`LoanPortfolio.js` calcula las cifras, `LoanRisk.js` el riesgo y `LoanPortfolioView.js` dibuja la pantalla. «Vista anterior» vuelve a la de siempre, solo en ese dispositivo.
+
+**Qué muestra:**
+- **Línea del mes:** saldo al empezar el mes y hoy, sin anulados.
+- **«Avisos que necesitan una decisión»:** repetidos, empleados en riesgo, inactivos con deuda, consolidaciones por deshacer, datos por completar y abonos por revisar.
+- **Gráfica por periodo** abierta, con el modo detallado.
+- **Resumen de cartera:** a la derecha en escritorio y arriba, en 2×2, en teléfono.
+  - **Por cobrar:** capital, interés inicial y de refinanciamientos (estimado), y quién debe más.
+  - **Interés ganado:** cobrado de un total igual a cobrado + por cobrar.
+  - **Cobrado** y **Prestado**.
+
+**Cómo lee los datos:** la pantalla lee los datos como si ya se hubieran deshecho las consolidaciones y completado los datos viejos (`prepareLoanEmployees`, sobre una copia). Las cachés usan una firma por préstamo.
+
+**«Vencido» con margen** (`VENCIDO_GRACE_DAYS = 3`): un cobro vence 3 días después del día de pago, la misma ventana con la que se anotan los descuentos.
+
+**Riesgo:**
+- **Reglas:** las de la maqueta.
+- **Lo atrasado:** préstamos cuya nómina de cobro **original** pasó (más el margen). Un refinanciamiento mueve el cobro, pero no quita el atraso.
+- **Sueldo:** el mismo cálculo que Nómina, en este orden:
+  1. lo que gana en el periodo actual, proyectado, si ya lleva 7 días o más;
+  2. si no, el promedio de los 2 periodos anteriores;
+  3. si tampoco hay, el sueldo configurado.
+
+**Verificado con el respaldo del 29/09 contra la maqueta:**
+- **Coincide:**
+  - por cobrar $167,185.40, con todo su desglose;
+  - los 5 que más deben;
+  - el interés ganado: $66,494 de $94,314;
+  - cobrado $443,479;
+  - prestado $476,150 (70.7 % devuelto);
+  - el riesgo: 12 empleados, 3/5/4.
+- **Difiere, por error de la maqueta:** la línea del mes da $87,604 al empezar septiembre, porque la maqueta contaba un préstamo anulado por error.

@@ -366,6 +366,23 @@ export function laReviewPayment(ref, kind) {
     } catch (error) { alertMsg(`❌ ${error.message}`); }
 }
 
+// ─── Pantalla principal: avisos y riesgo ──────────────────────────────────────
+
+function portfolioState(fn) {
+    if (!state.loansLedger) return;
+    stateManager.batchSetState(() => {
+        if (!state.loansLedger.portfolio) state.loansLedger.portfolio = { alertsOpen: true, alertPanel: null, riskLevel: 0 };
+        fn(state.loansLedger.portfolio);
+    });
+    render();
+}
+export function lpToggleAlerts() { portfolioState(p => { p.alertsOpen = p.alertsOpen === false; }); }
+export function lpAlertPanel(key) {
+    if (key === 'inactive-filter') return;
+    portfolioState(p => { p.alertPanel = p.alertPanel === key ? null : String(key); p.alertsOpen = true; });
+}
+export function lpRiskLevel(level) { portfolioState(p => { p.riskLevel = Number(level) || 0; }); }
+
 export function laUndoClosure(loanId) { return act(emp => undoLoanClosure(emp, loanId, options()), 'Cierre deshecho'); }
 export function laCancelAgreement(id) { return act(emp => cancelLoanAgreement(emp, id, options()), 'Acuerdo cancelado'); }
 
@@ -374,7 +391,8 @@ export function registerLoanAccountGlobals() {
     Object.assign(window, {
         laUseClassicView, laSetTab, laToggleLoan, laToggleShowVoid, laAsk, laCancelAsk, laFixWhy, laClose,
         laOpen, laField, laFieldQuiet, laToggleSel, laCopySummary, laSave, laVoid, laAdjust, laFix,
-        laUndoClosure, laCancelAgreement, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment
+        laUndoClosure, laCancelAgreement, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment,
+        lpToggleAlerts, lpAlertPanel, lpRiskLevel
     });
 }
 

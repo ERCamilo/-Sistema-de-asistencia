@@ -54,6 +54,7 @@ import { detectLoanDuplicateCandidates } from './LoanDuplicateDetector.js';
 import { renderLoanHistoryPanel } from './LoanHistoryPanel.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { LoanAccountDetail } from './LoanAccountView.js';
+import { buildPortfolioModel, PortfolioMonthLine, PortfolioAlerts, PortfolioSummary } from './LoanPortfolioView.js';
 import { findConsolidations } from './LoanConsolidationUndo.js';
 import { planLoanBackfill, listPaymentsToReview } from './LoanDataBackfill.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
@@ -180,10 +181,19 @@ function LedgerOverview() {
     const totalHistoricalDue = getTotalHistoricalDue(scopedState);
     const totalHistoricalPaid = getTotalHistoricalPaid(scopedState);
     const closedLoansCount = getClosedLoansCount(scopedState);
+    // Pantalla principal nueva (maqueta): línea del mes, avisos y resumen de cartera.
+    // «Vista anterior» (por dispositivo) vuelve a las tarjetas de siempre.
+    const portfolio = useAccountView() ? buildPortfolioModel(scopedState.employees || []) : null;
 
     return `
-        <div class="loans-overview">
+        <div class="loans-overview${portfolio ? ' is-portfolio' : ''}">
             <main class="loans-overview__main">
+                ${portfolio ? `
+                <div class="lp-mobile">${PortfolioSummary(portfolio, { compact: true })}</div>
+                ${PortfolioMonthLine(portfolio)}
+                ${PortfolioAlerts(portfolio)}
+                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: portfolio.employees, defaults: { open: true, view: 'period', detailed: true } })}
+                ` : `
                 <div class="loans-overview__mobile-kpis">
                     ${kpiCard(
                         'Saldo pendiente',
@@ -249,6 +259,8 @@ function LedgerOverview() {
                         </div>
                     </div>
                 ` : ''}
+
+                `}
 
                 <!-- Toolbar de Vistas, Búsqueda, Filtros y Orden -->
                 <div class="loans-toolbar-card" style="background: #1e293b; border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 12px;">
@@ -537,6 +549,7 @@ function LedgerOverview() {
                 ` : ''}
             </main>
 
+            ${portfolio ? `<aside class="loans-overview__summary lp-aside" aria-label="Resumen de cartera">${PortfolioSummary(portfolio)}</aside>` : `
             <aside class="loans-overview__summary" aria-label="Resumen de préstamos / adelantos">
                 <div class="loans-overview__summary-header">
                     <span>Resumen de cartera</span>
@@ -582,7 +595,7 @@ function LedgerOverview() {
                     </tbody>
                 </table>
                 <p>Pasa el cursor sobre cualquier métrica para ver su explicación y fórmula de cálculo.</p>
-            </aside>
+            </aside>`}
         </div>
     `;
 }

@@ -736,7 +736,10 @@ describe('Financial desktop layouts', () => {
     });
 
     test('receivables renders a desktop table and keeps compact mobile indicators', () => {
+        // Vista anterior (se elige por dispositivo); la nueva se prueba abajo.
+        localStorage.setItem('loans-account-view', 'classic');
         const html = LoansLedger();
+        localStorage.removeItem('loans-account-view');
 
         expect(html).toContain('class="loans-overview"');
         expect(html).toContain('class="loans-overview__summary"');
@@ -744,5 +747,17 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('class="loans-overview__mobile-kpis"');
         expect(html).toContain('Saldo pendiente');
         expect(html).toContain('Préstamos activos');
+    });
+
+    test('receivables main screen shows the portfolio summary beside the list and on top on phones', () => {
+        const html = LoansLedger();
+
+        expect(html).toContain('class="loans-overview is-portfolio"');
+        expect(html).toContain('class="loans-overview__summary lp-aside"');
+        expect(html).toContain('Resumen de cartera');
+        expect(html).toContain('class="lp-mobile"');
+        expect(html).toContain('Por cobrar');
+        expect(html).toContain('Interés ganado');
+        expect(html).toContain('Prestado');
     });
 });

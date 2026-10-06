@@ -179,10 +179,10 @@ function countText(counts) {
  * @param {string} args.scope   'general' o el id del empleado
  * @param {Array}  args.employees empleados ya filtrados por obra
  */
-export function renderLoanDuplicateReview({ scope = 'general', employees = [], embedded = false } = {}) {
+export function renderLoanDuplicateReview({ scope = 'general', employees = [], embedded = false, open = false } = {}) {
     const result = findLoanRecordDuplicates(employees);
     if (result.counts.total === 0) return '';
-    const isOpen = openScopes.has(String(scope));
+    const isOpen = open || openScopes.has(String(scope));
     const loansById = new Map(employees.flatMap(emp => (emp.loans || []).map(loan => [String(loan.id), loan])));
     const selectedCount = result.loans.reduce((total, item) => total + selectedFor(item).size, 0);
     return `

@@ -19,7 +19,7 @@ import {
 import { replayLoan } from './LoanTimeline.js';
 import {
     CLOSE_REASON, REFINANCE_REASON, AGREEMENT_INTEREST, AGREEMENT_NEW_LOANS, MOVEMENT_ORIGIN,
-    getAccountSummary, getLoanNumbers, getLoanPending, getLoanLock, getLoanDueDate, countMissedPayDates,
+    getAccountSummary, getLoanNumbers, getLoanPending, getLoanLock, getLoanDueDate, countMissedPayDates, VENCIDO_GRACE_DAYS,
     getAccountMovements, allocateAccountPayment, getActiveLoanAgreement, suggestedAgreementMinimum,
     projectLoanAgreement, getMovementLock
 } from './LoanAccount.js';
@@ -133,7 +133,7 @@ export function LoanAccountDetail(emp) {
         const split = loanPaidSplit(item.loan);
         return { interest: acc.interest + split.interest, capital: acc.capital + split.capital };
     }, { interest: 0, capital: 0 });
-    const overdue = summary.loans.filter(item => countMissedPayDates(item.loan, payDates, today) > 0).length;
+    const overdue = summary.loans.filter(item => countMissedPayDates(item.loan, payDates, today, { graceDays: VENCIDO_GRACE_DAYS }) > 0).length;
     const dueNext = next ? round2(summary.loans.filter(item => !item.dueDate || item.dueDate <= next.payDate).reduce((t, item) => t + item.balance, 0)) : summary.balance;
     const nextAmount = agreement ? Math.min(agreement.amount, summary.balance) : dueNext;
     const movements = getAccountMovements(emp);
@@ -220,12 +220,14 @@ function LoanRow(emp, loan, numbers, payDates, today, isOpen) {
     const paid = loanPaidSplit(loan);
     const lock = getLoanLock(loan);
     const due = getLoanDueDate(loan);
-    const miss = active ? countMissedPayDates(loan, payDates, today) : 0;
+    const miss = active ? countMissedPayDates(loan, payDates, today, { graceDays: VENCIDO_GRACE_DAYS }) : 0;
     const refis = (loan.refinancings || []).filter(r => !r.voided && !r.adjustment);
     const refiTotal = round2(refis.reduce((t, r) => t + Number(r.interestAmount || 0), 0));
     const initInterest = terms.interestIncluded ? 0 : round2(terms.principal * terms.interestRate / 100);
     const pills = [
-        miss >= 2 ? `<span class="la-pill la-pill--bad">Vencido · ${miss} nóminas</span>` : miss === 1 ? `<span class="la-pill la-pill--warn">Vencido ${dm(due)}</span>` : active && due === today ? '<span class="la-pill la-pill--int">Se cobra hoy</span>' : '',
+        miss >= 2 ? `<span class="la-pill la-pill--bad">Vencido · ${miss} nóminas</span>` : miss === 1 ? `<span class="la-pill la-pill--warn">Vencido ${dm(due)}</span>`
+            : active && due === today ? '<span class="la-pill la-pill--int">Se cobra hoy</span>'
+            : active && due && due < today ? `<span class="la-pill la-pill--int" title="Los descuentos de la nómina se anotan hasta ${VENCIDO_GRACE_DAYS} días después del pago">En cobro · nómina del ${dm(due)}</span>` : '',
         lock ? '<span class="la-pill" title="Tiene movimientos en un cierre de nómina">🔒 con cierre</span>' : '',
         refis.length ? '<span class="la-pill la-pill--refi">Refinanciado</span>' : '',
         terms.installmentMode === INSTALLMENT_MODE.INSTALLMENTS ? `<span class="la-pill">${(terms.installments || []).length} cuotas</span>` : '',

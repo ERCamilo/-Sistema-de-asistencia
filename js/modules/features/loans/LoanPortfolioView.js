@@ -1,0 +1,209 @@
+/**
+ * 📒 LoanPortfolioView — pantalla principal de Préstamos (diseño de la maqueta).
+ *
+ *   - Línea del mes: cuánto cambió lo que deben en el mes.
+ *   - «Avisos que necesitan una decisión»: repetidos, empleados en riesgo,
+ *     inactivos con deuda, consolidaciones por deshacer, datos por completar
+ *     y abonos por revisar; cada uno con su acción.
+ *   - Resumen de cartera (panel derecho; arriba en teléfono): por cobrar con
+ *     su desglose, quién debe más y qué hacer; interés ganado, cobrado y prestado.
+ * Solo dibuja; las cifras salen de LoanPortfolio.js y LoanRisk.js.
+ */
+
+import { state } from '../../core/AppState.js';
+import { formatCurrency } from '../../utils/Formatters.js';
+import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
+import { getDateKey } from '../../utils/DateUtils.js';
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
+import { computeAttendanceDetailEarnings } from '../attendance/AttendanceDetailEarnings.js';
+import { buildPayPeriods } from './LoanPayPeriods.js';
+import { prepareLoanEmployees, computePortfolioSummary, computeMonthChange, loanDataSignature } from './LoanPortfolio.js';
+import { computeRiskList, RISK_LEVELS } from './LoanRisk.js';
+import { findConsolidations } from './LoanConsolidationUndo.js';
+import { planLoanBackfill, listPaymentsToReview } from './LoanDataBackfill.js';
+import { findLoanRecordDuplicates } from './LoanRecordDuplicates.js';
+import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
+import { getAccountSummary } from './LoanAccount.js';
+
+const M = (value, decimals = 2) => {
+    const n = Number(value || 0);
+    return decimals === 0 ? '$' + Math.round(n).toLocaleString('en-US') : formatCurrency(n);
+};
+const dmy = key => (key ? `${key.slice(8, 10)}/${key.slice(5, 7)}/${key.slice(0, 4)}` : '—');
+const RISK_COLOR = { 3: '#ef4444', 2: '#fb923c', 1: '#facc15' };
+
+export function portfolioUi() {
+    return state.loansLedger?.portfolio || {};
+}
+
+// ─── Datos (con caché: el cálculo de sueldos es pesado) ─────────────────────
+
+const grossCache = new Map();
+function grossOf(emp, start, end) {
+    const key = `${emp.id}|${start}|${end}`;
+    if (!grossCache.has(key)) grossCache.set(key, computeAttendanceDetailEarnings(state, emp.id, start, end).gross || 0);
+    return grossCache.get(key);
+}
+
+let riskCache = { key: null, list: [] };
+let lastAttendance = null;
+let attendanceVersion = 0;
+
+/** Todo lo que necesita la pantalla, a partir de los empleados de la obra. */
+export function buildPortfolioModel(scopedEmployees = []) {
+    const today = getDateKey(new Date());
+    const payPeriod = getActivePayrollSettings(state).payPeriod;
+    const prepared = prepareLoanEmployees(scopedEmployees, payPeriod);
+    const employees = prepared.employees;
+    // Si cambia la asistencia cambian los sueldos: se rehacen los cálculos.
+    if (state.attendance !== lastAttendance) { grossCache.clear(); lastAttendance = state.attendance; attendanceVersion++; }
+    const periods = buildPayPeriods(payPeriod, today, { before: 3, after: 1 });
+    const riskKey = JSON.stringify([today, payPeriod, attendanceVersion, loanDataSignature(scopedEmployees)]);
+    if (riskCache.key !== riskKey) {
+        let list = [];
+        try { list = computeRiskList(employees, { today, periods, grossOf, state }); } catch (_) { list = []; }
+        riskCache = { key: riskKey, list };
+    }
+    const dup = findLoanRecordDuplicates(scopedEmployees);
+    const inactive = employees.filter(emp => emp.active === false)
+        .map(emp => ({ emp, balance: getAccountSummary(emp).balance })).filter(x => x.balance > 0.004);
+    return {
+        today,
+        scoped: scopedEmployees,
+        prepared,
+        employees,
+        summary: computePortfolioSummary(employees),
+        month: computeMonthChange(employees, today),
+        risk: riskCache.list,
+        duplicates: dup.counts,
+        inactive,
+        consolidations: scopedEmployees.flatMap(emp => findConsolidations(emp)).length,
+        backfill: planLoanBackfill(scopedEmployees, payPeriod),
+        review: listPaymentsToReview(scopedEmployees)
+    };
+}
+
+// ─── Línea del mes ───────────────────────────────────────────────────────────
+
+export function PortfolioMonthLine(model) {
+    const { month, today } = model;
+    const verb = month.change > 0.004 ? 'subió' : month.change < -0.004 ? 'bajó' : 'no cambió';
+    const cap = month.month.charAt(0).toUpperCase() + month.month.slice(1);
+    return `<div class="lp-month" title="Saldo al empezar el mes y hoy, sin préstamos anulados por error.">
+        <span>${escapeHTML(cap)}: lo que deben <b>${verb}${Math.abs(month.change) > 0.004 ? ' ' + M(Math.abs(month.change)) : ''}</b></span>
+        <small>de ${M(month.from)} a ${M(month.to)} · datos al ${dmy(today)}${model.prepared.virtual ? ' · leídos como si ya se hubieran completado los datos' : ''}</small>
+        <button type="button" class="la-link" data-app-fn="laUseClassicView" data-arg="1" title="Volver a la pantalla anterior (solo en este dispositivo)">Vista anterior</button>
+    </div>`;
+}
+
+// ─── Avisos ──────────────────────────────────────────────────────────────────
+
+function countText(counts) {
+    return [
+        counts.payments ? `${counts.payments} abono${counts.payments === 1 ? '' : 's'}` : '',
+        counts.refinancings ? `${counts.refinancings} interés${counts.refinancings === 1 ? '' : 'es'}` : '',
+        counts.loans ? `${counts.loans} préstamo${counts.loans === 1 ? '' : 's'}` : ''
+    ].filter(Boolean).join(', ');
+}
+
+export function PortfolioAlerts(model) {
+    const ui = portfolioUi();
+    const items = [];
+    const riskBy = l => model.risk.filter(r => r.lvl === l).length;
+    if (model.duplicates.total) items.push({ key: 'dup', dot: '#ef4444', title: `${model.duplicates.total} posibles registros repetidos`, sub: countText(model.duplicates), hint: 'Toca «Revisar», deja marcadas las copias y toca «Anular».', label: 'Revisar' });
+    if (model.risk.length) items.push({ key: 'risk', dot: '#ef4444', title: `${model.risk.length} empleado${model.risk.length === 1 ? '' : 's'} en riesgo`, sub: `${riskBy(3)} muy alto · ${riskBy(2)} alto · ${riskBy(1)} moderado`, hint: 'Toca «Ver» para saber por qué y qué conviene hacer con cada uno.', label: 'Ver' });
+    if (model.inactive.length) items.push({ key: 'inactive', dot: '#94a3b8', title: `${model.inactive.length} empleado${model.inactive.length === 1 ? '' : 's'} inactivo${model.inactive.length === 1 ? '' : 's'} deben ${M(model.inactive.reduce((t, x) => t + x.balance, 0), 0)}`, sub: 'No pasan por nómina', hint: 'Cobra a mano y registra el abono; si no se cobrará, anula el préstamo como «Perdonado» o con una nota.', label: 'Ver quiénes' });
+    if (model.consolidations) items.push({ key: 'cons', dot: '#a855f7', title: `${model.consolidations} consolidación${model.consolidations === 1 ? '' : 'es'} por deshacer`, sub: 'Juntaban préstamos y convertían el interés en capital', hint: 'Los préstamos vuelven a ser separados; lo que deben no cambia.', label: 'Deshacer todas', fn: 'laUndoAllConsolidations' });
+    if (model.backfill.total) items.push({ key: 'fill', dot: '#1fb6ff', title: 'Datos de préstamos por completar', sub: [model.backfill.numbers ? `${model.backfill.numbers} sin número` : '', model.backfill.dueDates ? `${model.backfill.dueDates} sin nómina de cobro` : '', model.backfill.payrollPayments + model.backfill.directPayments + model.backfill.reviewPayments ? `${model.backfill.payrollPayments + model.backfill.directPayments + model.backfill.reviewPayments} abonos sin origen` : ''].filter(Boolean).join(' · '), hint: 'Solo rellena lo que falta; no cambia montos. Mientras tanto, esta pantalla ya los lee completados.', label: 'Completar', fn: 'laApplyBackfill' });
+    if (model.review.length) items.push({ key: 'review', dot: '#fb923c', title: `${model.review.length} abono${model.review.length === 1 ? '' : 's'} por revisar`, sub: 'Cayeron fuera de los días de pago', hint: '¿Fueron descuento de nómina o directos? Márcalo en cada uno.', label: 'Revisar' });
+    if (!items.length) return `<div class="lp-alerts lp-alerts--empty">✓ Sin avisos pendientes</div>`;
+    const open = ui.alertsOpen !== false;
+    const panel = ui.alertPanel;
+    return `<section class="lp-alerts${open ? ' is-open' : ''}" aria-label="Avisos">
+        <button type="button" class="lp-alerts__head" data-app-fn="lpToggleAlerts" aria-expanded="${open}"><span class="lp-badge">${items.length}</span><b>Avisos que necesitan una decisión</b><span class="lp-alerts__toggle">${open ? 'Ocultar' : 'Ver'}</span></button>
+        ${open ? items.map(it => `
+            <div class="lp-alert"><span class="lp-dot" style="background:${it.dot}"></span>
+                <div class="lp-alert__txt"><b>${escapeHTML(it.title)}</b><small>${escapeHTML(it.sub || '')}</small><small class="lp-hint">→ ${escapeHTML(it.hint)}</small></div>
+                <button type="button" class="la-btn la-btn--sm" data-app-fn="${it.fn || 'lpAlertPanel'}" ${it.fn ? '' : `data-arg="${it.key}"`} aria-expanded="${panel === it.key}">${panel === it.key ? 'Ocultar' : escapeHTML(it.label)}</button>
+            </div>
+            ${panel === it.key ? `<div class="lp-alert__panel">${AlertPanel(it.key, model)}</div>` : ''}`).join('') : ''}
+    </section>`;
+}
+
+function AlertPanel(key, model) {
+    // Las acciones de repetidos cambian los datos reales: se usan los empleados de la obra, no la copia.
+    if (key === 'dup') return renderLoanDuplicateReview({ scope: 'general', employees: model.scoped, embedded: true, open: true });
+    if (key === 'risk') return RiskPanel(model);
+    if (key === 'inactive') return `<div class="lp-list">${model.inactive.sort((a, b) => b.balance - a.balance).map(x => `<div class="lp-list__row"><span><b>${escapeHTML(x.emp.name || '')}</b> #${escapeHTML(x.emp.number ?? '')}</span><span>${M(x.balance)}</span><button type="button" class="la-btn la-btn--sm" data-app-fn="selectLoansEmployee" data-arg="${escapeAttr(x.emp.id)}">Ver préstamos</button></div>`).join('')}</div>`;
+    if (key === 'review') return `<div class="lp-list">${model.review.map(({ emp, loan, payment }) => {
+        const ref = escapeAttr(`${emp.id}|${loan.id}|${payment.id}`);
+        return `<div class="lp-list__row"><span><b>${escapeHTML(emp.name || '')}</b> #${escapeHTML(emp.number ?? '')} · ${dmy(payment.date)} · <b>${M(payment.amount)}</b>${payment.note ? ` · ${escapeHTML(payment.note)}` : ''}</span><span class="lp-list__acts"><button type="button" class="la-btn la-btn--sm" data-app-fn="laReviewPayment" data-arg="${ref}" data-arg2="payroll">Nómina</button><button type="button" class="la-btn la-btn--sm" data-app-fn="laReviewPayment" data-arg="${ref}" data-arg2="direct">Directo</button></span></div>`;
+    }).join('')}</div>`;
+    return '';
+}
+
+function RiskPanel(model) {
+    const ui = portfolioUi();
+    const level = Number(ui.riskLevel) || 0;
+    const list = model.risk.filter(r => !level || r.lvl === level);
+    const count = l => model.risk.filter(r => r.lvl === l).length;
+    return `<div class="lp-risk">
+        <div class="lp-chips" role="group" aria-label="Nivel de riesgo">
+            <button type="button" data-app-fn="lpRiskLevel" data-arg="0" aria-pressed="${!level}">Todos ${model.risk.length}</button>
+            ${[3, 2, 1].map(l => `<button type="button" data-app-fn="lpRiskLevel" data-arg="${l}" aria-pressed="${level === l}"><i style="background:${RISK_COLOR[l]}"></i>${RISK_LEVELS[l]} ${count(l)}</button>`).join('')}
+        </div>
+        <details class="lp-how"><summary>Cómo se clasifica</summary><ul>
+            <li>Se compara lo que debe con lo que gana en un periodo (la nómina de donde se descuenta).</li>
+            <li><b>Muy alto:</b> inactivo con deuda, debe un sueldo o más, o le falta de nóminas anteriores la mitad de su sueldo o más.</li>
+            <li><b>Alto:</b> debe 60 % de su sueldo o más, le falta de antes 25 % o más, o no pagó nada y lo atrasado no bajó.</li>
+            <li><b>Moderado:</b> debe 35 % o más, o le queda algo de nóminas anteriores.</li>
+            <li>Baja un nivel si viene pagando y lo atrasado baja. Los refinanciamientos y los préstamos pequeños no suben el nivel por sí solos.</li></ul></details>
+        ${list.map(r => `<article class="lp-rk" style="--c:${RISK_COLOR[r.lvl]}">
+            <div class="lp-rk__h"><span class="lp-rk__lvl">${RISK_LEVELS[r.lvl]}</span><b>${escapeHTML(r.emp.name || '')} #${escapeHTML(r.emp.number ?? '')}</b>${r.active ? '' : '<span class="la-pill">inactivo</span>'}<span class="lp-rk__bal">${M(r.bal)}</span></div>
+            <ul>${r.why.map(t => `<li>${escapeHTML(t)}</li>`).join('')}</ul>
+            ${r.ctx.length ? `<ul class="lp-rk__ctx">${r.ctx.map(t => `<li>${escapeHTML(t)}</li>`).join('')}</ul>` : ''}
+            <div class="lp-rk__adv"><b>Qué hacer</b><ul>${r.advice.map(t => `<li>${escapeHTML(t)}</li>`).join('')}</ul></div>
+            <div class="lp-rk__acts"><button type="button" class="la-btn la-btn--sm" data-app-fn="selectLoansEmployee" data-arg="${escapeAttr(r.emp.id)}">Ver préstamos</button>${r.salary ? `<small>Sueldo de referencia ≈${M(r.salary.value, 0)} (${escapeHTML(r.salary.source)})</small>` : '<small>Sin sueldo para comparar</small>'}</div>
+        </article>`).join('')}
+        <p class="lp-note">Datos al ${dmy(model.today)}. Sueldo con el mismo cálculo que Nómina: lo que gana en este periodo proyectado si ya lleva 7 días o más; si no, el promedio de los 2 periodos anteriores. «Le faltan de nóminas anteriores» cuenta los préstamos cuya nómina de cobro original pasó hace más de 3 días.</p>
+    </div>`;
+}
+
+// ─── Resumen de cartera ──────────────────────────────────────────────────────
+
+function stackedBar(parts) {
+    const total = parts.reduce((t, p) => t + p.value, 0) || 1;
+    return `<span class="lp-bar">${parts.filter(p => p.value > 0).map(p => `<i style="width:${(p.value / total * 100).toFixed(2)}%;background:${p.color}" title="${escapeAttr(p.label)} ${M(p.value, 0)}"></i>`).join('')}</span>`;
+}
+
+function card(key, title, big, sub, body, open) {
+    return `<details class="lp-card"${open ? ' open' : ''} data-card="${key}"><summary><span class="lp-card__t">${escapeHTML(title)}</span><span class="lp-card__big">${big}</span><small>${sub}</small></summary><div class="lp-card__b">${body}</div></details>`;
+}
+
+const row = (color, label, value, extra = '') => `<div class="lp-r${extra}">${color ? `<i style="background:${color}"></i>` : '<i></i>'}<span>${label}</span><b>${value}</b></div>`;
+
+export function PortfolioSummary(model, { compact = false } = {}) {
+    const s = model.summary;
+    const max = Math.max(1, ...s.quienDebeMas.map(r => r.balance));
+    const porCobrar = `
+        ${stackedBar([{ value: s.porCobrar.capital, color: '#1fb6ff', label: 'capital' }, { value: s.porCobrar.interestInitial, color: '#ffc61a', label: 'interés inicial' }, { value: s.porCobrar.interestRefi, color: '#a855f7', label: 'refinanciamientos' }])}
+        ${row('#1fb6ff', 'Capital por devolver', M(s.porCobrar.capital))}
+        ${row('#ffc61a', 'Interés por cobrar', M(s.porCobrar.interest))}
+        ${row('#ffc61a', 'del interés inicial <em>estimado</em>', M(s.porCobrar.interestInitial), ' is-sub')}
+        ${row('#a855f7', 'de refinanciamientos <em>estimado</em>', M(s.porCobrar.interestRefi), ' is-sub')}
+        ${row('', 'Total por cobrar', M(s.porCobrar.total), ' is-tot')}
+        ${compact ? '' : `<h5>Quién debe más</h5>
+        ${s.quienDebeMas.map(r => `<button type="button" class="lp-who" data-app-fn="selectLoansEmployee" data-arg="${escapeAttr(r.emp.id)}"><span>#${escapeHTML(r.emp.number ?? '')}${r.active ? '' : ' <em>inactivo</em>'}</span><span class="lp-who__bar" style="width:${(r.balance / max * 100).toFixed(1)}%">${stackedBar([{ value: r.capital, color: '#1fb6ff', label: 'capital' }, { value: r.interest, color: '#ffc61a', label: 'interés' }, { value: r.refi, color: '#a855f7', label: 'refinanciamiento' }])}</span><b>${M(r.balance, 0)}</b></button>`).join('')}
+        <div class="lp-legend"><span><i style="background:#1fb6ff"></i>Capital</span><span><i style="background:#ffc61a"></i>Interés</span><span><i style="background:#a855f7"></i>Refinanciamiento</span></div>
+        <div class="lp-todo"><b>Qué hacer</b><ul><li>Antes de prestar, mira cuánto debe ya el empleado y el medidor de carga del préstamo nuevo.</li><li>Si no le alcanza la nómina, usa «Acuerdo» con un monto fijo en vez de refinanciar cada vez.</li><li>A los inactivos, registra el abono a mano en su ficha.</li></ul></div>`}`;
+    const ganado = `${row('#0a8f5b', 'Cobrado de interés', M(s.interesGanado.collected))}${row('#ffc61a', 'Interés por cobrar', M(s.porCobrar.interest))}${row('', 'Total', M(s.interesGanado.total), ' is-tot')}<p class="lp-note">El perdonado y lo cubierto con pagos de más no cuentan. Solo desde el primer abono registrado en la app${s.cobrado.since ? ` (${dmy(s.cobrado.since)})` : ''}.</p>`;
+    const cobrado = `${row('#10d98a', 'A capital', M(s.cobrado.capital))}${row('#0a8f5b', 'A interés', M(s.cobrado.interest))}${s.cobrado.excess > 0.004 ? row('repeating-linear-gradient(45deg,#10d98a 0 2px,rgba(16,217,138,.2) 2px 5px)', 'Pagado de más <em>posible error</em>', M(s.cobrado.excess)) : ''}${row('', 'Total cobrado', M(s.cobrado.total), ' is-tot')}`;
+    const prestado = `${row('#10d98a', 'Ya devuelto', M(s.prestado.returned))}${row('#1fb6ff', 'Por devolver', M(s.porCobrar.capital))}${s.prestado.forgiven > 0.004 ? row('#78838d', 'Perdonado o cerrado con saldo', M(s.prestado.forgiven)) : ''}${row('', 'Prestado', M(s.prestado.total), ' is-tot')}`;
+    return `<div class="lp-summary${compact ? ' is-compact' : ''}">
+        ${compact ? '' : '<div class="lp-summary__h"><b>Resumen de cartera</b><small>sin anulados</small></div>'}
+        ${card('cobrar', 'Por cobrar', M(s.porCobrar.total), `${s.porCobrar.people} empleado${s.porCobrar.people === 1 ? '' : 's'} · ${s.porCobrar.loans} préstamo${s.porCobrar.loans === 1 ? '' : 's'}`, porCobrar, !compact)}
+        ${card('ganado', 'Interés ganado', M(s.interesGanado.collected, 0), `de ${M(s.interesGanado.total, 0)} en total`, ganado, false)}
+        ${card('cobrado', 'Cobrado', M(s.cobrado.total, 0), s.cobrado.since ? `abonos desde el ${dmy(s.cobrado.since)}` : 'sin abonos', cobrado, false)}
+        ${card('prestado', 'Prestado', M(s.prestado.total, 0), `${(s.prestado.pctReturned * 100).toFixed(1)} % ya devuelto`, prestado, false)}
+    </div>`;
+}
