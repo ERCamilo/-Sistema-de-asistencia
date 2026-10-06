@@ -224,3 +224,14 @@ Si C2 consolidó a C1, y C1 a su vez consolidó a A y B:
 - **Bloqueos:** deshacer C1 mientras sigue dentro de C2 se bloquea, porque contaría la deuda dos veces. «Volver a consolidar» C2 pide antes volver a consolidar C1.
 - **Las dos marcas:** un préstamo reabierto guarda `consolidationUndone.from`; un consolidado deshecho guarda `sourceIds` y `snapshot`.
 - **Comprobado con el respaldo de prueba del 27/09:** antes, la pantalla principal mostraba $136,709 en lugar de $114,175.
+
+### Revisar y reparar consolidaciones
+
+Botón «Consolidaciones» junto a «Exportar» en la pantalla principal (`LoanConsolidationReviewPanel.js`; cálculos en `LoanConsolidationReview.js`). Solo aparece si la obra tiene consolidaciones y se marca en rojo si alguna tiene error.
+- **Monto real:** con las copias guardadas al deshacer (`snapshot`) se vuelven a armar las consolidaciones sobre una copia del empleado, de adentro hacia afuera, y se suma lo que se debía. Debe ser igual al saldo de hoy.
+- **Estados:** Correcta, Deuda contada dos veces (dañada por la versión anterior), No cuadra (diferencia sin causa conocida; no se repara sola), Sin deshacer y 🔒 Reparada.
+- **Dañada:** la versión anterior deshacía primero la de adentro; al deshacer la de afuera la volvía a abrir y le borraba su copia. Se reconoce porque sigue abierta y sus préstamos de origen tienen `consolidationUndone.from` con su id (`isDamagedConsolidation`).
+- **Reparar:** deshace en el orden correcto lo que quedó abierto, sobre una copia; solo se guarda si el saldo queda igual al monto real. Deshacer la dañada desde la cuenta del empleado también la repara.
+- **Bloqueo:** la reparada y las que la contenían quedan con `consolidationUndone.repairedAt`; «Volver a consolidar» se bloquea en ellas, y en toda la cuenta mientras haya una dañada (`consolidationRestoreBlock`).
+- **Niveles:** cualquier profundidad (probado con 2, 3, 4 y 6); tope de seguridad de 50 pasos.
+- **Comprobado con los respaldos del 06/10 (antes y después de «Deshacer todas» en la versión anterior):** 7 empleados con consolidaciones; 6 correctas y el #003 dañado ($26,532.50 contra un monto real de $10,982.50, el préstamo #19 contado dos veces). Al reparar queda en $10,982.50, igual al respaldo de antes; los abonos ($42,650) no cambian.
