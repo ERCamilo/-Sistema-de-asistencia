@@ -305,7 +305,15 @@ describe('Ficha cuenta de préstamos', () => {
         state.loansLedger = undefined;
         lpCard('ganado');
         expect(state.loansLedger.portfolio.card).toBe('ganado');
-        expect(html().querySelector('.lp-mdetail').textContent).toContain('Cobrado de interés');
+        expect(html().querySelector('.lp-mdetail').textContent).toContain('Ganado del interés inicial');
+        // Panel derecho: una cifra abierta a la vez; «Por cobrar» por defecto.
+        expect(html().querySelector('.lp-aside .lp-card.is-open').dataset.card).toBe('cobrar');
+        lpCard('cobrado', 'aside');
+        const open = html().querySelectorAll('.lp-aside .lp-card.is-open');
+        expect([...open].map(c => c.dataset.card)).toEqual(['cobrado']);
+        expect(open[0].textContent).toContain('Cómo entró');
+        lpCard('cobrado', 'aside');
+        expect(html().querySelector('.lp-aside .lp-card.is-open')).toBeNull();
     });
 
     test('el movimiento del préstamo muestra capital (azul) e interés (amarillo)', () => {

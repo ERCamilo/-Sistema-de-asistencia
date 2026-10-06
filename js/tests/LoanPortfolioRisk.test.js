@@ -34,6 +34,17 @@ describe('Resumen de cartera', () => {
         expect(s.quienDebeMas[0].balance).toBe(10800);
     });
 
+    test('detalle de la maqueta: interés ganado por origen, cómo entró lo cobrado y anulados', () => {
+        const emp = obra();
+        emp.loans[0].payments[0].origin = 'payroll';
+        const s = computePortfolioSummary([emp]);
+        // #4: interés inicial 2,000 + refinanciamiento 1,080; el abono de 6,600 cubre los 3,080.
+        expect(s.interesGanado).toMatchObject({ collectedInit: 2000, collectedRefi: 1080, forgiven: 0 });
+        expect(s.cobrado).toMatchObject({ payroll: 6600, direct: 0 });
+        expect(s.prestado).toMatchObject({ loans: 3, voided: 1, voidedAmount: 9999 });
+        expect(s.porCobrar).toMatchObject({ inactive: 0, inactivePeople: 0 });
+    });
+
     test('la línea del mes usa el saldo al empezar el mes', () => {
         const emp = obra();
         const m = computeMonthChange([emp], '2026-09-29');
@@ -51,6 +62,7 @@ describe('Resumen de cartera', () => {
         const s = computePortfolioSummary(prepared.employees);
         expect(s.prestado.total).toBe(13500); // sin el consolidado como préstamo nuevo
         expect(prepared.employees[0].loans.every(l => Number.isInteger(l.number))).toBe(true);
+        expect(s.prestado.voided).toBe(1); // el consolidado deshecho no cuenta como anulado por error
     });
 });
 

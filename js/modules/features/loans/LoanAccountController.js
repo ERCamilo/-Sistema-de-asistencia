@@ -384,7 +384,16 @@ export function lpAlertPanel(key) {
 }
 export function lpRiskLevel(level) { portfolioState(p => { p.riskLevel = Number(level) || 0; }); }
 export function lpTip(key) { portfolioState(p => { p.tip = p.tip === key ? null : String(key); }); }
-export function lpCard(key) { portfolioState(p => { p.card = p.card === key ? null : String(key); }); }
+export function lpCard(key, where) {
+    portfolioState(p => {
+        if (where === 'aside') {
+            const current = p.asideCard === undefined ? 'cobrar' : p.asideCard;
+            p.asideCard = current === key ? null : String(key);
+        } else {
+            p.card = p.card === key ? null : String(key);
+        }
+    });
+}
 
 export function laUndoClosure(loanId) { return act(emp => undoLoanClosure(emp, loanId, options()), 'Cierre deshecho'); }
 export function laCancelAgreement(id) { return act(emp => cancelLoanAgreement(emp, id, options()), 'Acuerdo cancelado'); }
