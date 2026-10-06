@@ -14,7 +14,7 @@ import { state } from '../../core/AppState.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import {
-    buildFlowBuckets, computeLoanFlows, closedPeriodEndsOf, renderFlowChart, renderFlowLegend, renderFlowPanel
+    buildFlowBuckets, computeLoanFlows, closedPeriodEndsOf, renderFlowChart, renderFlowLegend, renderFlowPanel, renderFlowBridge
 } from './LoanFlowChart.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
@@ -36,7 +36,7 @@ const PRIORITY = ['refinancing', 'loan', 'writeoff', 'settled', 'adjustment', 'p
 const panels = new Map();
 
 function panelState(scope, defaults = null) {
-    if (!panels.has(scope)) panels.set(scope, { open: false, range: 'Todo', date: null, view: 'saldo', detailed: false, bucket: null, ...(defaults || {}) });
+    if (!panels.has(scope)) panels.set(scope, { open: false, range: 'Todo', date: null, view: 'saldo', bucket: null, ...(defaults || {}) });
     return panels.get(scope);
 }
 
@@ -218,7 +218,6 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
                     <div class="lf-tabs" role="tablist" aria-label="Vista del historial">
                         ${[['saldo', 'Saldo'], ['month', 'Por mes'], ['period', 'Por periodo']].map(([key, label]) => `<button type="button" role="tab" aria-selected="${panel.view === key}" data-app-fn="setLoanHistoryView" data-arg="${scopeArg}" data-arg2="${key}">${label}</button>`).join('')}
                     </div>
-                    ${panel.view !== 'saldo' ? `<label class="lf-detail"><input type="checkbox" ${panel.detailed ? 'checked' : ''} onchange="toggleLoanHistoryDetail('${scopeArg}')"> Detallado</label>` : ''}
                 </div>`;
     if (panel.view !== 'saldo') {
         return `
@@ -329,37 +328,26 @@ function renderFlowSection(panel, scope, employees, allDays, portfolio = false) 
     const selected = buckets.some(b => b.key === panel.bucket) ? panel.bucket
         : ([...buckets].reverse().find(b => active(flows.get(b.key))) || buckets.at(-1)).key;
     const bucket = buckets.find(b => b.key === selected);
-    if (portfolio) {
-        // Maqueta: leyenda arriba, gráfica sin tarjeta propia, desglose y la explicación al final.
-        const note = panel.detailed
-            ? 'Barra izquierda: todo lo que se debía (lo que venía de antes más lo nuevo). Barra derecha: lo cobrado y, en azul tenue, lo que faltó de lo que ya venía; eso pasa a «venía de antes» del siguiente. Lo azul oscuro no se suma entre periodos porque es el mismo saldo que pasa de uno a otro. Anulados por error: fuera.'
-            : (kind === 'period' ? 'Periodos de pago según el calendario de Nómina, calculados también hacia atrás. Lo cobrado incluye lo pagado de más. Toca una barra para ver el detalle.' : 'Interés generado: el de los préstamos nuevos del mes más el de los refinanciamientos de ese mes. Lo cobrado incluye lo pagado de más. Toca una barra para ver el detalle.');
-        const saldo = panel.detailed ? `La línea punteada es lo que quedaban debiendo al cerrar cada ${kind === 'period' ? 'periodo' : 'mes'}. ` : `La barra izquierda es todo lo que se debía durante el ${kind === 'period' ? 'periodo' : 'mes'} (lo que venía más lo nuevo), no el saldo; la línea punteada es lo que quedaban debiendo al cerrar cada ${kind === 'period' ? 'periodo' : 'mes'}. `;
-        return `
-        ${renderFlowLegend(panel.detailed)}
-        <div class="lf-plot">${renderFlowChart({ scope, buckets, flows, selected, detailed: panel.detailed, today, closedEnds: closedPeriodEndsOf(employees) })}</div>
-        ${panel.detailed ? renderFlowPanel({ kind, bucket, flow: flows.get(selected), buckets, today }) : ''}
-        <p class="lf-foot">${saldo}${note}</p>`;
-    }
+    const what = kind === 'period' ? 'periodo' : 'mes';
+    const chart = `${renderFlowLegend()}
+        <div class="lf-plot">${renderFlowChart({ scope, buckets, flows, selected, today, closedEnds: closedPeriodEndsOf(employees) })}</div>`;
+    // Al tocar una barra: el puente de ese periodo y, plegada, la tabla con todo el desglose.
+    const detail = `${renderFlowBridge({ bucket, flow: flows.get(selected), today })}
+        <details class="lf-more"><summary>Ver el desglose en tabla</summary>${renderFlowPanel({ kind, bucket, flow: flows.get(selected), buckets, today })}</details>`;
+    const note = `La barra izquierda es todo lo que se debía durante el ${what} (lo que venía más lo nuevo), no el saldo; la línea punteada es lo que quedaban debiendo al cerrar cada ${what}. ${kind === 'period' ? 'Periodos de pago según el calendario de Nómina, calculados también hacia atrás.' : 'El interés es el de los préstamos nuevos del mes más el de los refinanciamientos de ese mes.'} Toca una barra para ver su puente.`;
+    if (portfolio) return `${chart}${detail}<p class="lf-foot">${note}</p>`;
     return `
         <div class="loan-history__chart-card lf-card">
-            <div class="loan-history__chart-head"><div><h4><span aria-hidden="true">📊</span> ${kind === 'period' ? 'Por periodo de nómina' : 'Por mes'}</h4><small>Barra izquierda: lo que se debía · derecha: lo que se cobró${panel.detailed ? ' y lo que faltó' : ''}. Toca una barra para ver el detalle.</small></div></div>
-            ${renderFlowLegend(panel.detailed)}
-            ${renderFlowChart({ scope, buckets, flows, selected, detailed: panel.detailed, today, closedEnds: closedPeriodEndsOf(employees) })}
+            <div class="loan-history__chart-head"><div><h4><span aria-hidden="true">📊</span> ${kind === 'period' ? 'Por periodo de nómina' : 'Por mes'}</h4><small>${note}</small></div></div>
+            ${chart}
         </div>
-        ${renderFlowPanel({ kind, bucket, flow: flows.get(selected), buckets, today })}`;
+        ${detail}`;
 }
 
 export function setLoanHistoryView(scope, view) {
     const panel = panelState(String(scope));
     panel.view = ['saldo', 'month', 'period'].includes(view) ? view : 'saldo';
     panel.bucket = null;
-    rerender();
-}
-
-export function toggleLoanHistoryDetail(scope) {
-    const panel = panelState(String(scope));
-    panel.detailed = !panel.detailed;
     rerender();
 }
 
@@ -410,7 +398,6 @@ export function registerLoanHistoryGlobals() {
     if (typeof window === 'undefined') return;
     window.toggleLoanHistory = toggleLoanHistory;
     window.setLoanHistoryView = setLoanHistoryView;
-    window.toggleLoanHistoryDetail = toggleLoanHistoryDetail;
     window.selectLoanHistoryBucket = selectLoanHistoryBucket;
     window.setLoanHistoryRange = setLoanHistoryRange;
     window.selectLoanHistoryDate = selectLoanHistoryDate;

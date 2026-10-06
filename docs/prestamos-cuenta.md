@@ -167,3 +167,24 @@ Botón «Exportar» en la línea del mes de la pantalla principal (`LoanExportPa
 - **Excel** (ExcelJS, se carga al usarlo): una hoja por parte, montos como números con formato de moneda, encabezado fijo. El historial es el saldo día por día.
 - **PDF** (jsPDF + autotable): encabezado con la obra, el rango y la fecha de emisión; resumen en dos columnas, gráfica del saldo al cerrar con lo prestado y lo cobrado por periodo (los periodos completos que tocan el rango) y las tablas.
 - Se exporta la obra activa, leída igual que la pantalla (interés primero, consolidaciones deshechas, datos completados en una copia).
+
+### Gráfica por mes / por periodo (una sola vista) y puente
+
+- Ya no hay casilla «Detallado»: queda una sola gráfica. A la izquierda va lo que se debía (lo que venía de antes en azul oscuro, más el capital, el interés al prestar y el interés por refinanciar). A la derecha va lo cobrado (interés y capital). La línea punteada marca el saldo al cerrar.
+- Al tocar una barra aparece el **puente** de ese mes o periodo (`renderFlowBridge`): venía de antes → + capital → + interés → + por refinanciar → − cobrado a interés → − cobrado a capital → saldo. La tabla anterior queda plegada en «Ver el desglose en tabla».
+
+### Exportar «Para IA» (Markdown sin datos personales)
+
+`LoanAiReport.js` (función pura) arma un `.md` para pedirle un análisis a una IA:
+- **Contenido:**
+  - contexto de cómo funcionan los préstamos y los cobros;
+  - calidad de los datos: repetidos, abonos por revisar, nóminas ya pasadas sin descuentos registrados y periodos sin asistencia guardada;
+  - la cartera hoy;
+  - el historial por periodo y por mes;
+  - los descuentos de nómina por periodo (y si están en un cierre);
+  - la antigüedad de la deuda;
+  - el riesgo con sus razones;
+  - por empleado: préstamos, abonos y lo que ganó en los últimos 6 periodos frente a su sueldo normal (lectura: faltó, normal o con horas extra);
+  - preguntas sugeridas.
+- **Sin datos personales:** los empleados van solo por su número de empleado. No lleva nombres, notas, conceptos ni identificadores internos.
+- **De dónde sale lo ganado:** del mismo cálculo de asistencia que Nómina (`computeAttendanceDetailEarnings`). Lo normal sale de `getEmployeePeriodSalary` para un periodo completo.

@@ -1,5 +1,5 @@
 import { createLoan, recordPayment, refinanceLoan, writeOffLoan } from '../modules/features/loans/LoansService.js';
-import { buildFlowBuckets, computeLoanFlows, renderFlowChart, renderFlowPanel } from '../modules/features/loans/LoanFlowChart.js';
+import { buildFlowBuckets, computeLoanFlows, renderFlowChart, renderFlowPanel, renderFlowBridge } from '../modules/features/loans/LoanFlowChart.js';
 
 const PAY = { periodStart: '2026-08-21', periodLength: 21, payDay: '2026-09-12' };
 let clock = 1_000;
@@ -60,19 +60,32 @@ describe('LoanFlowChart — dibujo', () => {
         const emp = loans012();
         const buckets = buildFlowBuckets('period', { from: '2026-08-25', to: '2026-10-03', payPeriod: PAY });
         const flows = computeLoanFlows(emp.loans, buckets);
-        const svg = renderFlowChart({ scope: 'e', buckets, flows, selected: buckets[1].key, detailed: true, today: '2026-10-03' });
-        expect(svg).toContain('venía de antes: capital refinanciado $10,500');
-        expect(svg).toContain('faltó por cobrar de lo que venía $7,200');
+        const svg = renderFlowChart({ scope: 'e', buckets, flows, selected: buckets[1].key, today: '2026-10-03' });
+        expect(svg).toContain('venía de antes $');
+        expect(svg).not.toContain('faltó por cobrar');
         const panel = renderFlowPanel({ kind: 'period', bucket: buckets[1], flow: flows.get(buckets[1].key), buckets, today: '2026-10-03' });
         expect(panel).toContain('Faltó por cobrar de lo que venía');
         expect(panel).toContain('de eso, refinanciado (2)');
+    });
+
+    test('el puente va de lo que venía al saldo final, paso por paso', () => {
+        const emp = loans012();
+        const buckets = buildFlowBuckets('period', { from: '2026-08-25', to: '2026-10-03', payPeriod: PAY });
+        const flows = computeLoanFlows(emp.loans, buckets);
+        const o = flows.get(buckets[1].key);
+        const html = renderFlowBridge({ bucket: buckets[1], flow: o, today: '2026-10-03' });
+        for (const label of ['Venía de antes', '+ Capital prestado', '+ Interés al prestar', '+ Por refinanciar', '− Cobrado: interés', '− Cobrado: capital']) expect(html).toContain(label);
+        expect(html).toContain(`Venía de antes $${Math.round(o.open).toLocaleString('en-US')}`);
+        // La última barra es el saldo al cerrar y cuadra con la suma de los pasos.
+        expect(Math.round(o.open + o.newCap + o.newInt + o.refiInt + o.adjustUp - o.payInt - o.payCap - o.gift - o.adjustDown)).toBe(Math.round(o.end));
+        expect(html).toContain(`$${Math.round(o.end).toLocaleString('en-US')}</text>`);
     });
 
     test('sin detalle también separa el interés, y la línea marca el saldo al cerrar cada periodo', () => {
         const emp = loans012();
         const buckets = buildFlowBuckets('period', { from: '2026-08-25', to: '2026-10-03', payPeriod: PAY });
         const flows = computeLoanFlows(emp.loans, buckets);
-        const svg = renderFlowChart({ scope: 'e', buckets, flows, selected: buckets[1].key, detailed: false, today: '2026-10-03' });
+        const svg = renderFlowChart({ scope: 'e', buckets, flows, selected: buckets[1].key, today: '2026-10-03' });
         expect(svg).toContain('interés al prestar');
         expect(svg).toContain('cobrado: interés');
         expect(svg).toContain('#1f5f8a'); // venía de antes en azul oscuro

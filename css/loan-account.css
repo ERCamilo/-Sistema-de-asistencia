@@ -202,8 +202,6 @@
 .lf-tabs { display: inline-flex; gap: 4px; background: rgba(15, 23, 42, .6); border: 1px solid #334155; border-radius: 10px; padding: 3px; }
 .lf-tabs button { border: 0; background: none; color: #94a3b8; font: inherit; font-size: .8rem; font-weight: 700; padding: 6px 12px; border-radius: 7px; cursor: pointer; }
 .lf-tabs button[aria-selected="true"] { background: #334155; color: #f1f5f9; }
-.lf-detail { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 700; color: #f1f5f9; border: 1px solid #475569; border-radius: 9px; padding: 5px 10px; cursor: pointer; }
-.lf-detail input { accent-color: #ffc61a; margin: 0; }
 .lf-card .lf-chart { width: 100%; height: auto; display: block; }
 .lf-chart .lf-sel { fill: rgba(255, 255, 255, .06); }
 .lf-chart .lf-hit { cursor: pointer; }
@@ -346,7 +344,6 @@
 .is-portfolio .lf-tabs { background: var(--lp-surface); border-color: var(--lp-line); border-radius: 9px; }
 .is-portfolio .lf-tabs button { color: var(--lp-dim); font-weight: 600; }
 .is-portfolio .lf-tabs button[aria-selected="true"] { background: var(--lp-line-2); color: var(--lp-text); }
-.is-portfolio .lf-detail { border-color: var(--lp-line-2); color: var(--lp-text); font-weight: 600; border-radius: 8px; }
 .is-portfolio .lf-legend { color: var(--lp-dim); font-size: .76rem; }
 .lf-plot svg { display: block; width: 100%; height: auto; }
 .is-portfolio .lf-panel { background: none; border-color: var(--lp-line); border-radius: 10px; color: var(--lp-dim); }
@@ -485,3 +482,15 @@
 .lp-xp__go .lp-add { margin-left: 0; }
 .lp-xp__go .lp-add:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 760px) { .lp-xp { grid-template-columns: 1fr; } }
+
+/* Puente de un mes o periodo (LoanFlowChart.renderFlowBridge) y la tabla plegada */
+.lf-bridge { border: 1px solid var(--la-line, #334155); border-radius: 10px; padding: 10px 14px 12px; margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.lf-bridge__t { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; color: var(--la-text, #f1f5f9); font-size: .86rem; }
+.lf-bridge__t small { color: var(--la-faint, #94a3b8); font-size: .74rem; }
+.lf-bridge__s { margin: 0; font-size: .8rem; color: var(--la-dim, #cbd5e1); }
+.lf-bridge__s b { color: var(--la-text, #f1f5f9); font-weight: 600; }
+.lf-more { margin-top: 6px; font-size: .8rem; color: var(--la-dim, #cbd5e1); }
+.lf-more summary { cursor: pointer; color: var(--la-dim, #cbd5e1); font-weight: 600; padding: 4px 0; }
+.lf-more .lf-panel { margin-top: 6px; }
+.lp-xp__list { margin: 0; padding-left: 17px; font-size: .8rem; color: var(--lp-dim); display: flex; flex-direction: column; gap: 3px; }
+.lp-xp__hint b { color: var(--lp-text); }
