@@ -63,6 +63,8 @@ function initialInterest(loan) {
 export function computePortfolioSummary(employees = []) {
     let capital = 0, interest = 0, refiPending = 0, loansOpen = 0, people = 0;
     let lent = 0, capitalBack = 0, interestBack = 0, interestTotal = 0, refiTotal = 0, paidAll = 0, excess = 0, forgiven = 0;
+    let collectedInit = 0, forgivenInterest = 0, viaPayroll = 0, viaDirect = 0, loansCounted = 0, voidedCount = 0, voidedAmount = 0;
+    let inactiveDebt = 0, inactivePeople = 0;
     let firstPayment = null;
     const ranking = [];
     for (const emp of employees) {
@@ -79,28 +81,48 @@ export function computePortfolioSummary(employees = []) {
                 refiPending += pend;
                 empRefi += pend;
             }
+            if (emp.active === false) { inactiveDebt += summary.balance; inactivePeople++; }
             ranking.push({ emp, balance: summary.balance, capital: summary.capital, interest: round2(summary.interest - empRefi), refi: round2(empRefi), active: emp.active !== false });
         }
         for (const loan of emp.loans || []) {
-            if (!counts(loan)) continue;
+            if (!counts(loan)) {
+                // Un consolidado deshecho no es un error de registro: sus préstamos ya cuentan por separado.
+                if (loan.consolidationUndone) continue;
+                voidedCount++;
+                voidedAmount += Number(getActiveLoanTerms({ ...loan, refinancings: [] }).principal || 0);
+                continue;
+            }
+            loansCounted++;
             lent += Number(getActiveLoanTerms({ ...loan, refinancings: [] }).principal || 0);
-            interestTotal += initialInterest(loan);
+            const initInt = initialInterest(loan);
+            interestTotal += initInt;
+            let loanInterestBack = 0;
+            for (const p of loan.payments || []) {
+                if (p.voided || p.adjustment) continue;
+                const viaNomina = p.origin === 'payroll' || p.source === 'payroll' || Boolean(p.payrollClosureId);
+                if (viaNomina) viaPayroll += Number(p.amount || 0); else viaDirect += Number(p.amount || 0);
+            }
             for (const r of loan.refinancings || []) if (!r.voided) { interestTotal += Number(r.interestAmount || 0); refiTotal += Number(r.interestAmount || 0); }
             for (const step of replayLoan(loan).steps) {
                 if (step.kind === 'payment') {
                     capitalBack += -step.delta.capital;
                     interestBack += -step.delta.interest;
+                    loanInterestBack += -step.delta.interest;
                     excess += step.excess || 0;
                     paidAll += -(step.delta.capital + step.delta.interest) + (step.excess || 0);
                     if (!firstPayment || step.date < firstPayment) firstPayment = step.date;
                 } else if (step.kind === 'adjustment') {
                     capitalBack -= step.delta.capital;
                     interestBack -= Math.max(0, step.delta.interest);
+                    loanInterestBack -= Math.max(0, step.delta.interest);
                     paidAll -= step.delta.capital + Math.max(0, step.delta.interest);
                 } else if (step.kind === 'settled') {
                     forgiven += -(step.delta.capital + step.delta.interest);
+                    forgivenInterest += -step.delta.interest;
                 }
             }
+            // Estimado: los abonos cubren primero el interés inicial y después el de refinanciamientos.
+            collectedInit += Math.min(Math.max(0, loanInterestBack), initInt);
         }
     }
     ranking.sort((a, b) => b.balance - a.balance);
@@ -109,13 +131,22 @@ export function computePortfolioSummary(employees = []) {
         porCobrar: {
             total: balance, capital: round2(capital), interest: round2(interest),
             interestInitial: round2(interest - refiPending), interestRefi: round2(refiPending),
-            people, loans: loansOpen
+            people, loans: loansOpen, inactive: round2(inactiveDebt), inactivePeople
         },
         quienDebeMas: ranking.slice(0, 5),
         // «de $X en total» = cobrado + por cobrar (lo perdonado y lo cubierto con pagos de más no entra).
-        interesGanado: { collected: round2(interestBack), total: round2(interestBack + interest), generated: round2(interestTotal), fromRefi: round2(refiTotal) },
-        cobrado: { total: round2(paidAll), capital: round2(capitalBack), interest: round2(interestBack), excess: round2(excess), since: firstPayment },
-        prestado: { total: round2(lent), returned: round2(capitalBack), pctReturned: lent > 0 ? capitalBack / lent : 0, forgiven: round2(forgiven) }
+        interesGanado: {
+            collected: round2(interestBack), total: round2(interestBack + interest), generated: round2(interestTotal), fromRefi: round2(refiTotal),
+            collectedInit: round2(collectedInit), collectedRefi: round2(interestBack - collectedInit), forgiven: round2(forgivenInterest)
+        },
+        cobrado: {
+            total: round2(paidAll), capital: round2(capitalBack), interest: round2(interestBack), excess: round2(excess), since: firstPayment,
+            payroll: round2(viaPayroll), direct: round2(viaDirect)
+        },
+        prestado: {
+            total: round2(lent), returned: round2(capitalBack), pctReturned: lent > 0 ? capitalBack / lent : 0, forgiven: round2(forgiven),
+            loans: loansCounted, voided: voidedCount, voidedAmount: round2(voidedAmount)
+        }
     };
 }
 

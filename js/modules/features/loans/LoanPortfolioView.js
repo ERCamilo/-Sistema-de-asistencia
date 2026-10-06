@@ -12,6 +12,7 @@
 
 import { state } from '../../core/AppState.js';
 import { formatCurrency } from '../../utils/Formatters.js';
+import { round2 } from './LoansService.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
@@ -216,8 +217,9 @@ function stackedBar(parts) {
     return `<span class="lp-bar">${parts.filter(p => p.value > 0).map(p => `<i style="width:${(p.value / total * 100).toFixed(2)}%;background:${p.color}" title="${escapeAttr(p.label)} ${M(p.value, 0)}"></i>`).join('')}</span>`;
 }
 
+/** Panel derecho: una cifra abierta a la vez (por defecto «Por cobrar»). */
 function card(key, title, big, sub, body, open) {
-    return `<details class="lp-card"${open ? ' open' : ''} data-card="${key}"><summary><span class="lp-card__t">${escapeHTML(title)}</span><span class="lp-card__big">${big}</span><small>${sub}</small></summary><div class="lp-card__b">${body}</div></details>`;
+    return `<div class="lp-card${open ? ' is-open' : ''}" data-card="${key}"><button type="button" class="lp-card__s" data-app-fn="lpCard" data-arg="${key}" data-arg2="aside" aria-expanded="${open}"><span class="lp-card__t">${escapeHTML(title)}</span><span class="lp-card__big">${big}</span><small>${sub}</small><span class="lp-card__chev" aria-hidden="true">${open ? '▴' : '▾'}</span></button>${open ? `<div class="lp-card__b">${body}</div>` : ''}</div>`;
 }
 
 /** Teléfono: 4 cifras en 2×2; al tocar una, su detalle se abre debajo a todo el ancho. */
@@ -228,25 +230,70 @@ function compactCards(cards) {
         ${opened ? `<div class="lp-mdetail"><b>${escapeHTML(opened.title)}</b>${opened.body}</div>` : ''}`;
 }
 
-const row = (color, label, value, extra = '') => `<div class="lp-r${extra}">${color ? `<i style="background:${color}"></i>` : '<i></i>'}<span>${label}</span><b>${value}</b></div>`;
+const row = (color, label, value, extra = '', sub = '') => `<div class="lp-r${extra}">${color ? `<i style="background:${color}"></i>` : '<i></i>'}<span>${label}${sub ? `<em>${sub}</em>` : ''}</span><b>${value}</b></div>`;
+const STRIPE = 'repeating-linear-gradient(135deg,#10d98a 0 2.5px,rgba(16,217,138,.16) 2.5px 6px)';
+const C = { cap: '#1fb6ff', int: '#ffc61a', refi: '#a855f7', pay: '#10d98a', payInt: '#0a8f5b' };
+const todo = items => `<div class="lp-todo"><b>Qué hacer</b><ul>${items.map(t => `<li>${t}</li>`).join('')}</ul></div>`;
+const pl = (n, s, p = s + 's') => `${n} ${n === 1 ? s : p}`;
+
+/** Botón (i) con una explicación corta (se abre con lpTip). */
+function info(key, title, items) {
+    const open = portfolioUi().tip === key;
+    return `<span class="lp-tip is-inline"><button type="button" data-app-fn="lpTip" data-arg="${key}" aria-expanded="${open}" aria-label="${escapeAttr(title)}">i</button>${open ? `<span class="lp-pop" role="note"><strong>${escapeHTML(title)}</strong><ul>${items.map(t => `<li>${escapeHTML(t)}</li>`).join('')}</ul></span>` : ''}</span>`;
+}
 
 export function PortfolioSummary(model, { compact = false } = {}) {
     const s = model.summary;
     const max = Math.max(1, ...s.quienDebeMas.map(r => r.balance));
+    const pc = s.porCobrar;
     const porCobrar = `
-        ${stackedBar([{ value: s.porCobrar.capital, color: '#1fb6ff', label: 'capital' }, { value: s.porCobrar.interestInitial, color: '#ffc61a', label: 'interés inicial' }, { value: s.porCobrar.interestRefi, color: '#a855f7', label: 'refinanciamientos' }])}
-        ${row('#1fb6ff', 'Capital por devolver', M(s.porCobrar.capital))}
-        ${row('#ffc61a', 'Interés por cobrar', M(s.porCobrar.interest))}
-        ${row('#ffc61a', 'del interés inicial <em>estimado</em>', M(s.porCobrar.interestInitial), ' is-sub')}
-        ${row('#a855f7', 'de refinanciamientos <em>estimado</em>', M(s.porCobrar.interestRefi), ' is-sub')}
-        ${row('', 'Total por cobrar', M(s.porCobrar.total), ' is-tot')}
-        ${compact ? '' : `<h5>Quién debe más</h5>
-        ${s.quienDebeMas.map(r => `<button type="button" class="lp-who" data-app-fn="selectLoansEmployee" data-arg="${escapeAttr(r.emp.id)}"><span>#${escapeHTML(r.emp.number ?? '')}${r.active ? '' : ' <em>inactivo</em>'}</span><span class="lp-who__bar" style="width:${(r.balance / max * 100).toFixed(1)}%">${stackedBar([{ value: r.capital, color: '#1fb6ff', label: 'capital' }, { value: r.interest, color: '#ffc61a', label: 'interés' }, { value: r.refi, color: '#a855f7', label: 'refinanciamiento' }])}</span><b>${M(r.balance, 0)}</b></button>`).join('')}
-        <div class="lp-legend"><span><i style="background:#1fb6ff"></i>Capital</span><span><i style="background:#ffc61a"></i>Interés</span><span><i style="background:#a855f7"></i>Refinanciamiento</span></div>
-        <div class="lp-todo"><b>Qué hacer</b><ul><li>Antes de prestar, mira cuánto debe ya el empleado y el medidor de carga del préstamo nuevo.</li><li>Si no le alcanza la nómina, usa «Acuerdo» con un monto fijo en vez de refinanciar cada vez.</li><li>A los inactivos, registra el abono a mano en su ficha.</li></ul></div>`}`;
-    const ganado = `${row('#0a8f5b', 'Cobrado de interés', M(s.interesGanado.collected))}${row('#ffc61a', 'Interés por cobrar', M(s.porCobrar.interest))}${row('', 'Total', M(s.interesGanado.total), ' is-tot')}<p class="lp-note">El perdonado y lo cubierto con pagos de más no cuentan. Solo desde el primer abono registrado en la app${s.cobrado.since ? ` (${dmy(s.cobrado.since)})` : ''}.</p>`;
-    const cobrado = `${row('#10d98a', 'A capital', M(s.cobrado.capital))}${row('#0a8f5b', 'A interés', M(s.cobrado.interest))}${s.cobrado.excess > 0.004 ? row('repeating-linear-gradient(45deg,#10d98a 0 2px,rgba(16,217,138,.2) 2px 5px)', 'Pagado de más <em>posible error</em>', M(s.cobrado.excess)) : ''}${row('', 'Total cobrado', M(s.cobrado.total), ' is-tot')}`;
-    const prestado = `${row('#10d98a', 'Ya devuelto', M(s.prestado.returned))}${row('#1fb6ff', 'Por devolver', M(s.porCobrar.capital))}${s.prestado.forgiven > 0.004 ? row('#78838d', 'Perdonado o cerrado con saldo', M(s.prestado.forgiven)) : ''}${row('', 'Prestado', M(s.prestado.total), ' is-tot')}`;
+        ${stackedBar([{ value: pc.capital, color: C.cap, label: 'capital' }, { value: pc.interestInitial, color: C.int, label: 'interés inicial' }, { value: pc.interestRefi, color: C.refi, label: 'refinanciamientos' }])}
+        ${row(C.cap, 'Capital por devolver', M(pc.capital))}
+        ${row(C.int, 'Interés por cobrar', M(pc.interest))}
+        ${row(C.int, `del interés inicial ${info('t-est', 'Cómo se reparte', ['La app no guarda a qué interés fue cada abono.', 'Se asume que primero se cobra el interés inicial y después el de los refinanciamientos; por eso este reparto es un estimado. El total sí es exacto.'])}`, M(pc.interestInitial), ' is-sub', 'estimado')}
+        ${row(C.refi, 'de refinanciamientos', M(pc.interestRefi), ' is-sub', 'estimado')}
+        ${row('', `Total por cobrar ${info('t-recv', 'También conviene saber', [
+            pc.inactive > 0.004 ? `${M(pc.inactive)} es de ${pl(pc.inactivePeople, 'empleado inactivo', 'empleados inactivos')}: no pasan por nómina y se cobra aparte.` : 'Ningún empleado inactivo debe.',
+            'Lo perdonado y los préstamos anulados por error no entran aquí.'])}`, M(pc.total), ' is-tot')}
+        ${`<h5>Quién debe más</h5>
+        ${s.quienDebeMas.map(r => `<button type="button" class="lp-who" data-app-fn="selectLoansEmployee" data-arg="${escapeAttr(r.emp.id)}"><span>#${escapeHTML(r.emp.number ?? '')}${r.active ? '' : ' <em>inactivo</em>'}</span><span class="lp-who__bar" style="width:${(r.balance / max * 100).toFixed(1)}%">${stackedBar([{ value: r.capital, color: C.cap, label: 'capital' }, { value: r.interest, color: C.int, label: 'interés' }, { value: r.refi, color: C.refi, label: 'refinanciamiento' }])}</span><b>${M(r.balance, 0)}</b></button>`).join('')}
+        <div class="lp-legend"><span><i style="background:${C.cap}"></i>Capital</span><span><i style="background:${C.int}"></i>Interés</span><span><i style="background:${C.refi}"></i>Refinanciamiento</span></div>`}
+        ${todo(['Antes de prestar, mira cuánto debe ya el empleado y el medidor de carga del préstamo nuevo.', 'Si no le alcanza la nómina, usa «Acuerdo» con un monto fijo en vez de refinanciar cada vez.', 'A los inactivos, registra el abono a mano en su ficha.'])}`;
+    const ig = s.interesGanado;
+    const ganado = `<p class="lp-ex">Interés que ya entró. Cada abono paga primero el interés y después el capital.</p>
+        ${stackedBar([{ value: ig.collectedInit, color: C.pay, label: 'ganado del interés inicial' }, { value: ig.collectedRefi, color: C.payInt, label: 'ganado de refinanciamientos' }, { value: pc.interestInitial, color: C.int, label: 'por cobrar del inicial' }, { value: pc.interestRefi, color: C.refi, label: 'por cobrar de refinanciamientos' }])}
+        ${row(C.pay, 'Ganado del interés inicial', M(ig.collectedInit))}
+        ${row(C.payInt, 'Ganado de refinanciamientos', M(ig.collectedRefi))}
+        ${row('', 'Interés ganado', M(ig.collected), ' is-tot')}
+        ${row(C.int, 'Por cobrar todavía', M(pc.interest), '', `en préstamos activos · ${M(pc.interestRefi)} de refinanciamientos`)}
+        ${row('', `Interés total (ganado + por cobrar) ${info('t-int', 'Qué no se cuenta', [
+            ig.forgiven > 0.004 ? `${M(ig.forgiven)} de interés de préstamos cerrados sin cobrarlo (perdonado o cubierto con saldo a favor).` : 'No hay interés perdonado.',
+            `Los ${pl(s.prestado.voided, 'préstamo anulado', 'préstamos anulados')} por error no cuentan.`,
+            `Solo desde el primer abono registrado en la app${s.cobrado.since ? ` (${dmy(s.cobrado.since)})` : ''}.`])}`, M(ig.total), ' is-tot')}
+        ${todo(['Si «Por cobrar todavía» crece, prioriza descontar esos préstamos en nómina.'])}`;
+    const cb = s.cobrado;
+    const other = round2(cb.total - cb.payroll - cb.direct);
+    const cobrado = `<p class="lp-ex">Todo lo que los empleados han pagado, separado en capital e interés.</p>
+        ${stackedBar([{ value: cb.capital, color: C.pay, label: 'capital' }, { value: cb.interest, color: C.payInt, label: 'interés' }, { value: cb.excess, color: STRIPE, label: 'pagado de más' }])}
+        ${row(C.pay, 'Capital devuelto', M(cb.capital))}
+        ${row(C.payInt, 'Interés', M(cb.interest))}
+        ${row(STRIPE, `Pagado de más ${info('t-ex', 'Pagado de más', ['Rayado = posible error. Suele venir de abonos anotados dos veces: al anular las copias marcadas en el aviso de registros repetidos, queda en $0.', 'Si fue un pago adelantado de verdad, queda como saldo a favor del empleado.'])}`, M(cb.excess))}
+        ${row('', 'Total cobrado', M(cb.total), ' is-tot')}
+        <h5>Cómo entró</h5>
+        ${row('', 'Descontado en nómina', M(cb.payroll), ' is-plain', 'se rebajó del pago al cerrar la nómina')}
+        ${row('', 'Abonado directamente', M(cb.direct), ' is-plain', 'efectivo o transferencia registrada a mano en Préstamos')}
+        ${Math.abs(other) > 0.004 ? row('', 'Ajustes de nóminas cerradas', M(other), ' is-plain', 'correcciones de abonos ya cerrados') : ''}
+        ${todo(['Si «Pagado de más» no es cero, abre Avisos → registros repetidos y anula las copias.'])}`;
+    const pr = s.prestado;
+    const prestado = `<p class="lp-ex">Capital entregado, sin interés ni préstamos anulados.</p>
+        ${stackedBar([{ value: pr.returned, color: C.pay, label: 'ya devuelto' }, { value: pc.capital, color: C.cap, label: 'por devolver' }, { value: pr.forgiven, color: '#6f7a84', label: 'perdonado' }])}
+        ${row(C.pay, 'Ya devuelto', M(pr.returned))}
+        ${row(C.cap, 'Por devolver', M(pc.capital))}
+        ${pr.forgiven > 0.004 ? row('#6f7a84', 'Perdonado o cerrado con saldo', M(pr.forgiven)) : ''}
+        ${row('', `Total prestado ${info('t-lent', 'Qué no se cuenta', [
+            `${pl(pr.voided, 'préstamo anulado', 'préstamos anulados')} por error al registrarlos (${M(pr.voidedAmount)}).`,
+            pr.forgiven > 0.004 ? `${M(pr.forgiven)} se perdonaron o se cerraron con saldo.` : 'No hay saldo perdonado.'])}`, M(pr.total), ' is-tot', pl(pr.loans, 'préstamo'))}
+        ${todo(['Si el porcentaje devuelto baja mes a mes, se presta más rápido de lo que vuelve: frena préstamos nuevos o sube los descuentos.'])}`;
     const cards = [
         { key: 'cobrar', title: 'Por cobrar', big: M(s.porCobrar.total), sub: `${s.porCobrar.people} empleado${s.porCobrar.people === 1 ? '' : 's'} · ${s.porCobrar.loans} préstamo${s.porCobrar.loans === 1 ? '' : 's'}`, body: porCobrar },
         { key: 'ganado', title: 'Interés ganado', big: M(s.interesGanado.collected, 0), sub: `de ${M(s.interesGanado.total, 0)} en total`, body: ganado },
@@ -254,8 +301,10 @@ export function PortfolioSummary(model, { compact = false } = {}) {
         { key: 'prestado', title: 'Prestado', big: M(s.prestado.total, 0), sub: `${(s.prestado.pctReturned * 100).toFixed(1)} % ya devuelto`, body: prestado }
     ];
     if (compact) return `<div class="lp-summary is-compact">${compactCards(cards)}</div>`;
+    const ui = portfolioUi();
+    const asideOpen = ui.asideCard === undefined ? 'cobrar' : ui.asideCard;
     return `<div class="lp-summary">
         <div class="lp-summary__h"><b>Resumen de cartera</b><small>sin anulados</small></div>
-        ${cards.map((c, i) => card(c.key, c.title, c.big, c.sub, c.body, i === 0)).join('')}
+        ${cards.map(c => card(c.key, c.title, c.big, c.sub, c.body, c.key === asideOpen)).join('')}
     </div>`;
 }

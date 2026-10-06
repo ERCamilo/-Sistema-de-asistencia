@@ -121,6 +121,10 @@ Decidido el 2026-10-05: las consolidaciones se deshacen y los préstamos vuelven
 - **Barra:** Por empleado / Por préstamo, Con saldo / Todos / Inactivos / Saldados, «+ Agregar nuevo», buscador, Ordenar (Fecha del préstamo, Monto, Nº empleado) y «Filtros avanzados» (saldo, fecha, último pago, última actualización).
 - **Historial del saldo:** cabecera con barra capital/interés y «Ocultar»; en «Por mes / Por periodo» no hay botones de rango y la explicación va al final. En teléfono la gráfica se desliza y empieza en lo más reciente.
 - **Teléfono:** las 4 cifras en 2×2; al tocar una, su detalle se abre debajo a todo el ancho.
+- **Detalle de cada cifra** (una abierta a la vez; «Por cobrar» por defecto), con su barra, filas, (i) y «Qué hacer»:
+  - **Interés ganado:** ganado del interés inicial y de refinanciamientos (estimado: los abonos cubren primero el inicial), por cobrar todavía e interés total; la (i) dice lo perdonado y los anulados.
+  - **Cobrado:** capital devuelto, interés, pagado de más (rayado) y «Cómo entró»: descontado en nómina (origen nómina o con cierre) o abonado directamente.
+  - **Prestado:** ya devuelto, por devolver, perdonado y número de préstamos; la (i) dice cuántos préstamos se anularon por error y por cuánto. Los consolidados deshechos no cuentan como anulados.
 
 **Qué muestra:**
 - **Línea del mes:** saldo al empezar el mes y hoy, sin anulados. La (i) explica el cambio: préstamos nuevos con su interés, refinanciamientos, abonos, cerrados o ajustes, y cuánto cambió el mes anterior.
