@@ -369,8 +369,9 @@ export function laReviewPayment(ref, kind) {
 // ─── Pantalla principal: avisos y riesgo ──────────────────────────────────────
 
 function portfolioState(fn) {
-    if (!state.loansLedger) return;
     stateManager.batchSetState(() => {
+        // Al abrir la pantalla sin haber tocado nada todavía no existe loansLedger.
+        if (!state.loansLedger) state.loansLedger = {};
         if (!state.loansLedger.portfolio) state.loansLedger.portfolio = { alertsOpen: true, alertPanel: null, riskLevel: 0 };
         fn(state.loansLedger.portfolio);
     });
@@ -382,6 +383,8 @@ export function lpAlertPanel(key) {
     portfolioState(p => { p.alertPanel = p.alertPanel === key ? null : String(key); p.alertsOpen = true; });
 }
 export function lpRiskLevel(level) { portfolioState(p => { p.riskLevel = Number(level) || 0; }); }
+export function lpTip(key) { portfolioState(p => { p.tip = p.tip === key ? null : String(key); }); }
+export function lpCard(key) { portfolioState(p => { p.card = p.card === key ? null : String(key); }); }
 
 export function laUndoClosure(loanId) { return act(emp => undoLoanClosure(emp, loanId, options()), 'Cierre deshecho'); }
 export function laCancelAgreement(id) { return act(emp => cancelLoanAgreement(emp, id, options()), 'Acuerdo cancelado'); }
@@ -392,7 +395,7 @@ export function registerLoanAccountGlobals() {
         laUseClassicView, laSetTab, laToggleLoan, laToggleShowVoid, laAsk, laCancelAsk, laFixWhy, laClose,
         laOpen, laField, laFieldQuiet, laToggleSel, laCopySummary, laSave, laVoid, laAdjust, laFix,
         laUndoClosure, laCancelAgreement, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment,
-        lpToggleAlerts, lpAlertPanel, lpRiskLevel
+        lpToggleAlerts, lpAlertPanel, lpRiskLevel, lpTip, lpCard
     });
 }
 

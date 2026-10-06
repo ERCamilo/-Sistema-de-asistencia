@@ -24,13 +24,14 @@ import { planLoanBackfill, listPaymentsToReview } from './LoanDataBackfill.js';
 import { findLoanRecordDuplicates } from './LoanRecordDuplicates.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { getAccountSummary } from './LoanAccount.js';
+import { buildFlowBuckets, computeLoanFlows } from './LoanFlowChart.js';
 
 const M = (value, decimals = 2) => {
     const n = Number(value || 0);
     return decimals === 0 ? '$' + Math.round(n).toLocaleString('en-US') : formatCurrency(n);
 };
 const dmy = key => (key ? `${key.slice(8, 10)}/${key.slice(5, 7)}/${key.slice(0, 4)}` : '—');
-const RISK_COLOR = { 3: '#ef4444', 2: '#fb923c', 1: '#facc15' };
+const RISK_COLOR = { 3: '#ef4444', 2: '#f97316', 1: '#facc15' };
 
 export function portfolioUi() {
     return state.loansLedger?.portfolio || {};
@@ -74,6 +75,7 @@ export function buildPortfolioModel(scopedEmployees = []) {
         employees,
         summary: computePortfolioSummary(employees),
         month: computeMonthChange(employees, today),
+        monthFlows: monthFlows(employees, today),
         risk: riskCache.list,
         duplicates: dup.counts,
         inactive,
@@ -85,14 +87,52 @@ export function buildPortfolioModel(scopedEmployees = []) {
 
 // ─── Línea del mes ───────────────────────────────────────────────────────────
 
+/** Qué movió el saldo este mes y el anterior (préstamos nuevos, refinanciamientos, abonos, cerrados). */
+function monthFlows(employees, today) {
+    const prevStart = (() => {
+        const y = Number(today.slice(0, 4)); const m = Number(today.slice(5, 7));
+        return m === 1 ? `${y - 1}-12-01` : `${y}-${String(m - 1).padStart(2, '0')}-01`;
+    })();
+    const buckets = buildFlowBuckets('month', { from: prevStart, to: today });
+    const flows = computeLoanFlows(employees.flatMap(emp => emp.loans || []), buckets);
+    const pick = bucket => {
+        const o = bucket && flows.get(bucket.key);
+        if (!o) return null;
+        return {
+            label: bucket.long.split(' ')[0], nNew: o.nNew, lent: o.newCap + o.newInt, refi: o.refiInt,
+            paid: o.payOld + o.paySame, closed: o.gift + o.adjustDown - o.adjustUp,
+            change: o.newCap + o.newInt + o.refiInt + o.adjustUp - o.payOld - o.paySame - o.gift - o.adjustDown
+        };
+    };
+    return { current: pick(buckets.at(-1)), previous: buckets.length > 1 ? pick(buckets[0]) : null };
+}
+
+const verbOf = change => (change > 0.004 ? 'subió' : change < -0.004 ? 'bajó' : 'no cambió');
+
 export function PortfolioMonthLine(model) {
     const { month, today } = model;
-    const verb = month.change > 0.004 ? 'subió' : month.change < -0.004 ? 'bajó' : 'no cambió';
+    const ui = portfolioUi();
     const cap = month.month.charAt(0).toUpperCase() + month.month.slice(1);
-    return `<div class="lp-month" title="Saldo al empezar el mes y hoy, sin préstamos anulados por error.">
-        <span>${escapeHTML(cap)}: lo que deben <b>${verb}${Math.abs(month.change) > 0.004 ? ' ' + M(Math.abs(month.change)) : ''}</b></span>
-        <small>de ${M(month.from)} a ${M(month.to)} · datos al ${dmy(today)}${model.prepared.virtual ? ' · leídos como si ya se hubieran completado los datos' : ''}</small>
-        <button type="button" class="la-link" data-app-fn="laUseClassicView" data-arg="1" title="Volver a la pantalla anterior (solo en este dispositivo)">Vista anterior</button>
+    const f = model.monthFlows?.current;
+    const prev = model.monthFlows?.previous;
+    const open = ui.tip === 'month';
+    const tip = `<span class="lp-tip">
+        <button type="button" data-app-fn="lpTip" data-arg="month" aria-expanded="${open}" aria-label="Cómo cambió en ${escapeAttr(month.month)}">i</button>
+        ${open ? `<span class="lp-pop" role="dialog"><strong>Cómo cambió en ${escapeHTML(month.month)}</strong><ul>
+            ${f ? `<li>+ ${M(f.lent)} en ${f.nNew} préstamo${f.nNew === 1 ? '' : 's'} nuevo${f.nNew === 1 ? '' : 's'} con su interés</li>
+            <li>+ ${M(f.refi)} de refinanciamientos</li>
+            <li>− ${M(f.paid)} en abonos</li>
+            ${Math.abs(f.closed) > 0.004 ? `<li>− ${M(f.closed)} en préstamos cerrados o ajustes</li>` : ''}` : ''}
+            ${prev ? `<li>En ${escapeHTML(prev.label)} ${verbOf(prev.change)}${Math.abs(prev.change) > 0.004 ? ' ' + M(Math.abs(prev.change)) : ''}.</li>` : ''}
+            <li>Si sube 2 o 3 meses seguidos: frena préstamos nuevos o descuenta más en nómina.</li></ul>
+            ${model.prepared.virtual ? '<small>Leído como si ya se hubieran deshecho las consolidaciones y completado los datos.</small>' : ''}
+            <button type="button" class="lp-link" data-app-fn="laUseClassicView" data-arg="1" title="Solo en este dispositivo">Usar la vista anterior</button>
+        </span>` : ''}
+    </span>`;
+    return `<div class="lp-month">
+        <span>${escapeHTML(cap)}: lo que deben <b>${verbOf(month.change)}${Math.abs(month.change) > 0.004 ? ' ' + M(Math.abs(month.change)) : ''}</b></span>
+        <small>de ${M(month.from)} a ${M(month.to)} · datos al ${dmy(today)}</small>
+        ${tip}
     </div>`;
 }
 
@@ -180,6 +220,14 @@ function card(key, title, big, sub, body, open) {
     return `<details class="lp-card"${open ? ' open' : ''} data-card="${key}"><summary><span class="lp-card__t">${escapeHTML(title)}</span><span class="lp-card__big">${big}</span><small>${sub}</small></summary><div class="lp-card__b">${body}</div></details>`;
 }
 
+/** Teléfono: 4 cifras en 2×2; al tocar una, su detalle se abre debajo a todo el ancho. */
+function compactCards(cards) {
+    const openKey = portfolioUi().card || null;
+    const opened = cards.find(c => c.key === openKey);
+    return `<div class="lp-cards">${cards.map(c => `<button type="button" class="lp-mcard" data-app-fn="lpCard" data-arg="${c.key}" aria-expanded="${c.key === openKey}"><span class="lp-card__t">${escapeHTML(c.title)}</span><span class="lp-card__big">${c.big}</span><small>${c.sub}</small></button>`).join('')}</div>
+        ${opened ? `<div class="lp-mdetail"><b>${escapeHTML(opened.title)}</b>${opened.body}</div>` : ''}`;
+}
+
 const row = (color, label, value, extra = '') => `<div class="lp-r${extra}">${color ? `<i style="background:${color}"></i>` : '<i></i>'}<span>${label}</span><b>${value}</b></div>`;
 
 export function PortfolioSummary(model, { compact = false } = {}) {
@@ -199,11 +247,15 @@ export function PortfolioSummary(model, { compact = false } = {}) {
     const ganado = `${row('#0a8f5b', 'Cobrado de interés', M(s.interesGanado.collected))}${row('#ffc61a', 'Interés por cobrar', M(s.porCobrar.interest))}${row('', 'Total', M(s.interesGanado.total), ' is-tot')}<p class="lp-note">El perdonado y lo cubierto con pagos de más no cuentan. Solo desde el primer abono registrado en la app${s.cobrado.since ? ` (${dmy(s.cobrado.since)})` : ''}.</p>`;
     const cobrado = `${row('#10d98a', 'A capital', M(s.cobrado.capital))}${row('#0a8f5b', 'A interés', M(s.cobrado.interest))}${s.cobrado.excess > 0.004 ? row('repeating-linear-gradient(45deg,#10d98a 0 2px,rgba(16,217,138,.2) 2px 5px)', 'Pagado de más <em>posible error</em>', M(s.cobrado.excess)) : ''}${row('', 'Total cobrado', M(s.cobrado.total), ' is-tot')}`;
     const prestado = `${row('#10d98a', 'Ya devuelto', M(s.prestado.returned))}${row('#1fb6ff', 'Por devolver', M(s.porCobrar.capital))}${s.prestado.forgiven > 0.004 ? row('#78838d', 'Perdonado o cerrado con saldo', M(s.prestado.forgiven)) : ''}${row('', 'Prestado', M(s.prestado.total), ' is-tot')}`;
-    return `<div class="lp-summary${compact ? ' is-compact' : ''}">
-        ${compact ? '' : '<div class="lp-summary__h"><b>Resumen de cartera</b><small>sin anulados</small></div>'}
-        ${card('cobrar', 'Por cobrar', M(s.porCobrar.total), `${s.porCobrar.people} empleado${s.porCobrar.people === 1 ? '' : 's'} · ${s.porCobrar.loans} préstamo${s.porCobrar.loans === 1 ? '' : 's'}`, porCobrar, !compact)}
-        ${card('ganado', 'Interés ganado', M(s.interesGanado.collected, 0), `de ${M(s.interesGanado.total, 0)} en total`, ganado, false)}
-        ${card('cobrado', 'Cobrado', M(s.cobrado.total, 0), s.cobrado.since ? `abonos desde el ${dmy(s.cobrado.since)}` : 'sin abonos', cobrado, false)}
-        ${card('prestado', 'Prestado', M(s.prestado.total, 0), `${(s.prestado.pctReturned * 100).toFixed(1)} % ya devuelto`, prestado, false)}
+    const cards = [
+        { key: 'cobrar', title: 'Por cobrar', big: M(s.porCobrar.total), sub: `${s.porCobrar.people} empleado${s.porCobrar.people === 1 ? '' : 's'} · ${s.porCobrar.loans} préstamo${s.porCobrar.loans === 1 ? '' : 's'}`, body: porCobrar },
+        { key: 'ganado', title: 'Interés ganado', big: M(s.interesGanado.collected, 0), sub: `de ${M(s.interesGanado.total, 0)} en total`, body: ganado },
+        { key: 'cobrado', title: 'Cobrado', big: M(s.cobrado.total, 0), sub: s.cobrado.since ? `abonos desde el ${dmy(s.cobrado.since)}` : 'sin abonos', body: cobrado },
+        { key: 'prestado', title: 'Prestado', big: M(s.prestado.total, 0), sub: `${(s.prestado.pctReturned * 100).toFixed(1)} % ya devuelto`, body: prestado }
+    ];
+    if (compact) return `<div class="lp-summary is-compact">${compactCards(cards)}</div>`;
+    return `<div class="lp-summary">
+        <div class="lp-summary__h"><b>Resumen de cartera</b><small>sin anulados</small></div>
+        ${cards.map((c, i) => card(c.key, c.title, c.big, c.sub, c.body, i === 0)).join('')}
     </div>`;
 }

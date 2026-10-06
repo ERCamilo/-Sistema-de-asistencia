@@ -114,10 +114,16 @@ Decidido el 2026-10-05: las consolidaciones se deshacen y los préstamos vuelven
 
 ## Pantalla principal de Préstamos
 
-`LoanPortfolio.js` calcula las cifras, `LoanRisk.js` el riesgo y `LoanPortfolioView.js` dibuja la pantalla. «Vista anterior» vuelve a la de siempre, solo en ese dispositivo.
+`LoanPortfolio.js` calcula las cifras, `LoanRisk.js` el riesgo, `LoanPortfolioView.js` dibuja el resumen, la línea del mes y los avisos, y `LoanPortfolioList.js` la barra de filtros y la lista. «Usar la vista anterior» (en la (i) de la línea del mes) vuelve a la de siempre, solo en ese dispositivo.
+
+**Diseño:** el de la maqueta (paleta 5 «Neón»): grises neutros, acento amarillo; capital azul, interés amarillo, refinanciamiento morado, pagos verde y avisos rojo. Todo el CSS está bajo `.is-portfolio` en `css/loan-account.css`, así que la vista anterior y la ficha del empleado no cambian.
+- **Lista:** una sola tarjeta; «Creado dd/mm/aaaa», un punto morado con la fecha del último refinanciamiento y, a la derecha, el saldo y la última modificación («hace X h» si fue hoy).
+- **Barra:** Por empleado / Por préstamo, Con saldo / Todos / Inactivos / Saldados, «+ Agregar nuevo», buscador, Ordenar (Fecha del préstamo, Monto, Nº empleado) y «Filtros avanzados» (saldo, fecha, último pago, última actualización).
+- **Historial del saldo:** cabecera con barra capital/interés y «Ocultar»; en «Por mes / Por periodo» no hay botones de rango y la explicación va al final. En teléfono la gráfica se desliza y empieza en lo más reciente.
+- **Teléfono:** las 4 cifras en 2×2; al tocar una, su detalle se abre debajo a todo el ancho.
 
 **Qué muestra:**
-- **Línea del mes:** saldo al empezar el mes y hoy, sin anulados.
+- **Línea del mes:** saldo al empezar el mes y hoy, sin anulados. La (i) explica el cambio: préstamos nuevos con su interés, refinanciamientos, abonos, cerrados o ajustes, y cuánto cambió el mes anterior.
 - **«Avisos que necesitan una decisión»:** repetidos, empleados en riesgo, inactivos con deuda, consolidaciones por deshacer, datos por completar y abonos por revisar.
 - **Gráfica por periodo** abierta, con el modo detallado.
 - **Resumen de cartera:** a la derecha en escritorio y arriba, en 2×2, en teléfono.
