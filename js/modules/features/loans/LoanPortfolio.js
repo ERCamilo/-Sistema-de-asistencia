@@ -20,7 +20,7 @@
 import { LOAN_STATUS, round2, getActiveLoanTerms } from './LoansService.js';
 import { replayLoan, buildTimeline } from './LoanTimeline.js';
 import { getAccountSummary } from './LoanAccount.js';
-import { findConsolidations, undoConsolidation } from './LoanConsolidationUndo.js';
+import { findConsolidations, undoConsolidation, consolidationUndoOrder } from './LoanConsolidationUndo.js';
 import { planLoanBackfill, applyLoanBackfill } from './LoanDataBackfill.js';
 
 const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -44,7 +44,7 @@ export function prepareLoanEmployees(employees = [], payPeriod = null) {
     const key = JSON.stringify([payPeriod, loanDataSignature(employees)]);
     if (_cache.key === key) return _cache.value;
     const copy = JSON.parse(JSON.stringify(employees));
-    for (const emp of copy) for (const c of findConsolidations(emp)) undoConsolidation(emp, c.loan.id, { at: 0, projectScope: { enabled: false } });
+    for (const emp of copy) for (const c of consolidationUndoOrder(emp)) undoConsolidation(emp, c.loan.id, { at: 0, projectScope: { enabled: false } });
     applyLoanBackfill(copy, payPeriod, { at: 0 });
     const value = { employees: copy, virtual: true, undone: needsUndo, filled: needsFill };
     _cache = { key, value };

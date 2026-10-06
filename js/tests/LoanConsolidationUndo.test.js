@@ -1,6 +1,6 @@
 import { createLoan, consolidateLoans, recordPayment, refinanceLoan, getBalance, getPayrollDeductionOptions, LOAN_STATUS } from '../modules/features/loans/LoansService.js';
 import { getAccountSummary } from '../modules/features/loans/LoanAccount.js';
-import { findConsolidations, undoConsolidation, previewUndoConsolidation, restoreConsolidation } from '../modules/features/loans/LoanConsolidationUndo.js';
+import { findConsolidations, undoConsolidation, previewUndoConsolidation, restoreConsolidation, consolidationUndoOrder } from '../modules/features/loans/LoanConsolidationUndo.js';
 import { buildFlowBuckets, computeLoanFlows } from '../modules/features/loans/LoanFlowChart.js';
 import mergeEmployees from '../modules/services/EmployeeMerge.js';
 import { buildPayrollLoanSettlementBatch, applyPayrollLoanSettlementBatch, undoPayrollLoanSettlementBatch } from '../modules/features/payroll/PayrollLoanSettlement.js';
@@ -120,5 +120,56 @@ describe('Deshacer consolidaciones', () => {
         expect(a.payments.length).toBe(count);
         expect(a.payments.filter(p => p.origin === 'conversion').every(p => !p.voided && !p.voidReason)).toBe(true);
         expect(getAccountSummary(emp).balance).toBe(1380);
+    });
+});
+
+
+describe('Consolidación de una consolidación', () => {
+    const scope = { enabled: false };
+    /** A ($1,000) y B ($500) → C1 (+10 %, abono 300); luego C1 y D ($800) → C2 (+10 %, abono 500). */
+    function nested() {
+        const emp = { id: 'e', loans: [] };
+        const A = createLoan(emp, { principal: 1000, interestRate: 20, startDate: '2026-06-01' });
+        const B = createLoan(emp, { principal: 500, interestRate: 20, startDate: '2026-06-05' });
+        consolidateLoans(emp, { loanIds: [A.id, B.id], installmentCount: 1, interestRate: 10, startDate: '2026-07-01' });
+        const c1 = emp.loans.find(l => (l.consolidatedFromLoanIds || []).includes(A.id));
+        recordPayment(emp, c1.id, { amount: 300, date: '2026-07-15', recordedAt: 5 });
+        const D = createLoan(emp, { principal: 800, interestRate: 20, startDate: '2026-08-01' });
+        consolidateLoans(emp, { loanIds: [c1.id, D.id], installmentCount: 1, interestRate: 10, startDate: '2026-08-20' });
+        const c2 = emp.loans.find(l => (l.consolidatedFromLoanIds || []).includes(D.id));
+        recordPayment(emp, c2.id, { amount: 500, date: '2026-09-01', recordedAt: 6 });
+        return { emp, A, B, D, c1, c2 };
+    }
+
+    test('se deshacen de afuera hacia adentro y lo que deben no cambia', () => {
+        const { emp, c1, c2 } = nested();
+        const before = getAccountSummary(emp).balance;
+        expect(consolidationUndoOrder(emp).map(c => c.loan.id)).toEqual([c2.id, c1.id]);
+        for (const c of consolidationUndoOrder(emp)) undoConsolidation(emp, c.loan.id, { projectScope: scope, at: 10 });
+        expect(findConsolidations(emp)).toHaveLength(0);
+        expect(getAccountSummary(emp).balance).toBe(before);
+        // Quedan abiertos A, B y D; C1 y C2 quedan anulados como «consolidación deshecha».
+        const open = emp.loans.filter(l => l.status === LOAN_STATUS.ACTIVE && !l.consolidatedFromLoanIds);
+        expect(open.length).toBeGreaterThan(0);
+        expect(emp.loans.filter(l => l.consolidationUndone?.sourceIds)).toHaveLength(2);
+    });
+
+    test('la de adentro no se puede deshacer antes que la de afuera (contaría la deuda dos veces)', () => {
+        const { emp, c1 } = nested();
+        const before = getAccountSummary(emp).balance;
+        expect(() => undoConsolidation(emp, c1.id, { projectScope: scope })).toThrow(/deshaz primero esa/);
+        expect(getAccountSummary(emp).balance).toBe(before);
+    });
+
+    test('volver a consolidar la de afuera pide antes volver a consolidar la de adentro', () => {
+        const { emp, c1, c2 } = nested();
+        const before = getAccountSummary(emp).balance;
+        undoConsolidation(emp, c2.id, { projectScope: scope, at: 10 });
+        undoConsolidation(emp, c1.id, { projectScope: scope, at: 11 });
+        expect(() => restoreConsolidation(emp, c2.id, { at: 12 })).toThrow(/vuelve a consolidar esa primero/);
+        restoreConsolidation(emp, c1.id, { at: 12 });
+        restoreConsolidation(emp, c2.id, { at: 13 });
+        expect(getAccountSummary(emp).balance).toBe(before);
+        expect(findConsolidations(emp).map(c => c.loan.id).sort()).toEqual([c1.id, c2.id].sort());
     });
 });

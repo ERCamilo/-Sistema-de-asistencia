@@ -194,3 +194,33 @@ Botón «Exportar» en la línea del mes de la pantalla principal (`LoanExportPa
 - **Mismo día:** un abono y un refinanciamiento del mismo día se reproducen en el orden en que se registraron (`recordedAt` / `createdAt`). Lo normal es cobrar en nómina y refinanciar lo que quedó. Sin hora, el refinanciamiento va primero, como antes. El total no cambia; solo el reparto entre interés y capital. Con el respaldo del 05/10 cambian 4 préstamos: pasan $2,474 de «interés cobrado» a «capital cobrado».
 - **Refinanciar sin interés:** el formulario pregunta «¿Cobrar interés por refinanciar?». Con «No» solo pasa el cobro a la nómina siguiente, sin cargo, para aliviar al empleado. El servicio solo acepta tasa 0 con `noInterest: true`. Por defecto se cobra sobre el saldo, que incluye el interés pendiente; se puede elegir «Solo capital».
 - **Exportar:** nuevo rango «Todo el historial», desde el primer préstamo hasta hoy.
+
+### Nómina paso 4: cuánto descontar de préstamos y planes guardados
+
+- **Cuánto descontar** (por empleado, dentro de «Préstamos del período»): Todo, Solo interés u Otro monto.
+  - Se guarda en la selección de la nómina como `mode` y `amount` (`PayrollLoans.js`).
+  - Solo interés y Otro monto se reparten como un abono a la cuenta: primero el interés de todos los préstamos marcados y después el capital del más viejo, sin pasar de lo que se cobraría en esa nómina por préstamo.
+  - Al cerrar la nómina se registra exactamente lo repartido en cada préstamo.
+  - Se mantienen el encabezado, «Aplicar próximos cargos», «Limpiar selección», el «+» y la casilla de tres estados:
+    - completo: todo marcado y «Todo»;
+    - parcial: solo interés, otro monto o algunos préstamos;
+    - ninguno.
+  - El encabezado «Intereses» sigue siendo el interés total de los préstamos marcados.
+- **Planes programados** (`PayrollAdjustmentPlanEdit.js`):
+  - **Editar** (activo o pausado): sin cuotas aplicadas se cambia todo; con cuotas aplicadas en nóminas cerradas, esas quedan con candado y solo cambia lo pendiente, desde una nómina posterior a la última aplicada.
+    - Las cuotas pendientes reemplazadas quedan canceladas, sin borrarse, para que una copia vieja de otro dispositivo no las reactive.
+    - La edición se guarda en `plan.edits` con el antes y el después.
+  - **Borrar / Borrar lo pendiente:** igual que antes.
+  - **Quitar de la lista** (completado o cancelado): lo oculta de Programados (`archivedAt`) y conserva el historial.
+
+### Pantalla principal: todo plegado por defecto
+
+Los avisos, el historial del saldo y las tarjetas del resumen empiezan plegados. Si el usuario los deja abiertos, se recuerda solo en ese dispositivo (`LoanUiMemory.js`, `localStorage` `loans-main-ui`).
+
+### Consolidación de una consolidación
+
+Si C2 consolidó a C1, y C1 a su vez consolidó a A y B:
+- **Orden:** se deshacen de afuera hacia adentro (`consolidationUndoOrder`), en «Deshacer todas» y en la lectura de la pantalla principal.
+- **Bloqueos:** deshacer C1 mientras sigue dentro de C2 se bloquea, porque contaría la deuda dos veces. «Volver a consolidar» C2 pide antes volver a consolidar C1.
+- **Las dos marcas:** un préstamo reabierto guarda `consolidationUndone.from`; un consolidado deshecho guarda `sourceIds` y `snapshot`.
+- **Comprobado con el respaldo de prueba del 27/09:** antes, la pantalla principal mostraba $136,709 en lugar de $114,175.

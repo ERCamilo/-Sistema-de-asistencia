@@ -41,13 +41,46 @@ function upsert(list, item) {
 const clone = value => JSON.parse(JSON.stringify(value));
 const order = (a, b) => String(a.date || '').localeCompare(String(b.date || '')) || (Number(a.recordedAt ?? a.createdAt) || 0) - (Number(b.recordedAt ?? b.createdAt) || 0);
 
+/**
+ * Un consolidado deshecho guarda sourceIds y snapshot en consolidationUndone.
+ * Un préstamo reabierto al deshacer otra consolidación solo guarda { from }; si
+ * él mismo era una consolidación (consolidación de una consolidación), todavía
+ * se puede deshacer.
+ */
+export function isUndoneConsolidation(loan) {
+    return Array.isArray(loan?.consolidationUndone?.sourceIds);
+}
+
 /** Consolidaciones del empleado que todavía se pueden deshacer. */
 export function findConsolidations(emp) {
     const loans = emp?.loans || [];
     return loans
-        .filter(loan => Array.isArray(loan.consolidatedFromLoanIds) && loan.consolidatedFromLoanIds.length && !loan.consolidationUndone)
+        .filter(loan => Array.isArray(loan.consolidatedFromLoanIds) && loan.consolidatedFromLoanIds.length && !isUndoneConsolidation(loan))
         .map(loan => ({ loan, sources: loan.consolidatedFromLoanIds.map(id => loans.find(l => String(l.id) === String(id))).filter(Boolean) }))
         .filter(item => item.sources.length);
+}
+
+/** Consolidación (sin deshacer) que incluye a este préstamo, si la hay. */
+function containingConsolidation(emp, loanId) {
+    return findConsolidations(emp).find(c => String(c.loan.id) !== String(loanId)
+        && c.loan.consolidatedFromLoanIds.some(id => String(id) === String(loanId))) || null;
+}
+
+/**
+ * Orden para deshacer todas: de afuera hacia adentro. Si C2 consolidó a C1 (que
+ * a su vez consolidó a A y B), primero C2 (reabre C1 y D) y después C1 (reabre
+ * A y B). Al revés, el saldo de C1 quedaría contado dos veces.
+ */
+export function consolidationUndoOrder(emp) {
+    const remaining = findConsolidations(emp);
+    const ordered = [];
+    while (remaining.length) {
+        const index = remaining.findIndex(c => !remaining.some(o => o !== c
+            && o.loan.consolidatedFromLoanIds.some(id => String(id) === String(c.loan.id))));
+        if (index < 0) break; // ciclo imposible: no se fuerza ningún orden
+        ordered.push(remaining.splice(index, 1)[0]);
+    }
+    return ordered;
 }
 
 /** Interés propio del consolidado (el % que se le puso al consolidar). */
@@ -77,6 +110,8 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
     assertLoanEmployeeInScope(emp, projectScope, 'LoanConsolidationUndo.undoConsolidation');
     const item = findConsolidations(emp).find(c => String(c.loan.id) === String(consolidatedLoanId));
     if (!item) throw new Error('No es una consolidación que se pueda deshacer');
+    const outer = containingConsolidation(emp, consolidatedLoanId);
+    if (outer) throw new Error('Esta consolidación quedó dentro de otra más nueva: deshaz primero esa (la de afuera)');
     const { loan: cons, sources } = item;
     const snapshot = clone([cons, ...sources]);
     const before = getAccountSummary(emp).balance;
@@ -84,7 +119,8 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
     // 1. Reabrir los préstamos de origen
     for (const src of sources) {
         src.concept = String(src.concept || '').replace(AUDIT_RE, '').trim() || 'Préstamo';
-        src.consolidationUndone = { from: cons.id, at, by };
+        // Si el préstamo de origen era a su vez una consolidación, se conserva lo que ya tenía.
+        src.consolidationUndone = { ...(src.consolidationUndone || {}), from: cons.id, at, by };
         delete src.consolidatedIntoLoanId;
         src.status = LOAN_STATUS.ACTIVE;
         src.closedAt = null;
@@ -155,7 +191,7 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
     cons.status = LOAN_STATUS.WRITTEN_OFF;
     cons.closedAt = at;
     cons.closedBy = by;
-    cons.consolidationUndone = { at, by, sourceIds: sources.map(s => s.id), snapshot };
+    cons.consolidationUndone = { ...(cons.consolidationUndone || {}), at, by, sourceIds: sources.map(s => s.id), snapshot };
     cons.updatedAt = at;
     emp.updatedAt = at;
     const after = getAccountSummary(emp).balance;
@@ -188,6 +224,9 @@ export function restoreConsolidation(emp, consolidatedLoanId, { by = null, at = 
     const undone = cons?.consolidationUndone;
     if (!undone?.snapshot) throw new Error('Esta consolidación no está deshecha');
     const saved = new Map(undone.snapshot.map(l => [String(l.id), l]));
+    // Consolidación de una consolidación: si después se deshizo la de adentro, primero hay que volver a consolidarla.
+    const innerUndone = (emp.loans || []).find(l => String(l.id) !== String(cons.id) && saved.has(String(l.id)) && isUndoneConsolidation(l));
+    if (innerUndone) throw new Error('Uno de sus préstamos era otra consolidación que también se deshizo: vuelve a consolidar esa primero');
     for (const loan of emp.loans || []) {
         const old = saved.get(String(loan.id));
         if (!old) continue;

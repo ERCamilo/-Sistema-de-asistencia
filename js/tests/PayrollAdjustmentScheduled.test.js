@@ -82,7 +82,7 @@ describe('Payroll scheduled adjustments', () => {
             .toHaveLength(2);
         expect(host.querySelector('[data-payroll-action="cancel-scheduled-adjustment-group"]')
             .textContent).toContain('Cancelar programación');
-        expect(host.textContent).toContain('Quitar de esta programación');
+        expect(host.textContent).toContain('Borrar');
         expect([...host.querySelectorAll('[data-scheduled-reference]')].every(item =>
             /^scheduled-action-/.test(item.dataset.scheduledReference)
         )).toBe(true);

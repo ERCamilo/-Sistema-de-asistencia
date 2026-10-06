@@ -287,9 +287,11 @@ export function recomputePayrollAdjustmentInstallmentPlan(plan, updatedAt) {
     plan.progressPercent = roundMoney(plan.totalAmount > 0
         ? (plan.appliedAmount / roundMoney(plan.totalAmount)) * 100
         : 0);
+    // Las cuotas canceladas (reemplazadas al editar el plan) no cuentan para completarlo.
+    const liveInstallments = installments.filter(item => item?.status !== ADJUSTMENT_INSTALLMENT_STATUS.CANCELLED);
     plan.status = wasCancelled
         ? ADJUSTMENT_PLAN_STATUS.CANCELLED
-        : plan.balance === 0 && plan.appliedInstallments === installments.length
+        : plan.balance === 0 && plan.appliedInstallments === liveInstallments.length
             ? ADJUSTMENT_PLAN_STATUS.COMPLETED
             : wasPaused
                 ? ADJUSTMENT_PLAN_STATUS.PAUSED

@@ -56,6 +56,7 @@ import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { LoanAccountDetail } from './LoanAccountView.js';
 import { buildPortfolioModel, PortfolioMonthLine, PortfolioAlerts, PortfolioSummary } from './LoanPortfolioView.js';
 import { PortfolioToolbar, PortfolioList, PortfolioSettled } from './LoanPortfolioList.js';
+import { readLoanUiMemory } from './LoanUiMemory.js';
 import { findConsolidations } from './LoanConsolidationUndo.js';
 import { planLoanBackfill, listPaymentsToReview } from './LoanDataBackfill.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
@@ -193,7 +194,7 @@ function LedgerOverview() {
                 <div class="lp-mobile">${PortfolioSummary(portfolio, { compact: true })}</div>
                 ${PortfolioMonthLine(portfolio)}
                 ${PortfolioAlerts(portfolio)}
-                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: portfolio.employees, defaults: { open: true, view: 'period' }, variant: 'portfolio' })}
+                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: portfolio.employees, defaults: { open: readLoanUiMemory().historyOpen ?? false, view: readLoanUiMemory().historyView ?? 'period' }, variant: 'portfolio' })}
                 ` : `
                 <div class="loans-overview__mobile-kpis">
                     ${kpiCard(
