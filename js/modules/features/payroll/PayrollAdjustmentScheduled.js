@@ -11,6 +11,12 @@ import {
     buildPayrollAdjustmentPeriodSelectionOptions
 } from './PayrollAdjustmentPeriodSelection.js';
 import { hasPayrollAdjustmentPlanMovement } from './PayrollAdjustmentCancellation.js';
+import {
+    canEditPayrollAdjustmentPlan,
+    canArchivePayrollAdjustmentPlan,
+    splitPlanInstallments,
+    lastAppliedPeriodStart
+} from './PayrollAdjustmentPlanEdit.js';
 
 const KIND_META = Object.freeze({
     [ADJUSTMENT_PLAN_KIND.BONUS]: {
@@ -241,6 +247,20 @@ function projectEmployee(plan, employeeById, selectionContext = {}) {
         hasMovement: hasPayrollAdjustmentPlanMovement(plan),
         canRemove: Boolean(text(periodStart) && text(periodEnd)) &&
             [ADJUSTMENT_PLAN_STATUS.ACTIVE, ADJUSTMENT_PLAN_STATUS.PAUSED].includes(plan.status),
+        // Editar (activo o pausado) y «Quitar de la lista» (completado o cancelado).
+        // Como «Borrar», solo con una nómina abierta (las referencias caducan con la vista).
+        canEdit: Boolean(employee && text(periodStart) && text(periodEnd)) && canEditPayrollAdjustmentPlan(plan),
+        canArchive: Boolean(text(periodStart) && text(periodEnd)) && canArchivePayrollAdjustmentPlan(plan),
+        edit: (() => {
+            const parts = splitPlanInstallments(plan);
+            return {
+                locked: parts.locked.map(item => ({ sequence: Number(item.sequence) || 0, amount: money(item.amount) })),
+                lockedAmount: parts.lockedAmount,
+                pendingAmount: parts.pendingAmount,
+                pendingCount: parts.pending.length,
+                lastAppliedPeriodStart: lastAppliedPeriodStart(plan)
+            };
+        })(),
         periodSelection: periodSelection ? {
             ...periodSelection,
             periodStart: text(periodStart),
@@ -271,6 +291,7 @@ export function buildScheduledAdjustmentGroups(kind, employees = [], {
     for (const holder of (employees || [])) {
         for (const plan of (Array.isArray(holder?.[kind]) ? holder[kind] : [])) {
             if (!isPayrollAdjustmentInstallmentPlan(plan) ||
+                plan.archivedAt ||
                 plan.kind !== kind ||
                 ![
                     ADJUSTMENT_PLAN_STATUS.ACTIVE,
@@ -368,6 +389,7 @@ export function buildEmployeeScheduledAdjustmentPlans(employee) {
     for (const kind of [ADJUSTMENT_PLAN_KIND.BONUS, ADJUSTMENT_PLAN_KIND.DEDUCTION]) {
         for (const plan of (Array.isArray(employee[kind]) ? employee[kind] : [])) {
             if (!isPayrollAdjustmentInstallmentPlan(plan) ||
+                plan.archivedAt ||
                 plan.kind !== kind ||
                 text(plan.employeeId) !== text(employee.id) ||
                 ![
@@ -391,6 +413,44 @@ export function buildEmployeeScheduledAdjustmentPlans(employee) {
         left.planName.localeCompare(right.planName, 'es', { numeric: true }) ||
         left.planId.localeCompare(right.planId, 'es', { numeric: true })
     );
+}
+
+/** Formulario «Editar» de un plan: lo aplicado queda con candado; se cambia lo pendiente. */
+function renderPlanEdit(item, reference, kind) {
+    if (!item.canEdit) return '';
+    const e = item.edit;
+    const hasLocked = e.locked.length > 0;
+    return `
+        <details class="payroll-plan-edit">
+            <summary class="payroll-adjustment-button">Editar</summary>
+            <form class="payroll-plan-edit__form" onsubmit="return false">
+                <label><span>Concepto</span><input name="name" type="text" autocomplete="off" value="${safe(item.planName)}"></label>
+                <label><span>${hasLocked ? 'Monto pendiente por repartir' : 'Monto total'}</span>
+                    <input name="amount" type="text" inputmode="decimal" autocomplete="off" value="${hasLocked ? e.pendingAmount : item.totalAmount}"></label>
+                <label><span>${hasLocked ? 'Cuotas que faltan' : 'Cuotas'}</span>
+                    <input name="installmentCount" type="number" min="1" max="52" step="1" value="${Math.max(1, hasLocked ? e.pendingCount : item.installmentCount)}"></label>
+                <label><span>${hasLocked ? 'Siguen desde la nómina que empieza el' : 'Primera nómina (inicio del periodo)'}</span>
+                    <input name="firstPeriodStart" type="date" value="${safe(item.firstPeriodStart)}"></label>
+                ${hasLocked ? `
+                    <p class="payroll-plan-edit__locked">🔒 Ya aplicadas en nóminas cerradas (no cambian):
+                        ${e.locked.map(x => `cuota ${x.sequence} · ${formatCurrency(x.amount)}`).join(', ')}.
+                        Total del plan = ${formatCurrency(e.lockedAmount)} aplicado + lo pendiente.
+                        ${e.lastAppliedPeriodStart ? `Lo pendiente debe seguir después de la nómina del ${safe(formatDate(e.lastAppliedPeriodStart))}.` : ''}</p>` : ''}
+                <button type="button" class="payroll-adjustment-button payroll-adjustment-button--primary"
+                        data-payroll-action="save-scheduled-adjustment-edit"
+                        data-scheduled-reference="${safe(reference)}"
+                        aria-label="Guardar cambios de ${safe(item.planName)} para ${safe(item.name)}">Guardar cambios</button>
+            </form>
+        </details>`;
+}
+
+function renderPlanArchive(item, reference) {
+    if (!item.canArchive) return '';
+    return `
+        <button type="button" class="payroll-adjustment-button payroll-adjustment-button--danger"
+                data-payroll-action="archive-scheduled-adjustment"
+                data-scheduled-reference="${safe(reference)}"
+                aria-label="Quitar ${safe(item.planName)} de ${safe(item.name)} de la lista">Quitar de la lista</button>`;
 }
 
 function renderHistory(history) {
@@ -430,7 +490,7 @@ function renderEmployee(item, index, group, projectionRevision) {
             ? `Pago único: ${formatCurrency(item.nextInstallment.amount)}`
             : `Cuota ${item.nextInstallment.sequence}: ${formatCurrency(item.nextInstallment.amount)}`
         : 'Sin pagos pendientes';
-    const actionReference = item.canPause || item.canResume || item.periodSelection || item.canRemove
+    const actionReference = item.canPause || item.canResume || item.periodSelection || item.canRemove || item.canEdit || item.canArchive
         ? registerScheduledActionReference(group.kind, item, projectionRevision)
         : '';
     const periodActionLabel = group.kind === ADJUSTMENT_PLAN_KIND.BONUS
@@ -485,9 +545,11 @@ function renderEmployee(item, index, group, projectionRevision) {
                             data-payroll-action="remove-scheduled-adjustment-plan"
                             data-scheduled-reference="${safe(actionReference)}"
                             aria-label="Quitar ${safe(item.planName)} de la programación de ${safe(item.name)}">
-                        Quitar de esta programación
+                        ${item.hasMovement ? 'Borrar lo pendiente' : 'Borrar'}
                     </button>
                 ` : ''}
+                ${renderPlanEdit(item, actionReference, group.kind)}
+                ${renderPlanArchive(item, actionReference)}
                 <h6>Historial de cuotas</h6>
                 ${renderHistory(item.history)}
             </div>
@@ -500,7 +562,7 @@ export function renderScheduledAdjustmentSummaryDetail(rule, projectionRevision,
     const group = rule?.scheduledGroup;
     if (!item || !group) return '';
     const identity = item.number ? `${safe(item.number)} · ${safe(item.name)}` : safe(item.name);
-    const actionReference = item.canPause || item.canResume || item.periodSelection || item.canRemove
+    const actionReference = item.canPause || item.canResume || item.periodSelection || item.canRemove || item.canEdit || item.canArchive
         ? registerScheduledActionReference(group.kind, item, projectionRevision)
         : '';
     const periodActionLabel = group.kind === ADJUSTMENT_PLAN_KIND.BONUS
@@ -508,7 +570,7 @@ export function renderScheduledAdjustmentSummaryDetail(rule, projectionRevision,
         : 'Aplicar en esta nómina';
     const concept = String(conceptLabel || rule.name || group.name || 'Ajuste').trim();
     const stateAction = item.canPause ? 'Pausar' : 'Reanudar';
-    const removeAction = item.hasMovement ? 'Cancelar programación' : 'Quitar programación';
+    const removeAction = item.hasMovement ? 'Borrar lo pendiente' : 'Borrar';
     const contextualLabel = action => `${action} ${concept} para ${item.name}`;
     return `
         <article class="payroll-adjustment-concept__detail is-scheduled">
@@ -553,6 +615,8 @@ export function renderScheduledAdjustmentSummaryDetail(rule, projectionRevision,
                         ${removeAction}
                     </button>
                 ` : ''}
+                ${renderPlanEdit(item, actionReference, group.kind)}
+                ${renderPlanArchive(item, actionReference)}
             </div>
         </article>
     `;

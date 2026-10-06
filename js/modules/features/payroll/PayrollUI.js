@@ -7,6 +7,7 @@ import { ensureJsPDFLoaded } from '../../utils/LazyCDN.js';
 import { LoansLedger } from '../loans/LoansLedger.js';
 import { migrateAllAdvances } from '../loans/LoansController.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
+import { editPayrollAdjustmentPlan, archivePayrollAdjustmentPlan } from './PayrollAdjustmentPlanEdit.js';
 import {
     applyPayrollLoanDeductions,
     buildPayrollLoanSelection,
@@ -16,6 +17,9 @@ import {
     removeEmployeePayrollLoans as removeEmployeePayrollLoansFromSelection,
     setEmployeePayrollLoans,
     setPayrollLoanChargeCount,
+    setPayrollLoanMode,
+    getPayrollLoanMode,
+    PAYROLL_LOAN_MODE,
     summarizePayrollLoans,
     togglePayrollLoan,
     toSplitXRows
@@ -201,6 +205,10 @@ const _ACTION_MAP = {
             Number(target.dataset.delta) || 0
         );
     },
+    'set-payroll-loan-mode': (employeeId, target, event) => {
+        event.stopPropagation();
+        window.PayrollUI?.setPayrollLoanModeFor?.(employeeId, target.dataset.mode);
+    },
     'select-all-payroll-loan-charges': (employeeId, target, event) => {
         event.stopPropagation();
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
@@ -255,6 +263,10 @@ const _ACTION_MAP = {
             target.dataset.scheduledReference,
             target.dataset.selectionValue
         ),
+    'save-scheduled-adjustment-edit': (_value, target) =>
+        window.PayrollUI?.saveScheduledAdjustmentEdit?.(target.dataset.scheduledReference, target.closest('form')),
+    'archive-scheduled-adjustment': (_value, target) =>
+        window.PayrollUI?.archiveScheduledAdjustment?.(target.dataset.scheduledReference),
     'remove-scheduled-adjustment-plan': (_value, target) =>
         window.PayrollUI?.removeScheduledAdjustment?.(target.dataset.scheduledReference),
     'cancel-scheduled-adjustment-group': (_value, target) =>
@@ -2369,6 +2381,68 @@ function prepareScheduledRemoval(state, reference) {
     };
 }
 
+/** Guarda en el dispositivo el cambio de un plan; si falla, vuelve atrás. */
+async function commitScheduledPlanChange(compute, successMessage) {
+    const state = getState();
+    const previousEmployees = state.employees;
+    let next;
+    try {
+        next = compute(state.employees || []);
+        stateManager.setState({ employees: next.employees });
+        const outcome = await Promise.resolve(context.saveToLocalStorage({ immediate: true, announce: false, requireLocalSuccess: true }));
+        if (outcome?.localOk !== true) throw new Error('No se pudo guardar el cambio en este dispositivo. No se realizó ningún cambio.');
+    } catch (error) {
+        if (next) stateManager.setState({ employees: previousEmployees });
+        window.showNotification?.(error?.message || 'No se pudo guardar el cambio. No se realizó ningún cambio.', 'error');
+        return false;
+    }
+    window.showNotification?.(successMessage, 'success');
+    if (payrollRuntime?.getCurrentView?.()?.enabled) await refreshScopedPayrollPreview();
+    else context.render();
+    return true;
+}
+
+/** «Editar» un plan programado: lo aplicado queda igual; cambia lo pendiente. */
+export async function saveScheduledAdjustmentEdit(referenceToken, form) {
+    const reference = resolveScheduledActionReference(referenceToken);
+    if (!reference || reference.referenceType !== 'plan' || !form) return notifyScheduledSelectionChanged();
+    const field = name => form.querySelector(`[name="${name}"]`)?.value ?? '';
+    return commitScheduledPlanChange(employees => editPayrollAdjustmentPlan(employees, {
+        kind: reference.kind,
+        employeeId: reference.employeeId,
+        planId: reference.planId,
+        expectedUpdatedAt: reference.updatedAt,
+        name: field('name'),
+        amount: Number(String(field('amount')).replace(/[^0-9.]/g, '')),
+        installmentCount: Number(field('installmentCount')),
+        firstPeriodStart: field('firstPeriodStart'),
+        now: Date.now(),
+        actor: settlementOperatorId()
+    }), 'Programación actualizada. Lo ya aplicado no cambió.');
+}
+
+/** «Quitar de la lista» un plan completado o cancelado (el historial se conserva). */
+export async function archiveScheduledAdjustment(referenceToken) {
+    const reference = resolveScheduledActionReference(referenceToken);
+    if (!reference || reference.referenceType !== 'plan') return notifyScheduledSelectionChanged();
+    const confirmed = await Modal.confirm({
+        title: 'Quitar de la lista',
+        message: 'No queda nada pendiente. Se oculta de Programados; los pagos siguen en el historial de las nóminas cerradas.',
+        confirmText: 'Quitar de la lista',
+        cancelText: 'Volver',
+        type: 'warning'
+    });
+    if (!confirmed) return false;
+    return commitScheduledPlanChange(employees => archivePayrollAdjustmentPlan(employees, {
+        kind: reference.kind,
+        employeeId: reference.employeeId,
+        planId: reference.planId,
+        expectedUpdatedAt: reference.updatedAt,
+        now: Date.now(),
+        actor: settlementOperatorId()
+    }), 'Quitado de la lista. El historial se conserva.');
+}
+
 export async function removeScheduledAdjustment(referenceToken) {
     const scopedView = payrollRuntime?.getCurrentView?.();
     const isScoped = Boolean(scopedView?.enabled);
@@ -3795,14 +3869,45 @@ export function toggleEmployeePayrollLoans(employeeId) {
     );
     const allSelected = eligibleLoans.length > 0 &&
         eligibleLoans.every(loan => (selectedCounts.get(String(loan.loanId)) || 0) > 0);
+    // Casilla de 3 estados: completo (todo marcado y «Todo») → ninguno; parcial o ninguno → completo.
+    const complete = allSelected &&
+        getPayrollLoanMode(state.exportConfig.payrollLoanSelection || [], employee.id).mode === PAYROLL_LOAN_MODE.ALL;
     updatePayrollLoanSelection(setEmployeePayrollLoans(
         state.exportConfig.payrollLoanSelection || [],
         employee.id,
-        allSelected ? [] : eligibleLoans.map(loan => ({
+        complete ? [] : eligibleLoans.map(loan => ({
             loanId: loan.loanId,
-            chargeCount: Math.max(1, loan.defaultChargeCount)
-        }))
+            chargeCount: Math.max(1, Number(selectedCounts.get(String(loan.loanId))) || loan.defaultChargeCount)
+        })),
+        { mode: PAYROLL_LOAN_MODE.ALL }
     ));
+}
+
+/**
+ * «Cuánto descontar» del paso 4: Todo, Solo interés u Otro monto. Si el empleado
+ * no tenía préstamos marcados, se marcan los de esta nómina.
+ */
+export function setPayrollLoanModeFor(employeeId, mode, amount = null) {
+    const state = getState();
+    const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    if (!employee) return;
+    let selection = state.exportConfig.payrollLoanSelection || [];
+    const current = selection.find(item => String(item.employeeId) === String(employee.id));
+    if (!current || !(current.loans || current.loanIds || []).length) {
+        const periodEnd = getEffectivePayrollPeriodEnd(state);
+        selection = setEmployeePayrollLoans(selection, employee.id, getEligiblePayrollLoans(employee, periodEnd)
+            .map(loan => ({ loanId: loan.loanId, chargeCount: Math.max(1, loan.defaultChargeCount) })));
+    }
+    updatePayrollLoanSelection(setPayrollLoanMode(selection, employee.id, mode, amount));
+}
+
+export function setPayrollLoanCustomAmount(employeeId, value) {
+    const amount = Number(String(value ?? '').replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(amount) || amount <= 0) {
+        setPayrollLoanModeFor(employeeId, PAYROLL_LOAN_MODE.ALL);
+        return;
+    }
+    setPayrollLoanModeFor(employeeId, PAYROLL_LOAN_MODE.CUSTOM, amount);
 }
 
 export function togglePayrollLoanSelection(employeeId, loanId) {

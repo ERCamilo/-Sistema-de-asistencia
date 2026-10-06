@@ -27,6 +27,7 @@ import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { getAccountSummary } from './LoanAccount.js';
 import { buildFlowBuckets, computeLoanFlows } from './LoanFlowChart.js';
 import { ExportButton, ExportPanel } from './LoanExportPanel.js';
+import { readLoanUiMemory } from './LoanUiMemory.js';
 
 const M = (value, decimals = 2) => {
     const n = Number(value || 0);
@@ -161,7 +162,8 @@ export function PortfolioAlerts(model) {
     if (model.backfill.total) items.push({ key: 'fill', dot: '#1fb6ff', title: 'Datos de préstamos por completar', sub: [model.backfill.numbers ? `${model.backfill.numbers} sin número` : '', model.backfill.dueDates ? `${model.backfill.dueDates} sin nómina de cobro` : '', model.backfill.payrollPayments + model.backfill.directPayments + model.backfill.reviewPayments ? `${model.backfill.payrollPayments + model.backfill.directPayments + model.backfill.reviewPayments} abonos sin origen` : ''].filter(Boolean).join(' · '), hint: 'Solo rellena lo que falta; no cambia montos. Mientras tanto, esta pantalla ya los lee completados.', label: 'Completar', fn: 'laApplyBackfill' });
     if (model.review.length) items.push({ key: 'review', dot: '#fb923c', title: `${model.review.length} abono${model.review.length === 1 ? '' : 's'} por revisar`, sub: 'Cayeron fuera de los días de pago', hint: '¿Fueron descuento de nómina o directos? Márcalo en cada uno.', label: 'Revisar' });
     if (!items.length) return `<div class="lp-alerts lp-alerts--empty">✓ Sin avisos pendientes</div>`;
-    const open = ui.alertsOpen !== false;
+    // Plegado por defecto; si el usuario lo dejó abierto, se recuerda en este dispositivo.
+    const open = ui.alertsOpen ?? readLoanUiMemory().alertsOpen ?? false;
     const panel = ui.alertPanel;
     return `<section class="lp-alerts${open ? ' is-open' : ''}" aria-label="Avisos">
         <button type="button" class="lp-alerts__head" data-app-fn="lpToggleAlerts" aria-expanded="${open}"><span class="lp-badge">${items.length}</span><b>Avisos que necesitan una decisión</b><span class="lp-alerts__toggle">${open ? 'Ocultar' : 'Ver'}</span></button>
@@ -305,7 +307,7 @@ export function PortfolioSummary(model, { compact = false } = {}) {
     ];
     if (compact) return `<div class="lp-summary is-compact">${compactCards(cards)}</div>`;
     const ui = portfolioUi();
-    const asideOpen = ui.asideCard === undefined ? 'cobrar' : ui.asideCard;
+    const asideOpen = ui.asideCard === undefined ? (readLoanUiMemory().asideCard ?? null) : ui.asideCard;
     return `<div class="lp-summary">
         <div class="lp-summary__h"><b>Resumen de cartera</b><small>sin anulados</small></div>
         ${cards.map(c => card(c.key, c.title, c.big, c.sub, c.body, c.key === asideOpen)).join('')}

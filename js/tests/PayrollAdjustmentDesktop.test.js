@@ -167,11 +167,11 @@ describe('PayrollAdjustmentDesktop', () => {
         expect(concepts[0].textContent).toEqual(expect.stringContaining('Solo esta nómina'));
         expect(concepts[0].textContent).toEqual(expect.stringContaining('Programado'));
         expect(concepts[0].textContent).toEqual(expect.stringContaining('1 de 2 cuotas'));
-        expect(concepts[0].textContent).toEqual(expect.stringContaining('Cancelar programación'));
+        expect(concepts[0].textContent).toEqual(expect.stringContaining('Borrar lo pendiente'));
 
         const scheduledButtons = [...concepts[0].querySelectorAll('button[data-scheduled-reference]')];
         scheduledButtons.forEach(button => {
-            expect(button.getAttribute('aria-label')).toMatch(/^(Pausar|Reanudar|Quitar programación|Cancelar programación) Botas para (Ada|Grace|Linus)/i);
+            expect(button.getAttribute('aria-label')).toMatch(/^(Pausar|Reanudar|Borrar|Borrar lo pendiente|Guardar cambios de) Botas para (Ada|Grace|Linus)/i);
         });
         expect(PAYROLL_CSS).not.toContain('.payroll-adjustment-concept > summary > :nth-child(3),');
         expect(PAYROLL_CSS).not.toContain('.payroll-adjustment-concept__detail > :nth-child(3)');

@@ -4,7 +4,7 @@ import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
 import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
 import {
     laOpen, laField, laFieldQuiet, laSave, laSetTab, laAsk, laAdjust, laFix, laFixWhy, laVoid, laClose,
-    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment, lpAlertPanel, lpRiskLevel, lpTip, lpCard
+    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment, lpAlertPanel, lpRiskLevel, lpTip, lpCard, lpToggleAlerts
 } from '../modules/features/loans/LoanAccountController.js';
 import { getAccountSummary, getAccountMovements, getActiveLoanAgreement } from '../modules/features/loans/LoanAccount.js';
 import { movementKey } from '../modules/features/loans/LoanAccountView.js';
@@ -48,6 +48,10 @@ beforeAll(() => {
 afterAll(() => jest.useRealTimers());
 beforeEach(() => {
     localStorage.removeItem('loans-account-view');
+    // Como si el usuario hubiera dejado abiertos los avisos, el historial y «Por cobrar»
+    // (por defecto todo empieza plegado; eso se prueba aparte).
+    localStorage.setItem('loans-main-ui', JSON.stringify({ alertsOpen: true, historyOpen: true, historyView: 'period', asideCard: 'cobrar' }));
+    resetLoanHistoryPanels();
     state.loansLedger = undefined;
     window.showAlert = jest.fn();
 });
@@ -341,6 +345,31 @@ describe('Ficha cuenta de préstamos', () => {
         expect(html().querySelector('.lp-xp [data-app-fn="lxDownload"]').disabled).toBe(true);
         lxToggle();
         expect(html().querySelector('.lp-xp')).toBeNull();
+    });
+
+    test('pantalla principal: todo lo desplegable empieza plegado y se recuerda lo que el usuario abre', () => {
+        localStorage.removeItem('loans-main-ui');
+        resetLoanHistoryPanels();
+        seed();
+        state.loansLedger.selectedEmployeeId = null;
+        let body = html();
+        expect(body.querySelector('.lp-alerts .lp-alert')).toBeNull();
+        expect(body.querySelector('.lp-alerts__toggle').textContent).toBe('Ver');
+        expect(body.querySelector('.lp-hist-s').getAttribute('aria-expanded')).toBe('false');
+        expect(body.querySelector('.lp-aside .lp-card.is-open')).toBeNull();
+        lpToggleAlerts();
+        toggleLoanHistory('general');
+        lpCard('ganado', 'aside');
+        expect(JSON.parse(localStorage.getItem('loans-main-ui'))).toMatchObject({ alertsOpen: true, historyOpen: true, asideCard: 'ganado' });
+        // Otra visita (estado nuevo): se abre como lo dejó.
+        state.loansLedger = undefined;
+        resetLoanHistoryPanels();
+        seed();
+        state.loansLedger.selectedEmployeeId = null;
+        body = html();
+        expect(body.querySelector('.lp-alerts .lp-alert')).not.toBeNull();
+        expect(body.querySelector('.lp-hist-s').getAttribute('aria-expanded')).toBe('true');
+        expect(body.querySelector('.lp-aside .lp-card.is-open').dataset.card).toBe('ganado');
     });
 
     test('el movimiento del préstamo muestra capital (azul) e interés (amarillo)', () => {

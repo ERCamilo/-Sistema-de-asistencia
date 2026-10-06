@@ -3,8 +3,11 @@ import { escapeHTML } from '../../utils/Sanitize.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
 import {
     getEligiblePayrollLoans,
+    getPayrollLoanMode,
+    getPayrollLoanPendingInterest,
     resolvePayrollLoanSelection,
-    summarizePayrollLoans
+    summarizePayrollLoans,
+    PAYROLL_LOAN_MODE
 } from './PayrollLoans.js';
 
 function safe(value) {
@@ -85,14 +88,22 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
         const eligibleLoans = getEligiblePayrollLoans(employee, periodEnd);
         if (eligibleLoans.length === 0) continue;
         const selectedLoansById = resolvedByEmployee.get(String(employee.id)) || new Map();
+        const loanById = new Map((employee.loans || []).map(loan => [String(loan.id), loan]));
         const loans = eligibleLoans.map(loan => {
             const selectedLoan = selectedLoansById.get(String(loan.loanId));
+            const pendingInterest = Math.min(loan.balance, getPayrollLoanPendingInterest(loanById.get(String(loan.loanId)) || {}));
             return {
                 ...loan,
+                pendingInterest,
+                pendingCapital: Math.max(0, Math.round((loan.balance - pendingInterest) * 100) / 100),
                 selected: !!selectedLoan,
                 selectedChargeCount: selectedLoan?.selectedChargeCount || 0,
                 selectedCharges: selectedLoan?.selectedCharges || [],
                 selectedAmount: selectedLoan?.selectedAmount || 0,
+                fullAmount: selectedLoan?.fullAmount || 0,
+                interestPart: selectedLoan?.interestPart || 0,
+                capitalPart: selectedLoan?.capitalPart || 0,
+                selectedPendingInterest: selectedLoan?.pendingInterest || 0,
                 firstInstallmentSeq: selectedLoan?.firstInstallmentSeq ?? loan.chargeOptions[0]?.installmentSeq ?? null,
                 lastInstallmentSeq: selectedLoan?.lastInstallmentSeq ?? null
             };
@@ -101,6 +112,8 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
         const payrollRow = payrollByEmployee.get(String(employee.id));
         const selectedBalance = selectedLoans.reduce((sum, loan) => sum + loan.selectedAmount, 0);
         const warningState = getLoanWarningState(payrollRow);
+        const choice = getPayrollLoanMode(selection, employee.id);
+        const sum = key => Math.round(selectedLoans.reduce((total, loan) => total + (Number(loan[key]) || 0), 0) * 100) / 100;
 
         groups.push({
             employeeId: employee.id,
@@ -111,9 +124,16 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
             eligibleCount: loans.length,
             selectedChargeCount: selectedLoans.reduce((sum, loan) => sum + loan.selectedChargeCount, 0),
             eligibleChargeCount: loans.reduce((sum, loan) => sum + loan.maxChargeCount, 0),
-            selectionState: selectedLoans.length === 0
-                ? 'none'
-                : selectedLoans.length === loans.length ? 'all' : 'mixed',
+            // Casilla de 3 estados: completo solo con todo marcado y «Todo»; parcial si falta algo.
+            selectionState: selectedLoans.length === 0 || selectedBalance <= 0.004
+                ? (selectedLoans.length === 0 ? 'none' : 'mixed')
+                : selectedLoans.length === loans.length && choice.mode === PAYROLL_LOAN_MODE.ALL ? 'all' : 'mixed',
+            mode: choice.mode,
+            customAmount: choice.amount,
+            fullTotal: sum('fullAmount'),
+            interestOnlyTotal: sum('selectedPendingInterest'),
+            chargedInterest: sum('interestPart'),
+            chargedCapital: sum('capitalPart'),
             selectedInterest: selectedLoans.reduce((sum, loan) => sum + loan.interest, 0),
             selectedBalance,
             eligibleBalance: loans.reduce((sum, loan) => sum + loan.balance, 0),
@@ -183,8 +203,13 @@ function renderLoanRow(group, loan) {
                 ${migrated ? '<small>(migrado)</small>' : ''}
                 <small>${safe(modeLabel)}${safe(dueLabel)}</small>
             </span>
-            <span class="payroll-loan-child__interest">${formatCurrency(loan.interest)}</span>
-            <strong class="payroll-loan-child__balance">${formatCurrency(loan.selectedAmount)}</strong>
+            <span class="payroll-loan-child__interest">${formatCurrency(loan.pendingInterest)}</span>
+            <span class="payroll-loan-child__capital">${formatCurrency(loan.pendingCapital)}</span>
+            <span class="payroll-loan-child__total">${formatCurrency(loan.balance)}</span>
+            <span class="payroll-loan-child__balance">
+                <strong>${formatCurrency(loan.selectedAmount)}</strong>
+                ${loan.selected ? `<small>${formatCurrency(loan.interestPart)} int. + ${formatCurrency(loan.capitalPart)} cap.</small>` : ''}
+            </span>
             ${chargeControls}
             ${renderSelectionControl({
                 checked: loan.selected,
@@ -194,6 +219,43 @@ function renderLoanRow(group, loan) {
             })}
         </div>
     `;
+}
+
+/** «Cuánto descontar»: Todo, Solo interés u Otro monto, con el desglose y los avisos. */
+function renderModePanel(group) {
+    const id = safe(group.employeeId);
+    const owedLeft = Math.max(0, Math.round((group.eligibleBalance - group.selectedBalance) * 100) / 100);
+    const net = group.netRemaining;
+    const button = (mode, label, amount) => `
+        <button type="button" class="payroll-loan-mode__option"
+                data-payroll-action="set-payroll-loan-mode" data-id="${id}" data-mode="${mode}"
+                aria-pressed="${group.mode === mode}">${label} <b>${formatCurrency(amount)}</b></button>`;
+    const customValue = group.mode === PAYROLL_LOAN_MODE.CUSTOM && group.customAmount != null ? String(group.customAmount) : '';
+    return `
+        <div class="payroll-loan-mode" role="group" aria-label="Cuánto descontar a ${safe(group.employeeName)}">
+            <span class="payroll-loan-mode__label">Cuánto descontar</span>
+            <div class="payroll-loan-mode__options">
+                ${button(PAYROLL_LOAN_MODE.ALL, 'Todo', group.fullTotal || group.eligibleBalance)}
+                ${button(PAYROLL_LOAN_MODE.INTEREST, 'Solo interés', group.selectedCount ? group.interestOnlyTotal : group.loans.reduce((t, l) => t + l.pendingInterest, 0))}
+                <label class="payroll-loan-mode__amount ${group.mode === PAYROLL_LOAN_MODE.CUSTOM ? 'is-active' : ''}">
+                    <span>Otro monto $</span>
+                    <input type="text" inputmode="decimal" autocomplete="off" placeholder="0.00"
+                           data-id="${id}" value="${safe(customValue)}"
+                           aria-label="Otro monto para ${safe(group.employeeName)}"
+                           onchange="PayrollUI.setPayrollLoanCustomAmount(this.dataset.id, this.value)">
+                </label>
+            </div>
+            ${group.selectedCount ? `
+                <p class="payroll-loan-mode__split">
+                    = <b class="is-capital">${formatCurrency(group.chargedCapital)}</b> de capital
+                    + <b class="is-interest">${formatCurrency(group.chargedInterest)}</b> de interés
+                    · queda debiendo <b>${formatCurrency(owedLeft)}</b>
+                    · neto a pagar <b class="${net < 0 ? 'is-negative' : ''}">${formatCurrency(net)}</b>
+                </p>` : '<p class="payroll-loan-mode__split">Marca los préstamos que se descuentan en esta nómina o elige una opción.</p>'}
+            ${net < 0 ? `<p class="payroll-loan-mode__warn is-bad">No alcanza la nómina: el neto quedaría en ${formatCurrency(net)}. Baja el monto o descuenta solo el interés.</p>` : ''}
+            ${group.mode === PAYROLL_LOAN_MODE.CUSTOM && (group.customAmount || 0) > group.fullTotal + 0.004 ? `<p class="payroll-loan-mode__warn is-bad">Escribiste más de lo que se cobra en los préstamos marcados (${formatCurrency(group.fullTotal)}). Se descuenta como máximo eso.</p>` : ''}
+            ${group.selectedCount && group.mode !== PAYROLL_LOAN_MODE.ALL && group.fullTotal - group.selectedBalance > 0.004 ? `<p class="payroll-loan-mode__warn">Lo que no se descuente (${formatCurrency(group.fullTotal - group.selectedBalance)}) queda pendiente para la próxima nómina; se puede refinanciar con o sin interés.</p>` : ''}
+        </div>`;
 }
 
 function renderEmployeeGroup(group, expandedIds) {
@@ -246,9 +308,10 @@ function renderEmployeeGroup(group, expandedIds) {
                         : `Incluir todos los préstamos de ${group.employeeName}`
                 })}
             </summary>
-            <div class="payroll-loan-group__body">
+            <div class="payroll-loan-group__body has-modes">
+                ${renderModePanel(group)}
                 <div class="payroll-loan-child-columns" aria-hidden="true">
-                    <span>Préstamo</span><span>Interés</span><span>A descontar</span>
+                    <span>Préstamo</span><span>Interés pend.</span><span>Capital pend.</span><span>Total</span><span>A descontar</span>
                     <span>Cuotas</span><span></span>
                 </div>
                 ${group.loans.map(loan => renderLoanRow(group, loan)).join('')}

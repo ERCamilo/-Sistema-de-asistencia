@@ -25,11 +25,12 @@ import {
     saveLoanAgreement, cancelLoanAgreement, getActiveLoanAgreement, suggestedAgreementMinimum
 } from './LoanAccount.js';
 import { getAccountPayPeriods, closedPeriodEnds } from './LoanAccountView.js';
-import { undoConsolidation, restoreConsolidation, findConsolidations } from './LoanConsolidationUndo.js';
+import { undoConsolidation, restoreConsolidation, findConsolidations, consolidationUndoOrder } from './LoanConsolidationUndo.js';
 import { nextLoanNumber, planLoanBackfill, applyLoanBackfill, resolvePaymentReview } from './LoanDataBackfill.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { nextPayPeriod, followingPayPeriod } from './LoanPayPeriods.js';
 import { registerLoanExportGlobals } from './LoanExportPanel.js';
+import { readLoanUiMemory, saveLoanUiMemory } from './LoanUiMemory.js';
 
 const CLASSIC_KEY = 'loans-account-view';
 
@@ -303,7 +304,8 @@ export function laRestoreConsolidation(loanId) {
 /** Deshace todas las consolidaciones de la obra activa, después de confirmar con el total antes/después. */
 export function laUndoAllConsolidations() {
     const employees = (state.employees || []).filter(emp => entityInScope(emp, peekEntityScope()));
-    const work = employees.flatMap(emp => findConsolidations(emp).map(c => ({ emp, id: c.loan.id })));
+    // De afuera hacia adentro: una consolidación de una consolidación se deshace en orden.
+    const work = employees.flatMap(emp => consolidationUndoOrder(emp).map(c => ({ emp, id: c.loan.id })));
     if (!work.length) return;
     const total = list => round2(list.reduce((t, emp) => t + getAccountSummary(emp).balance, 0));
     const run = () => {
@@ -373,12 +375,18 @@ function portfolioState(fn) {
     stateManager.batchSetState(() => {
         // Al abrir la pantalla sin haber tocado nada todavía no existe loansLedger.
         if (!state.loansLedger) state.loansLedger = {};
-        if (!state.loansLedger.portfolio) state.loansLedger.portfolio = { alertsOpen: true, alertPanel: null, riskLevel: 0 };
+        if (!state.loansLedger.portfolio) state.loansLedger.portfolio = { alertPanel: null, riskLevel: 0 };
         fn(state.loansLedger.portfolio);
     });
     render();
 }
-export function lpToggleAlerts() { portfolioState(p => { p.alertsOpen = p.alertsOpen === false; }); }
+export function lpToggleAlerts() {
+    portfolioState(p => {
+        const open = !(p.alertsOpen ?? readLoanUiMemory().alertsOpen ?? false);
+        p.alertsOpen = open;
+        saveLoanUiMemory({ alertsOpen: open });
+    });
+}
 export function lpAlertPanel(key) {
     if (key === 'inactive-filter') return;
     portfolioState(p => { p.alertPanel = p.alertPanel === key ? null : String(key); p.alertsOpen = true; });
@@ -388,8 +396,9 @@ export function lpTip(key) { portfolioState(p => { p.tip = p.tip === key ? null 
 export function lpCard(key, where) {
     portfolioState(p => {
         if (where === 'aside') {
-            const current = p.asideCard === undefined ? 'cobrar' : p.asideCard;
+            const current = p.asideCard === undefined ? (readLoanUiMemory().asideCard ?? null) : p.asideCard;
             p.asideCard = current === key ? null : String(key);
+            saveLoanUiMemory({ asideCard: p.asideCard });
         } else {
             p.card = p.card === key ? null : String(key);
         }

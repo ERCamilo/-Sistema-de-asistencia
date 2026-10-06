@@ -9,6 +9,7 @@
  * empleado. El estado de cada panel (abierto, rango, fecha) vive solo en
  * pantalla, por panel.
  */
+import { saveLoanUiMemory } from './LoanUiMemory.js';
 import { buildTimeline } from './LoanTimeline.js';
 import { state } from '../../core/AppState.js';
 import { getDateKey } from '../../utils/DateUtils.js';
@@ -348,6 +349,7 @@ export function setLoanHistoryView(scope, view) {
     const panel = panelState(String(scope));
     panel.view = ['saldo', 'month', 'period'].includes(view) ? view : 'saldo';
     panel.bucket = null;
+    if (String(scope) === 'general') saveLoanUiMemory({ historyView: panel.view });
     rerender();
 }
 
@@ -363,6 +365,8 @@ function rerender() {
 export function toggleLoanHistory(scope) {
     const panel = panelState(String(scope));
     panel.open = !panel.open;
+    // Pantalla principal: se recuerda si el usuario lo dejó abierto (solo este dispositivo).
+    if (String(scope) === 'general') saveLoanUiMemory({ historyOpen: panel.open });
     rerender();
 }
 

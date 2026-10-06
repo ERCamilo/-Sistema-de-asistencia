@@ -8,6 +8,19 @@ import {
     LOAN_STATUS,
     round2
 } from '../loans/LoansService.js';
+import { replayLoan } from '../loans/LoanTimeline.js';
+
+/**
+ * Cuánto se descuenta a un empleado en esta nómina (paso 4):
+ *   all       todo lo seleccionado (cuotas o saldo), como siempre
+ *   interest  solo el interés pendiente de los préstamos marcados
+ *   custom    un monto escrito a mano
+ * «Solo interés» y «otro monto» se reparten igual que un abono a la cuenta:
+ * primero el interés de todos los préstamos marcados y después el capital del
+ * más viejo, sin pasar de lo que se cobraría en esta nómina por préstamo.
+ */
+export const PAYROLL_LOAN_MODE = Object.freeze({ ALL: 'all', INTEREST: 'interest', CUSTOM: 'custom' });
+const MODES = new Set(Object.values(PAYROLL_LOAN_MODE));
 
 /**
  * Pure helpers for the temporary payroll-loan selection.
@@ -101,16 +114,93 @@ function getRequestedLoanSelections(item) {
     return [...byId.values()];
 }
 
-export function setEmployeePayrollLoans(selection, employeeId, loans = []) {
+/** Modo y monto guardados para el empleado ({ mode: 'all' } si no hay). */
+export function getPayrollLoanMode(selection, employeeId) {
+    const item = (selection || []).find(entry => String(entry.employeeId) === String(employeeId));
+    const mode = MODES.has(item?.mode) ? item.mode : PAYROLL_LOAN_MODE.ALL;
+    return { mode, amount: mode === PAYROLL_LOAN_MODE.CUSTOM ? round2(Math.max(0, Number(item?.amount) || 0)) : null };
+}
+
+/**
+ * @param {object} [options]  { mode, amount }: si no se pasa, se conserva el del empleado.
+ */
+export function setEmployeePayrollLoans(selection, employeeId, loans = [], options = {}) {
     const normalizedEmployeeId = String(employeeId);
     const normalizedLoans = getRequestedLoanSelections({ loans });
+    const previous = getPayrollLoanMode(selection, normalizedEmployeeId);
     const next = removeEmployeePayrollLoans(selection, normalizedEmployeeId);
     if (normalizedLoans.length === 0) return next;
+    const mode = MODES.has(options.mode) ? options.mode : previous.mode;
+    const amount = mode === PAYROLL_LOAN_MODE.CUSTOM
+        ? round2(Math.max(0, Number(options.amount ?? previous.amount) || 0))
+        : null;
     return [...next, {
         employeeId,
         loans: normalizedLoans,
-        loanIds: normalizedLoans.map(loan => loan.loanId)
+        loanIds: normalizedLoans.map(loan => loan.loanId),
+        ...(mode !== PAYROLL_LOAN_MODE.ALL ? { mode, amount } : {})
     }];
+}
+
+/** Cambia cuánto se descuenta al empleado sin tocar qué préstamos están marcados. */
+export function setPayrollLoanMode(selection, employeeId, mode, amount = null) {
+    const current = (selection || []).find(item => String(item.employeeId) === String(employeeId));
+    if (!current) return selection || [];
+    return setEmployeePayrollLoans(selection, employeeId, getRequestedLoanSelections(current), {
+        mode: MODES.has(mode) ? mode : PAYROLL_LOAN_MODE.ALL,
+        amount
+    });
+}
+
+/** Interés pendiente de un préstamo (el abono paga primero el interés). */
+export function getPayrollLoanPendingInterest(loan) {
+    return pendingInterest(loan);
+}
+
+function pendingInterest(loan) {
+    const last = replayLoan(loan).steps.at(-1);
+    return round2(Math.max(0, last ? last.interestAfter : 0));
+}
+
+/**
+ * Reparte el monto del modo entre los préstamos resueltos (ya con su monto
+ * completo de esta nómina en `selectedAmount`). Devuelve los mismos préstamos
+ * con `fullAmount`, `interestPart`, `capitalPart` y el nuevo `selectedAmount`.
+ */
+export function distributePayrollLoanAmount(loans, { mode = PAYROLL_LOAN_MODE.ALL, amount = null } = {}, loanById = new Map()) {
+    const items = loans.map(item => {
+        const loan = loanById.get(String(item.loanId));
+        const full = round2(item.selectedAmount);
+        const interest = Math.min(full, loan ? pendingInterest(loan) : 0);
+        return { item, loan, full, interest, startDate: loan?.startDate || '' };
+    });
+    const totalFull = round2(items.reduce((t, x) => t + x.full, 0));
+    const totalInterest = round2(items.reduce((t, x) => t + x.interest, 0));
+    let target = mode === PAYROLL_LOAN_MODE.INTEREST ? totalInterest
+        : mode === PAYROLL_LOAN_MODE.CUSTOM ? Math.min(Math.max(0, Number(amount) || 0), totalFull)
+            : totalFull;
+    target = round2(target);
+    let left = target;
+    const take = new Map(items.map(x => [x, { interest: 0, capital: 0 }]));
+    const byAge = [...items].sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+    for (const x of byAge) { const v = round2(Math.min(x.interest, left)); take.get(x).interest = v; left = round2(left - v); }
+    for (const x of byAge) {
+        const room = round2(x.full - take.get(x).interest);
+        const v = round2(Math.min(room, left));
+        take.get(x).capital = v;
+        left = round2(left - v);
+    }
+    return items.map(x => {
+        const t = take.get(x);
+        return {
+            ...x.item,
+            fullAmount: x.full,
+            pendingInterest: x.interest,
+            interestPart: t.interest,
+            capitalPart: t.capital,
+            selectedAmount: round2(t.interest + t.capital)
+        };
+    });
 }
 
 export function togglePayrollLoan(selection, employeeId, loanId, selected) {
@@ -154,7 +244,7 @@ export function resolvePayrollLoanSelection(employees, selection, periodEnd = nu
         const employee = employeesById.get(employeeKey);
         if (!employee) return null;
 
-        const loans = getEligiblePayrollLoans(employee, periodEnd).map(loan => {
+        const resolved = getEligiblePayrollLoans(employee, periodEnd).map(loan => {
             const requested = requestedLoans.get(String(loan.loanId));
             if (!requested) return null;
             const selectedChargeCount = Math.min(requested.chargeCount, loan.maxChargeCount);
@@ -169,13 +259,20 @@ export function resolvePayrollLoanSelection(employees, selection, periodEnd = nu
                 lastInstallmentSeq: selectedCharges[selectedCharges.length - 1].installmentSeq
             };
         }).filter(Boolean);
-        if (loans.length === 0) return null;
+        if (resolved.length === 0) return null;
+        const choice = getPayrollLoanMode(selection, employee.id);
+        const loanById = new Map((employee.loans || []).map(loan => [String(loan.id), loan]));
+        const loans = distributePayrollLoanAmount(resolved, choice, loanById);
 
         return {
             employeeId: employee.id,
             employeeName: employee.name,
             employeeNumber: employee.number,
+            mode: choice.mode,
+            amount: choice.amount,
             loans,
+            fullTotal: round2(loans.reduce((sum, loan) => sum + loan.fullAmount, 0)),
+            interestTotal: round2(loans.reduce((sum, loan) => sum + loan.interestPart, 0)),
             total: round2(loans.reduce((sum, loan) => sum + loan.selectedAmount, 0))
         };
     }).filter(Boolean);
@@ -218,13 +315,16 @@ export function summarizePayrollLoans(employees, selection, periodEnd = null) {
     }
     const eligible = [...eligibleByKey.values()];
     const selected = resolvePayrollLoanSelection(employees, selection, periodEnd)
-        .flatMap(item => item.loans);
+        .flatMap(item => item.loans)
+        .filter(loan => loan.selectedAmount > 0.004);
     return {
         eligibleCount: eligible.length,
         selectedCount: selected.length,
         eligibleChargeCount: eligible.reduce((sum, loan) => sum + loan.maxChargeCount, 0),
         selectedChargeCount: selected.reduce((sum, loan) => sum + loan.selectedChargeCount, 0),
         selectedInterest: round2(selected.reduce((sum, loan) => sum + loan.interest, 0)),
+        // Interés que se descuenta en esta nómina (el abono paga primero el interés).
+        chargedInterest: round2(selected.reduce((sum, loan) => sum + (loan.interestPart ?? 0), 0)),
         selectedBalance: round2(selected.reduce((sum, loan) => sum + loan.selectedAmount, 0)),
         eligibleInterest: round2(eligible.reduce((sum, loan) => sum + loan.interest, 0)),
         eligibleTotalDue: round2(eligible.reduce((sum, loan) => sum + loan.totalDue, 0)),
@@ -248,6 +348,11 @@ export function toSplitXRows(rows) {
         if (loanDetailsList.length > 0) {
             loanDetailsList.forEach(l => {
                 totalRemainingBalance += Number(l.balance) || 0;
+                if (l.interestPart != null && l.capitalPart != null) {
+                    totalInterest += Number(l.interestPart) || 0;
+                    totalPrincipal += Number(l.capitalPart) || 0;
+                    return;
+                }
                 const loanTotalDue = Number(l.totalDue) || Number(l.balance) || 0;
                 const loanInterest = Number(l.interest) || 0;
                 const selectedAmount = Number(l.selectedAmount) || 0;

@@ -7583,3 +7583,99 @@
     font-weight: 600;
     white-space: normal;
 }
+
+/* Paso 4 · Préstamos: «Cuánto descontar» (Todo / Solo interés / Otro monto) y
+   columnas de interés pendiente, capital, total y lo que se descuenta. */
+.payroll-loan-mode {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 14px;
+    align-items: center;
+    margin: 6px 0 8px;
+    padding: 10px 12px;
+    border: 1px solid #303b46;
+    border-radius: 10px;
+    background: #151c22;
+}
+.payroll-loan-mode__label { color: #aeb7bf; font-size: 0.7rem; font-weight: 700; }
+.payroll-loan-mode__options { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.payroll-loan-mode__option {
+    display: inline-flex; gap: 6px; align-items: baseline;
+    padding: 6px 11px; border: 1px solid #3d4955; border-radius: 8px;
+    background: none; color: #aeb7bf; font: inherit; font-size: 0.72rem; font-weight: 700; cursor: pointer;
+}
+.payroll-loan-mode__option b { color: #edf2f6; }
+.payroll-loan-mode__option[aria-pressed="true"] { border-color: #f6c453; background: rgba(246, 196, 83, 0.13); color: #f6c453; }
+.payroll-loan-mode__option[aria-pressed="true"] b { color: #f6c453; }
+.payroll-loan-mode__amount {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 4px 2px 10px; border: 1px solid #3d4955; border-radius: 8px; background: #0e1419;
+}
+.payroll-loan-mode__amount.is-active { border-color: #f6c453; }
+.payroll-loan-mode__amount span { color: #77848f; font-size: 0.7rem; }
+.payroll-loan-mode__amount input {
+    width: 110px; padding: 5px 2px; border: 0; background: none;
+    color: #edf2f6; font: inherit; font-size: 0.85rem; font-weight: 800;
+}
+.payroll-loan-mode__split { grid-column: 2; margin: 0; color: #aeb7bf; font-size: 0.68rem; }
+.payroll-loan-mode__split b { color: #edf2f6; }
+.payroll-loan-mode__split b.is-capital { color: #1fb6ff; }
+.payroll-loan-mode__split b.is-interest { color: #ffc61a; }
+.payroll-loan-mode__split b.is-negative { color: #ef4444; }
+.payroll-loan-mode__warn {
+    grid-column: 1 / -1; margin: 0; padding: 6px 10px; border-radius: 8px; font-size: 0.66rem;
+    border: 1px solid rgba(31, 182, 255, 0.3); background: rgba(31, 182, 255, 0.07); color: #9bdcff;
+}
+.payroll-loan-mode__warn.is-bad { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.1); color: #fca5a5; }
+
+.has-modes .payroll-loan-child-columns,
+.has-modes .payroll-loan-child {
+    grid-template-columns: 0 minmax(110px, 1.4fr) 82px 82px 82px 150px minmax(0, 1fr) 30px;
+}
+.has-modes .payroll-loan-child-columns > span:nth-child(1) { grid-column: 2; }
+.has-modes .payroll-loan-child-columns > span:nth-child(2) { grid-column: 3; }
+.has-modes .payroll-loan-child-columns > span:nth-child(3) { grid-column: 4; text-align: right; }
+.has-modes .payroll-loan-child-columns > span:nth-child(4) { grid-column: 5; text-align: right; }
+.has-modes .payroll-loan-child-columns > span:nth-child(5) { grid-column: 6; text-align: right; }
+.has-modes .payroll-loan-child-columns > span:nth-child(6) { grid-column: 7; text-align: right; }
+.has-modes .payroll-loan-child-columns > span:nth-child(7) { grid-column: 8; }
+.has-modes .payroll-loan-child__interest { grid-column: 3; }
+.has-modes .payroll-loan-child__capital { grid-column: 4; }
+.has-modes .payroll-loan-child__total { grid-column: 5; }
+.has-modes .payroll-loan-child__balance { grid-column: 6; }
+.has-modes .payroll-loan-child__balance strong { display: block; color: #f59e0b; font-size: 0.7rem; }
+.has-modes .payroll-loan-child__balance small { display: block; color: #77848f; font-size: 0.55rem; white-space: nowrap; }
+.has-modes .payroll-loan-child__spacer,
+.has-modes .payroll-loan-charge-controls { grid-column: 7; }
+.has-modes .payroll-loan-child > .payroll-loan-selection { grid-column: 8; }
+
+@media (max-width: 900px) {
+    .payroll-loan-mode { grid-template-columns: 1fr; }
+    .payroll-loan-mode__split { grid-column: 1; }
+    .has-modes .payroll-loan-child { grid-template-columns: minmax(0, 1fr) minmax(72px, auto) 44px; }
+    .has-modes .payroll-loan-child__capital,
+    .has-modes .payroll-loan-child__total { display: none; }
+    .has-modes .payroll-loan-child__interest { grid-column: 2; }
+    .has-modes .payroll-loan-child__balance { grid-column: 2; }
+    .has-modes .payroll-loan-child > .payroll-loan-selection { grid-column: 3; }
+    .has-modes .payroll-loan-charge-controls { grid-column: 1 / 3; }
+    .has-modes .payroll-loan-child__balance::before { content: "A descontar"; }
+}
+
+/* Paso 4 · «Editar» un plan programado */
+.payroll-plan-edit { display: inline-block; vertical-align: top; }
+.payroll-plan-edit[open] { display: block; width: 100%; margin-top: 8px; }
+.payroll-plan-edit > summary { list-style: none; cursor: pointer; display: inline-flex; }
+.payroll-plan-edit > summary::-webkit-details-marker { display: none; }
+.payroll-plan-edit__form {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+    margin-top: 8px; padding: 12px; border: 1px solid #303b46; border-radius: 10px; background: #111920;
+}
+.payroll-plan-edit__form label { display: flex; flex-direction: column; gap: 4px; color: #aeb7bf; font-size: 0.68rem; font-weight: 700; }
+.payroll-plan-edit__form input {
+    padding: 7px 9px; border: 1px solid #3d4955; border-radius: 8px; background: #0e1419;
+    color: #edf2f6; font: inherit; font-size: 0.78rem; color-scheme: dark;
+}
+.payroll-plan-edit__locked { grid-column: 1 / -1; margin: 0; color: #8b98a3; font-size: 0.66rem; }
+.payroll-plan-edit__form > button { grid-column: 1 / -1; justify-self: end; }
+@media (max-width: 620px) { .payroll-plan-edit__form { grid-template-columns: 1fr; } }
