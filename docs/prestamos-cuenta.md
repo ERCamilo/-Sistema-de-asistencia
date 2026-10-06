@@ -156,3 +156,14 @@ Decidido el 2026-10-05: las consolidaciones se deshacen y los préstamos vuelven
   - prestado $476,150 (70.7 % devuelto);
   - el riesgo: 12 empleados, 3/5/4.
 - **Difiere, por error de la maqueta:** la línea del mes da $87,604 al empezar septiembre, porque la maqueta contaba un préstamo anulado por error.
+
+## Exportar (Excel y PDF)
+
+Botón «Exportar» en la línea del mes de la pantalla principal (`LoanExportPanel.js`; los datos en `LoanExport.js`, funciones puras con pruebas).
+
+- **Rango:** mes, periodo de nómina o personalizado. El mes o periodo en curso termina hoy.
+- **Qué incluir:** resumen (cómo cambió el saldo en el rango y la cartera hoy), lista por empleado, lista por préstamo (opcionalmente con los anulados), movimientos del rango e historial.
+- **Vista previa:** saldo al empezar + préstamos nuevos con su interés + refinanciamientos − abonos − cerrados = saldo al terminar; cuadra con la gráfica por mes o periodo.
+- **Excel** (ExcelJS, se carga al usarlo): una hoja por parte, montos como números con formato de moneda, encabezado fijo. El historial es el saldo día por día.
+- **PDF** (jsPDF + autotable): encabezado con la obra, el rango y la fecha de emisión; resumen en dos columnas, gráfica del saldo al cerrar con lo prestado y lo cobrado por periodo (los periodos completos que tocan el rango) y las tablas.
+- Se exporta la obra activa, leída igual que la pantalla (interés primero, consolidaciones deshechas, datos completados en una copia).

@@ -26,6 +26,7 @@ import { findLoanRecordDuplicates } from './LoanRecordDuplicates.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { getAccountSummary } from './LoanAccount.js';
 import { buildFlowBuckets, computeLoanFlows } from './LoanFlowChart.js';
+import { ExportButton, ExportPanel } from './LoanExportPanel.js';
 
 const M = (value, decimals = 2) => {
     const n = Number(value || 0);
@@ -134,7 +135,9 @@ export function PortfolioMonthLine(model) {
         <span>${escapeHTML(cap)}: lo que deben <b>${verbOf(month.change)}${Math.abs(month.change) > 0.004 ? ' ' + M(Math.abs(month.change)) : ''}</b></span>
         <small>de ${M(month.from)} a ${M(month.to)} · datos al ${dmy(today)}</small>
         ${tip}
-    </div>`;
+        ${ExportButton()}
+    </div>
+    ${ExportPanel(model)}`;
 }
 
 // ─── Avisos ──────────────────────────────────────────────────────────────────
