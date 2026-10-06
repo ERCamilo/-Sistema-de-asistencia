@@ -216,11 +216,19 @@ export function getLoanDueDate(loan) {
     return refi?.nextDueDate || loan?.dueDate || null;
 }
 
-/** Cuántos días de pago pasaron sin cobrar el préstamo (0 = al día). */
-export function countMissedPayDates(loan, payDates = [], today) {
+/**
+ * Margen para dar por vencido un cobro: los descuentos de una nómina se anotan
+ * hasta 3 días después del día de pago (decisión 2026-10-06).
+ */
+export const VENCIDO_GRACE_DAYS = 3;
+
+const plusDays = (key, n) => new Date(Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)) + n)).toISOString().slice(0, 10);
+
+/** Cuántos días de pago pasaron sin cobrar el préstamo (0 = al día), con un margen opcional en días. */
+export function countMissedPayDates(loan, payDates = [], today, { graceDays = 0 } = {}) {
     const due = getLoanDueDate(loan);
     if (!due || !today || loan?.status !== LOAN_STATUS.ACTIVE) return 0;
-    return [...new Set(payDates)].filter(day => day >= due && day < today).length;
+    return [...new Set(payDates)].filter(day => day >= due && plusDays(day, graceDays) < today).length;
 }
 
 /** Obra de la cuenta a la que pertenece un préstamo. */

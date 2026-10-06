@@ -35,8 +35,8 @@ const PRIORITY = ['refinancing', 'loan', 'writeoff', 'settled', 'adjustment', 'p
 
 const panels = new Map();
 
-function panelState(scope) {
-    if (!panels.has(scope)) panels.set(scope, { open: false, range: 'Todo', date: null, view: 'saldo', detailed: false, bucket: null });
+function panelState(scope, defaults = null) {
+    if (!panels.has(scope)) panels.set(scope, { open: false, range: 'Todo', date: null, view: 'saldo', detailed: false, bucket: null, ...(defaults || {}) });
     return panels.get(scope);
 }
 
@@ -175,11 +175,12 @@ function describeChanges(day, mode, nameById) {
  * @param {'general'|'employee'} args.mode
  * @param {Array} args.employees  empleados (ya filtrados por obra) cuyos préstamos entran
  */
-export function renderLoanHistoryPanel({ scope, mode = 'general', employees = [], embedded = false } = {}) {
+export function renderLoanHistoryPanel({ scope, mode = 'general', employees = [], embedded = false, defaults = null } = {}) {
     const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))));
     const all = timeline.days;
     if (all.length === 0) return '';
-    const panel = panelState(scope);
+    // defaults: cómo se abre la primera vez (la pantalla principal lo abre en «Por periodo»).
+    const panel = panelState(scope, defaults);
     const { totals } = timeline;
     const capitalShare = totals.balance > 0 ? totals.capital / totals.balance * 100 : 0;
     const scopeArg = escapeAttr(scope);

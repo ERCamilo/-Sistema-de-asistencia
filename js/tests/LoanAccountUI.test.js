@@ -4,7 +4,7 @@ import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
 import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
 import {
     laOpen, laField, laFieldQuiet, laSave, laSetTab, laAsk, laAdjust, laFix, laFixWhy, laVoid, laClose,
-    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment
+    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment, lpAlertPanel, lpRiskLevel
 } from '../modules/features/loans/LoanAccountController.js';
 import { getAccountSummary, getAccountMovements, getActiveLoanAgreement } from '../modules/features/loans/LoanAccount.js';
 import { movementKey } from '../modules/features/loans/LoanAccountView.js';
@@ -238,19 +238,37 @@ describe('Ficha cuenta de préstamos', () => {
         const l6 = emp.loans[2];
         recordPayment(emp, l6.id, { amount: 100, date: '2026-09-20', recordedAt: (clock += 1_000) }); // fuera de los días de pago
         state.loansLedger.selectedEmployeeId = null;
-        expect(text()).toContain('Completar datos de préstamos');
+        expect(text()).toContain('Datos de préstamos por completar');
         window.showConfirm = o => o.onConfirm();
         laApplyBackfill();
         delete window.showConfirm;
         expect(emp.loans.map(l => l.number)).toEqual([1, 2, 3, 4, 5]);
         expect(emp.loans[2].dueDate).toBe('2026-10-03');
         const t = text();
-        expect(t).not.toContain('Completar datos de préstamos');
-        expect(t).toContain('Abonos por revisar (1)');
+        expect(t).not.toContain('Datos de préstamos por completar');
+        expect(t).toContain('1 abono por revisar');
         const pay = emp.loans[2].payments.at(-1);
         laReviewPayment(`${emp.id}|${l6.id}|${pay.id}`, 'direct');
         expect(emp.loans[2].payments.at(-1)).toMatchObject({ origin: 'direct', needsReview: false });
-        expect(text()).not.toContain('Abonos por revisar');
+        expect(text()).not.toContain('abono por revisar');
+    });
+
+    test('pantalla principal: línea del mes, avisos con riesgo y resumen de cartera', () => {
+        seed();
+        state.loansLedger.selectedEmployeeId = null;
+        const t = text();
+        expect(t).toContain('Octubre: lo que deben');
+        expect(t).toContain('Avisos que necesitan una decisión');
+        expect(t).toContain('Resumen de cartera');
+        expect(t).toContain('Por cobrar$12,600.00');
+        expect(t).toContain('1 empleado en riesgo');
+        lpAlertPanel('risk');
+        const r = text();
+        expect(r).toContain('Cómo se clasifica');
+        expect(r).toContain('Qué hacer');
+        lpRiskLevel(3);
+        expect(text()).toContain('Todos 1');
+        lpAlertPanel('risk');
     });
 
     test('el movimiento del préstamo muestra capital (azul) e interés (amarillo)', () => {
