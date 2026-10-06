@@ -215,7 +215,7 @@ export function renderFlowPanel({ kind, bucket, flow: o, buckets, today }) {
     const r = (color, text, value, extra = '') => `<div class="lf-r${extra}"><i style="background:${color}"></i><span>${escapeHTML(text)}</span><b>${value}</b></div>`;
     const sameRefi = round2(o.refiCap - o.refiCapOld);
     return `<div class="lf-panel">
-        <div class="lf-panel__t"><b>${escapeHTML(bucket.long)}${current ? ' · en curso' : ''}</b></div>
+        <div class="lf-panel__t"><b>${escapeHTML(bucket.long)}${current ? ' · en curso' : ''}</b><small>datos al ${today.slice(8, 10)}/${today.slice(5, 7)}/${today.slice(0, 4)}</small></div>
         <div><h5>Lo que se debía</h5>
             ${r('#5b6670', 'Venía de antes', formatCurrency(o.open))}
             ${o.refiCapOld > 0.004 ? r('#0b6fa3', `de eso, refinanciado (${o.nRefiOld})`, formatCurrency(o.refiCapOld), ' is-sub2') + from(o.refiFrom, true) : ''}

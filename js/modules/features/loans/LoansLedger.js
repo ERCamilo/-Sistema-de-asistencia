@@ -55,6 +55,7 @@ import { renderLoanHistoryPanel } from './LoanHistoryPanel.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
 import { LoanAccountDetail } from './LoanAccountView.js';
 import { buildPortfolioModel, PortfolioMonthLine, PortfolioAlerts, PortfolioSummary } from './LoanPortfolioView.js';
+import { PortfolioToolbar, PortfolioList, PortfolioSettled } from './LoanPortfolioList.js';
 import { findConsolidations } from './LoanConsolidationUndo.js';
 import { planLoanBackfill, listPaymentsToReview } from './LoanDataBackfill.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
@@ -192,7 +193,7 @@ function LedgerOverview() {
                 <div class="lp-mobile">${PortfolioSummary(portfolio, { compact: true })}</div>
                 ${PortfolioMonthLine(portfolio)}
                 ${PortfolioAlerts(portfolio)}
-                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: portfolio.employees, defaults: { open: true, view: 'period', detailed: true } })}
+                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: portfolio.employees, defaults: { open: true, view: 'period', detailed: true }, variant: 'portfolio' })}
                 ` : `
                 <div class="loans-overview__mobile-kpis">
                     ${kpiCard(
@@ -262,6 +263,17 @@ function LedgerOverview() {
 
                 `}
 
+                ${portfolio ? `
+                ${PortfolioToolbar({
+                    ledger, filterView, displayMode, sortBy, sortOrder, amountFilter, dateFilter, showFilterMenu, activeFilterCount,
+                    shown: sorted.length, total: baseList.length,
+                    counts: displayMode === 'individual'
+                        ? { active: activeLoanCount, all: totalLoanCount, 'inactive-emp': inactiveEmpLoanCount, settled: settledLoanCount }
+                        : { active: allWithDebt.length, all: allWithDebt.length + allInactive.length, 'inactive-emp': inactiveWithDebt.length, settled: allInactive.length }
+                })}
+                ${PortfolioList(sorted, { employees: scopedState.employees || [], filterView, search, hasFilters: hasActiveFilters })}
+                ${filterView === 'active' ? PortfolioSettled({ total: allInactive.length, items: filteredInactive }, { open: Boolean(ledger.showInactiveHistory), employees: scopedState.employees || [] }) : ''}
+                ` : `
                 <!-- Toolbar de Vistas, Búsqueda, Filtros y Orden -->
                 <div class="loans-toolbar-card" style="background: #1e293b; border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 12px;">
                     <!-- Fila 1: Pestañas de Vistas de Cartera + Selector de Modo + Agregar nuevo -->
@@ -547,6 +559,7 @@ function LedgerOverview() {
                     ` : ''}
                 </div>
                 ` : ''}
+                `}
             </main>
 
             ${portfolio ? `<aside class="loans-overview__summary lp-aside" aria-label="Resumen de cartera">${PortfolioSummary(portfolio)}</aside>` : `

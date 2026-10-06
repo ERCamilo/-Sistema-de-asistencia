@@ -4,7 +4,7 @@ import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
 import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
 import {
     laOpen, laField, laFieldQuiet, laSave, laSetTab, laAsk, laAdjust, laFix, laFixWhy, laVoid, laClose,
-    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment, lpAlertPanel, lpRiskLevel
+    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment, lpAlertPanel, lpRiskLevel, lpTip, lpCard
 } from '../modules/features/loans/LoanAccountController.js';
 import { getAccountSummary, getAccountMovements, getActiveLoanAgreement } from '../modules/features/loans/LoanAccount.js';
 import { movementKey } from '../modules/features/loans/LoanAccountView.js';
@@ -269,6 +269,43 @@ describe('Ficha cuenta de préstamos', () => {
         lpRiskLevel(3);
         expect(text()).toContain('Todos 1');
         lpAlertPanel('risk');
+    });
+
+    test('pantalla principal con el diseño de la maqueta: lista, (i) del mes, tarjetas del teléfono e historial', () => {
+        seed();
+        state.loansLedger.selectedEmployeeId = null;
+        const body = html();
+        const row = body.querySelector('.lp-emp');
+        expect(row.querySelector('.lp-who2 small').textContent).toBe('Creado 25/08/202612/09/2026 · 5 préstamos');
+        expect(row.querySelector('.lp-rdot')).not.toBeNull();
+        expect(row.querySelector('.lp-bal b').textContent).toBe('$12,600.00');
+        expect(body.querySelector('.lp-vt[aria-selected="true"]').textContent).toBe('Con saldo1');
+        expect(body.querySelector('.lp-sort [aria-pressed="true"]').textContent).toContain('Monto');
+        expect(body.querySelector('.lp-add').textContent).toBe('+ Agregar nuevo');
+        // Historial: cabecera de la maqueta y sin botones de rango en «Por periodo».
+        expect(body.querySelector('.lp-hist-s').textContent).toContain('Historial del saldo');
+        expect(body.querySelector('.is-portfolio-hist .loan-history__ranges')).toBeNull();
+        expect(body.querySelector('.lf-foot')).not.toBeNull();
+        expect(body.querySelector('.lp-pop')).toBeNull();
+        lpTip('month');
+        const tip = html().querySelector('.lp-pop').textContent.replace(/\s+/g, ' ');
+        expect(tip).toContain('Cómo cambió en octubre');
+        expect(tip).toContain('En septiembre no cambió');
+        expect(tip).toContain('Usar la vista anterior');
+        lpTip('month');
+        expect(html().querySelector('.lp-pop')).toBeNull();
+        lpCard('cobrar');
+        const detail = html().querySelector('.lp-mobile .lp-mdetail');
+        expect(detail.textContent).toContain('Capital por devolver');
+        expect(html().querySelector('.lp-mcard[aria-expanded="true"]').textContent).toContain('Por cobrar');
+    });
+
+    test('los botones de la pantalla principal funcionan aunque todavía no exista el estado de Préstamos', () => {
+        seed();
+        state.loansLedger = undefined;
+        lpCard('ganado');
+        expect(state.loansLedger.portfolio.card).toBe('ganado');
+        expect(html().querySelector('.lp-mdetail').textContent).toContain('Cobrado de interés');
     });
 
     test('el movimiento del préstamo muestra capital (azul) e interés (amarillo)', () => {
