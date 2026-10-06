@@ -332,13 +332,14 @@ function renderFlowSection(panel, scope, employees, allDays, portfolio = false) 
     if (portfolio) {
         // Maqueta: leyenda arriba, gráfica sin tarjeta propia, desglose y la explicación al final.
         const note = panel.detailed
-            ? 'Barra izquierda: todo lo que se debía (lo que venía de antes más lo nuevo). Barra derecha: lo cobrado y, en gris tenue, lo que faltó de lo que ya venía; eso pasa a «venía de antes» del siguiente. Lo gris no se suma entre periodos porque es el mismo saldo que pasa de uno a otro. Anulados por error: fuera.'
+            ? 'Barra izquierda: todo lo que se debía (lo que venía de antes más lo nuevo). Barra derecha: lo cobrado y, en azul tenue, lo que faltó de lo que ya venía; eso pasa a «venía de antes» del siguiente. Lo azul oscuro no se suma entre periodos porque es el mismo saldo que pasa de uno a otro. Anulados por error: fuera.'
             : (kind === 'period' ? 'Periodos de pago según el calendario de Nómina, calculados también hacia atrás. Lo cobrado incluye lo pagado de más. Toca una barra para ver el detalle.' : 'Interés generado: el de los préstamos nuevos del mes más el de los refinanciamientos de ese mes. Lo cobrado incluye lo pagado de más. Toca una barra para ver el detalle.');
+        const saldo = panel.detailed ? `La línea punteada es lo que quedaban debiendo al cerrar cada ${kind === 'period' ? 'periodo' : 'mes'}. ` : `La barra izquierda es todo lo que se debía durante el ${kind === 'period' ? 'periodo' : 'mes'} (lo que venía más lo nuevo), no el saldo; la línea punteada es lo que quedaban debiendo al cerrar cada ${kind === 'period' ? 'periodo' : 'mes'}. `;
         return `
         ${renderFlowLegend(panel.detailed)}
         <div class="lf-plot">${renderFlowChart({ scope, buckets, flows, selected, detailed: panel.detailed, today, closedEnds: closedPeriodEndsOf(employees) })}</div>
         ${panel.detailed ? renderFlowPanel({ kind, bucket, flow: flows.get(selected), buckets, today }) : ''}
-        <p class="lf-foot">${note}</p>`;
+        <p class="lf-foot">${saldo}${note}</p>`;
     }
     return `
         <div class="loan-history__chart-card lf-card">
