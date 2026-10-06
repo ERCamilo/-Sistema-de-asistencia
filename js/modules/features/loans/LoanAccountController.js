@@ -29,6 +29,7 @@ import { undoConsolidation, restoreConsolidation, findConsolidations } from './L
 import { nextLoanNumber, planLoanBackfill, applyLoanBackfill, resolvePaymentReview } from './LoanDataBackfill.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { nextPayPeriod, followingPayPeriod } from './LoanPayPeriods.js';
+import { registerLoanExportGlobals } from './LoanExportPanel.js';
 
 const CLASSIC_KEY = 'loans-account-view';
 
@@ -400,6 +401,7 @@ export function laCancelAgreement(id) { return act(emp => cancelLoanAgreement(em
 
 export function registerLoanAccountGlobals() {
     if (typeof window === 'undefined') return;
+    registerLoanExportGlobals();
     Object.assign(window, {
         laUseClassicView, laSetTab, laToggleLoan, laToggleShowVoid, laAsk, laCancelAsk, laFixWhy, laClose,
         laOpen, laField, laFieldQuiet, laToggleSel, laCopySummary, laSave, laVoid, laAdjust, laFix,

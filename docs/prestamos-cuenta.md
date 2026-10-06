@@ -119,7 +119,7 @@ Decidido el 2026-10-05: las consolidaciones se deshacen y los préstamos vuelven
 **Diseño:** el de la maqueta (paleta 5 «Neón»): grises neutros, acento amarillo; capital azul, interés amarillo, refinanciamiento morado, pagos verde y avisos rojo. Todo el CSS está bajo `.is-portfolio` en `css/loan-account.css`, así que la vista anterior y la ficha del empleado no cambian.
 - **Lista:** una sola tarjeta; «Creado dd/mm/aaaa», un punto morado con la fecha del último refinanciamiento y, a la derecha, el saldo y la última modificación («hace X h» si fue hoy).
 - **Barra:** Por empleado / Por préstamo, Con saldo / Todos / Inactivos / Saldados, «+ Agregar nuevo», buscador, Ordenar (Fecha del préstamo, Monto, Nº empleado) y «Filtros avanzados» (saldo, fecha, último pago, última actualización).
-- **Historial del saldo:** cabecera con barra capital/interés y «Ocultar»; en «Por mes / Por periodo» no hay botones de rango y la explicación va al final. En teléfono la gráfica se desliza y empieza en lo más reciente.
+- **Historial del saldo:** cabecera con barra capital/interés y «Ocultar»; en «Por mes / Por periodo» no hay botones de rango y la explicación va al final. En teléfono la gráfica se desliza y empieza en lo más reciente. Colores de la gráfica: lo que venía de antes en azul oscuro (su parte refinanciada más oscura) y lo que faltó en azul tenue; el interés siempre separado (al prestar, por refinanciar y cobrado), también sin «Detallado». La barra izquierda es todo lo que se debía en el periodo, no el saldo: una línea punteada marca el saldo al cerrar cada periodo.
 - **Teléfono:** las 4 cifras en 2×2; al tocar una, su detalle se abre debajo a todo el ancho.
 - **Detalle de cada cifra** (una abierta a la vez; «Por cobrar» por defecto), con su barra, filas, (i) y «Qué hacer»:
   - **Interés ganado:** ganado del interés inicial y de refinanciamientos (estimado: los abonos cubren primero el inicial), por cobrar todavía e interés total; la (i) dice lo perdonado y los anulados.
@@ -156,3 +156,14 @@ Decidido el 2026-10-05: las consolidaciones se deshacen y los préstamos vuelven
   - prestado $476,150 (70.7 % devuelto);
   - el riesgo: 12 empleados, 3/5/4.
 - **Difiere, por error de la maqueta:** la línea del mes da $87,604 al empezar septiembre, porque la maqueta contaba un préstamo anulado por error.
+
+## Exportar (Excel y PDF)
+
+Botón «Exportar» en la línea del mes de la pantalla principal (`LoanExportPanel.js`; los datos en `LoanExport.js`, funciones puras con pruebas).
+
+- **Rango:** mes, periodo de nómina o personalizado. El mes o periodo en curso termina hoy.
+- **Qué incluir:** resumen (cómo cambió el saldo en el rango y la cartera hoy), lista por empleado, lista por préstamo (opcionalmente con los anulados), movimientos del rango e historial.
+- **Vista previa:** saldo al empezar + préstamos nuevos con su interés + refinanciamientos − abonos − cerrados = saldo al terminar; cuadra con la gráfica por mes o periodo.
+- **Excel** (ExcelJS, se carga al usarlo): una hoja por parte, montos como números con formato de moneda, encabezado fijo. El historial es el saldo día por día.
+- **PDF** (jsPDF + autotable): encabezado con la obra, el rango y la fecha de emisión; resumen en dos columnas, gráfica del saldo al cerrar con lo prestado y lo cobrado por periodo (los periodos completos que tocan el rango) y las tablas.
+- Se exporta la obra activa, leída igual que la pantalla (interés primero, consolidaciones deshechas, datos completados en una copia).

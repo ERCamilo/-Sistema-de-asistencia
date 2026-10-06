@@ -10,6 +10,7 @@ import { getAccountSummary, getAccountMovements, getActiveLoanAgreement } from '
 import { movementKey } from '../modules/features/loans/LoanAccountView.js';
 import { buildPayPeriods, nextPayPeriod } from '../modules/features/loans/LoanPayPeriods.js';
 import { toggleLoanHistory, resetLoanHistoryPanels } from '../modules/features/loans/LoanHistoryPanel.js';
+import { lxToggle, lxSet, lxPart } from '../modules/features/loans/LoanExportPanel.js';
 
 let clock = 1_000;
 function loan(emp, principal, startDate, extra = {}) {
@@ -314,6 +315,32 @@ describe('Ficha cuenta de préstamos', () => {
         expect(open[0].textContent).toContain('Cómo entró');
         lpCard('cobrado', 'aside');
         expect(html().querySelector('.lp-aside .lp-card.is-open')).toBeNull();
+    });
+
+    test('exportar: el panel cambia de formato y rango y muestra la vista previa', () => {
+        seed();
+        state.loansLedger.selectedEmployeeId = null;
+        expect(html().querySelector('.lp-xp')).toBeNull();
+        lxToggle();
+        let panel = html().querySelector('.lp-xp');
+        expect(panel.textContent).toContain('Descargar Excel');
+        expect(panel.textContent).toContain('Vista previa · octubre 2026');
+        lxSet('range', 'month');
+        lxSet('month', '2026-09');
+        panel = html().querySelector('.lp-xp');
+        const t = panel.textContent.replace(/\s+/g, ' ');
+        expect(t).toContain('Vista previa · septiembre 2026');
+        expect(t).toContain('+ Préstamos nuevos (3) con su interés$5,400.00');
+        expect(t).toContain('Saldo al terminar$12,600.00');
+        lxSet('fmt', 'pdf');
+        expect(html().querySelector('.lp-xp').textContent).toContain('Descargar PDF');
+        lxSet('range', 'period');
+        expect(html().querySelector('.lp-xp').textContent).toContain('Vista previa · periodo 02/10/2026 – 22/10/2026');
+        // Sin partes marcadas no se puede descargar.
+        ['resumen', 'empleados', 'prestamos', 'movimientos', 'historial'].forEach(lxPart);
+        expect(html().querySelector('.lp-xp [data-app-fn="lxDownload"]').disabled).toBe(true);
+        lxToggle();
+        expect(html().querySelector('.lp-xp')).toBeNull();
     });
 
     test('el movimiento del préstamo muestra capital (azul) e interés (amarillo)', () => {

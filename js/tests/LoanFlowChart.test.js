@@ -67,4 +67,20 @@ describe('LoanFlowChart — dibujo', () => {
         expect(panel).toContain('Faltó por cobrar de lo que venía');
         expect(panel).toContain('de eso, refinanciado (2)');
     });
+
+    test('sin detalle también separa el interés, y la línea marca el saldo al cerrar cada periodo', () => {
+        const emp = loans012();
+        const buckets = buildFlowBuckets('period', { from: '2026-08-25', to: '2026-10-03', payPeriod: PAY });
+        const flows = computeLoanFlows(emp.loans, buckets);
+        const svg = renderFlowChart({ scope: 'e', buckets, flows, selected: buckets[1].key, detailed: false, today: '2026-10-03' });
+        expect(svg).toContain('interés al prestar');
+        expect(svg).toContain('cobrado: interés');
+        expect(svg).toContain('#1f5f8a'); // venía de antes en azul oscuro
+        expect(svg).not.toContain('#5b6670');
+        // Un punto por periodo con el saldo al cerrar (= lo que venía al empezar el siguiente).
+        expect((svg.match(/· saldo al cerrar/g) || []).length).toBe(buckets.length);
+        expect(svg).toContain(`saldo al cerrar $${Math.round(flows.get(buckets[0].key).end).toLocaleString('en-US')}`);
+        expect(flows.get(buckets[0].key).end).toBe(flows.get(buckets[1].key).open);
+        expect(svg).toContain('<polyline');
+    });
 });
