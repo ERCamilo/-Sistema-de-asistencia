@@ -18,6 +18,11 @@ import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
 import { ensureJsPDFLoaded } from '../../utils/LazyCDN.js';
 import { getActiveProjectId, entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import { prepareLoanEmployees } from './LoanPortfolio.js';
+import { buildAiReport } from './LoanAiReport.js';
+import { buildPayPeriods } from './LoanPayPeriods.js';
+import { buildPortfolioModel } from './LoanPortfolioView.js';
+import { computeAttendanceDetailEarnings } from '../attendance/AttendanceDetailEarnings.js';
+import { getEmployeePeriodSalary, LOAN_STATUS } from './LoansService.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { EXPORT_PARTS, exportMonths, exportPeriods, resolveExportRange, exportPreview, buildLoanExport } from './LoanExport.js';
 
@@ -83,17 +88,25 @@ export function ExportPanel(model) {
     const anyPart = EXPORT_PARTS.some(k => x.parts[k]);
     return `<section class="lp-xp" role="dialog" aria-label="Exportar préstamos">
         <div><h5>Formato</h5>
-            <div class="lp-xp__fmt"><button type="button" data-app-fn="lxSet" data-arg="fmt" data-arg2="excel" aria-pressed="${x.fmt === 'excel'}">Excel</button><button type="button" data-app-fn="lxSet" data-arg="fmt" data-arg2="pdf" aria-pressed="${x.fmt === 'pdf'}">PDF</button></div>
+            <div class="lp-xp__fmt"><button type="button" data-app-fn="lxSet" data-arg="fmt" data-arg2="excel" aria-pressed="${x.fmt === 'excel'}">Excel</button><button type="button" data-app-fn="lxSet" data-arg="fmt" data-arg2="pdf" aria-pressed="${x.fmt === 'pdf'}">PDF</button><button type="button" data-app-fn="lxSet" data-arg="fmt" data-arg2="ai" aria-pressed="${x.fmt === 'ai'}" title="Markdown sin datos personales para pedirle un análisis a una IA">Para IA</button></div>
             <h5>Rango</h5>
             ${radio('month', 'Mes', monthSel)}
             ${radio('period', 'Periodo de nómina', periodSel)}
             ${radio('custom', 'Personalizado', customSel)}
         </div>
-        <div><h5>Qué incluir</h5>
+        ${x.fmt === 'ai' ? `<div><h5>Qué lleva el archivo para IA</h5>
+            <ul class="lp-xp__list">
+                <li>Cómo funcionan los préstamos y los cobros (nómina, interés, refinanciamientos, cierres).</li>
+                <li>La cartera hoy, el historial por periodo y por mes, los descuentos de nómina por periodo y la antigüedad de la deuda.</li>
+                <li>Los empleados en riesgo y, por empleado, sus préstamos, abonos y lo que ganó en los últimos periodos frente a lo que ganaría normalmente (faltas u horas extra).</li>
+                <li>Preguntas sugeridas para la IA.</li>
+            </ul>
+            <p class="lp-xp__hint"><b>Sin datos personales:</b> los empleados van solo por su número de empleado; no lleva nombres, notas ni conceptos. Tú sabes quién es cada número; la IA no.</p>
+        </div>` : `<div><h5>Qué incluir</h5>
             ${EXPORT_PARTS.map(k => `<label><input type="checkbox" ${x.parts[k] ? 'checked' : ''} onchange="lxPart('${k}')"> ${escapeHTML(typeof PART_LABEL[k] === 'string' ? PART_LABEL[k] : PART_LABEL[k][x.fmt])}</label>`).join('')}
             <label class="lp-xp__gap"><input type="checkbox" ${x.voided ? 'checked' : ''} onchange="lxPart('voided')"> Incluir préstamos anulados en la lista por préstamo</label>
             <p class="lp-xp__hint">${x.fmt === 'excel' ? 'Un archivo con una hoja por cada parte marcada; los montos van como números para poder sumarlos.' : 'Un documento con el resumen arriba, la gráfica y las tablas; el encabezado lleva la obra, el rango y la fecha de emisión.'}</p>
-        </div>
+        </div>`}
         <div><h5>Vista previa · ${escapeHTML(range.label)}</h5><div class="lp-xp__prev">
             <div><span>Saldo al empezar</span><b>${M(p.start)}</b></div>
             <div><span>+ Préstamos nuevos (${p.nLoans}) con su interés</span><b class="is-cap">${M(p.newLoans)}</b></div>
@@ -105,7 +118,7 @@ export function ExportPanel(model) {
             ${p.any ? '' : '<div><span>Sin movimientos en este rango.</span></div>'}
         </div></div>
         <div class="lp-xp__go"><span>Se exporta la obra activa${model.prepared?.virtual ? ', leída como en esta pantalla (consolidaciones deshechas y datos completados)' : ''}.</span>
-            <button type="button" class="lp-add" data-app-fn="lxDownload" ${anyPart && !x.busy ? '' : 'disabled'}>${x.busy ? 'Generando…' : `Descargar ${x.fmt === 'excel' ? 'Excel' : 'PDF'}`}</button></div>
+            <button type="button" class="lp-add" data-app-fn="lxDownload" ${(anyPart || x.fmt === 'ai') && !x.busy ? '' : 'disabled'}>${x.busy ? 'Generando…' : `Descargar ${x.fmt === 'excel' ? 'Excel' : x.fmt === 'pdf' ? 'PDF' : 'para IA (.md)'}`}</button></div>
     </section>`;
 }
 
@@ -123,6 +136,39 @@ function deliver(blob, filename, title, text) {
 }
 
 const MONEY_FMT = '"$"#,##0.00';
+
+/**
+ * Lo que ganó cada empleado con préstamos en los últimos periodos (asistencia,
+ * el mismo cálculo que Nómina) frente a lo que ganaría normalmente.
+ */
+function collectEarnings(employees, payPeriod, today, count = 6) {
+    const length = Number(payPeriod?.periodLength) || 0;
+    const out = new Map();
+    if (!length) return out;
+    const periods = buildPayPeriods(payPeriod, today, { before: count, after: 0 }).filter(p => p.start <= today);
+    for (const emp of employees) {
+        const loans = (emp.loans || []).filter(l => l.status !== LOAN_STATUS.WRITTEN_OFF);
+        if (!loans.length) continue;
+        const normal = getEmployeePeriodSalary(emp, length / 7, state) || 0;
+        out.set(emp.id, periods.map(p => {
+            const partial = p.end >= today;
+            const end = partial ? today : p.end;
+            const r = computeAttendanceDetailEarnings(state, emp.id, p.start, end);
+            const sum = k => (r.breakdown || []).reduce((t, b) => t + Number(b[k] || 0), 0);
+            const elapsed = Math.round((Date.parse(end) - Date.parse(p.start)) / 86_400_000) + 1;
+            const deducted = loans.reduce((t, l) => t + (l.payments || []).filter(x => !x.voided && !x.adjustment
+                && (x.origin === 'payroll' || x.source === 'payroll' || x.payrollClosureId)
+                && (x.payrollPeriodEnd ? x.payrollPeriodEnd === p.end : x.date >= p.end && x.date <= p.payDate))
+                .reduce((a, x) => a + Number(x.amount || 0), 0), 0);
+            return {
+                label: p.short.replace(/\s/g, ''), start: p.start, end: p.end, partial, gross: r.gross || 0,
+                expected: partial ? normal * elapsed / length : normal,
+                days: r.available ? sum('days') : null, regularHours: sum('regularHours'), overtimeHours: sum('overtimeHours'), deducted
+            };
+        }));
+    }
+    return out;
+}
 
 async function toExcel(data, parts) {
     await ensureExcelJSLoaded();
@@ -245,9 +291,21 @@ export async function lxDownload() {
     const employees = prepareLoanEmployees((state.employees || []).filter(emp => entityInScope(emp, scope)), payPeriod).employees;
     const range = resolveExportRange(choiceOf(x), { payPeriod, today });
     const obra = projectName();
-    const data = buildLoanExport(employees, { range, includeVoided: x.voided, today, projectName: obra, payPeriod });
     setExport(s => { s.busy = true; });
     try {
+        if (x.fmt === 'ai') {
+            const scoped = (state.employees || []).filter(emp => entityInScope(emp, scope));
+            const model = buildPortfolioModel(scoped);
+            const md = buildAiReport({
+                today, payPeriod, employees: model.employees, summary: model.summary, risk: model.risk,
+                earnings: collectEarnings(model.employees, payPeriod, today),
+                notes: { duplicates: model.duplicates, review: model.review.length, virtual: model.prepared.virtual },
+                focus: { label: range.label, preview: exportPreview(model.employees, range) }
+            });
+            deliver(new Blob([md], { type: 'text/markdown;charset=utf-8' }), `Prestamos_para_IA_${today}.md`, 'Préstamos para IA', 'Sin datos personales');
+            return;
+        }
+        const data = buildLoanExport(employees, { range, includeVoided: x.voided, today, projectName: obra, payPeriod });
         const blob = x.fmt === 'pdf' ? await toPdf(data, x.parts, { projectName: obra, today }) : await toExcel(data, x.parts);
         const safe = s => String(s || '').replace(/[^\wáéíóúñÁÉÍÓÚÑ\- ]+/g, '').trim().replace(/\s+/g, '_').slice(0, 50);
         const filename = `Prestamos_${safe(obra) ? safe(obra) + '_' : ''}${safe(range.file)}.${x.fmt === 'pdf' ? 'pdf' : 'xlsx'}`;

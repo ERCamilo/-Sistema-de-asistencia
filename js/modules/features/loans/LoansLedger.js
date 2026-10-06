@@ -193,7 +193,7 @@ function LedgerOverview() {
                 <div class="lp-mobile">${PortfolioSummary(portfolio, { compact: true })}</div>
                 ${PortfolioMonthLine(portfolio)}
                 ${PortfolioAlerts(portfolio)}
-                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: portfolio.employees, defaults: { open: true, view: 'period', detailed: true }, variant: 'portfolio' })}
+                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: portfolio.employees, defaults: { open: true, view: 'period' }, variant: 'portfolio' })}
                 ` : `
                 <div class="loans-overview__mobile-kpis">
                     ${kpiCard(

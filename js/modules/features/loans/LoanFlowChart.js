@@ -148,15 +148,16 @@ const COLOR = Object.freeze({
     carry: '#1f5f8a', carryRefi: '#0f3550', missing: 'rgba(31,95,138,.4)',
     cap: '#1fb6ff', int: '#ffc61a', refi: '#a855f7', pay: '#10d98a', payInt: '#0a8f5b', balance: '#ebeef0'
 });
-const left = (o, detailed) => o.open + o.newCap + o.newInt + o.refiInt + o.adjustUp;
-const right = o => o.payInt + o.payCap + o.excess + o.missing + o.adjustDown;
+const left = o => o.open + o.newCap + o.newInt + o.refiInt + o.adjustUp;
+const right = o => o.payInt + o.payCap + o.excess + o.adjustDown;
 const niceStep = max => { const raw = max / 4; const p = 10 ** Math.floor(Math.log10(raw || 1)); return [1, 2, 2.5, 5, 10].map(f => f * p).find(s => s >= raw) || p * 10; };
 
 /**
- * Barras dobles por mes o nómina. `detailed` separa el capital refinanciado,
- * el interés y lo que faltó; sin detalle muestra lo que se debía y lo cobrado.
+ * Barras dobles por mes o nómina: izquierda lo que se debía (lo que venía más
+ * lo nuevo, con el interés separado), derecha lo cobrado; una línea punteada
+ * marca el saldo al cerrar cada uno.
  */
-export function renderFlowChart({ scope, buckets, flows, selected, detailed, today, closedEnds = new Set() }) {
+export function renderFlowChart({ scope, buckets, flows, selected, today, closedEnds = new Set() }) {
     const W = 680, H = 250, Lp = 42, Rp = 8, T = 14, B = 30;
     const max0 = Math.max(1, ...buckets.map(b => Math.max(left(flows.get(b.key)), right(flows.get(b.key)))));
     const step = niceStep(max0);
@@ -187,14 +188,9 @@ export function renderFlowChart({ scope, buckets, flows, selected, detailed, tod
                 acc += v;
             }
         };
-        if (detailed) {
-            stack(cx - bw - 2, [[o.refiCapOld, COLOR.carryRefi, 'venía de antes: capital refinanciado'], [o.open - o.refiCapOld, COLOR.carry, 'venía de antes'], [o.newCap, COLOR.cap, 'capital nuevo'], [o.newInt, COLOR.int, 'interés al prestar'], [o.refiInt, COLOR.refi, 'interés por refinanciar'], [o.adjustUp, 'url(#lf-stripe-adj)', 'ajuste de nómina cerrada']]);
-            stack(cx + 2, [[o.payInt, COLOR.payInt, 'cobrado: interés'], [o.payCap, COLOR.pay, 'cobrado: capital'], [o.excess, 'url(#lf-stripe)', 'pagado de más (posible error)'], [o.adjustDown, 'url(#lf-stripe-adj)', 'ajuste de nómina cerrada'], [o.missing, COLOR.missing, current ? 'falta por cobrar de lo que venía' : 'faltó por cobrar de lo que venía']]);
-        } else {
-            // Sin detalle también se separa el interés: al prestar, por refinanciar y lo cobrado.
-            stack(cx - bw - 2, [[o.open, COLOR.carry, 'venía de antes'], [o.newCap, COLOR.cap, 'capital prestado'], [o.newInt, COLOR.int, 'interés al prestar'], [o.refiInt + o.adjustUp, COLOR.refi, 'interés por refinanciar']]);
-            stack(cx + 2, [[o.payInt, COLOR.payInt, 'cobrado: interés'], [o.payCap, COLOR.pay, 'cobrado: capital'], [o.excess, 'url(#lf-stripe)', 'pagado de más (posible error)']]);
-        }
+        // Una sola vista (la «1» de la maqueta): el interés siempre separado.
+        stack(cx - bw - 2, [[o.open, COLOR.carry, 'venía de antes'], [o.newCap, COLOR.cap, 'capital prestado'], [o.newInt, COLOR.int, 'interés al prestar'], [o.refiInt + o.adjustUp, COLOR.refi, 'interés por refinanciar']]);
+        stack(cx + 2, [[o.payInt, COLOR.payInt, 'cobrado: interés'], [o.payCap, COLOR.pay, 'cobrado: capital'], [o.excess, 'url(#lf-stripe)', 'pagado de más (posible error)'], [o.adjustDown, 'url(#lf-stripe-adj)', 'ajuste de nómina cerrada']]);
         points.push([cx, y(Math.max(0, o.end)), o.end, b]);
         if (i % labelEvery === 0 || isSel) {
             g += `<text x="${cx}" y="${H - 15}" fill="${isSel ? '#ebeef0' : '#a2abb3'}" font-size="${buckets.length > 8 ? 9 : 10.5}" font-weight="${isSel ? 700 : 400}" text-anchor="middle">${escapeHTML(b.label)}</text>`;
@@ -211,13 +207,63 @@ export function renderFlowChart({ scope, buckets, flows, selected, detailed, tod
     return `<svg class="lf-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Lo que se debía, lo cobrado y el saldo al cerrar cada periodo">${g}</svg>`;
 }
 
-export function renderFlowLegend(detailed) {
+export function renderFlowLegend() {
     const item = (bg, text) => `<span><i style="background:${bg}"></i>${escapeHTML(text)}</span>`;
     const striped = 'repeating-linear-gradient(45deg,#10d98a 0 2px,rgba(16,217,138,.2) 2px 5px)';
     const line = `<span class="lf-legend__line"><i style="background:none;border-top:2px dashed ${COLOR.balance};height:0;border-radius:0"></i>Saldo al cerrar (lo que deben)</span>`;
-    return `<div class="lf-legend">${detailed
-        ? [item(COLOR.carry, 'Venía de antes'), item(COLOR.carryRefi, 'de eso, refinanciado'), item(COLOR.cap, 'Capital nuevo'), item(COLOR.int, 'Interés al prestar'), item(COLOR.refi, 'Interés por refinanciar'), item(COLOR.payInt, 'Cobrado: interés'), item(COLOR.pay, 'Cobrado: capital'), item(striped, 'Pagado de más (rayado = posible error)'), item(COLOR.missing, 'Faltó por cobrar'), line].join('')
-        : [item(COLOR.carry, 'Venía de antes'), item(COLOR.cap, 'Capital prestado'), item(COLOR.int, 'Interés al prestar'), item(COLOR.refi, 'Interés por refinanciar'), item(COLOR.payInt, 'Cobrado: interés'), item(COLOR.pay, 'Cobrado: capital'), item(striped, 'Pagado de más (posible error)'), line].join('')}</div>`;
+    return `<div class="lf-legend">${[item(COLOR.carry, 'Venía de antes'), item(COLOR.cap, 'Capital prestado'), item(COLOR.int, 'Interés al prestar'), item(COLOR.refi, 'Interés por refinanciar'), item(COLOR.payInt, 'Cobrado: interés'), item(COLOR.pay, 'Cobrado: capital'), item(striped, 'Pagado de más (posible error)'), line].join('')}</div>`;
+}
+
+/**
+ * Puente de un mes o nómina: de lo que venía al saldo final, paso por paso
+ * (+ capital, + interés, + refinanciamientos, − cobrado a interés y a capital).
+ */
+export function renderFlowBridge({ bucket, flow: o, today }) {
+    if (!bucket || !o) return '';
+    const current = bucket.start <= today && today <= bucket.end;
+    const steps = [
+        ['Venía de antes', o.open, COLOR.carry, true],
+        ['+ Capital prestado', o.newCap, COLOR.cap],
+        ['+ Interés al prestar', o.newInt, COLOR.int],
+        ['+ Por refinanciar', o.refiInt + o.adjustUp, COLOR.refi],
+        ['− Cobrado: interés', -o.payInt, COLOR.payInt],
+        ['− Cobrado: capital', -o.payCap, COLOR.pay]
+    ];
+    if (o.gift + o.adjustDown > 0.004) steps.push(['− Perdonado o ajustes', -(o.gift + o.adjustDown), '#6f7a84']);
+    let acc = 0;
+    let peak = 0;
+    const bars = steps.map(([label, v, color, base]) => {
+        const from = base ? 0 : acc;
+        acc = round2(base ? v : acc + v);
+        peak = Math.max(peak, from, acc);
+        return { label, v, color, from, to: acc };
+    });
+    bars.push({ label: current ? 'Saldo hoy' : 'Quedó al cerrar', v: o.end, color: COLOR.balance, from: 0, to: o.end, end: true });
+    const W = 680, H = 230, Lp = 42, Rp = 8, T = 18, B = 40;
+    const step = niceStep(peak || 1);
+    const max = Math.ceil((peak || 1) / step) * step;
+    const y = v => T + (H - T - B) * (1 - v / max);
+    const cw = (W - Lp - Rp) / bars.length;
+    const bw = Math.min(54, cw * 0.62);
+    let g = '';
+    for (let v = 0; v <= max; v += step) g += `<line x1="${Lp}" x2="${W - Rp}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"></line><text x="${Lp - 6}" y="${y(v) + 4}" fill="#7c858d" font-size="10" text-anchor="end">${v >= 1000 ? `${round2(v / 1000)}k` : v}</text>`;
+    bars.forEach((b, i) => {
+        const cx = Lp + cw * i + cw / 2;
+        const lo = Math.min(b.from, b.to);
+        const hi = Math.max(b.from, b.to);
+        g += `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(hi).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5, y(lo) - y(hi)).toFixed(1)}" fill="${b.end ? 'none' : b.color}" stroke="${b.end ? COLOR.balance : 'none'}" stroke-width="1.5" rx="2"><title>${escapeHTML(b.label)} ${M0(Math.abs(b.v))}</title></rect>`;
+        if (i < bars.length - 1) g += `<line x1="${(cx + bw / 2).toFixed(1)}" x2="${(cx + cw - bw / 2).toFixed(1)}" y1="${y(b.to).toFixed(1)}" y2="${y(b.to).toFixed(1)}" stroke="#7c858d" stroke-dasharray="2 2"></line>`;
+        g += `<text x="${cx}" y="${(y(hi) - 5).toFixed(1)}" fill="#ebeef0" font-size="10" font-weight="600" text-anchor="middle">${b.v < 0 ? '−' : ''}${M0(Math.abs(b.v))}</text>`;
+        const words = b.label.split(' ');
+        const mid = Math.ceil(words.length / 2);
+        g += `<text x="${cx}" y="${H - 24}" fill="#a2abb3" font-size="9.5" text-anchor="middle">${escapeHTML(words.slice(0, mid).join(' '))}</text><text x="${cx}" y="${H - 12}" fill="#a2abb3" font-size="9.5" text-anchor="middle">${escapeHTML(words.slice(mid).join(' '))}</text>`;
+    });
+    const paid = round2(o.payInt + o.payCap);
+    return `<div class="lf-bridge">
+        <div class="lf-bridge__t"><b>${escapeHTML(bucket.long)}${current ? ' · en curso' : ''}</b><small>datos al ${today.slice(8, 10)}/${today.slice(5, 7)}/${today.slice(0, 4)}</small></div>
+        <div class="lf-plot"><svg class="lf-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cómo se llegó al saldo en ${escapeAttr(bucket.long)}">${g}</svg></div>
+        <p class="lf-bridge__s">Empezó en <b>${M0(o.open)}</b>, entraron <b>${M0(o.newCap + o.newInt + o.refiInt + o.adjustUp)}</b>, se cobraron <b>${M0(paid)}</b>${o.excess > 0.004 ? ` (más ${M0(o.excess)} pagados de más)` : ''} y ${current ? 'hoy deben' : 'quedaron'} <b>${M0(o.end)}</b>.</p>
+    </div>`;
 }
 
 /** Detalle del mes o nómina elegido: lo que se debía y lo que pasó. */
