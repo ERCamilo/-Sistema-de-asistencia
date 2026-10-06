@@ -60,6 +60,34 @@ export function findConsolidations(emp) {
         .filter(item => item.sources.length);
 }
 
+/**
+ * Consolidación dañada por la versión anterior (deshacía primero la de adentro):
+ * sigue abierta, pero sus préstamos de origen ya se reabrieron como si se hubiera
+ * deshecho. Su saldo y el de sus préstamos se cuentan dos veces.
+ */
+export function isDamagedConsolidation(emp, loan) {
+    if (!Array.isArray(loan?.consolidatedFromLoanIds) || !loan.consolidatedFromLoanIds.length || isUndoneConsolidation(loan)) return false;
+    const loans = emp?.loans || [];
+    return loan.consolidatedFromLoanIds.some(id => {
+        const src = loans.find(l => String(l.id) === String(id));
+        return src && String(src.consolidationUndone?.from ?? '') === String(loan.id);
+    });
+}
+
+/** Consolidación deshecha al reparar (o que contenía una reparada): ya no se vuelve a consolidar. */
+export function isRepairedConsolidation(loan) {
+    return Boolean(loan?.consolidationUndone?.repairedAt);
+}
+
+/** Por qué no se puede «Volver a consolidar» esta consolidación (o null si se puede). */
+export function consolidationRestoreBlock(emp, loanId) {
+    const cons = (emp?.loans || []).find(l => String(l.id) === String(loanId));
+    if (!cons?.consolidationUndone?.snapshot) return 'Esta consolidación no está deshecha';
+    if (isRepairedConsolidation(cons)) return 'Esta consolidación se reparó: la copia de cómo estaba ya no es confiable y volver a consolidarla dejaría mal el saldo.';
+    if ((emp.loans || []).some(l => isDamagedConsolidation(emp, l))) return 'Esta cuenta tiene una consolidación dañada: repárala primero desde «Consolidaciones» en la pantalla de Préstamos.';
+    return null;
+}
+
 /** Consolidación (sin deshacer) que incluye a este préstamo, si la hay. */
 function containingConsolidation(emp, loanId) {
     return findConsolidations(emp).find(c => String(c.loan.id) !== String(loanId)
@@ -113,6 +141,8 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
     const outer = containingConsolidation(emp, consolidatedLoanId);
     if (outer) throw new Error('Esta consolidación quedó dentro de otra más nueva: deshaz primero esa (la de afuera)');
     const { loan: cons, sources } = item;
+    // Reparación: la versión anterior ya había reabierto sus préstamos de origen.
+    const repairing = isDamagedConsolidation(emp, cons);
     const snapshot = clone([cons, ...sources]);
     const before = getAccountSummary(emp).balance;
 
@@ -193,9 +223,26 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
     cons.closedBy = by;
     cons.consolidationUndone = { ...(cons.consolidationUndone || {}), at, by, sourceIds: sources.map(s => s.id), snapshot };
     cons.updatedAt = at;
+    if (repairing) markRepaired(emp, cons, { at, by });
     emp.updatedAt = at;
     const after = getAccountSummary(emp).balance;
     return { consolidated: cons, sources, movedPayments: round2(movedPayments), movedInterest: round2(movedInterest), before, after };
+}
+
+/** Marca la reparada y las consolidaciones deshechas que la contenían (hacia afuera). */
+function markRepaired(emp, cons, { at, by }) {
+    const marked = new Set();
+    let current = [cons];
+    while (current.length && marked.size < 50) {
+        for (const loan of current) {
+            marked.add(String(loan.id));
+            loan.consolidationUndone = { ...loan.consolidationUndone, repairedAt: at, repairedBy: by };
+            loan.updatedAt = at;
+        }
+        const ids = new Set(current.map(l => String(l.id)));
+        current = (emp.loans || []).filter(l => isUndoneConsolidation(l) && !marked.has(String(l.id))
+            && l.consolidationUndone.sourceIds.some(id => ids.has(String(id))));
+    }
 }
 
 /** Vista previa sin tocar los datos: cómo queda cada préstamo y la cuenta. */
@@ -223,6 +270,8 @@ export function restoreConsolidation(emp, consolidatedLoanId, { by = null, at = 
     const cons = (emp.loans || []).find(l => String(l.id) === String(consolidatedLoanId));
     const undone = cons?.consolidationUndone;
     if (!undone?.snapshot) throw new Error('Esta consolidación no está deshecha');
+    const block = consolidationRestoreBlock(emp, consolidatedLoanId);
+    if (block) throw new Error(block);
     const saved = new Map(undone.snapshot.map(l => [String(l.id), l]));
     // Consolidación de una consolidación: si después se deshizo la de adentro, primero hay que volver a consolidarla.
     const innerUndone = (emp.loans || []).find(l => String(l.id) !== String(cons.id) && saved.has(String(l.id)) && isUndoneConsolidation(l));

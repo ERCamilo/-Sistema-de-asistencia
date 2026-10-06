@@ -26,7 +26,7 @@ import {
 import { buildPayPeriods, nextPayPeriod, followingPayPeriod } from './LoanPayPeriods.js';
 import { renderLoanHistoryPanel, isLoanHistoryOpen } from './LoanHistoryPanel.js';
 import { renderLoanDuplicateReview } from './LoanDuplicateReview.js';
-import { findConsolidations, previewUndoConsolidation, CONSOLIDATION_REASON } from './LoanConsolidationUndo.js';
+import { findConsolidations, previewUndoConsolidation, CONSOLIDATION_REASON, consolidationRestoreBlock, isRepairedConsolidation } from './LoanConsolidationUndo.js';
 import { nextLoanNumber } from './LoanDataBackfill.js';
 
 const M = (value, decimals = 2) => {
@@ -267,9 +267,12 @@ function LoanRow(emp, loan, numbers, payDates, today, isOpen) {
                 <button type="button" class="la-btn la-btn--refi" data-app-fn="laOpen" data-arg="refi" data-arg2="${escapeAttr(loan.id)}">Refinanciar #${n}</button>
                 <button type="button" class="la-btn la-btn--edit" data-app-fn="laOpen" data-arg="edit" data-arg2="${escapeAttr(loan.id)}">Editar</button>
                 <button type="button" class="la-btn la-btn--danger" data-app-fn="laOpen" data-arg="close" data-arg2="${escapeAttr(loan.id)}">Anular préstamo</button>
-            </div>` : loan.consolidationUndone?.snapshot ? `<div class="la-loan-acts">
-                <button type="button" class="la-btn" data-app-fn="laRestoreConsolidation" data-arg="${escapeAttr(loan.id)}" title="Deja los préstamos como estaban antes de deshacer">Volver a consolidar</button>
-            </div>` : loan.status === LOAN_STATUS.WRITTEN_OFF && !loan.closure ? `<div class="la-loan-acts">
+            </div>` : loan.consolidationUndone?.snapshot ? `<div class="la-loan-acts">${(() => {
+                const block = consolidationRestoreBlock(emp, loan.id);
+                return block
+                    ? `${isRepairedConsolidation(loan) ? '<span class="la-pill la-pill--refi">🔒 Reparada</span>' : ''}<button type="button" class="la-btn" disabled aria-describedby="la-rb-${escapeAttr(loan.id)}">Volver a consolidar</button><small class="la-restore-block" id="la-rb-${escapeAttr(loan.id)}">${escapeHTML(block)}</small>`
+                    : `<button type="button" class="la-btn" data-app-fn="laRestoreConsolidation" data-arg="${escapeAttr(loan.id)}" title="Deja los préstamos como estaban antes de deshacer">Volver a consolidar</button>`;
+            })()}</div>` : loan.status === LOAN_STATUS.WRITTEN_OFF && !loan.closure ? `<div class="la-loan-acts">
                 <button type="button" class="la-btn" data-app-fn="reopenLoanHandler" data-arg="${escapeAttr(loan.id)}">Reactivar</button>
                 <button type="button" class="la-btn la-btn--danger" data-app-fn="deleteLoanWithConfirm" data-arg="${escapeAttr(loan.id)}">Eliminar</button>
             </div>` : loan.closure ? `<div class="la-loan-acts"><button type="button" class="la-btn" data-app-fn="laUndoClosure" data-arg="${escapeAttr(loan.id)}">Deshacer cierre</button></div>` : ''}
