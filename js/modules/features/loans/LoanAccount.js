@@ -749,7 +749,8 @@ export function getAccountMovements(emp, options = {}) {
     };
     for (const loan of accountLoans(emp, options)) {
         const number = numbers.get(loan.id);
-        out.push({ kind: 'loan', id: `loan:${loan.id}`, date: loan.startDate, at: Number(loan.createdAt) || 0, loanId: loan.id, number, amount: getBalanceBase(loan), voided: loan.status === LOAN_STATUS.WRITTEN_OFF && loan.closure?.reason === CLOSE_REASON.ERROR });
+        const capital = round2(Number(loan.principal || 0));
+        out.push({ kind: 'loan', id: `loan:${loan.id}`, date: loan.startDate, at: Number(loan.createdAt) || 0, loanId: loan.id, number, amount: getBalanceBase(loan), capital, interest: round2(getBalanceBase(loan) - capital), voided: loan.status === LOAN_STATUS.WRITTEN_OFF && loan.closure?.reason === CLOSE_REASON.ERROR });
         for (const payment of loan.payments || []) {
             const isAdj = !!payment.adjustment;
             const g = group(payment.accountTxId || `pay:${payment.id}`, {
