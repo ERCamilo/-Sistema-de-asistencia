@@ -480,18 +480,20 @@ function RefiModal(emp, m, { periods, today, summary }) {
     const rows = summary.loans.map(x => {
         const on = !!m.sel?.[x.loan.id];
         const base = m.basis === 'capital' ? x.capital : x.balance;
-        return { x, on, base, charge: on ? round2(base * (Number(m.rate) || 0) / 100) : 0 };
+        return { x, on, base, charge: on && m.charge !== 'no' ? round2(base * (Number(m.rate) || 0) / 100) : 0 };
     });
     const total = round2(rows.reduce((t, r) => t + r.charge, 0));
     const count = rows.filter(r => r.on).length;
     const recent = periods.filter(p => p.payDate <= today).slice(-3);
-    const ok = m.reason && count > 0 && Number(m.rate) > 0 && (m.reason !== REFINANCE_REASON.OTHER || String(m.note || '').trim().length >= 3);
+    const noInterest = m.charge === 'no';
+    const ok = m.reason && count > 0 && (noInterest || Number(m.rate) > 0) && (m.reason !== REFINANCE_REASON.OTHER || String(m.note || '').trim().length >= 3);
     return `${head('refi', m.only ? `Refinanciar el préstamo #${numbers.get(m.only)}` : 'Refinanciar lo vencido', 'interés sobre lo que no se cobró')}
     <div class="la-md__b">
         <div class="la-row4">${recent.length ? select('period', m.period, 'Nómina que no alcanzó', periodOptions(recent)) : dateInput('period', m.period, 'Nómina que no alcanzó (día de pago)')}
             ${select('reason', m.reason, 'Motivo *', [{ value: '', label: 'Elige…' }, ...Object.entries(REFINANCE_REASON_LABEL).map(([value, label]) => ({ value, label }))])}
-            ${numInput('rate', m.rate, { label: 'Interés %' })}
-            ${select('basis', m.basis, 'Sobre', [{ value: 'balance', label: 'Saldo' }, { value: 'capital', label: 'Solo capital' }])}</div>
+            ${noInterest ? '' : numInput('rate', m.rate, { label: 'Interés %' })}
+            ${noInterest ? '' : select('basis', m.basis, 'Sobre', [{ value: 'balance', label: 'Saldo (con el interés pendiente)' }, { value: 'capital', label: 'Solo capital' }])}</div>
+        <div class="la-fl"><span>¿Cobrar interés por refinanciar?</span>${seg('charge', m.charge || 'yes', [{ value: 'yes', label: 'Sí' }, { value: 'no', label: 'No, solo pasar el cobro (para aliviar al empleado)' }])}</div>
         <div class="la-tbl"><table><thead><tr><th>${m.only ? 'Solo este préstamo' : 'Incluidos · todo lo vencido'}</th><th>Cobro</th><th>${m.basis === 'capital' ? 'Capital' : 'Saldo'}</th><th>Cargo</th><th>Interés pend.</th></tr></thead><tbody>
             ${rows.map(r => `<tr><td><label class="la-check"><input type="checkbox" ${r.on ? 'checked' : ''} ${m.only ? 'disabled' : ''} onchange="laToggleSel('${escapeAttr(r.x.loan.id)}')"><b>#${r.x.number}</b> ${dm(r.x.loan.startDate)}</label></td><td>${r.x.dueDate ? dm(r.x.dueDate) : '—'}</td><td>${M(r.base, 0)}</td><td class="la-t-refi">${r.on ? '+' + M(r.charge, 0) : '—'}</td><td>${r.on ? `<span class="la-t-faint">${M(r.x.interest, 0)}</span> → <b class="la-t-int">${M(r.x.interest + r.charge, 0)}</b>` : `<span class="la-t-faint">${M(r.x.interest, 0)}</span>`}</td></tr>`).join('')}
             <tr class="la-tot"><td>${count} préstamo${count === 1 ? '' : 's'}</td><td></td><td>${M(rows.filter(r => r.on).reduce((t, r) => t + r.base, 0), 0)}</td><td class="la-t-refi">+${M(total)}</td><td></td></tr>

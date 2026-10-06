@@ -1,5 +1,5 @@
 import { createLoan, recordPayment, refinanceLoan, writeOffLoan } from '../modules/features/loans/LoansService.js';
-import { resolveExportRange, exportPreview, buildLoanExport, exportMonths, exportPeriods } from '../modules/features/loans/LoanExport.js';
+import { resolveExportRange, exportPreview, buildLoanExport, exportMonths, exportPeriods, exportFirstDate } from '../modules/features/loans/LoanExport.js';
 
 const PAY = { periodStart: '2026-08-21', periodLength: 21, payDay: '2026-09-12' };
 let clock = 1_000;
@@ -26,6 +26,7 @@ describe('Exportar préstamos: rango', () => {
         // El mes en curso termina hoy.
         expect(resolveExportRange({ range: 'month', month: '2026-10' }, { today: '2026-10-06' }).to).toBe('2026-10-06');
         expect(resolveExportRange({ range: 'period', period: '2026-08-21|2026-09-10' }, { payPeriod: PAY, today: '2026-10-06' })).toMatchObject({ from: '2026-08-21', to: '2026-09-10', label: 'periodo 21/08/2026 – 10/09/2026' });
+        expect(resolveExportRange({ range: 'all' }, { today: '2026-10-06', firstDate: '2026-03-27' })).toMatchObject({ from: '2026-03-27', to: '2026-10-06', label: 'todo el historial (del 27/03/2026 al 06/10/2026)' });
         // Fechas al revés se ordenan.
         expect(resolveExportRange({ range: 'custom', from: '2026-09-30', to: '2026-09-01' }, { today: '2026-10-06' })).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
     });
@@ -33,6 +34,7 @@ describe('Exportar préstamos: rango', () => {
     test('listas de meses y periodos para elegir', () => {
         const emp = obra();
         expect(exportMonths([emp], '2026-10-06')).toEqual(['2026-10', '2026-09', '2026-08']);
+        expect(exportFirstDate([emp])).toBe('2026-08-25');
         expect(exportPeriods([emp], PAY, '2026-10-06').map(p => p.key)).toEqual(['2026-10-02|2026-10-22', '2026-09-11|2026-10-01', '2026-08-21|2026-09-10']);
     });
 });

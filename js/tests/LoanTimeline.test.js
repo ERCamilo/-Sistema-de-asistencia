@@ -84,3 +84,33 @@ describe('buildTimeline', () => {
         expect(days.find(d => d.date === '2026-09-05').writeOffs).toBe(-11000);
     });
 });
+
+describe('LoanTimeline — abono y refinanciamiento del mismo día', () => {
+    const base = () => ({
+        id: 'L', status: 'active', principal: 10000, interestRate: 20, startDate: '2026-08-25', createdAt: 1,
+        payments: [{ id: 'P', amount: 6600, date: '2026-09-12', recordedAt: 100 }],
+        refinancings: [{ id: 'R', date: '2026-09-12', interestAmount: 1080, createdAt: 200 }]
+    });
+    const paid = loan => { const s = replayLoan(loan).steps.find(x => x.kind === 'payment'); return { interest: -s.delta.interest, capital: -s.delta.capital }; };
+
+    test('si el abono se registró antes, paga solo el interés inicial y el refinanciamiento queda pendiente', () => {
+        const loan = base();
+        expect(paid(loan)).toEqual({ interest: 2000, capital: 4600 });
+        const last = replayLoan(loan).steps.at(-1);
+        expect([last.capitalAfter, last.interestAfter]).toEqual([5400, 1080]);
+    });
+
+    test('si el refinanciamiento se registró antes, el abono también cubre su interés', () => {
+        const loan = base();
+        loan.refinancings[0].createdAt = 50;
+        expect(paid(loan)).toEqual({ interest: 3080, capital: 3520 });
+    });
+
+    test('sin hora de registro, el refinanciamiento va primero (como antes); el total no cambia', () => {
+        const loan = base();
+        delete loan.payments[0].recordedAt;
+        delete loan.refinancings[0].createdAt;
+        expect(paid(loan)).toEqual({ interest: 3080, capital: 3520 });
+        expect(replayLoan(loan).balance).toBe(replayLoan(base()).balance);
+    });
+});

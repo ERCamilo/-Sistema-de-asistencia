@@ -188,3 +188,9 @@ Botón «Exportar» en la línea del mes de la pantalla principal (`LoanExportPa
   - preguntas sugeridas.
 - **Sin datos personales:** los empleados van solo por su número de empleado. No lleva nombres, notas, conceptos ni identificadores internos.
 - **De dónde sale lo ganado:** del mismo cálculo de asistencia que Nómina (`computeAttendanceDetailEarnings`). Lo normal sale de `getEmployeePeriodSalary` para un periodo completo.
+
+### Decisiones del 06/10 (orden del mismo día, refinanciar sin interés, historial completo)
+
+- **Mismo día:** un abono y un refinanciamiento del mismo día se reproducen en el orden en que se registraron (`recordedAt` / `createdAt`). Lo normal es cobrar en nómina y refinanciar lo que quedó. Sin hora, el refinanciamiento va primero, como antes. El total no cambia; solo el reparto entre interés y capital. Con el respaldo del 05/10 cambian 4 préstamos: pasan $2,474 de «interés cobrado» a «capital cobrado».
+- **Refinanciar sin interés:** el formulario pregunta «¿Cobrar interés por refinanciar?». Con «No» solo pasa el cobro a la nómina siguiente, sin cargo, para aliviar al empleado. El servicio solo acepta tasa 0 con `noInterest: true`. Por defecto se cobra sobre el saldo, que incluye el interés pendiente; se puede elegir «Solo capital».
+- **Exportar:** nuevo rango «Todo el historial», desde el primer préstamo hasta hoy.

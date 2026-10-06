@@ -26,7 +26,8 @@ function loan(emp, principal, startDate, extra = {}) {
 /**
  * Cuenta del empleado 012 al 03/10 (datos de la maqueta): #4 y #5 refinanciados
  * el 12/09, abono de $6,600 al #4 en el cierre de la nómina 21/8–10/9, y #6–#8
- * nuevos. Debe $12,600 = $11,480 de capital + $1,120 de interés.
+ * nuevos. Debe $12,600 = $10,400 de capital + $2,200 de interés (el abono fue
+ * antes del refinanciamiento: cubrió los 2,000 de interés inicial y 4,600 de capital).
  */
 function employee012() {
     const emp = { id: 'e012', projectId: 'obra-1', loans: [], updatedAt: 0 };
@@ -38,7 +39,10 @@ function employee012() {
     l4.refinancings[0].interestAmount = 1080;
     l4.refinancings[0].baseAmount = 5400;
     l4.refinancings[0].payrollClosureId = 'CL-0912';
+    // Orden real: se cobró en nómina y después se refinanció lo que quedó.
+    l4.refinancings[0].createdAt = tick();
     refinanceLoan(emp, l5.id, { interestRate: 20, basis: 'balance', date: '2026-09-12', nextDueDate: '2026-10-03' });
+    l5.refinancings[0].createdAt = tick();
     const l6 = loan(emp, 3000, '2026-09-14', { dueDate: '2026-10-03' });
     const l7 = loan(emp, 1000, '2026-09-19', { dueDate: '2026-10-03' });
     const l8 = loan(emp, 500, '2026-09-22', { dueDate: '2026-10-03' });
@@ -52,8 +56,8 @@ describe('LoanAccount — resumen y número de préstamo', () => {
         const { emp, l4, l8 } = employee012();
         const s = getAccountSummary(emp, { activeClosureIds: closures });
         expect(s.balance).toBe(12600);
-        expect(s.capital).toBe(11480);
-        expect(s.interest).toBe(1120);
+        expect(s.capital).toBe(10400);
+        expect(s.interest).toBe(2200);
         expect(s.loans.map(x => x.number)).toEqual([1, 2, 3, 4, 5]);
         expect(getLoanNumbers(emp.loans).get(l4.id)).toBe(1);
         expect(getLoanNumbers(emp.loans).get(l8.id)).toBe(5);
@@ -83,10 +87,10 @@ describe('LoanAccount — abono a la cuenta', () => {
         const preview = previewAccountPayment(emp, 3000);
         expect(preview.excess).toBe(0);
         const byLoan = Object.fromEntries(preview.parts.map(p => [p.loanId, p]));
-        expect(byLoan[l4.id]).toMatchObject({ interest: 0, capital: 1880 });
+        expect(byLoan[l4.id]).toMatchObject({ interest: 1080, capital: 800 });
         expect(byLoan[l5.id]).toMatchObject({ interest: 220, capital: 0 });
         expect(byLoan[l6.id]).toMatchObject({ interest: 600, capital: 0 });
-        expect(preview.parts.reduce((t, p) => t + p.interest, 0)).toBe(1120);
+        expect(preview.parts.reduce((t, p) => t + p.interest, 0)).toBe(2200);
 
         const res = recordAccountPayment(emp, { amount: 3000, date: '2026-10-03' });
         expect(res.payments).toHaveLength(5);
@@ -126,6 +130,19 @@ describe('LoanAccount — refinanciamiento de la cuenta', () => {
         expect(getLoanDueDate(l4)).toBe('2026-10-24');
         expect(l6.refinancings[0]).toMatchObject({ reason: 'payroll-short', origin: 'account', payrollPeriodEnd: '2026-10-01' });
     });
+
+    test('sin interés: solo pasa el cobro a la nómina siguiente; una tasa 0 sin pedirlo no se acepta', () => {
+        const { emp, l4 } = employee012();
+        const params = { date: '2026-10-03', reason: REFINANCE_REASON.PAYROLL_SHORT, nextDueDate: '2026-10-24' };
+        expect(() => refinanceAccount(emp, { ...params, interestRate: 0 })).toThrow(/mayor a 0/);
+        const before = getAccountSummary(emp).balance;
+        const res = refinanceAccount(emp, { ...params, interestRate: 20, noInterest: true });
+        expect(res.events).toHaveLength(5);
+        expect(res.total).toBe(0);
+        expect(getAccountSummary(emp).balance).toBe(before);
+        // El intento rechazado restauró una copia: se busca el préstamo de nuevo.
+        expect(getLoanDueDate(emp.loans.find(l => l.id === l4.id))).toBe('2026-10-24');
+    });
 });
 
 describe('LoanAccount — anular con y sin cierre', () => {
@@ -145,7 +162,7 @@ describe('LoanAccount — anular con y sin cierre', () => {
         expect(pay.voided).toBe(false);
         expect(pay.adjustedBy).toBe(res.adjustmentTxId);
         const adj = l4.payments.at(-1);
-        expect(adj.adjustment).toMatchObject({ ofId: pay.id, interest: 3080, capital: 3520, lockedClosureId: 'CL-0912' });
+        expect(adj.adjustment).toMatchObject({ ofId: pay.id, interest: 2000, capital: 4600, lockedClosureId: 'CL-0912' });
         expect(getBalance(l4)).toBe(13080);
         expect(getAccountSummary(emp).balance).toBe(19200);
         expect(replayLoan(l4).balance).toBe(13080);
@@ -178,15 +195,15 @@ describe('LoanAccount — anular con y sin cierre', () => {
         const { emp, l4, l5, l6 } = employee012();
         const direct = recordDirectPayment(emp, l6.id, { amount: 600, date: '2026-10-01', recordedAt: tick() });
         const acc = recordAccountPayment(emp, { amount: 3000, date: '2026-10-03', recordedAt: tick() });
-        // Con el #6 sin interés, los 3,000 iban 520 a interés (#5, #7, #8) y 2,480 a capital del #4.
-        expect(acc.parts.find(p => p.loanId === l4.id).capital).toBe(2480);
+        // Con el #6 sin interés, los 3,000 iban 1,600 a interés (#4, #5, #7, #8) y 1,400 a capital del #4.
+        expect(acc.parts.find(p => p.loanId === l4.id).capital).toBe(1400);
 
         const res = voidAccountMovement(emp, { loanId: l6.id, paymentId: direct.id }, { activeClosureIds: closures });
         expect(direct.voided).toBe(true);
         expect(res.reallocated).toHaveLength(1);
         const live = emp.loans.flatMap(l => l.payments.filter(p => p.accountTxId === acc.accountTxId && !p.voided).map(p => ({ l, p })));
         expect(live.find(x => x.l === l6).p.allocation).toEqual({ interest: 600, capital: 0 });
-        expect(live.find(x => x.l === l4).p.allocation).toEqual({ interest: 0, capital: 1880 });
+        expect(live.find(x => x.l === l4).p.allocation).toEqual({ interest: 1080, capital: 800 });
         expect(live.find(x => x.l === l5).p.reallocatedFrom.length).toBeGreaterThan(0);
         expect(getAccountSummary(emp).balance).toBe(9600);
     });
@@ -252,7 +269,7 @@ describe('LoanAccount — cerrar préstamo con motivo', () => {
 describe('LoanAccount — acuerdo de pago', () => {
     test('mínimo sugerido, proyección, cambio y cancelación', () => {
         const { emp } = employee012();
-        expect(suggestedAgreementMinimum(emp)).toBe(1200);
+        expect(suggestedAgreementMinimum(emp)).toBe(2200);
         const a1 = saveLoanAgreement(emp, { amount: 1000, startPayDate: '2026-10-24' });
         expect(a1.belowInterest).toBe(true);
         const a2 = saveLoanAgreement(emp, { amount: 3000, startPayDate: '2026-10-24', interestMode: AGREEMENT_INTEREST.RATE, rate: 5 });
@@ -308,9 +325,9 @@ describe('LoanAccount — anulados conservan su reparto', () => {
         const pay = l4.payments[0];
         delete pay.allocation;
         voidAccountMovement(emp, { loanId: l4.id, paymentId: pay.id }, { mode: VOID_MODE.FIX_CLOSURE, reason: 'duplicado', activeClosureIds: closures });
-        expect(pay.allocation).toEqual({ interest: 3080, capital: 3520 });
+        expect(pay.allocation).toEqual({ interest: 2000, capital: 4600 });
         const mv = getAccountMovements(emp, { activeClosureIds: closures }).find(m => m.kind === 'payment' && m.voided);
         expect(mv.amount).toBe(6600);
-        expect(mv.parts[0]).toMatchObject({ interest: 3080, capital: 3520 });
+        expect(mv.parts[0]).toMatchObject({ interest: 2000, capital: 4600 });
     });
 });

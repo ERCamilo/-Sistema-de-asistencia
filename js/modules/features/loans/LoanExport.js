@@ -29,6 +29,11 @@ const dmy = key => (key ? `${key.slice(8, 10)}/${key.slice(5, 7)}/${key.slice(0,
 const lastDay = (y, m) => new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 const KIND_LABEL = { loan: 'Préstamo', payment: 'Abono', refinancing: 'Refinanciamiento', adjustment: 'Ajuste de nómina cerrada', settled: 'Cerrado con saldo', writeoff: 'Anulado' };
 
+/** Primer día con préstamos (para «Todo el historial»). */
+export function exportFirstDate(employees = []) {
+    return employees.flatMap(emp => (emp.loans || []).map(l => l.startDate)).filter(d => ISO.test(String(d || ''))).sort()[0] || null;
+}
+
 /** Meses con movimientos (más el actual), del más reciente al más viejo: 'YYYY-MM'. */
 export function exportMonths(employees = [], today) {
     const set = new Set([today.slice(0, 7)]);
@@ -49,7 +54,11 @@ export function exportPeriods(employees = [], payPeriod, today) {
  * Rango elegido → { from, to, label }.
  * @param {{range:'month'|'period'|'custom', month?, period?, from?, to?}} choice
  */
-export function resolveExportRange(choice = {}, { payPeriod = null, today } = {}) {
+export function resolveExportRange(choice = {}, { payPeriod = null, today, firstDate = null } = {}) {
+    if (choice.range === 'all') {
+        const from = ISO.test(String(firstDate || '')) && firstDate <= today ? firstDate : today;
+        return { from, to: today, label: `todo el historial (del ${dmy(from)} al ${dmy(today)})`, file: `historial completo al ${today}` };
+    }
     if (choice.range === 'period') {
         const periods = buildPayPeriods(payPeriod, today, { before: 30, after: 0 });
         const key = choice.period || '';

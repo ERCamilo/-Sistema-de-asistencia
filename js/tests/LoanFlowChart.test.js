@@ -14,7 +14,10 @@ function loans012() {
     refinanceLoan(emp, l4.id, { interestRate: 20, basis: 'balance', date: '2026-09-12' });
     Object.assign(l4.refinancings[0], { interestAmount: 1080 });
     recordPayment(emp, l4.id, { amount: 6600, date: '2026-09-12', recordedAt: tick() });
+    // Orden real: se cobró en nómina y después se refinanció lo que quedó.
+    l4.refinancings[0].createdAt = tick();
     refinanceLoan(emp, l5.id, { interestRate: 20, basis: 'balance', date: '2026-09-12' });
+    emp.loans[1].refinancings[0].createdAt = tick();
     mk(3000, '2026-09-14'); mk(1000, '2026-09-19'); mk(500, '2026-09-22');
     return emp;
 }
@@ -31,10 +34,11 @@ describe('LoanFlowChart — por periodo', () => {
         expect(aug).toMatchObject({ open: 0, newCap: 10500, newInt: 2100, nNew: 2, end: 12600, missing: 0 });
         const sep = flows.get('2026-09-11|2026-10-01');
         expect(sep).toMatchObject({
-            open: 12600, refiInt: 1200, refiIntOld: 1200, refiCapOld: 10500, nRefiOld: 2,
-            payOld: 6600, payInt: 3080, payCap: 3520, newCap: 4500, newInt: 900, end: 12600, missing: 7200
+            open: 12600, refiInt: 1200, refiIntOld: 1200, refiCapOld: 5900, nRefiOld: 2,
+            payOld: 6600, payInt: 2000, payCap: 4600, newCap: 4500, newInt: 900, end: 12600, missing: 7200
         });
-        expect(sep.refiFrom).toEqual({ '2026-08-21|2026-09-10': 10500 });
+        // El abono va antes del refinanciamiento: se refinancian 5,400 del #4 y 500 del #5.
+        expect(sep.refiFrom).toEqual({ '2026-08-21|2026-09-10': 5900 });
         expect(sep.payFrom).toEqual({ '2026-08-21|2026-09-10': 6600 });
         for (const o of flows.values()) expect(balanced(o)).toBe(0);
     });

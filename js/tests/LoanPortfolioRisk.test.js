@@ -16,7 +16,10 @@ function obra() {
     refinanceLoan(emp, l4.id, { interestRate: 20, basis: 'balance', date: '2026-09-12' });
     Object.assign(l4.refinancings[0], { interestAmount: 1080 });
     recordPayment(emp, l4.id, { amount: 6600, date: '2026-09-12', recordedAt: (clock += 1_000) });
+    // Orden real: se cobró en nómina y después se refinanció lo que quedó.
+    l4.refinancings[0].createdAt = (clock += 1_000);
     refinanceLoan(emp, l5.id, { interestRate: 20, basis: 'balance', date: '2026-09-12' });
+    l5.refinancings[0].createdAt = (clock += 1_000);
     mk(3000, '2026-09-14');
     const bad = mk(9999, '2026-09-20');
     writeOffLoan(emp, bad.id);
@@ -27,9 +30,10 @@ describe('Resumen de cartera', () => {
     test('por cobrar, interés ganado, cobrado y prestado sin anulados', () => {
         const emp = obra();
         const s = computePortfolioSummary([emp]);
-        expect(s.porCobrar).toMatchObject({ total: 10800, capital: 9980, interest: 820, interestRefi: 120, interestInitial: 700, people: 1, loans: 3 });
-        expect(s.interesGanado).toMatchObject({ collected: 3080, total: 3900 });
-        expect(s.cobrado).toMatchObject({ total: 6600, capital: 3520, interest: 3080, since: '2026-09-12' });
+        expect(s.porCobrar).toMatchObject({ total: 10800, capital: 8900, interest: 1900, interestRefi: 1200, interestInitial: 700, people: 1, loans: 3 });
+        expect(s.interesGanado).toMatchObject({ collected: 2000, total: 3900 });
+        // El abono de 6,600 fue antes del refinanciamiento: cubre los 2,000 de interés inicial y 4,600 de capital.
+        expect(s.cobrado).toMatchObject({ total: 6600, capital: 4600, interest: 2000, since: '2026-09-12' });
         expect(s.prestado.total).toBe(13500);
         expect(s.quienDebeMas[0].balance).toBe(10800);
     });
@@ -38,8 +42,8 @@ describe('Resumen de cartera', () => {
         const emp = obra();
         emp.loans[0].payments[0].origin = 'payroll';
         const s = computePortfolioSummary([emp]);
-        // #4: interés inicial 2,000 + refinanciamiento 1,080; el abono de 6,600 cubre los 3,080.
-        expect(s.interesGanado).toMatchObject({ collectedInit: 2000, collectedRefi: 1080, forgiven: 0 });
+        // #4: el abono de 6,600 fue antes del refinanciamiento: solo cubre los 2,000 de interés inicial.
+        expect(s.interesGanado).toMatchObject({ collectedInit: 2000, collectedRefi: 0, forgiven: 0 });
         expect(s.cobrado).toMatchObject({ payroll: 6600, direct: 0 });
         expect(s.prestado).toMatchObject({ loans: 3, voided: 1, voidedAmount: 9999 });
         expect(s.porCobrar).toMatchObject({ inactive: 0, inactivePeople: 0 });
