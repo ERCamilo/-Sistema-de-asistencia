@@ -207,10 +207,10 @@ export function laSave() {
         const next = followingPayPeriod(periods, m.period);
         const loanIds = Object.entries(m.sel || {}).filter(([, on]) => on).map(([id]) => id);
         act(emp => refinanceAccount(emp, {
-            loanIds, interestRate: money(m.rate), basis: m.basis, reason: m.reason, note: m.note, date: m.period,
+            loanIds, interestRate: m.charge === 'no' ? 0 : money(m.rate), noInterest: m.charge === 'no', basis: m.basis, reason: m.reason, note: m.note, date: m.period,
             payrollPeriodStart: failed?.start, payrollPeriodEnd: failed?.end, nextDueDate: next?.payDate,
             origin: m.only ? 'direct' : 'account', createdBy: options().by
-        }, options()), r => `Cargo de ${r.total.toFixed(2)} en ${r.events.length} préstamo(s)`);
+        }, options()), r => (m.charge === 'no' ? `${r.events.length} préstamo(s) pasan a la nómina siguiente sin interés` : `Cargo de ${r.total.toFixed(2)} en ${r.events.length} préstamo(s)`));
     } else if (m.type === 'loan') {
         const emp = selectedEmployee();
         if (!emp) return;

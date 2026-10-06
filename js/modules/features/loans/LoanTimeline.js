@@ -101,8 +101,14 @@ export function collectLoanEvents(loan = {}) {
             source: payment.source === 'payroll' ? 'payroll' : 'manual'
         });
     }
+    // Mismo día: un abono y un refinanciamiento van en el orden en que se registraron
+    // (normalmente se cobra en nómina y se refinancia lo que quedó). Sin hora, el
+    // refinanciamiento va primero, como antes.
+    const group = e => (e.kind === TIMELINE_KINDS.REFINANCING || e.kind === TIMELINE_KINDS.PAYMENT ? 1 : KIND_ORDER[e.kind]);
+    const when = e => (e.at > 0 ? e.at : (e.kind === TIMELINE_KINDS.REFINANCING ? -Infinity : Infinity));
     return events.sort((a, b) => a.date.localeCompare(b.date)
-        || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]
+        || group(a) - group(b)
+        || (group(a) === 1 ? (when(a) - when(b) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) : 0)
         || a.at - b.at);
 }
 

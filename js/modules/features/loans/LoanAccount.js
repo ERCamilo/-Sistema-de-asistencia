@@ -352,7 +352,8 @@ export function refinanceAccount(emp, params = {}, options = {}) {
     const origin = params.origin || (ids && ids.size === 1 ? MOVEMENT_ORIGIN.DIRECT : MOVEMENT_ORIGIN.ACCOUNT);
     const txId = genId('ACCT');
     const events = withRollback(emp, () => targets.map(item => refinanceLoan(emp, item.loan.id, {
-        interestRate: Number(params.interestRate),
+        interestRate: params.noInterest === true ? 0 : Number(params.interestRate),
+        noInterest: params.noInterest === true,
         basis,
         date: params.date,
         note: params.note || '',

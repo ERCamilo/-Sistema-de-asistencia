@@ -202,6 +202,8 @@ export function validateRefinanceInput(loan, params) {
         if (!(params.installmentCount != null && Number(params.installmentCount) > 0)) {
             errors.push('«Dejar pendiente» solo aplica al crear un nuevo plan de cuotas');
         }
+    } else if (params.noInterest === true && rate === 0) {
+        // Refinanciar sin interés: solo pasa el cobro a otra nómina (decisión del usuario).
     } else if (!Number.isFinite(rate) || rate <= 0) {
         errors.push('La tasa de interés del refinanciamiento debe ser mayor a 0');
     } else if (rate > VALIDATION.MAX_INTEREST_PERCENT) {

@@ -24,7 +24,7 @@ import { buildPortfolioModel } from './LoanPortfolioView.js';
 import { computeAttendanceDetailEarnings } from '../attendance/AttendanceDetailEarnings.js';
 import { getEmployeePeriodSalary, LOAN_STATUS } from './LoansService.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
-import { EXPORT_PARTS, exportMonths, exportPeriods, resolveExportRange, exportPreview, buildLoanExport } from './LoanExport.js';
+import { EXPORT_PARTS, exportMonths, exportPeriods, resolveExportRange, exportPreview, buildLoanExport, exportFirstDate } from './LoanExport.js';
 
 const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const PART_LABEL = {
@@ -74,7 +74,7 @@ export function ExportPanel(model) {
     if (!x.open) return '';
     const today = model.today;
     const payPeriod = getActivePayrollSettings(state).payPeriod;
-    const range = resolveExportRange(choiceOf(x), { payPeriod, today });
+    const range = resolveExportRange(choiceOf(x), { payPeriod, today, firstDate: exportFirstDate(model.employees) });
     const p = exportPreview(model.employees, range);
     const months = exportMonths(model.employees, today);
     const periods = Number(payPeriod?.periodLength) > 0 ? exportPeriods(model.employees, payPeriod, today) : [];
@@ -93,6 +93,7 @@ export function ExportPanel(model) {
             ${radio('month', 'Mes', monthSel)}
             ${radio('period', 'Periodo de nómina', periodSel)}
             ${radio('custom', 'Personalizado', customSel)}
+            ${radio('all', 'Todo el historial', `<small>Desde el primer préstamo (${escapeHTML(range.from.split('-').reverse().join('/'))}) hasta hoy.</small>`)}
         </div>
         ${x.fmt === 'ai' ? `<div><h5>Qué lleva el archivo para IA</h5>
             <ul class="lp-xp__list">
@@ -289,7 +290,7 @@ export async function lxDownload() {
     const payPeriod = getActivePayrollSettings(state).payPeriod;
     const scope = peekEntityScope();
     const employees = prepareLoanEmployees((state.employees || []).filter(emp => entityInScope(emp, scope)), payPeriod).employees;
-    const range = resolveExportRange(choiceOf(x), { payPeriod, today });
+    const range = resolveExportRange(choiceOf(x), { payPeriod, today, firstDate: exportFirstDate(employees) });
     const obra = projectName();
     setExport(s => { s.busy = true; });
     try {
