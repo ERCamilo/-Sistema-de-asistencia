@@ -52,6 +52,18 @@ const item = (id, employeeId, date, normalHours, overtimeHours = 0, extra = {}) 
     sources: [{ deviceId: 'mini-a', submissionId: 'sub-1' }], ...extra
 });
 
+// Las fechas de prueba son de septiembre de 2026; con el reloj real, al pasar
+// 30 días la app pide confirmar fechas antiguas y la prueba se detenía ahí.
+// Se fija «hoy» cerca de esas fechas (los temporizadores siguen siendo reales).
+const PINNED_TODAY = new Date('2026-09-12T12:00:00');
+beforeAll(() => {
+    jest.useFakeTimers({
+        now: PINNED_TODAY,
+        doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'nextTick', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'performance', 'hrtime']
+    });
+});
+afterAll(() => jest.useRealTimers());
+
 describe('createMiniAttendanceDraftFromConsolidatedDay', () => {
     const date = '2026-09-06';
 
