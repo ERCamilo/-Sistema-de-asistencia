@@ -886,7 +886,7 @@ function ScopedPayrollTab(view) {
                             <h3>Deducciones de nómina</h3>
                             <p>Ajustes y descuentos para la obra activa.</p>
                         </div>
-                        ${renderDesktopAdjustmentWorkspace('deductions', state, rows)}
+                        ${renderDesktopAdjustmentWorkspace('deductions', state, rows, { period })}
                     </section>
 
                     <!-- Paso 3: Bonificaciones -->
@@ -895,7 +895,7 @@ function ScopedPayrollTab(view) {
                             <h3>Bonificaciones de nómina</h3>
                             <p>Abonos adicionales para la obra activa.</p>
                         </div>
-                        ${renderDesktopAdjustmentWorkspace('bonuses', state, rows)}
+                        ${renderDesktopAdjustmentWorkspace('bonuses', state, rows, { period })}
                     </section>
 
                     <!-- Paso 4: Préstamos -->

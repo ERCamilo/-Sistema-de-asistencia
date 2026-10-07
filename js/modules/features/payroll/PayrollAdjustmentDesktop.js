@@ -647,7 +647,12 @@ function renderSummary(kind, summary, state, rows, projectionRevision) {
     `;
 }
 
-export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
+/**
+ * @param {{period?: {periodStart, periodEnd}}} [options] periodo de la nómina
+ *   abierta. Con obras activas vive en la vista de la obra (exportConfig no lo
+ *   tiene); sin él, Programados no ofrece Editar/Borrar/Quitar de la lista.
+ */
+export function renderDesktopAdjustmentWorkspace(kind, state, rows, { period = null } = {}) {
     const activeProjectId = rows?.[0]?._projectId != null
         ? String(rows[0]._projectId)
         : (state?.exportConfig?.projectId ? String(state.exportConfig.projectId) : (isProjectsEnabled() && captureEntityProjectScope().projectId ? String(captureEntityProjectScope().projectId) : null));
@@ -684,13 +689,12 @@ export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
         : state;
 
     const adjustments = scopedAdjustments;
+    const periodStart = period?.periodStart || state.exportConfig?.periodStart;
+    const periodEnd = period?.periodEnd || state.exportConfig?.periodEnd;
     const scheduledGroups = buildScheduledAdjustmentGroups(kind, scopedEmployees, {
-        periodStart: state.exportConfig?.periodStart,
-        periodEnd: state.exportConfig?.periodEnd,
-        selections: getPayrollAdjustmentPeriodRuntimeSelections(
-            state.exportConfig?.periodStart,
-            state.exportConfig?.periodEnd
-        )
+        periodStart,
+        periodEnd,
+        selections: getPayrollAdjustmentPeriodRuntimeSelections(periodStart, periodEnd)
     });
     const projectionRevision = beginScheduledAdjustmentProjection(kind);
     const scheduledHTML = renderScheduledAdjustmentGroups(
