@@ -1090,6 +1090,325 @@
     color: #cbd5e1;
 }
 
+/* Revisión de cierres: estados de la tarjeta y bloque sobre la lista */
+.payroll-history-card__status.is-review {
+    background: rgba(239, 68, 68, 0.14);
+    color: #fca5a5;
+}
+
+.payroll-history-card__status.is-missing {
+    background: rgba(245, 158, 11, 0.14);
+    color: #fcd34d;
+}
+
+.payroll-history-card.is-missing {
+    padding-right: 16px;
+    border-style: dashed;
+    background: #111827;
+    cursor: default;
+}
+
+.payroll-history-card.is-missing:hover {
+    border-color: #334155;
+    box-shadow: none;
+}
+
+.payroll-history-card__flag {
+    display: block;
+    margin-top: 3px;
+    color: #fca5a5;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.payroll-history-card__flag.is-info {
+    color: #fcd34d;
+}
+
+.payroll-history-card__cta {
+    justify-self: end;
+}
+
+.payroll-history-review {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    background: #111827;
+}
+
+.payroll-history-review header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.payroll-history-review h3 {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.payroll-history-review header span {
+    color: #94a3b8;
+    font-size: 0.74rem;
+}
+
+.payroll-history-review__issue {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    background: #172033;
+}
+
+.payroll-history-review__issue strong {
+    font-size: 0.84rem;
+}
+
+.payroll-history-review__issue p {
+    margin: 2px 0 0;
+    color: #94a3b8;
+    font-size: 0.74rem;
+}
+
+.payroll-history-review__action {
+    min-height: 38px;
+    padding: 8px 14px;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.payroll-history-review__action.is-primary {
+    border-color: #06b6d4;
+    background: #06b6d4;
+    color: #001018;
+}
+
+.payroll-history-review__action.is-warn {
+    border-color: rgba(252, 165, 165, 0.45);
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+}
+
+.payroll-history-review__action:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+/* Asistente en modo «registrar un periodo ya pagado» */
+.payroll-registration-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding: 11px 13px;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: 9px;
+    background: rgba(245, 158, 11, 0.08);
+    color: #fde68a;
+    font-size: 0.8rem;
+}
+
+.payroll-registration-banner > span {
+    min-width: 0;
+    flex: 1 1 220px;
+}
+
+.payroll-registration-banner__cancel,
+.payroll-registration-confirm__submit {
+    min-height: 38px;
+    padding: 8px 14px;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.payroll-registration-confirm__submit {
+    border-color: #06b6d4;
+    background: #06b6d4;
+    color: #001018;
+}
+
+.payroll-registration-confirm__submit:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.payroll-registration-card {
+    display: grid;
+    gap: 12px;
+    padding: 18px;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    background: #1e293b;
+}
+
+.payroll-registration-card h4 {
+    margin: 0;
+    color: #06b6d4;
+    font-size: 1.02rem;
+}
+
+.payroll-registration-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 11px 12px;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    background: #0f172a;
+    font-size: 0.84rem;
+    cursor: pointer;
+}
+
+.payroll-registration-option.is-on {
+    border-color: #06b6d4;
+    box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.12);
+}
+
+.payroll-registration-option input {
+    margin-top: 3px;
+    accent-color: #06b6d4;
+}
+
+.payroll-registration-option small {
+    display: block;
+    margin-top: 2px;
+    color: #94a3b8;
+    font-size: 0.74rem;
+}
+
+.payroll-registration-table {
+    max-height: 290px;
+    overflow: auto;
+    border: 1px solid #334155;
+    border-radius: 10px;
+}
+
+.payroll-registration-table table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.payroll-registration-table th,
+.payroll-registration-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #263244;
+    text-align: left;
+}
+
+.payroll-registration-table th {
+    position: sticky;
+    top: 0;
+    background: #172033;
+    color: #94a3b8;
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.payroll-registration-table .is-amount {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.payroll-registration-table .is-total td {
+    font-weight: 800;
+}
+
+.payroll-registration-warning {
+    padding: 10px 12px;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 9px;
+    background: rgba(245, 158, 11, 0.07);
+    color: #fde68a;
+    font-size: 0.76rem;
+}
+
+.payroll-registration-note {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 0.74rem;
+}
+
+.payroll-registration-confirm {
+    display: grid;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.payroll-registration-confirm__check {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: #cbd5e1;
+    font-size: 0.78rem;
+}
+
+.payroll-registration-confirm__check input {
+    margin-top: 2px;
+    accent-color: #06b6d4;
+}
+
+.payroll-registration-confirm__check.is-disabled {
+    opacity: 0.6;
+}
+
+.payroll-registration-confirm__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.payroll-registration-confirm__actions button {
+    flex: 1 1 140px;
+}
+
+/* Dentro del resumen lateral: mismo margen y botones que sus otras acciones */
+.payroll-registration-confirm.is-summary {
+    margin-top: 0;
+}
+
+.payroll-registration-confirm.is-summary .payroll-registration-confirm__actions {
+    display: grid;
+    gap: 8px;
+}
+
+.payroll-registration-confirm.is-summary .payroll-registration-confirm__check,
+.payroll-registration-confirm.is-summary .payroll-registration-note,
+.payroll-registration-excess {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.payroll-registration-excess p {
+    margin: 0 0 4px;
+}
+
+.payroll-registration-excess ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
 .payroll-history-card__period,
 .payroll-history-card__facts span {
     display: grid;
@@ -1338,6 +1657,18 @@
     .payroll-history-card__facts {
         grid-template-columns: repeat(3, 1fr);
         gap: 8px;
+    }
+
+    .payroll-history-card.is-missing {
+        padding-right: 16px;
+    }
+
+    .payroll-history-card__cta {
+        justify-self: start;
+    }
+
+    .payroll-history-review__issue {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .payroll-history-detail__header {

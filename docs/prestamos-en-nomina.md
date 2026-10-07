@@ -95,6 +95,27 @@ Los cierres creados antes de guardar líderes históricos siguen siendo consulta
 
 Al iniciar, los lotes históricos antiguos con `previewRows` completos se convierten de forma idempotente. Los lotes parciales se omiten y se vuelven a evaluar en otro arranque; un lote corrupto o demasiado grande se aísla para no bloquear los demás. Las nóminas antiguas sin evidencia persistida no se reconstruyen.
 
+### Revisión de cierres
+
+Sobre la lista, el bloque `Revisión de cierres` muestra solo hechos calculados con todos los cierres guardados en el dispositivo (`PayrollClosureReview.js`, funciones puras):
+
+- **Copia repetida.** Dos cierres vigentes que comparten el mismo lote de abonos (`loanSettlementBatchId`), o el mismo periodo y contenido, son el mismo cierre guardado dos veces. Se conserva la copia a la que apuntan los abonos (`payrollClosureId`); si ninguna, la que tiene obra (schema 3); si no, la más reciente. `Quitar copia` anula solo ese registro con el motivo `Copia repetida`: no deshace el lote, no toca los abonos ni lo que deben. Mientras exista la copia, `Deshacer cierre` se niega en cualquiera de las dos, porque anularía los abonos de la otra.
+- **Revisar.** Un cierre vigente guardado antes de terminar su periodo, o con préstamos en cero mientras hay abonos anotados a mano para esas mismas fechas sin cierre.
+- **Fechas corridas.** Un cierre fuera de la cuadrícula de pagos se marca como información, con el periodo más cercano.
+- **Sin cierre.** Cada periodo terminado de la cuadrícula, desde el primero con abonos de nómina, que no tiene un cierre vigente válido. El filtro `Estado` tiene la opción `Sin cierre`. Si el único cierre del periodo está para revisar, el bloque ofrece registrar el cierre correcto, que lo reemplaza.
+
+### Registrar el cierre de un periodo ya pagado
+
+`Registrar cierre` (en una tarjeta `Sin cierre` o en un cierre para revisar) abre `Generar Nómina` con las fechas del periodo y el aviso «Registrando un periodo ya pagado». `Cancelar` vuelve al Historial sin guardar nada.
+
+- El paso 4 no ofrece cobrar préstamos. Pregunta qué hacer con los abonos ya anotados para esas fechas (abonos vigentes con `payrollPeriodStart`/`payrollPeriodEnd` del periodo y sin cierre): **usarlos** (recomendado, con la tabla por empleado) o **cerrar sin préstamos**. Avisa que los pasos 1 a 3 usan la asistencia de hoy y pueden no coincidir con lo pagado.
+- El resumen muestra los préstamos «ya anotados», la casilla obligatoria «Revisé que coincide con lo que se pagó el dd/mm» (es la confirmación de pago ligada a la vista previa exacta) y el botón `Registrar cierre`.
+- El cierre se arma con el mismo borrador y la misma huella que un cierre normal. Los préstamos de cada fila son la suma de sus abonos ya anotados (`loanDetails` con `linked: true`). No se crea lote (`loanSettlementBatchId: null`) y no se crea ni se anula ningún abono: cada abono se marca con `payrollClosureId`, `payrollClosureLinked` y `payrollClosureLinkedAt`, y se guarda con el cierre en la misma transacción (`saveWithEmployees`). El cierre guarda `registrationKind: 'already-paid'` y `linkedPaymentRefs`.
+- Solo se enlazan descuentos de nómina: canal `payroll`, o sin canal con origen `payroll` o `conversion`. Los abonos en efectivo, por transferencia o directos sin canal quedan fuera (el paso 4 dice cuántos), y tampoco cuentan en la revisión del Historial.
+- Si los abonos ya hechos de un empleado superan el neto calculado hoy, no bloquea: el neto de esa fila queda en cero y el paso 4 y el resumen avisan «El abono es mayor que el neto calculado hoy. Revisa si parte se pagó en efectivo.» con el número del empleado y el exceso. Un neto negativo por deducciones sigue bloqueando como en un cierre normal.
+- Si el periodo ya tenía un cierre para revisar, el registro es una corrección (`supersedesId`) y ese cierre deja de estar vigente.
+- `Deshacer cierre` de un cierre registrado solo quita esas marcas (los abonos siguen vigentes y lo que deben no cambia) y anula el cierre.
+
 ### Fase futura: constancia PDF
 
 La generación y el envío o respaldo de una constancia PDF conjunta de Nómina y préstamos quedan fuera del siguiente incremento. El proyecto dispone de exportación PDF local y de infraestructura Supabase enfocada actualmente en Caja Chica, pero el cierre de Nómina necesitará un diseño propio de permisos, destinatarios, retención, reintentos y auditoría antes de reutilizar esa infraestructura.

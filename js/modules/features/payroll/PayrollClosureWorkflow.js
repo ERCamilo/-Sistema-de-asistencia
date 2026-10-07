@@ -14,6 +14,13 @@ import {
 import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { captureEntityProjectScope, entityInScope } from '../projects/EntityProjectScope.js';
+import {
+    isPayrollRegistrationClosure,
+    linkedPaymentRefsFromRows,
+    linkRegistrationPayments,
+    PAYROLL_REGISTRATION_KIND,
+    unlinkRegistrationPayments
+} from './PayrollRegistration.js';
 
 function money(value) {
     return Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
@@ -40,6 +47,20 @@ function hasClosedPayrollClosureSuccessor(closures, closureId) {
         }
         return false;
     });
+}
+
+/**
+ * Una copia repetida comparte el lote de abonos con el cierre que se conserva:
+ * deshacer cualquiera de los dos anularía los abonos del otro.
+ */
+function sharesLoanBatchWithAnotherClosure(closures, closure) {
+    const batchId = String(closure?.loanSettlementBatchId || '');
+    if (!batchId) return false;
+    return (closures || []).some(other =>
+        other?.id && String(other.id) !== String(closure.id) &&
+        other.status === PAYROLL_CLOSURE_STATUS.CLOSED &&
+        String(other.loanSettlementBatchId || '') === batchId
+    );
 }
 
 export function getPayrollClosureGate({
@@ -101,7 +122,8 @@ export function buildPayrollClosureDraft({
     bonuses = [],
     deductions = [],
     supersedesId = null,
-    projectId
+    projectId,
+    registration = false
 } = {}) {
     if (isProjectsEnabled() && !projectId) {
         assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.buildPayrollClosureDraft');
@@ -123,7 +145,8 @@ export function buildPayrollClosureDraft({
         ? buildPayrollPreviewFingerprint({ projectId: closureProjectId, periodStart, periodEnd, rows })
         : buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
     const hasLoans = rows.some(item => money(item?._loans) > 0);
-    const loanBatch = hasLoans ? buildPayrollLoanSettlementBatch({
+    // Un periodo ya pagado no cobra préstamos: enlaza los abonos ya anotados.
+    const loanBatch = hasLoans && !registration ? buildPayrollLoanSettlementBatch({
         employees: filteredEmployees,
         rows,
         periodStart,
@@ -147,6 +170,10 @@ export function buildPayrollClosureDraft({
     };
     if (projectAware) closureOptions.projectId = closureProjectId;
     const closure = buildPayrollClosure(closureOptions);
+    if (registration) {
+        closure.registrationKind = PAYROLL_REGISTRATION_KIND;
+        closure.linkedPaymentRefs = linkedPaymentRefsFromRows(rows);
+    }
     assertPayrollClosureSize(closure);
     return {
         closure,
@@ -190,6 +217,9 @@ export function applyPayrollClosureEffects(employees, draft, {
             recordedBy
         });
     }
+    const linkResult = isPayrollRegistrationClosure(draft.closure)
+        ? linkRegistrationPayments(scopedEmployees, draft.closure, { now })
+        : { linkedCount: 0, affectedEmployeeIds: [] };
     let installmentResult = { appliedCount: 0, relinkedCount: 0, affectedEmployeeIds: [] };
     const hasAdjustmentInstallments = (draft.closure.adjustments?.bonuses || []).some(b => b.installments?.length) ||
         (draft.closure.adjustments?.deductions || []).some(d => d.installments?.length);
@@ -202,10 +232,12 @@ export function applyPayrollClosureEffects(employees, draft, {
     }
     const affected = new Set([
         ...(draft.batch?.employees || []).map(item => String(item.employeeId)),
+        ...linkResult.affectedEmployeeIds,
         ...installmentResult.affectedEmployeeIds
     ]);
     return {
         loanResult,
+        linkedPaymentCount: linkResult.linkedCount,
         appliedInstallmentCount: installmentResult.appliedCount,
         relinkedInstallmentCount: installmentResult.relinkedCount,
         affectedEmployeeIds: [...affected].sort((left, right) =>
@@ -232,6 +264,9 @@ export function undoPayrollClosureEffects(employees, closure, {
     if (hasClosedPayrollClosureSuccessor(activeClosures, closure.id)) {
         throw new Error('El cierre tiene una corrección vigente y no se puede deshacer');
     }
+    if (sharesLoanBatchWithAnotherClosure(activeClosures, closure)) {
+        throw new Error('Este cierre comparte sus abonos con otro cierre del mismo periodo. Quita primero la copia repetida.');
+    }
     const canonicalOwner = closureProjectId ? canonicalProjectId(closureProjectId) : null;
     const operationScope = (isScoped && canonicalOwner)
         ? { ...captureEntityProjectScope(), enabled: true, projectId: canonicalOwner }
@@ -245,7 +280,11 @@ export function undoPayrollClosureEffects(employees, closure, {
         if (foreignRow) throw new Error(`El empleado "${foreignRow?._employeeId ?? foreignRow?.employeeId ?? foreignRow?.id ?? 'desconocido'}" no pertenece al proyecto "${canonicalOwner}"`);
     }
     let voidedPaymentCount = 0;
-    if (closure.loanSettlementBatchId) {
+    let unlinkResult = { unlinkedCount: 0, affectedEmployeeIds: [] };
+    if (isPayrollRegistrationClosure(closure)) {
+        // Sus abonos se anotaron a mano: deshacer solo quita el enlace.
+        unlinkResult = unlinkRegistrationPayments(scopedEmployees, closure, { now });
+    } else if (closure.loanSettlementBatchId) {
         const result = undoPayrollLoanSettlementBatch(
             scopedEmployees,
             closure.loanSettlementBatchId,
@@ -265,11 +304,13 @@ export function undoPayrollClosureEffects(employees, closure, {
     }
     const affected = new Set([
         ...(closure.paymentRefs || []).map(ref => String(ref.employeeId)),
+        ...unlinkResult.affectedEmployeeIds,
         ...installmentResult.affectedEmployeeIds
     ]);
     return {
         closure: voidPayrollClosure(closure, { voidedAt: now, voidedBy, voidReason }),
         voidedPaymentCount,
+        unlinkedPaymentCount: unlinkResult.unlinkedCount,
         revertedInstallmentCount: installmentResult.revertedCount,
         affectedEmployeeIds: [...affected].sort((left, right) =>
             left.localeCompare(right, 'es', { numeric: true })

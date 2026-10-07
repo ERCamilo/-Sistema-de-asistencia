@@ -83,18 +83,64 @@ export function filterPayrollClosureHistory(items = [], filters = {}) {
     });
 }
 
-function renderHistoryCard(closure) {
+function shortDay(key) {
+    const value = String(key || '');
+    return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value.slice(8, 10)}/${value.slice(5, 7)}` : value;
+}
+
+function plural(count, singular, pluralForm) {
+    return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+function reviewFlagsFor(review, id) {
+    const flags = review?.cardFlags;
+    if (!flags) return null;
+    return (flags instanceof Map ? flags.get(String(id)) : flags[String(id)]) || null;
+}
+
+/** Explicación de una línea, solo con hechos, de lo que se revisa en el cierre. */
+function closureFlagCopy(flags) {
+    if (!flags) return null;
+    if (flags.superseded) return { text: 'Reemplazada por otro cierre del mismo periodo', info: true };
+    if (flags.duplicateOf) return { text: 'Copia repetida de otro cierre del mismo periodo', info: false };
+    const parts = [];
+    if (flags.closedBeforePeriodEnd) parts.push(`Se cerró el ${shortDay(flags.closedBeforePeriodEnd.closedOn)}, antes de terminar el periodo`);
+    if (flags.missingPeriodLoans) {
+        parts.push(`No incluye ${plural(flags.missingPeriodLoans.count, 'abono anotado', 'abonos anotados')} para estas fechas (${formatCurrency(flags.missingPeriodLoans.total)})`);
+    }
+    if (parts.length > 0) return { text: parts.join(' · '), info: false };
+    if (flags.offGrid) return { text: `Fechas corridas respecto al periodo de pago (${text(flags.offGrid.label)})`, info: true };
+    return null;
+}
+
+function closureStatusPill(closure, flags) {
+    if (closure.status === 'closed' && flags?.superseded) {
+        return '<span class="payroll-history-card__status is-voided">Reemplazada</span>';
+    }
+    if (closure.status === 'closed' && flags?.duplicateOf) {
+        return '<span class="payroll-history-card__status is-review">Repetida</span>';
+    }
+    if (closure.status === 'closed' && flags?.needsReview) {
+        return '<span class="payroll-history-card__status is-review">Revisar</span>';
+    }
+    return `<span class="payroll-history-card__status is-${text(closure.status)}">${statusLabel(closure.status)}</span>`;
+}
+
+function renderHistoryCard(closure, review = null) {
     const loanTotal = Number(closure.totals?.loans) || 0;
+    const flags = closure.status === 'closed' ? reviewFlagsFor(review, closure.id) : null;
+    const flag = closureFlagCopy(flags);
     return `
         <button type="button"
                 class="payroll-history-card"
                 data-payroll-action="open-payroll-history-detail"
                 data-id="${text(closure.id)}"
                 aria-label="Abrir nómina del ${text(closure.periodStart)} al ${text(closure.periodEnd)}">
-            <span class="payroll-history-card__status is-${text(closure.status)}">${statusLabel(closure.status)}</span>
+            ${closureStatusPill(closure, flags)}
             <span class="payroll-history-card__period">
                 <strong>${text(closure.periodStart)} – ${text(closure.periodEnd)}</strong>
                 <small>${formatDateTime(closure.closedAt)} · ${text(closure.closedBy || 'Sin usuario')}</small>
+                ${flag ? `<span class="payroll-history-card__flag ${flag.info ? 'is-info' : ''}">${flag.text}</span>` : ''}
             </span>
             <span class="payroll-history-card__facts">
                 <span><small>Empleados</small><strong>${Number(closure.employeeCount) || 0}</strong></span>
@@ -105,6 +151,109 @@ function renderHistoryCard(closure) {
             <span class="payroll-history-card__arrow" aria-hidden="true">›</span>
         </button>
     `;
+}
+
+function registrationButton(period, { supersedesId = null, className = '' } = {}) {
+    return `
+        <button type="button" class="payroll-history-review__action ${className}"
+                data-payroll-action="start-payroll-registration"
+                data-value="${text(period.periodStart)}|${text(period.periodEnd)}"
+                ${supersedesId ? `data-supersedes-id="${text(supersedesId)}"` : ''}>
+            Registrar cierre
+        </button>
+    `;
+}
+
+function renderMissingPeriodCard(period, { readOnly = false } = {}) {
+    const count = Number(period.paymentsCount) || 0;
+    return `
+        <div class="payroll-history-card is-missing" role="group"
+             aria-label="Periodo del ${text(period.periodStart)} al ${text(period.periodEnd)} sin cierre">
+            <span class="payroll-history-card__status is-missing">Sin cierre</span>
+            <span class="payroll-history-card__period">
+                <strong>${text(period.periodStart)} – ${text(period.periodEnd)}</strong>
+                <small>Pago del ${shortDay(period.payDate)} · ${count > 0 ? `${plural(count, 'abono anotado', 'abonos anotados')} a mano` : 'sin abonos anotados'}</small>
+            </span>
+            <span class="payroll-history-card__facts">
+                <span><small>Abonos anotados</small><strong>${count}</strong></span>
+                <span><small>Pago</small><strong>${shortDay(period.payDate)}</strong></span>
+                <span class="is-loan"><small>Préstamos</small><strong>${formatCurrency(period.paymentsTotal)}</strong></span>
+            </span>
+            ${readOnly ? '' : `<span class="payroll-history-card__cta">${registrationButton(period)}</span>`}
+        </div>
+    `;
+}
+
+function renderReviewIssue(issue, { readOnly = false } = {}) {
+    const period = `${shortDay(issue.periodStart)} al ${shortDay(issue.periodEnd)}`;
+    if (issue.kind === 'duplicate') {
+        const shared = Number(issue.paymentsCount) > 0
+            ? `Las dos copias comparten ${Number(issue.paymentsCount) === 1 ? 'el mismo abono' : `los mismos ${issue.paymentsCount} abonos`} (${formatCurrency(issue.loansTotal)}).`
+            : 'Las dos copias tienen el mismo contenido.';
+        return `
+            <div class="payroll-history-review__issue">
+                <span class="payroll-history-card__status is-review">Repetida</span>
+                <div>
+                    <strong>El cierre del ${period} está guardado dos veces</strong>
+                    <p>${shared} Se anula la copia sin tocar los abonos ni lo que deben.</p>
+                </div>
+                ${readOnly ? '<span></span>' : `
+                    <button type="button" class="payroll-history-review__action is-warn"
+                            data-payroll-action="remove-duplicate-payroll-closure"
+                            data-id="${text(issue.closureId)}">
+                        Quitar copia
+                    </button>
+                `}
+            </div>
+        `;
+    }
+    const facts = [];
+    if (issue.flags?.closedBeforePeriodEnd) {
+        facts.push(`Se cerró el ${shortDay(issue.flags.closedBeforePeriodEnd.closedOn)}, antes de terminar el periodo.`);
+    }
+    if (Number(issue.paymentsCount) > 0) {
+        facts.push(`${Number(issue.paymentsCount) === 1 ? 'El abono' : `Los ${issue.paymentsCount} abonos`} del periodo (${formatCurrency(issue.paymentsTotal)}) se ${Number(issue.paymentsCount) === 1 ? 'anotó' : 'anotaron'} a mano y no están en el cierre.`);
+    }
+    facts.push('Registra el cierre correcto, que reemplaza a este.');
+    return `
+        <div class="payroll-history-review__issue">
+            <span class="payroll-history-card__status is-review">Revisar</span>
+            <div>
+                <strong>La nómina del ${shortDay(issue.payDate)} (${period}) tiene un cierre que no cuadra</strong>
+                <p>${facts.join(' ')}</p>
+            </div>
+            ${readOnly ? '<span></span>' : registrationButton(issue, { supersedesId: issue.closureId, className: 'is-primary' })}
+        </div>
+    `;
+}
+
+function renderClosureReview(review, { readOnly = false } = {}) {
+    const issues = review?.issues || [];
+    const missing = (review?.periodsWithoutClosure || []).filter(period => !period.replaceableClosure);
+    if (issues.length === 0 && missing.length === 0) return '';
+    const summary = [
+        issues.length > 0 ? `${issues.length} por resolver` : 'Cierres en orden',
+        missing.length > 0 ? plural(missing.length, 'periodo sin cierre', 'periodos sin cierre') : ''
+    ].filter(Boolean).join(' · ');
+    return `
+        <section class="payroll-history-review" aria-label="Revisión de cierres">
+            <header>
+                <h3>Revisión de cierres</h3>
+                <span>${summary}</span>
+            </header>
+            ${issues.map(issue => renderReviewIssue(issue, { readOnly })).join('')}
+        </section>
+    `;
+}
+
+function filterMissingPeriods(periods = [], filters = {}) {
+    if (filters.status && filters.status !== 'missing') return [];
+    return (periods || []).filter(period => {
+        if (period.replaceableClosure) return false;
+        if (filters.periodStart && String(period.periodEnd || '') < String(filters.periodStart)) return false;
+        if (filters.periodEnd && String(period.periodStart || '') > String(filters.periodEnd)) return false;
+        return true;
+    });
 }
 
 export function renderPayrollHistoryView({
@@ -119,6 +268,7 @@ export function renderPayrollHistoryView({
     currentEmployees = [],
     detailFilters = {},
     readOnly = false,
+    review = null,
     now = Date.now()
 } = {}) {
     if (selectedClosure) return renderPayrollHistoryDetail(selectedClosure, {
@@ -127,7 +277,9 @@ export function renderPayrollHistoryView({
         detailFilters,
         readOnly
     });
-    const visible = filterPayrollClosureHistory(items, filters).slice(0, 10);
+    const visible = filters.status === 'missing' ? [] : filterPayrollClosureHistory(items, filters).slice(0, 10);
+    // Los periodos sin cierre no son registros guardados: se muestran en la primera página.
+    const missing = Math.max(1, Number(page) || 1) === 1 ? filterMissingPeriods(review?.periodsWithoutClosure, filters) : [];
     return `
         <section class="payroll-history" aria-labelledby="payroll-history-title">
             <header class="payroll-history__header">
@@ -144,6 +296,7 @@ export function renderPayrollHistoryView({
                         <option value="" ${filters.status ? '' : 'selected'}>Todos</option>
                         <option value="closed" ${filters.status === 'closed' ? 'selected' : ''}>Cerradas</option>
                         <option value="voided" ${filters.status === 'voided' ? 'selected' : ''}>Anuladas</option>
+                        <option value="missing" ${filters.status === 'missing' ? 'selected' : ''}>Sin cierre</option>
                     </select>
                 </label>
                 <label>
@@ -157,10 +310,12 @@ export function renderPayrollHistoryView({
                            value="${text(filters.periodEnd || '')}">
                 </label>
             </div>
+            ${renderClosureReview(review, { readOnly })}
             ${error ? `<div class="payroll-history__message is-error" role="alert">${text(error)}</div>` : ''}
             <div class="payroll-history__list" aria-live="polite" aria-busy="${loading}">
-                ${visible.map(renderHistoryCard).join('')}
-                ${!loading && visible.length === 0 && !error
+                ${visible.map(closure => renderHistoryCard(closure, review)).join('')}
+                ${missing.map(period => renderMissingPeriodCard(period, { readOnly })).join('')}
+                ${!loading && visible.length === 0 && missing.length === 0 && !error
                     ? '<div class="payroll-history__message">No hay cierres para estos filtros.</div>'
                     : ''}
                 ${loading ? '<div class="payroll-history__message">Cargando historial…</div>' : ''}
@@ -221,6 +376,7 @@ export function renderPayrollHistoryDetail(closure, {
                     <h2 id="payroll-history-detail-title">${text(closure.periodStart)} – ${text(closure.periodEnd)}</h2>
                     <p>Cerrada ${formatDateTime(closure.closedAt)} · ${text(closure.closedBy || 'Sin usuario')}</p>
                     ${closure.supersedesId ? `<small>Corrección de ${text(closure.supersedesId)}</small>` : ''}
+                    ${closure.registrationKind === 'already-paid' ? `<small>Periodo ya pagado: ${plural((closure.linkedPaymentRefs || []).length, 'abono anotado enlazado', 'abonos anotados enlazados')}; no se cobraron préstamos otra vez.</small>` : ''}
                     ${closure.status === 'voided' ? `<small>Anulada ${formatDateTime(closure.voidedAt)} · ${text(closure.voidedBy || 'Sin usuario')}</small>` : ''}
                 </div>
                 <div class="payroll-history-detail__actions">

@@ -413,6 +413,21 @@ export class PayrollClosureStore {
         };
     }
 
+    /**
+     * Todos los cierres visibles (para la revisión del Historial), sin paginar.
+     * Con obras activas, solo los de la obra capturada.
+     */
+    async listAll() {
+        if (!isProjectsEnabled()) {
+            return ((await this.db.getAll(PAYROLL_CLOSURE_STORE)) || []).map(clone);
+        }
+        const pid = captureScopedProjectId();
+        if (pid == null) return [];
+        const records = await this.db.query(PAYROLL_CLOSURE_STORE, 'projectId', pid);
+        ensureNotStale(pid);
+        return (records || []).filter(item => ownsClosure(item, pid)).map(clone);
+    }
+
     async getSyncStates(closureIds = []) {
         const ids = [...new Set((closureIds || []).map(String).filter(Boolean))];
         const states = Object.fromEntries(ids.map(id => [id, 'synced']));
