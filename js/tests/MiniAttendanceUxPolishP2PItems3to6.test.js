@@ -48,6 +48,18 @@ function baseFixtures() {
     return { positions, employees, attendance, applyPlan };
 }
 
+// Las fechas de prueba son de septiembre de 2026; con el reloj real, al pasar
+// 30 días la app pide confirmar fechas antiguas y la prueba se detenía ahí.
+// Se fija «hoy» cerca de esas fechas (los temporizadores siguen siendo reales).
+const PINNED_TODAY = new Date('2026-09-12T12:00:00');
+beforeAll(() => {
+    jest.useFakeTimers({
+        now: PINNED_TODAY,
+        doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'nextTick', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'performance', 'hrtime']
+    });
+});
+afterAll(() => jest.useRealTimers());
+
 describe('P2P UX polish items 3-6 — attendance connected flow', () => {
     let host;
     beforeEach(() => {
