@@ -7679,3 +7679,63 @@
 .payroll-plan-edit__locked { grid-column: 1 / -1; margin: 0; color: #8b98a3; font-size: 0.66rem; }
 .payroll-plan-edit__form > button { grid-column: 1 / -1; justify-self: end; }
 @media (max-width: 620px) { .payroll-plan-edit__form { grid-template-columns: 1fr; } }
+
+/* Programados: la fila se ajusta al ancho de la tarjeta (antes el botón quedaba cortado). */
+.payroll-adjustment-scheduled {
+    container-type: inline-size;
+}
+
+.payroll-scheduled__group > summary {
+    grid-template-columns: minmax(0, 1.3fr) repeat(5, minmax(0, 0.8fr)) auto;
+    font-size: 0.78rem;
+}
+
+.payroll-scheduled__employee > summary {
+    grid-template-columns: minmax(0, 1.25fr) repeat(4, minmax(0, 0.8fr)) auto;
+    font-size: 0.78rem;
+}
+
+.payroll-scheduled__group > summary > span,
+.payroll-scheduled__employee > summary > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+@container (max-width: 760px) {
+    .payroll-scheduled__group > summary,
+    .payroll-scheduled__employee > summary {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .payroll-scheduled__group > summary > span:not(:first-child):not(.payroll-scheduled__toggle),
+    .payroll-scheduled__employee > summary > span:not(:first-child):not(.payroll-scheduled__toggle) {
+        grid-column: 1 / -1;
+    }
+
+    .payroll-scheduled__toggle {
+        grid-column: 2;
+        grid-row: 1;
+    }
+}
+
+/* «Editar» se ve como botón, junto a «Borrar». */
+.payroll-plan-edit > summary {
+    align-items: center;
+    min-height: 32px;
+    padding: 6px 12px;
+    border: 1px solid #475569;
+    border-radius: 7px;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.payroll-plan-edit > summary:hover,
+.payroll-plan-edit > summary:focus-visible {
+    border-color: #94a3b8;
+}
+
+.payroll-plan-edit[open] > summary {
+    margin-bottom: 8px;
+}

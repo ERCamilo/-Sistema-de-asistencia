@@ -504,7 +504,7 @@ function renderEmployee(item, index, group, projectionRevision) {
                 <span>Aplicado <strong>${formatCurrency(item.appliedAmount)}</strong></span>
                 <span>Saldo <strong>${formatCurrency(item.balance)}</strong></span>
                 <span>${safe(item.statusLabel)}</span>
-                <span class="payroll-scheduled__toggle"><span>Ver historial</span><span>Ocultar historial</span></span>
+                <span class="payroll-scheduled__toggle"><span>Editar o borrar</span><span>Ocultar</span></span>
             </summary>
             <div class="payroll-scheduled__employee-body">
                 <p><strong>Próximo pago:</strong> ${safe(next)}</p>
@@ -649,7 +649,7 @@ function renderGroup(group, index, projectionRevision) {
                 <span>${safe(countLabel)}</span>
                 <span>${safe(startLabel)}</span>
                 <span><strong>${safe(group.statusLabel)}</strong><small>${safe(group.progressLabel)}</small></span>
-                <span class="payroll-scheduled__toggle"><span>Ver detalle</span><span>Ocultar detalle</span></span>
+                <span class="payroll-scheduled__toggle"><span>Ver y editar</span><span>Ocultar</span></span>
             </summary>
             <div class="payroll-scheduled__group-body">
                 ${group.periodEligibleCount > 0 ? `
