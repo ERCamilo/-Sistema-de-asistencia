@@ -1383,6 +1383,32 @@
     flex: 1 1 140px;
 }
 
+/* Dentro del resumen lateral: mismo margen y botones que sus otras acciones */
+.payroll-registration-confirm.is-summary {
+    margin-top: 0;
+}
+
+.payroll-registration-confirm.is-summary .payroll-registration-confirm__actions {
+    display: grid;
+    gap: 8px;
+}
+
+.payroll-registration-confirm.is-summary .payroll-registration-confirm__check,
+.payroll-registration-confirm.is-summary .payroll-registration-note,
+.payroll-registration-excess {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.payroll-registration-excess p {
+    margin: 0 0 4px;
+}
+
+.payroll-registration-excess ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
 .payroll-history-card__period,
 .payroll-history-card__facts span {
     display: grid;

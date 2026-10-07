@@ -39,7 +39,22 @@ export function renderPayrollRegistrationBanner(registration, { active = true } 
     `;
 }
 
-export function renderPayrollRegistrationLoans({ registration, summary }) {
+export const REGISTRATION_EXCESS_COPY = 'El abono es mayor que el neto calculado hoy. Revisa si parte se pagó en efectivo.';
+
+/** Aviso (no bloquea) de abonos ya hechos que superan el neto calculado hoy. */
+export function renderPayrollRegistrationExcess(excess = []) {
+    if (!excess || excess.length === 0) return '';
+    return `
+        <div class="payroll-registration-warning payroll-registration-excess" role="status">
+            <p>${REGISTRATION_EXCESS_COPY}</p>
+            <ul>
+                ${excess.map(item => `<li>#${escapeHTML(item.employeeNumber)}: ${formatCurrency(item.excess)} más que el neto</li>`).join('')}
+            </ul>
+        </div>
+    `;
+}
+
+export function renderPayrollRegistrationLoans({ registration, summary, excess = [] }) {
     const linkMode = registration.loanMode !== REGISTRATION_LOAN_MODE.NONE;
     const option = (mode, title, detail) => `
         <label class="payroll-registration-option ${registration.loanMode === mode ? 'is-on' : ''}">
@@ -78,6 +93,10 @@ export function renderPayrollRegistrationLoans({ registration, summary }) {
                 </div>
             ` : ''}
             ${linkMode && summary.count === 0 ? '<p class="payroll-registration-note">No hay abonos anotados para estas fechas.</p>' : ''}
+            ${summary.excludedCount > 0 ? `
+                <p class="payroll-registration-note">${plural(summary.excludedCount, 'abono', 'abonos')} (${formatCurrency(summary.excludedTotal)}) en efectivo, por transferencia o directos ${summary.excludedCount === 1 ? 'queda' : 'quedan'} fuera: solo se enlazan los descuentos de nómina.</p>
+            ` : ''}
+            ${linkMode ? renderPayrollRegistrationExcess(excess) : ''}
             ${summary.outsideCount > 0 ? `
                 <p class="payroll-registration-note">${plural(summary.outsideCount, 'abono', 'abonos')} (${formatCurrency(summary.outsideTotal)}) de empleados sin pago en esta nómina ${summary.outsideCount === 1 ? 'queda' : 'quedan'} sin enlazar.</p>
             ` : ''}
@@ -88,8 +107,12 @@ export function renderPayrollRegistrationLoans({ registration, summary }) {
     `;
 }
 
-/** Casilla obligatoria y botón «Registrar cierre» (resumen y paso 5). */
-export function renderPayrollRegistrationActions({ registration, gate }) {
+/**
+ * Casilla obligatoria y botón «Registrar cierre». variant 'summary' va dentro
+ * del contenedor con margen del resumen lateral y usa sus estilos de botón;
+ * 'panel' es la versión del paso 5.
+ */
+export function renderPayrollRegistrationActions({ registration, gate, excess = [], variant = 'panel' }) {
     const canConfirm = Boolean(
         gate?.hasRows && gate?.invalidCount === 0 &&
         !['history-loading', 'history-error', 'in-progress', 'already-closed', 'leader-filtered'].includes(gate?.reason)
@@ -98,8 +121,10 @@ export function renderPayrollRegistrationActions({ registration, gate }) {
         ? payrollClosureBlockerMessage(gate)
         : '';
     const payDay = registration.payDate ? ` el ${shortDay(registration.payDate)}` : '';
+    const inSummary = variant === 'summary';
     return `
-        <div class="payroll-registration-confirm">
+        <div class="payroll-registration-confirm ${inSummary ? 'payroll-guide-summary__actions is-summary' : ''}">
+            ${registration.loanMode !== REGISTRATION_LOAN_MODE.NONE ? renderPayrollRegistrationExcess(excess) : ''}
             <label class="payroll-registration-confirm__check ${canConfirm ? '' : 'is-disabled'}">
                 <input type="checkbox"
                        data-payroll-action="toggle-payroll-paid"
@@ -109,12 +134,12 @@ export function renderPayrollRegistrationActions({ registration, gate }) {
             </label>
             ${blocker ? `<p class="payroll-registration-note">${escapeHTML(blocker)}</p>` : ''}
             <div class="payroll-registration-confirm__actions">
-                <button type="button" class="payroll-registration-confirm__submit"
+                <button type="button" class="${inSummary ? '' : 'payroll-registration-confirm__submit'}"
                         data-payroll-action="open-payroll-closure"
                         ${gate?.enabled ? '' : 'disabled aria-disabled="true"'}>
                     Registrar cierre
                 </button>
-                <button type="button" class="payroll-registration-banner__cancel"
+                <button type="button" class="${inSummary ? '' : 'payroll-registration-banner__cancel'}"
                         data-payroll-action="cancel-payroll-registration">
                     Cancelar
                 </button>
@@ -125,6 +150,7 @@ export function renderPayrollRegistrationActions({ registration, gate }) {
 
 export default {
     renderPayrollRegistrationActions,
+    renderPayrollRegistrationExcess,
     renderPayrollRegistrationBanner,
     renderPayrollRegistrationLoans
 };

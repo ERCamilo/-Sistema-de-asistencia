@@ -15,6 +15,7 @@
 import { PAYROLL_CLOSURE_STATUS, voidPayrollClosure } from './PayrollClosure.js';
 import { getEffectivePayrollClosures } from './PayrollClosureWorkflow.js';
 import { buildPayPeriods } from '../loans/LoanPayPeriods.js';
+import { isPayrollDeductionPayment } from './PayrollRegistration.js';
 
 export const DUPLICATE_CLOSURE_VOID_REASON = 'Copia repetida';
 
@@ -67,12 +68,14 @@ function paymentEntries(employees = []) {
 }
 
 /**
- * Abonos vigentes anotados para el periodo exacto y todavía sin cierre
- * (payrollPeriodStart/End coinciden y no tienen payrollClosureId).
+ * Abonos de nómina vigentes anotados para el periodo exacto y todavía sin
+ * cierre (payrollPeriodStart/End coinciden y no tienen payrollClosureId).
+ * Los abonos en efectivo o por transferencia no pertenecen a un cierre.
  */
 export function findUnlinkedPeriodPayments(employees, periodStart, periodEnd) {
     return paymentEntries(employees).filter(({ payment }) =>
         payment.voided !== true &&
+        isPayrollDeductionPayment(payment) &&
         !text(payment.payrollClosureId) &&
         text(payment.payrollPeriodStart) === text(periodStart) &&
         text(payment.payrollPeriodEnd) === text(periodEnd)
@@ -237,7 +240,8 @@ function isReplaceable(flags) {
 export function findPeriodsWithoutClosure({ employees = [], closures = [], payPeriod = null, today } = {}) {
     if (!isValidPayPeriod(payPeriod) || !ISO_DAY.test(text(today))) return [];
     const starts = paymentEntries(employees)
-        .filter(({ payment }) => payment.voided !== true && ISO_DAY.test(text(payment.payrollPeriodStart)))
+        .filter(({ payment }) => payment.voided !== true && isPayrollDeductionPayment(payment) &&
+            ISO_DAY.test(text(payment.payrollPeriodStart)))
         .map(({ payment }) => text(payment.payrollPeriodStart))
         .sort();
     if (starts.length === 0) return [];

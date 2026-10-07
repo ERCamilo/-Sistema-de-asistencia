@@ -114,6 +114,9 @@ function employees() {
                     payrollClosureId: 'PAYROLL-CLOSURE-copy', payrollBatchId: 'PAYROLL-BATCH-legacy'
                 }),
                 payment('p-sep-2', 25, { payrollPeriodStart: '2026-09-11', payrollPeriodEnd: '2026-10-01' }),
+                // En efectivo o por transferencia: no pertenecen a un cierre de nómina.
+                payment('p-sep-cash', 500, { channel: 'cash', payrollPeriodStart: '2026-09-11', payrollPeriodEnd: '2026-10-01' }),
+                payment('p-aug-transfer', 300, { channel: 'transfer', payrollPeriodStart: '2026-08-21', payrollPeriodEnd: '2026-09-10' }),
                 payment('p-aug-2', 10, { payrollPeriodStart: '2026-08-21', payrollPeriodEnd: '2026-09-10' })
             ]
         }]
@@ -165,6 +168,14 @@ describe('PayrollClosureReview', () => {
 
         expect(flags.offGrid).toEqual({ periodStart: '2026-07-10', periodEnd: '2026-07-30', label: '10/07 – 30/07' });
         expect(flags.needsReview).toBe(false);
+    });
+
+    test('cash and transfer payments never count as missing payroll loans', () => {
+        const people = employees();
+        for (const item of people.flatMap(employee => employee.loans[0].payments)) {
+            if (item.payrollPeriodStart === '2026-09-11') item.channel = 'cash';
+        }
+        expect(reviewClosure(early, { employees: people, payPeriod: PAY_PERIOD }).missingPeriodLoans).toBeNull();
     });
 
     test('voided closures are not reviewed', () => {

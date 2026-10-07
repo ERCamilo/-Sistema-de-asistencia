@@ -46,10 +46,12 @@ import { renderPayrollHistoryView } from './PayrollHistoryUI.js';
 import { buildClosureReview, voidDuplicatePayrollClosure } from './PayrollClosureReview.js';
 import {
     applyRegistrationLoans,
+    collectExcludedRegistrationPayments,
     collectRegistrationPayments,
     getActivePayrollRegistration,
     normalizePayrollRegistration,
     REGISTRATION_LOAN_MODE,
+    registrationExcessRows,
     summarizeRegistrationPayments
 } from './PayrollRegistration.js';
 import {
@@ -622,9 +624,10 @@ function payrollRegistrationView(state, periodStart, periodEnd, employees, rows)
     const active = Boolean(getActivePayrollRegistration(registration, periodStart, periodEnd));
     const summary = summarizeRegistrationPayments(
         collectRegistrationPayments(employees, registration.periodStart, registration.periodEnd),
-        rows
+        rows,
+        collectExcludedRegistrationPayments(employees, registration.periodStart, registration.periodEnd)
     );
-    return { registration, active, summary };
+    return { registration, active, summary, excess: active ? registrationExcessRows(rows) : [] };
 }
 
 function registrationStepDetail(view) {
@@ -1020,7 +1023,8 @@ function ScopedPayrollTab(view) {
 
                             ${guideStep === 'review' && activeRegistration ? renderPayrollRegistrationActions({
                                 registration: activeRegistration.registration,
-                                gate: closureState.gate
+                                gate: closureState.gate,
+                                excess: activeRegistration.excess
                             }) : ''}
                             ${guideStep === 'review' && !activeRegistration ? renderPayrollClosurePanel({
                                 gate: closureState.gate,
@@ -1070,7 +1074,9 @@ function ScopedPayrollTab(view) {
                         </div>
                         ${activeRegistration ? renderPayrollRegistrationActions({
                             registration: activeRegistration.registration,
-                            gate: closureState.gate
+                            gate: closureState.gate,
+                            excess: activeRegistration.excess,
+                            variant: 'summary'
                         }) : ''}
                         <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
                             <button type="button"
@@ -1714,7 +1720,8 @@ function PayrollGeneratorTab() {
 
                 ${activeRegistration ? renderPayrollRegistrationActions({
                     registration: activeRegistration.registration,
-                    gate: payrollClosureGate
+                    gate: payrollClosureGate,
+                    excess: activeRegistration.excess
                 }) : renderPayrollClosurePanel({
                     gate: payrollClosureGate,
                     now: Date.now()
@@ -1822,7 +1829,9 @@ function PayrollGeneratorTab() {
                         </div>
                         ${activeRegistration ? renderPayrollRegistrationActions({
                             registration: activeRegistration.registration,
-                            gate: payrollClosureGate
+                            gate: payrollClosureGate,
+                            excess: activeRegistration.excess,
+                            variant: 'summary'
                         }) : ''}
                         <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
                         <button type="button"

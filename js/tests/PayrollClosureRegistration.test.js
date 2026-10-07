@@ -13,13 +13,17 @@ import {
 } from '../modules/features/payroll/PayrollClosureWorkflow.js';
 import {
     applyRegistrationLoans,
+    collectExcludedRegistrationPayments,
     collectRegistrationPayments,
+    isPayrollDeductionPayment,
+    registrationExcessRows,
     linkRegistrationPayments,
     PAYROLL_REGISTRATION_KIND,
     REGISTRATION_LOAN_MODE,
     summarizeRegistrationPayments
 } from '../modules/features/payroll/PayrollRegistration.js';
 import {
+    REGISTRATION_EXCESS_COPY,
     renderPayrollRegistrationActions,
     renderPayrollRegistrationBanner,
     renderPayrollRegistrationLoans
@@ -52,7 +56,11 @@ function employees() {
                 payment('p1', 30),
                 payment('p2', 20, { origin: 'conversion' }),
                 payment('p-void', 99, { voided: true }),
-                payment('p-other', 15, { payrollPeriodStart: '2026-08-21', payrollPeriodEnd: '2026-09-10' })
+                payment('p-other', 15, { payrollPeriodStart: '2026-08-21', payrollPeriodEnd: '2026-09-10' }),
+                // Anotados para el periodo pero fuera de la nómina: nunca se enlazan.
+                payment('p-cash', 40, { channel: 'cash' }),
+                payment('p-transfer', 12, { channel: 'transfer' }),
+                payment('p-direct', 5, { origin: 'direct' })
             ]
         }]
     }, {
@@ -64,7 +72,7 @@ function employees() {
         deductions: [],
         loans: [{
             id: 'l2', principal: 300, status: 'active', startDate: '2026-08-01', createdAt: 1,
-            payments: [payment('p3', 25)]
+            payments: [payment('p3', 25, { channel: 'payroll', origin: 'direct' })]
         }]
     }, {
         id: 'e3',
@@ -135,6 +143,46 @@ describe('Registro de un periodo ya pagado (puro)', () => {
         ]);
         const none = registrationRows(employees(), REGISTRATION_LOAN_MODE.NONE);
         expect(none.every(row => row._loans === 0 && row.monto === 1000)).toBe(true);
+    });
+
+    test('only payroll deductions are linked: cash, transfer and direct payments stay out', () => {
+        expect(isPayrollDeductionPayment({ channel: 'payroll', origin: 'direct' })).toBe(true);
+        expect(isPayrollDeductionPayment({ origin: 'payroll' })).toBe(true);
+        expect(isPayrollDeductionPayment({ origin: 'conversion' })).toBe(true);
+        expect(isPayrollDeductionPayment({ channel: 'cash', origin: 'payroll' })).toBe(false);
+        expect(isPayrollDeductionPayment({ channel: 'transfer', origin: 'conversion' })).toBe(false);
+        expect(isPayrollDeductionPayment({ origin: 'direct' })).toBe(false);
+        expect(isPayrollDeductionPayment({})).toBe(false);
+
+        expect(collectRegistrationPayments(employees(), START, END).map(item => item.paymentId))
+            .toEqual(['p1', 'p2', 'p3']);
+        const excluded = collectExcludedRegistrationPayments(employees(), START, END);
+        expect(excluded.map(item => item.paymentId).sort()).toEqual(['p-cash', 'p-direct', 'p-transfer']);
+        const summary = summarizeRegistrationPayments(collectRegistrationPayments(employees(), START, END), baseRows(), excluded);
+        expect(summary).toEqual(expect.objectContaining({ count: 3, total: 75, excludedCount: 3, excludedTotal: 57 }));
+    });
+
+    test('payments above today\'s net are a warning, not a negative pay; other negatives still block', () => {
+        const rows = baseRows(['e1', 'e2']);
+        rows[0] = { ...rows[0], monto: 40, _montoBeforeLoans: 40 };
+        rows[1] = { ...rows[1], monto: -5, _montoBeforeLoans: -5 };
+        const applied = applyRegistrationLoans(rows, collectRegistrationPayments(employees(), START, END));
+
+        expect(applied[0]).toEqual(expect.objectContaining({
+            monto: 0, _loans: 50, _registrationExcess: 10, _invalidLoanNet: false
+        }));
+        expect(applied[1]).toEqual(expect.objectContaining({ monto: -30, _registrationExcess: 0, _invalidLoanNet: true }));
+        expect(registrationExcessRows(applied)).toEqual([{ employeeId: 'e1', employeeNumber: '1', excess: 10 }]);
+
+        const gate = getPayrollClosureGate({ rows: [applied[0]], fingerprint: 'f', paidConfirmation: { fingerprint: 'f' } });
+        expect(gate).toEqual(expect.objectContaining({ enabled: true, invalidCount: 0 }));
+        expect(getPayrollClosureGate({ rows: applied, fingerprint: 'f', paidConfirmation: { fingerprint: 'f' } }).reason)
+            .toBe('invalid-net');
+
+        const draft = buildPayrollClosureDraft({
+            employees: employees(), rows: [applied[0]], periodStart: START, periodEnd: END, registration: true
+        });
+        expect(draft.closure.rows[0]).toEqual(expect.objectContaining({ gross: 1000, loans: 50, net: 0 }));
     });
 
     test('summary counts per employee and leaves aside employees without a payroll row', () => {
@@ -290,10 +338,32 @@ describe('Registro de un periodo ya pagado (pantallas)', () => {
         expect(document.querySelectorAll('.payroll-registration-table tbody tr')).toHaveLength(3);
         expect(document.body.textContent).toContain('pagó el 03/10');
 
+        document.body.innerHTML = renderPayrollRegistrationLoans({
+            registration,
+            summary: summarizeRegistrationPayments(
+                collectRegistrationPayments(employees(), START, END),
+                baseRows(),
+                collectExcludedRegistrationPayments(employees(), START, END)
+            ),
+            excess: [{ employeeId: 'e2', employeeNumber: '2', excess: 15 }]
+        });
+        expect(document.body.textContent).toContain('3 abonos ($57.00) en efectivo, por transferencia o directos quedan fuera');
+        expect(document.querySelector('.payroll-registration-excess').textContent).toContain(REGISTRATION_EXCESS_COPY);
+        expect(document.querySelector('.payroll-registration-excess li').textContent).toBe('#2: $15.00 más que el neto');
+
         document.body.innerHTML = renderPayrollRegistrationActions({
             registration,
-            gate: { enabled: false, hasRows: true, invalidCount: 0, payrollPaid: false, reason: 'payroll-not-confirmed' }
+            gate: { enabled: false, hasRows: true, invalidCount: 0, payrollPaid: false, reason: 'payroll-not-confirmed' },
+            excess: [{ employeeId: 'e2', employeeNumber: '2', excess: 15 }],
+            variant: 'summary'
         });
+        const container = document.querySelector('.payroll-registration-confirm');
+        expect(container.classList.contains('payroll-guide-summary__actions')).toBe(true);
+        expect(container.querySelector('.payroll-registration-excess')).not.toBeNull();
+        const buttons = [...container.querySelectorAll('button')];
+        expect(buttons.map(button => button.textContent.trim())).toEqual(['Registrar cierre', 'Cancelar']);
+        expect(buttons.every(button => button.className.trim() === '')).toBe(true);
+        expect(buttons[0].matches(':first-child')).toBe(true);
         expect(document.querySelector('label').textContent).toContain('Revisé que coincide con lo que se pagó el 03/10');
         const submit = document.querySelector('[data-payroll-action="open-payroll-closure"]');
         expect(submit.textContent.trim()).toBe('Registrar cierre');
@@ -352,6 +422,43 @@ describe('Registro de un periodo ya pagado (flujo completo, sin obras)', () => {
         jest.restoreAllMocks();
         delete globalThis.currentUser;
         delete window.showNotification;
+    });
+
+    // Va primero: el generador guarda en memoria los cierres del periodo y el
+    // cierre registrado por la otra prueba cambiaría esta vista.
+    test('a period where payments exceed today\'s net still registers after the check', async () => {
+        PayrollUI.init({
+            state: appState,
+            services: {
+                payroll: {
+                    calculateEmployeePayroll: employeeId => {
+                        const neto = employeeId === 'e2' ? 10 : 1000;
+                        return { brutoOriginal: neto, bruto: neto, neto, bonuses: 0, deductions: 0, breakdown: [] };
+                    }
+                }
+            },
+            render: jest.fn(),
+            saveToLocalStorage: jest.fn()
+        });
+        PayrollUI.startPayrollRegistration(`${START}|${END}`, earlyClosure.id);
+        PayrollUI.togglePayrollPaidConfirmation(true);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        PayrollUI.togglePayrollPaidConfirmation(true);
+        expect(appState.exportConfig.payrollPaidConfirmation).not.toBeNull();
+
+        document.body.innerHTML = PayrollUI.PayrollTab();
+        expect(document.body.textContent).not.toContain('pago(s) negativos');
+        const summaryBlock = document.querySelector('.payroll-guide-summary .payroll-registration-confirm.payroll-guide-summary__actions');
+        expect(summaryBlock.querySelector('.payroll-registration-excess li').textContent).toBe('#2: $15.00 más que el neto');
+        expect(summaryBlock.querySelector('[data-payroll-action="open-payroll-closure"]').disabled).toBe(false);
+
+        await PayrollUI.openPayrollClosure();
+
+        expect(saveWithEmployees).toHaveBeenCalledTimes(1);
+        const [closure] = saveWithEmployees.mock.calls[0];
+        expect(closure.rows.find(row => row.employeeId === 'e2')).toEqual(expect.objectContaining({ loans: 25, net: 0 }));
+        expect(appState.employees[1].loans[0].payments[0].payrollClosureId).toBe(closure.id);
+        expect(appState.employees[0].loans[0].payments.find(item => item.id === 'p-cash').payrollClosureId).toBeUndefined();
     });
 
     test('registers the period: links the payments, supersedes the early closure and goes back to the history', async () => {
