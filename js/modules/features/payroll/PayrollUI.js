@@ -43,6 +43,7 @@ import {
     renderPayrollClosurePanel
 } from './PayrollClosureUI.js';
 import { renderPayrollHistoryView } from './PayrollHistoryUI.js';
+import { buildClosureReview, voidDuplicatePayrollClosure } from './PayrollClosureReview.js';
 import { renderPayrollReviewTable } from './PayrollReviewTable.js';
 import {
     applyPayrollClosureEffects,
@@ -156,6 +157,7 @@ let payrollHistoryState = {
     loading: false,
     ready: false,
     error: null,
+    review: null,
     detailFilters: {
         leaderId: '',
         includeBonuses: true,
@@ -226,6 +228,11 @@ const _ACTION_MAP = {
     'prepare-payroll-correction': (closureId) => window.PayrollUI?.preparePayrollCorrection?.(closureId),
     'open-payroll-history-detail': (closureId) => window.PayrollUI?.openPayrollHistoryDetail?.(closureId),
     'close-payroll-history-detail': () => window.PayrollUI?.closePayrollHistoryDetail?.(),
+    'remove-duplicate-payroll-closure': (closureId) => window.PayrollUI?.removeDuplicatePayrollClosure?.(closureId),
+    'start-payroll-registration': (period, target) => window.PayrollUI?.startPayrollRegistration?.(
+        period,
+        target.dataset.supersedesId || null
+    ),
     'previous-payroll-history-page': () => window.PayrollUI?.loadPayrollHistory?.({ direction: 'previous' }),
     'next-payroll-history-page': () => window.PayrollUI?.loadPayrollHistory?.({ direction: 'next' }),
     'toggle-payroll-loan-details': (_employeeId, target, event) => {
@@ -4112,6 +4119,101 @@ function PayrollHistoryTab() {
     });
 }
 
+/** Todos los cierres guardados en este dispositivo (la revisión no depende de la página). */
+async function listAllLocalPayrollClosures() {
+    return payrollClosureStore.listAll();
+}
+
+function payrollReviewContext() {
+    const state = getState();
+    const view = payrollRuntime?.getCurrentView?.();
+    const scoped = Boolean(isProjectsEnabled() && view?.enabled && view.projectId);
+    return {
+        employees: scoped ? getScopedProjectEmployees(view.projectId, state) : (state.employees || []),
+        payPeriod: (scoped ? view.config?.payPeriod : null) || state.settings?.payPeriod || null
+    };
+}
+
+async function refreshPayrollClosureReview() {
+    try {
+        const closures = await listAllLocalPayrollClosures();
+        const { employees, payPeriod } = payrollReviewContext();
+        const review = buildClosureReview({
+            closures,
+            employees,
+            payPeriod,
+            today: getDateKey(new Date())
+        });
+        payrollHistoryState = { ...payrollHistoryState, review };
+    } catch (error) {
+        console.warn('No se pudo revisar los cierres de nómina:', error);
+        payrollHistoryState = { ...payrollHistoryState, review: null };
+    }
+    return payrollHistoryState.review;
+}
+
+function confirmPayrollAction({ title, message, confirmText }) {
+    if (typeof window.showConfirm !== 'function') return Promise.resolve(true);
+    return new Promise(resolve => {
+        window.showConfirm({
+            title,
+            message,
+            confirmText,
+            cancelText: 'Cancelar',
+            type: 'warning',
+            onConfirm: () => resolve(true),
+            onCancel: () => resolve(false)
+        });
+    });
+}
+
+/**
+ * Anula solo el registro de una copia repetida. No deshace su lote: los abonos
+ * pertenecen a la copia que se conserva y lo que deben los empleados no cambia.
+ */
+export async function removeDuplicatePayrollClosure(closureId) {
+    const id = String(closureId || '');
+    if (!id || payrollClosureInProgress) return;
+    if (isProjectsEnabled() && isTandaBBlocked()) {
+        assertTandaBBlockedWhenScoped('PayrollUI.removeDuplicatePayrollClosure');
+    }
+    const confirmed = await confirmPayrollAction({
+        title: '¿Quitar la copia repetida?',
+        message: 'Se anula solo la copia. Los abonos y lo que deben los empleados no cambian.',
+        confirmText: 'Quitar copia'
+    });
+    if (!confirmed || payrollClosureInProgress) return;
+    payrollClosureInProgress = true;
+    try {
+        const state = getState();
+        const closures = await listAllLocalPayrollClosures();
+        const closure = closures.find(item => String(item.id) === id);
+        if (!closure) throw new Error('No se encontró el cierre en el historial local.');
+        const voided = voidDuplicatePayrollClosure(closure, {
+            closures,
+            employees: payrollReviewContext().employees,
+            now: Date.now(),
+            voidedBy: settlementOperatorId()
+        });
+        const savedClosure = await payrollClosureStore.saveWithEmployees(voided, [], {
+            enqueueCloud: true,
+            schemaVersion: state.settings?.schemaVersion
+        });
+        updatePayrollHistoryState(savedClosure);
+        updatePayrollPeriodClosureCache(savedClosure);
+        await refreshPayrollClosureReview();
+        window.showNotification?.('Copia repetida anulada. Los abonos no cambiaron.', 'success');
+    } catch (error) {
+        await Modal.alert({
+            title: 'No se quitó la copia',
+            message: escapeHTML(error?.message || 'No se pudo anular la copia repetida.')
+        });
+    } finally {
+        payrollClosureInProgress = false;
+        context?.render?.();
+    }
+}
+
 function payrollHistorySummary(item = {}) {
     const summary = { ...item };
     delete summary.rows;
@@ -4168,16 +4270,20 @@ export async function loadPayrollHistory({ direction = 'current', force = false 
     };
     context?.render?.();
     try {
+        const onlyMissing = payrollHistoryState.filters.status === 'missing';
         const pageOptions = {
             limit: 10,
-            status: payrollHistoryState.filters.status || null,
+            status: onlyMissing ? null : (payrollHistoryState.filters.status || null),
             periodStart: payrollHistoryState.filters.periodStart || null,
             periodEnd: payrollHistoryState.filters.periodEnd || null,
             cursor
         };
         let remoteNotice = null;
         let page;
-        if (canUsePayrollRemote()) {
+        if (direction !== 'next') await refreshPayrollClosureReview();
+        if (onlyMissing) {
+            page = { items: [], nextCursor: null };
+        } else if (canUsePayrollRemote()) {
             try {
                 page = await payrollClosureSync.pullPage(pageOptions);
             } catch (error) {

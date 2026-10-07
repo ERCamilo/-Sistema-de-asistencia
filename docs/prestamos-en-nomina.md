@@ -95,6 +95,15 @@ Los cierres creados antes de guardar líderes históricos siguen siendo consulta
 
 Al iniciar, los lotes históricos antiguos con `previewRows` completos se convierten de forma idempotente. Los lotes parciales se omiten y se vuelven a evaluar en otro arranque; un lote corrupto o demasiado grande se aísla para no bloquear los demás. Las nóminas antiguas sin evidencia persistida no se reconstruyen.
 
+### Revisión de cierres
+
+Sobre la lista, el bloque `Revisión de cierres` muestra solo hechos calculados con todos los cierres guardados en el dispositivo (`PayrollClosureReview.js`, funciones puras):
+
+- **Copia repetida.** Dos cierres vigentes que comparten el mismo lote de abonos (`loanSettlementBatchId`), o el mismo periodo y contenido, son el mismo cierre guardado dos veces. Se conserva la copia a la que apuntan los abonos (`payrollClosureId`); si ninguna, la que tiene obra (schema 3); si no, la más reciente. `Quitar copia` anula solo ese registro con el motivo `Copia repetida`: no deshace el lote, no toca los abonos ni lo que deben. Mientras exista la copia, `Deshacer cierre` se niega en cualquiera de las dos, porque anularía los abonos de la otra.
+- **Revisar.** Un cierre vigente guardado antes de terminar su periodo, o con préstamos en cero mientras hay abonos anotados a mano para esas mismas fechas sin cierre.
+- **Fechas corridas.** Un cierre fuera de la cuadrícula de pagos se marca como información, con el periodo más cercano.
+- **Sin cierre.** Cada periodo terminado de la cuadrícula, desde el primero con abonos de nómina, que no tiene un cierre vigente válido. El filtro `Estado` tiene la opción `Sin cierre`. Si el único cierre del periodo está para revisar, el bloque ofrece registrar el cierre correcto, que lo reemplaza.
+
 ### Fase futura: constancia PDF
 
 La generación y el envío o respaldo de una constancia PDF conjunta de Nómina y préstamos quedan fuera del siguiente incremento. El proyecto dispone de exportación PDF local y de infraestructura Supabase enfocada actualmente en Caja Chica, pero el cierre de Nómina necesitará un diseño propio de permisos, destinatarios, retención, reintentos y auditoría antes de reutilizar esa infraestructura.

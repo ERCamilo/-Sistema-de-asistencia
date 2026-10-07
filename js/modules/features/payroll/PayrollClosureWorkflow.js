@@ -42,6 +42,20 @@ function hasClosedPayrollClosureSuccessor(closures, closureId) {
     });
 }
 
+/**
+ * Una copia repetida comparte el lote de abonos con el cierre que se conserva:
+ * deshacer cualquiera de los dos anularía los abonos del otro.
+ */
+function sharesLoanBatchWithAnotherClosure(closures, closure) {
+    const batchId = String(closure?.loanSettlementBatchId || '');
+    if (!batchId) return false;
+    return (closures || []).some(other =>
+        other?.id && String(other.id) !== String(closure.id) &&
+        other.status === PAYROLL_CLOSURE_STATUS.CLOSED &&
+        String(other.loanSettlementBatchId || '') === batchId
+    );
+}
+
 export function getPayrollClosureGate({
     rows = [],
     fingerprint = '',
@@ -231,6 +245,9 @@ export function undoPayrollClosureEffects(employees, closure, {
     }
     if (hasClosedPayrollClosureSuccessor(activeClosures, closure.id)) {
         throw new Error('El cierre tiene una corrección vigente y no se puede deshacer');
+    }
+    if (sharesLoanBatchWithAnotherClosure(activeClosures, closure)) {
+        throw new Error('Este cierre comparte sus abonos con otro cierre del mismo periodo. Quita primero la copia repetida.');
     }
     const canonicalOwner = closureProjectId ? canonicalProjectId(closureProjectId) : null;
     const operationScope = (isScoped && canonicalOwner)
