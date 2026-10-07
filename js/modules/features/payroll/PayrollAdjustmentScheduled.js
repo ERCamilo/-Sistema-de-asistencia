@@ -56,8 +56,10 @@ function registerScheduledActionReference(kind, item, projectionRevision) {
         groupId: text(item.groupId),
         updatedAt: Number(item.updatedAt),
         currentPayrollTotal: money(item.periodSelection?.total),
-        periodStart: text(item.periodSelection?.periodStart),
-        periodEnd: text(item.periodSelection?.periodEnd),
+        // Un plan que no aplica en esta nómina (empieza después, pausado) se
+        // puede borrar igual: la referencia guarda la nómina abierta.
+        periodStart: text(item.periodSelection?.periodStart || item.periodContext?.periodStart),
+        periodEnd: text(item.periodSelection?.periodEnd || item.periodContext?.periodEnd),
         projectionRevision
     }));
     return token;
@@ -266,6 +268,7 @@ function projectEmployee(plan, employeeById, selectionContext = {}) {
             periodStart: text(periodStart),
             periodEnd: text(periodEnd)
         } : null,
+        periodContext: { periodStart: text(periodStart), periodEnd: text(periodEnd) },
         cancellation: plan.cancellation ? { ...plan.cancellation } : null,
         history: projectHistory(plan)
     };

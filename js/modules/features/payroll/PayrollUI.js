@@ -727,6 +727,13 @@ export function PayrollTab() {
         const body = mode === 'history' ? PayrollHistoryTab() : ScopedPayrollTab(scopedView);
         return `<div>${PayrollViewSwitcher(mode)}${body}</div>`;
     }
+    // Con obras activas, el generador legacy no puede calcular (lanza
+    // LegacyPayrollUnavailableError). Mientras la obra no está lista (arranque,
+    // datos remotos aplicándose) se muestra un estado de carga.
+    if (isProjectsEnabled()) {
+        const body = mode === 'history' ? PayrollHistoryTab() : ScopedPayrollPendingTab();
+        return `<div>${PayrollViewSwitcher(mode)}${body}</div>`;
+    }
 
     return `
         <div>
@@ -734,6 +741,19 @@ export function PayrollTab() {
             ${mode === 'ledger'
                 ? LoansLedger()
                 : (mode === 'history' ? PayrollHistoryTab() : PayrollGeneratorTab())}
+        </div>
+    `;
+}
+
+function ScopedPayrollPendingTab() {
+    return `
+        <div class="payroll-generator payroll-project-preview payroll-loading-placeholder" aria-busy="true" role="status" style="min-height: 400px;">
+            <div class="payroll-generator__header">
+                <div>
+                    <h2><span>Nómina</span></h2>
+                    <p>Preparando la nómina de la obra…</p>
+                </div>
+            </div>
         </div>
     `;
 }
@@ -928,7 +948,7 @@ function ScopedPayrollTab(view) {
                             <h3>Deducciones de nómina</h3>
                             <p>Ajustes y descuentos para la obra activa.</p>
                         </div>
-                        ${renderDesktopAdjustmentWorkspace('deductions', state, rows)}
+                        ${renderDesktopAdjustmentWorkspace('deductions', state, rows, { period })}
                     </section>
 
                     <!-- Paso 3: Bonificaciones -->
@@ -937,7 +957,7 @@ function ScopedPayrollTab(view) {
                             <h3>Bonificaciones de nómina</h3>
                             <p>Abonos adicionales para la obra activa.</p>
                         </div>
-                        ${renderDesktopAdjustmentWorkspace('bonuses', state, rows)}
+                        ${renderDesktopAdjustmentWorkspace('bonuses', state, rows, { period })}
                     </section>
 
                     <!-- Paso 4: Préstamos -->
@@ -1905,6 +1925,9 @@ function renderAdjustmentSummaryDetails(summary, kind) {
 }
 
 function generateExportData() {
+    // Cálculo legacy: con obras activas lanzaría LegacyPayrollUnavailableError.
+    // Las filas de la obra salen de getScopedReviewRows().
+    if (isProjectsEnabled()) return [];
     const state = getState();
     const { periodStart, periodEnd, deductions } = state.exportConfig;
     const adjustmentSelections = getPayrollAdjustmentPeriodRuntimeSelections(
@@ -3423,7 +3446,7 @@ export function togglePayrollPreviewCategory(category, checked) {
                 target.focus();
             }
         }
-        const net = generateExportData().reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
+        const net = getEffectiveExportRows().reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
         window.showNotification?.(`Vista previa actualizada: neto ${formatCurrency(net)}`, 'info');
     });
 }
