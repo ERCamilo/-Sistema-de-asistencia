@@ -2,7 +2,7 @@ import { Modal } from '../../components/Modal.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 
-function blockerMessage(gate) {
+export function payrollClosureBlockerMessage(gate) {
     if (gate?.reason === 'no-rows') return 'No hay empleados con un pago válido en esta vista previa.';
     if (gate?.reason === 'invalid-net') {
         return `Resuelve ${gate.invalidCount} pago${gate.invalidCount === 1 ? '' : 's'} con saldo negativo.`;
@@ -39,7 +39,7 @@ export function renderPayrollClosurePanel({ gate, now = Date.now() } = {}) {
                     : (gate?.correctionReady ? 'Corrección preparada' : 'Guardar esta vista previa en el historial')}</strong>
                 <p>${showClosedState
                     ? `${periodClosure.employeeCount} empleado${periodClosure.employeeCount === 1 ? '' : 's'} · ${formatCurrency(periodClosure.totals?.net)}`
-                    : blockerMessage(gate)}</p>
+                    : payrollClosureBlockerMessage(gate)}</p>
             </div>
             ${showClosedState ? `
                 <div class="payroll-loan-settlement__completed">
