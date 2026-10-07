@@ -44,6 +44,19 @@ import {
 } from './PayrollClosureUI.js';
 import { renderPayrollHistoryView } from './PayrollHistoryUI.js';
 import { buildClosureReview, voidDuplicatePayrollClosure } from './PayrollClosureReview.js';
+import {
+    applyRegistrationLoans,
+    collectRegistrationPayments,
+    getActivePayrollRegistration,
+    normalizePayrollRegistration,
+    REGISTRATION_LOAN_MODE,
+    summarizeRegistrationPayments
+} from './PayrollRegistration.js';
+import {
+    renderPayrollRegistrationActions,
+    renderPayrollRegistrationBanner,
+    renderPayrollRegistrationLoans
+} from './PayrollRegistrationUI.js';
 import { renderPayrollReviewTable } from './PayrollReviewTable.js';
 import {
     applyPayrollClosureEffects,
@@ -233,6 +246,8 @@ const _ACTION_MAP = {
         period,
         target.dataset.supersedesId || null
     ),
+    'cancel-payroll-registration': () => window.PayrollUI?.cancelPayrollRegistration?.(),
+    'set-payroll-registration-loan-mode': (mode) => window.PayrollUI?.setPayrollRegistrationLoanMode?.(mode),
     'previous-payroll-history-page': () => window.PayrollUI?.loadPayrollHistory?.({ direction: 'previous' }),
     'next-payroll-history-page': () => window.PayrollUI?.loadPayrollHistory?.({ direction: 'next' }),
     'toggle-payroll-loan-details': (_employeeId, target, event) => {
@@ -583,10 +598,38 @@ function getScopedEffectivePreviewRows(scopedView = null, state = getState()) {
     if (!activePid) return baseRows;
 
     const scopedEmployees = getScopedProjectEmployees(activePid, state);
-    const selection = state?.exportConfig?.payrollLoanSelection || [];
     const periodEnd = view.period?.periodEnd || state?.exportConfig?.periodEnd || null;
+    const registration = getActivePayrollRegistration(
+        state?.exportConfig?.payrollRegistration,
+        view.period?.periodStart,
+        view.period?.periodEnd
+    );
+    const selection = registration ? [] : (state?.exportConfig?.payrollLoanSelection || []);
+    const rows = applyPayrollLoanDeductions(baseRows, scopedEmployees, selection, periodEnd);
+    return registration
+        ? applyRegistrationLoans(
+            rows,
+            collectRegistrationPayments(scopedEmployees, registration.periodStart, registration.periodEnd),
+            registration.loanMode
+        )
+        : rows;
+}
 
-    return applyPayrollLoanDeductions(baseRows, scopedEmployees, selection, periodEnd);
+/** Registro de un periodo ya pagado para la vista actual (o null). */
+function payrollRegistrationView(state, periodStart, periodEnd, employees, rows) {
+    const registration = normalizePayrollRegistration(state?.exportConfig?.payrollRegistration);
+    if (!registration) return null;
+    const active = Boolean(getActivePayrollRegistration(registration, periodStart, periodEnd));
+    const summary = summarizeRegistrationPayments(
+        collectRegistrationPayments(employees, registration.periodStart, registration.periodEnd),
+        rows
+    );
+    return { registration, active, summary };
+}
+
+function registrationStepDetail(view) {
+    if (view.registration.loanMode === REGISTRATION_LOAN_MODE.NONE) return 'Sin préstamos';
+    return `${view.summary.count} ${view.summary.count === 1 ? 'abono anotado' : 'abonos anotados'}`;
 }
 
 /** Líderes con posiciones en la obra de la nómina (para el filtro). */
@@ -765,12 +808,20 @@ function ScopedPayrollTab(view) {
         period.periodEnd
     );
     const closureState = currentPayrollClosureState();
+    const registrationView = payrollRegistrationView(
+        state,
+        period.periodStart,
+        period.periodEnd,
+        scopedEmployees,
+        getScopedReviewRows(view, state, { byLeader: false })
+    );
+    const activeRegistration = registrationView?.active ? registrationView : null;
 
     const guideItems = [
         ['period', '1', 'Período', `${formatDateShort(period.periodStart)} – ${formatDateShort(period.periodEnd)}`, 'Período'],
         ['deductions', '2', 'Deducciones', deductionAmount > 0 ? `${formatCurrency(deductionAmount)} aplicado` : '$0.00', 'Deducc.'],
         ['bonuses', '3', 'Bonificaciones', bonusAmount > 0 ? `${formatCurrency(bonusAmount)} agregado` : '$0.00', 'Bonos'],
-        ['loans', '4', 'Préstamos', `${loanSummary.selectedCount} seleccionados`, 'Préstamos'],
+        ['loans', '4', 'Préstamos', activeRegistration ? registrationStepDetail(activeRegistration) : `${loanSummary.selectedCount} seleccionados`, 'Préstamos'],
         ['review', '5', 'Vista previa', `${rows.length} empleados`, 'Vista']
     ];
 
@@ -788,6 +839,7 @@ function ScopedPayrollTab(view) {
                 </div>
             </div>
 
+            ${registrationView ? renderPayrollRegistrationBanner(registrationView.registration, { active: registrationView.active }) : ''}
             <div class="payroll-guided-layout">
                 <nav class="payroll-guide-steps" aria-label="Pasos de nómina de la obra">
                     ${guideItems.map(([id, number, label, detail, mobileLabel], index) => `
@@ -889,9 +941,12 @@ function ScopedPayrollTab(view) {
                     <section class="payroll-guide-panel payroll-guide-panel--loans" ${guideStep === 'loans' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
                             <h3>Préstamos del período</h3>
-                            <p>Esta selección es temporal y no registra abonos en préstamos / adelantos.</p>
+                            <p>${activeRegistration
+                                ? 'Este periodo ya se pagó: los abonos de préstamos ya están anotados en las cuentas.'
+                                : 'Esta selección es temporal y no registra abonos en préstamos / adelantos.'}</p>
                         </div>
-                        ${guideStep === 'loans' ? renderPayrollLoansDesktop({
+                        ${guideStep === 'loans' && activeRegistration ? renderPayrollRegistrationLoans(activeRegistration) : ''}
+                        ${guideStep === 'loans' && !activeRegistration ? renderPayrollLoansDesktop({
                             employees: scopedEmployees,
                             selection: exportConfig.payrollLoanSelection || [],
                             payrollRows: rows,
@@ -963,7 +1018,11 @@ function ScopedPayrollTab(view) {
                                     : 'No hay registros de asistencia para esta obra en el período seleccionado.'
                             })}
 
-                            ${guideStep === 'review' ? renderPayrollClosurePanel({
+                            ${guideStep === 'review' && activeRegistration ? renderPayrollRegistrationActions({
+                                registration: activeRegistration.registration,
+                                gate: closureState.gate
+                            }) : ''}
+                            ${guideStep === 'review' && !activeRegistration ? renderPayrollClosurePanel({
                                 gate: closureState.gate,
                                 now: Date.now()
                             }) : ''}
@@ -1003,12 +1062,16 @@ function ScopedPayrollTab(view) {
                             <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
                             <div><dt>Deducciones</dt><dd style="${deductionAmount > 0 ? 'color: #ef4444;' : 'color: #64748b;'}">${deductionAmount > 0 ? `-${formatCurrency(deductionAmount)}` : '$0.00'}</dd></div>
                             <div><dt>Bonificaciones</dt><dd style="${bonusAmount > 0 ? 'color: #10b981;' : 'color: #64748b;'}">${bonusAmount > 0 ? `+${formatCurrency(bonusAmount)}` : '$0.00'}</dd></div>
-                            <div><dt>Préstamos</dt><dd style="${loanAmount > 0 ? 'color: #f59e0b;' : 'color: #64748b;'}">${loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Préstamos${activeRegistration ? ' · ya anotados' : ''}</dt><dd style="${loanAmount > 0 ? 'color: #f59e0b;' : 'color: #64748b;'}">${loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00'}</dd></div>
                             <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                         </dl>
                         <div class="payroll-guide-summary__validation is-valid">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 6px; vertical-align: -2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Obra: ${escapeHTML(view.projectId)} · Cálculo listo
                         </div>
+                        ${activeRegistration ? renderPayrollRegistrationActions({
+                            registration: activeRegistration.registration,
+                            gate: closureState.gate
+                        }) : ''}
                         <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
                             <button type="button"
                                     data-payroll-action="send-to-splitx"
@@ -1239,6 +1302,14 @@ function PayrollGeneratorTab() {
         state.exportConfig.payrollLoanSelection || [],
         state.exportConfig.periodEnd
     );
+    const registrationView = payrollRegistrationView(
+        state,
+        state.exportConfig.periodStart,
+        state.exportConfig.periodEnd,
+        state.employees || [],
+        exportData
+    );
+    const activeRegistration = registrationView?.active ? registrationView : null;
     const deductionSummary = summarizeGlobalAdjustments(state.exportConfig.deductions, '-', formatCurrency);
     const bonusSummary = summarizeGlobalAdjustments(state.exportConfig.bonuses, '+', formatCurrency);
     const employeesWithDeductions = getEmployeesWithDeductions();
@@ -1293,7 +1364,7 @@ function PayrollGeneratorTab() {
         ['period', '1', 'Período', 'Seleccionar rango', 'Período'],
         ['deductions', '2', 'Deducciones', `${formatCurrency(deductionAmount)} aplicado`, 'Deducc.'],
         ['bonuses', '3', 'Bonificaciones', `${formatCurrency(bonusAmount)} agregado`, 'Bonos'],
-        ['loans', '4', 'Préstamos', `${loanSummary.selectedCount} seleccionados`, 'Préstamos'],
+        ['loans', '4', 'Préstamos', activeRegistration ? registrationStepDetail(activeRegistration) : `${loanSummary.selectedCount} seleccionados`, 'Préstamos'],
         ['review', '5', 'Vista previa', `${exportData.length} empleados`, 'Vista']
     ];
 
@@ -1311,6 +1382,7 @@ function PayrollGeneratorTab() {
                 </div>
             </div>
 
+            ${registrationView ? renderPayrollRegistrationBanner(registrationView.registration, { active: registrationView.active }) : ''}
             <div class="payroll-guided-layout">
                 <nav class="payroll-guide-steps" aria-label="Pasos de nómina">
                     ${guideItems.map(([id, number, label, detail, mobileLabel], index) => `
@@ -1536,16 +1608,18 @@ function PayrollGeneratorTab() {
                     <section class="payroll-guide-panel payroll-guide-panel--loans" ${guideStep === 'loans' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
                             <h3>Préstamos del período</h3>
-                            <p>Esta selección es temporal y no registra abonos en préstamos / adelantos.</p>
+                            <p>${activeRegistration
+                                ? 'Este periodo ya se pagó: los abonos de préstamos ya están anotados en las cuentas.'
+                                : 'Esta selección es temporal y no registra abonos en préstamos / adelantos.'}</p>
                         </div>
 
-                        ${renderPayrollLoansDesktop({
+                        ${activeRegistration ? renderPayrollRegistrationLoans(activeRegistration) : `${renderPayrollLoansDesktop({
                             employees: filteredPayrollEmployees,
                             selection: state.exportConfig.payrollLoanSelection || [],
                             payrollRows: exportData,
                             expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || [],
                             periodEnd: state.exportConfig.periodEnd
-                        })}
+                        })}`}
                     </section>
 
                     <section class="payroll-guide-panel payroll-guide-panel--review" ${guideStep === 'review' ? '' : 'hidden'}>
@@ -1638,7 +1712,10 @@ function PayrollGeneratorTab() {
                     </table>
                 </div>
 
-                ${renderPayrollClosurePanel({
+                ${activeRegistration ? renderPayrollRegistrationActions({
+                    registration: activeRegistration.registration,
+                    gate: payrollClosureGate
+                }) : renderPayrollClosurePanel({
                     gate: payrollClosureGate,
                     now: Date.now()
                 })}
@@ -1729,7 +1806,9 @@ function PayrollGeneratorTab() {
                         ${expandedSummary.deductions ? renderAdjustmentSummaryDetails(deductionDetails, 'deductions') : ''}
                         <div class="payroll-guide-summary__loan-row">
                             <dt>Préstamos</dt>
-                            <span class="${getSummaryAmountClass(loanSummary.selectedInterest, 'is-loan')}">Interés ${formatCurrency(loanSummary.selectedInterest)}</span>
+                            ${activeRegistration
+                                ? '<span class="is-zero">ya anotados</span>'
+                                : `<span class="${getSummaryAmountClass(loanSummary.selectedInterest, 'is-loan')}">Interés ${formatCurrency(loanSummary.selectedInterest)}</span>`}
                             <dd class="${getSummaryAmountClass(loanAmount, 'is-loan')}">−${formatCurrency(loanAmount)}</dd>
                         </div>
                         <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
@@ -1741,6 +1820,10 @@ function PayrollGeneratorTab() {
                                 ? `${icons.get('alert', { size: 16 })} ${zeroNetRows.length} pago(s) en cero: puedes continuar`
                                 : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
                         </div>
+                        ${activeRegistration ? renderPayrollRegistrationActions({
+                            registration: activeRegistration.registration,
+                            gate: payrollClosureGate
+                        }) : ''}
                         <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
                         <button type="button"
                                 data-payroll-action="send-to-splitx"
@@ -1864,17 +1947,18 @@ function generateExportData() {
         };
     });
 
+    const registration = getActivePayrollRegistration(state.exportConfig.payrollRegistration, periodStart, periodEnd);
     const sourceRows = applyPayrollLoanDeductions(
         baseRows,
         state.employees,
-        state.exportConfig.payrollLoanSelection || [],
+        registration ? [] : (state.exportConfig.payrollLoanSelection || []),
         periodEnd
     );
     const previewRows = applyPayrollPreviewInclusion(
         sourceRows,
         state.exportConfig.payrollPreviewInclusion
     );
-    return filterPayablePayrollPreviewRows(previewRows)
+    const rows = filterPayablePayrollPreviewRows(previewRows)
         // Keep selected-loan rows even when their resulting payment is invalid,
         // and keep applied adjustment rows so the UI can show zero/negative
         // conflicts instead of silently omitting the employee.
@@ -1885,6 +1969,14 @@ function generateExportData() {
             || (emp._deductionDetails || []).length > 0
         )
         .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
+    // Periodo ya pagado: los préstamos son los abonos ya anotados, no un cobro nuevo.
+    return registration
+        ? applyRegistrationLoans(
+            rows,
+            collectRegistrationPayments(state.employees, periodStart, periodEnd),
+            registration.loanMode
+        )
+        : rows;
 }
 
 function adjustmentKindLabel(kind) {
@@ -4070,11 +4162,17 @@ export function togglePayrollPaidConfirmation(checked) {
         }
     }
     const current = currentPayrollClosureState();
+    // En un registro de periodo ya pagado, la casilla «Revisé que coincide…»
+    // es esta misma confirmación; se refleja en payrollRegistration.confirmed.
+    const registrationConfirmed = value => (current.state.exportConfig?.payrollRegistration
+        ? { payrollRegistration: { ...current.state.exportConfig.payrollRegistration, confirmed: value } }
+        : {});
     if (!checked) {
         stateManager.setState({
             exportConfig: {
                 ...current.state.exportConfig,
-                payrollPaidConfirmation: null
+                payrollPaidConfirmation: null,
+                ...registrationConfirmed(false)
             }
         });
         if (current.state?.exportConfig) {
@@ -4096,7 +4194,8 @@ export function togglePayrollPaidConfirmation(checked) {
     stateManager.setState({
         exportConfig: {
             ...current.state.exportConfig,
-            payrollPaidConfirmation: confirmed
+            payrollPaidConfirmation: confirmed,
+            ...registrationConfirmed(true)
         }
     });
     if (current.state?.exportConfig) {
@@ -4219,6 +4318,7 @@ function payrollHistorySummary(item = {}) {
     delete summary.rows;
     delete summary.paymentRefs;
     delete summary.loanSettlementBatchId;
+    delete summary.linkedPaymentRefs;
     return summary;
 }
 
@@ -4503,6 +4603,13 @@ export async function openPayrollClosure() {
         }
         const capturedProjectId = current.projectId || null;
         const capturedRequest = scopedView?.request || null;
+        // Periodo ya pagado: la casilla «Revisé que coincide…» reemplaza al modal
+        // y el cierre enlaza los abonos ya anotados en lugar de cobrarlos.
+        const registration = getActivePayrollRegistration(
+            current.state.exportConfig.payrollRegistration,
+            current.periodStart,
+            current.periodEnd
+        );
         const draft = buildPayrollClosureDraft({
             employees: current.state.employees,
             rows: current.rows,
@@ -4514,9 +4621,10 @@ export async function openPayrollClosure() {
             bonuses: current.state.exportConfig.bonuses,
             deductions: current.state.exportConfig.deductions,
             supersedesId: current.gate.nextSupersedesId,
+            registration: Boolean(registration),
             ...(capturedProjectId ? { projectId: capturedProjectId } : {})
         });
-        const verified = await openPayrollClosureModal(draft);
+        const verified = registration ? true : await openPayrollClosureModal(draft);
         if (!verified) return;
         if (isProjectsEnabled() && startingProjectId) {
             ensurePayrollScopeNotStale(startingProjectId);
@@ -4543,6 +4651,7 @@ export async function openPayrollClosure() {
             bonuses: latest.state.exportConfig.bonuses,
             deductions: latest.state.exportConfig.deductions,
             supersedesId: latest.gate.nextSupersedesId,
+            registration: Boolean(registration),
             ...(capturedProjectId ? { projectId: capturedProjectId } : {})
         });
         const effects = applyPayrollClosureEffects(employeeCopies, finalized, {
@@ -4570,7 +4679,8 @@ export async function openPayrollClosure() {
             payrollPaidConfirmation: null,
             payrollCorrectionSupersedesId: null,
             payrollLoanSelection: [],
-            payrollPreviewInclusion: getPayrollPreviewInclusion()
+            payrollPreviewInclusion: getPayrollPreviewInclusion(),
+            ...(registration ? { payrollRegistration: null } : {})
         };
         if (isCurrent) {
             stateManager.setState(affectedEmployees.length > 0
@@ -4596,7 +4706,15 @@ export async function openPayrollClosure() {
             console.warn('El cierre quedó guardado, pero el guardado general debe reintentarse:', error);
             window.showNotification?.('⚠️ El cierre quedó local; la sincronización general se reintentará.', 'warning');
         }
-        if (isCurrent) {
+        if (isCurrent && registration) {
+            const linked = effects.linkedPaymentCount || 0;
+            window.showNotification?.(
+                `Cierre registrado${linked ? ` · ${linked} abono${linked === 1 ? '' : 's'} enlazado${linked === 1 ? '' : 's'}` : ''}`,
+                'success'
+            );
+            changePayrollViewMode('history');
+            loadPayrollHistory({ force: true });
+        } else if (isCurrent) {
             context.render();
         }
     } catch (error) {
@@ -4739,7 +4857,7 @@ export async function undoPayrollClosure(closureId) {
         }
         if (isCurrent) {
             window.showNotification?.(
-                `↩️ Cierre anulado${result.voidedPaymentCount ? ` · ${result.voidedPaymentCount} pago(s) restaurado(s)` : ''}${result.voidedBonusCount || result.voidedDeductionCount ? ' · ajustes restaurados' : ''}`,
+                `↩️ Cierre anulado${result.voidedPaymentCount ? ` · ${result.voidedPaymentCount} pago(s) restaurado(s)` : ''}${result.unlinkedPaymentCount ? ` · ${result.unlinkedPaymentCount} abono(s) desenlazado(s)` : ''}${result.voidedBonusCount || result.voidedDeductionCount ? ' · ajustes restaurados' : ''}`,
                 'info'
             );
             context.render();
@@ -4761,6 +4879,70 @@ export async function undoPayrollClosure(closureId) {
 // Compatibility aliases for extensions that still call the previous loan-only API.
 export const openPayrollLoanSettlement = openPayrollClosure;
 export const undoPayrollLoanSettlement = undoPayrollClosure;
+
+/**
+ * «Registrar cierre» desde el Historial: abre el generador con el periodo ya
+ * pagado. Si el periodo tiene un cierre para revisar, el registro lo reemplaza
+ * (corrección con supersedesId).
+ */
+export function startPayrollRegistration(periodValue, supersedesId = null) {
+    const [periodStart, periodEnd] = String(periodValue || '').split('|');
+    const known = (payrollHistoryState.review?.periodsWithoutClosure || [])
+        .find(item => item.periodStart === periodStart && item.periodEnd === periodEnd) || null;
+    const registration = normalizePayrollRegistration({
+        periodStart,
+        periodEnd,
+        payDate: known?.payDate || null,
+        supersedesId: supersedesId || known?.replaceableClosure?.id || null,
+        loanMode: REGISTRATION_LOAN_MODE.LINK
+    });
+    if (!registration) return null;
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.payrollViewMode = 'generator';
+        state.exportConfig.periodStart = registration.periodStart;
+        state.exportConfig.periodEnd = registration.periodEnd;
+        state.exportConfig.periodSource = 'configured';
+        state.exportConfig.activePreset = null;
+        state.exportConfig.payrollRegistration = { ...registration, confirmed: false };
+        state.exportConfig.payrollLoanSelection = [];
+        state.exportConfig.payrollPaidConfirmation = null;
+        state.exportConfig.payrollCorrectionSupersedesId = registration.supersedesId;
+        state.exportConfig.payrollPreviewInclusion = getPayrollPreviewInclusion();
+        state.exportConfig.payrollGuideStep = 'period';
+        state.exportConfig.collapsedSteps = ['step2', 'step2b', 'step2c', 'step3'];
+    });
+    payrollHistoryState = { ...payrollHistoryState, selectedClosure: null };
+    const view = payrollRuntime?.getCurrentView?.();
+    if (isProjectsEnabled() && view?.enabled && view.status === 'ready') {
+        refreshScopedPayrollPreview({ periodStart, periodEnd, preset: null }).catch(() => {});
+    }
+    context?.render?.();
+    return registration;
+}
+
+export function cancelPayrollRegistration() {
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.exportConfig.payrollRegistration = null;
+        state.exportConfig.payrollPaidConfirmation = null;
+        state.exportConfig.payrollCorrectionSupersedesId = null;
+    });
+    changePayrollViewMode('history');
+}
+
+export function setPayrollRegistrationLoanMode(mode) {
+    if (!Object.values(REGISTRATION_LOAN_MODE).includes(mode)) return;
+    stateManager.batchSetState(() => {
+        const state = getState();
+        const current = normalizePayrollRegistration(state.exportConfig.payrollRegistration);
+        if (!current) return;
+        // Cambiar los préstamos cambia la nómina: hay que volver a confirmarla.
+        state.exportConfig.payrollRegistration = { ...current, loanMode: mode, confirmed: false };
+        state.exportConfig.payrollPaidConfirmation = null;
+    });
+    context?.render?.();
+}
 
 export function setPayrollGuideStep(stepId) {
     const stepMap = {

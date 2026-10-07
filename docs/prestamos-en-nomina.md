@@ -104,6 +104,16 @@ Sobre la lista, el bloque `Revisión de cierres` muestra solo hechos calculados 
 - **Fechas corridas.** Un cierre fuera de la cuadrícula de pagos se marca como información, con el periodo más cercano.
 - **Sin cierre.** Cada periodo terminado de la cuadrícula, desde el primero con abonos de nómina, que no tiene un cierre vigente válido. El filtro `Estado` tiene la opción `Sin cierre`. Si el único cierre del periodo está para revisar, el bloque ofrece registrar el cierre correcto, que lo reemplaza.
 
+### Registrar el cierre de un periodo ya pagado
+
+`Registrar cierre` (en una tarjeta `Sin cierre` o en un cierre para revisar) abre `Generar Nómina` con las fechas del periodo y el aviso «Registrando un periodo ya pagado». `Cancelar` vuelve al Historial sin guardar nada.
+
+- El paso 4 no ofrece cobrar préstamos. Pregunta qué hacer con los abonos ya anotados para esas fechas (abonos vigentes con `payrollPeriodStart`/`payrollPeriodEnd` del periodo y sin cierre): **usarlos** (recomendado, con la tabla por empleado) o **cerrar sin préstamos**. Avisa que los pasos 1 a 3 usan la asistencia de hoy y pueden no coincidir con lo pagado.
+- El resumen muestra los préstamos «ya anotados», la casilla obligatoria «Revisé que coincide con lo que se pagó el dd/mm» (es la confirmación de pago ligada a la vista previa exacta) y el botón `Registrar cierre`.
+- El cierre se arma con el mismo borrador y la misma huella que un cierre normal. Los préstamos de cada fila son la suma de sus abonos ya anotados (`loanDetails` con `linked: true`). No se crea lote (`loanSettlementBatchId: null`) y no se crea ni se anula ningún abono: cada abono se marca con `payrollClosureId`, `payrollClosureLinked` y `payrollClosureLinkedAt`, y se guarda con el cierre en la misma transacción (`saveWithEmployees`). El cierre guarda `registrationKind: 'already-paid'` y `linkedPaymentRefs`.
+- Si el periodo ya tenía un cierre para revisar, el registro es una corrección (`supersedesId`) y ese cierre deja de estar vigente.
+- `Deshacer cierre` de un cierre registrado solo quita esas marcas (los abonos siguen vigentes y lo que deben no cambia) y anula el cierre.
+
 ### Fase futura: constancia PDF
 
 La generación y el envío o respaldo de una constancia PDF conjunta de Nómina y préstamos quedan fuera del siguiente incremento. El proyecto dispone de exportación PDF local y de infraestructura Supabase enfocada actualmente en Caja Chica, pero el cierre de Nómina necesitará un diseño propio de permisos, destinatarios, retención, reintentos y auditoría antes de reutilizar esa infraestructura.

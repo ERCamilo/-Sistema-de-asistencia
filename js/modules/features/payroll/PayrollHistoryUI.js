@@ -376,6 +376,7 @@ export function renderPayrollHistoryDetail(closure, {
                     <h2 id="payroll-history-detail-title">${text(closure.periodStart)} – ${text(closure.periodEnd)}</h2>
                     <p>Cerrada ${formatDateTime(closure.closedAt)} · ${text(closure.closedBy || 'Sin usuario')}</p>
                     ${closure.supersedesId ? `<small>Corrección de ${text(closure.supersedesId)}</small>` : ''}
+                    ${closure.registrationKind === 'already-paid' ? `<small>Periodo ya pagado: ${plural((closure.linkedPaymentRefs || []).length, 'abono anotado enlazado', 'abonos anotados enlazados')}; no se cobraron préstamos otra vez.</small>` : ''}
                     ${closure.status === 'voided' ? `<small>Anulada ${formatDateTime(closure.voidedAt)} · ${text(closure.voidedBy || 'Sin usuario')}</small>` : ''}
                 </div>
                 <div class="payroll-history-detail__actions">
