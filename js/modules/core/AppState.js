@@ -226,7 +226,7 @@ window.stateManager = stateManager;
 
 const proxyCache = new WeakMap();
 
-const createRecursiveProxy = (obj, path = []) => {
+const createRecursiveProxy = (obj) => {
     if (obj === null || typeof obj !== 'object' || obj instanceof Date || obj instanceof Blob) {
         return obj;
     }
@@ -241,10 +241,13 @@ const createRecursiveProxy = (obj, path = []) => {
             
             const value = Reflect.get(target, prop, receiver);
             
-            // Solo proxificar objetos/arrays que no sean nativos especiales
+            // Solo proxificar objetos/arrays que no sean nativos especiales.
+            // Sin asignar nada por lectura: antes se armaba un arreglo `path`
+            // (nunca usado) en CADA acceso, lo que con carteras grandes costaba
+            // cientos de ms de recolección de basura por render.
             if (value !== null && typeof value === 'object' && 
                 !(value instanceof Date) && !(value instanceof Blob)) {
-                return createRecursiveProxy(value, [...path, prop]);
+                return createRecursiveProxy(value);
             }
             return value;
         },
