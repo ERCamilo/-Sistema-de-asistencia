@@ -15,7 +15,7 @@ import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import { captureEntityProjectScope } from '../projects/EntityProjectScope.js';
-import { loanDataSignature } from './LoanPortfolio.js';
+import { loanDataKey } from './LoanDataKey.js';
 import { REVIEW_STATUS, reviewConsolidations, repairEmployeeConsolidations } from './LoanConsolidationReview.js';
 
 const STATUS_PILL = {
@@ -33,7 +33,9 @@ let cache = { key: null, value: null };
 
 /** Revisión de los empleados de la obra (se recalcula solo si cambian los préstamos). */
 function reviewOf(scoped) {
-    const key = loanDataSignature(scoped);
+    // Clave de texto: la firma anterior era un arreglo nuevo en cada llamada,
+    // así que `cache.key !== key` nunca coincidía y se recalculaba en cada render.
+    const key = loanDataKey(scoped);
     if (cache.key !== key) cache = { key, value: reviewConsolidations(scoped) };
     return cache.value;
 }

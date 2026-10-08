@@ -13,7 +13,8 @@
 
 import { state } from '../../core/AppState.js';
 import { formatCurrency } from '../../utils/Formatters.js';
-import { formatDateShort } from '../../utils/DateUtils.js';
+import { formatDateShort, getDateKey } from '../../utils/DateUtils.js';
+import { loanDataKey } from './LoanDataKey.js';
 import { formatTimeSince } from '../../utils/RelativeTime.js';
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
@@ -117,6 +118,40 @@ export function LoansLedger() {
 
 // ─── LIST VIEW ───────────────────────────────────────────────────────────────
 
+// Totales y listas del libro: solo dependen de los préstamos de la obra (y del
+// día). Antes se rehacían en cada render, también en cada tecla del buscador.
+let ledgerDataCache = { key: null, value: null };
+function ledgerData(scopedState) {
+    const employees = scopedState.employees || [];
+    const key = `${getDateKey(new Date())}|${loanDataKey(employees)}`;
+    if (ledgerDataCache.key === key) return ledgerDataCache.value;
+
+    const allWithDebt = getEmployeesWithDebt(scopedState);
+    // Conteo por unidad individual para los badges
+    const allLoansFlat = employees.flatMap(e => e.loans || []);
+    const value = {
+        allWithDebt,
+        inactiveWithDebt: allWithDebt.filter(employee => employee.active === false),
+        allInactive: getEmployeesWithOnlyInactiveLoans(scopedState),
+        activeLoanCount: allLoansFlat.filter(l => l.status === LOAN_STATUS.ACTIVE).length,
+        settledLoanCount: allLoansFlat.filter(l => l.status === LOAN_STATUS.PAID || getBalance(l) <= 0.01).length,
+        inactiveEmpLoanCount: employees.filter(e => e.active === false).flatMap(e => e.loans || []).filter(l => l.status === LOAN_STATUS.ACTIVE).length,
+        totalLoanCount: allLoansFlat.filter(l => l.status !== LOAN_STATUS.WRITTEN_OFF).length,
+        totalExposure: getTotalExposure(scopedState),
+        totalPaid: getTotalPaidActive(scopedState),
+        totalLoans: allWithDebt.reduce((sum, e) => sum + e.loanCount, 0),
+        totalActiveInterest: getTotalActiveInterest(scopedState),
+        totalHistoricalInterest: getTotalHistoricalInterest(scopedState),
+        totalHistoricalDue: getTotalHistoricalDue(scopedState),
+        totalHistoricalPaid: getTotalHistoricalPaid(scopedState),
+        closedLoansCount: getClosedLoansCount(scopedState),
+        // Registros por préstamo (vista «Por préstamo»), por filtro, bajo demanda.
+        individual: new Map()
+    };
+    ledgerDataCache = { key, value };
+    return value;
+}
+
 function LedgerOverview() {
     const ledger = state.loansLedger || {};
     const scopedState = getScopedLoansState();
@@ -129,21 +164,19 @@ function LedgerOverview() {
     const dateFilter = ledger.dateFilter || 'all';
     const showFilterMenu = Boolean(ledger.showFilterMenu);
 
-    const allWithDebt = getEmployeesWithDebt(scopedState);
-    const inactiveWithDebt = allWithDebt.filter(employee => employee.active === false);
-    const allInactive = getEmployeesWithOnlyInactiveLoans(scopedState);
-
-    // Conteo por unidad individual para los badges
-    const allLoansFlat = scopedState.employees.flatMap(e => e.loans || []);
-    const activeLoanCount = allLoansFlat.filter(l => l.status === LOAN_STATUS.ACTIVE).length;
-    const settledLoanCount = allLoansFlat.filter(l => l.status === LOAN_STATUS.PAID || getBalance(l) <= 0.01).length;
-    const inactiveEmpLoanCount = scopedState.employees.filter(e => e.active === false).flatMap(e => e.loans || []).filter(l => l.status === LOAN_STATUS.ACTIVE).length;
-    const totalLoanCount = allLoansFlat.filter(l => l.status !== LOAN_STATUS.WRITTEN_OFF).length;
+    const data = ledgerData(scopedState);
+    const {
+        allWithDebt, inactiveWithDebt, allInactive,
+        activeLoanCount, settledLoanCount, inactiveEmpLoanCount, totalLoanCount,
+        totalExposure, totalPaid, totalLoans,
+        totalActiveInterest, totalHistoricalInterest, totalHistoricalDue, totalHistoricalPaid, closedLoansCount
+    } = data;
 
     // Seleccionar lista según displayMode y filterView
     let baseList = [];
     if (displayMode === 'individual') {
-        baseList = getIndividualLoanRecords(scopedState, filterView);
+        if (!data.individual.has(filterView)) data.individual.set(filterView, getIndividualLoanRecords(scopedState, filterView));
+        baseList = data.individual.get(filterView);
     } else {
         if (filterView === 'all') {
             const seen = new Set();
@@ -174,15 +207,6 @@ function LedgerOverview() {
             (e.number || '').toLowerCase().includes(search))
         : allInactive;
 
-    const totalExposure = getTotalExposure(scopedState);
-    const totalPaid = getTotalPaidActive(scopedState);
-    const totalLoans = allWithDebt.reduce((s, e) => s + e.loanCount, 0);
-
-    const totalActiveInterest = getTotalActiveInterest(scopedState);
-    const totalHistoricalInterest = getTotalHistoricalInterest(scopedState);
-    const totalHistoricalDue = getTotalHistoricalDue(scopedState);
-    const totalHistoricalPaid = getTotalHistoricalPaid(scopedState);
-    const closedLoansCount = getClosedLoansCount(scopedState);
     // Pantalla principal nueva (maqueta): línea del mes, avisos y resumen de cartera.
     // «Vista anterior» (por dispositivo) vuelve a las tarjetas de siempre.
     const portfolio = useAccountView() ? buildPortfolioModel(scopedState.employees || []) : null;

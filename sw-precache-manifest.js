@@ -97,6 +97,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/loans/LoanConsolidationReviewPanel.js",
     "./js/modules/features/loans/LoanConsolidationUndo.js",
     "./js/modules/features/loans/LoanDataBackfill.js",
+    "./js/modules/features/loans/LoanDataKey.js",
     "./js/modules/features/loans/LoanDuplicateDetector.js",
     "./js/modules/features/loans/LoanDuplicateResolver.js",
     "./js/modules/features/loans/LoanDuplicateReview.js",

@@ -18,7 +18,8 @@ import { getDateKey } from '../../utils/DateUtils.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { computeAttendanceDetailEarnings } from '../attendance/AttendanceDetailEarnings.js';
 import { buildPayPeriods } from './LoanPayPeriods.js';
-import { prepareLoanEmployees, computePortfolioSummary, computeMonthChange, loanDataSignature } from './LoanPortfolio.js';
+import { prepareLoanEmployees, computePortfolioSummary, computeMonthChange } from './LoanPortfolio.js';
+import { loanDataKey } from './LoanDataKey.js';
 import { computeRiskList, RISK_LEVELS } from './LoanRisk.js';
 import { findConsolidations } from './LoanConsolidationUndo.js';
 import { planLoanBackfill, listPaymentsToReview } from './LoanDataBackfill.js';
@@ -50,29 +51,31 @@ function grossOf(emp, start, end) {
     return grossCache.get(key);
 }
 
-let riskCache = { key: null, list: [] };
 let lastAttendance = null;
 let attendanceVersion = 0;
+// El modelo completo solo depende de los préstamos de la obra, el día, el
+// período de pago y (para el riesgo) la asistencia. Antes se rehacía en cada
+// render: cada tecla del buscador recalculaba toda la cartera.
+let modelCache = { key: null, value: null };
 
 /** Todo lo que necesita la pantalla, a partir de los empleados de la obra. */
 export function buildPortfolioModel(scopedEmployees = []) {
     const today = getDateKey(new Date());
     const payPeriod = getActivePayrollSettings(state).payPeriod;
-    const prepared = prepareLoanEmployees(scopedEmployees, payPeriod);
-    const employees = prepared.employees;
     // Si cambia la asistencia cambian los sueldos: se rehacen los cálculos.
     if (state.attendance !== lastAttendance) { grossCache.clear(); lastAttendance = state.attendance; attendanceVersion++; }
+    const key = `${today}|${JSON.stringify(payPeriod ?? null)}|${attendanceVersion}|${loanDataKey(scopedEmployees)}`;
+    if (modelCache.key === key) return modelCache.value;
+
+    const prepared = prepareLoanEmployees(scopedEmployees, payPeriod);
+    const employees = prepared.employees;
     const periods = buildPayPeriods(payPeriod, today, { before: 3, after: 1 });
-    const riskKey = JSON.stringify([today, payPeriod, attendanceVersion, loanDataSignature(scopedEmployees)]);
-    if (riskCache.key !== riskKey) {
-        let list = [];
-        try { list = computeRiskList(employees, { today, periods, grossOf, state }); } catch (_) { list = []; }
-        riskCache = { key: riskKey, list };
-    }
+    let risk = [];
+    try { risk = computeRiskList(employees, { today, periods, grossOf, state }); } catch (_) { risk = []; }
     const dup = findLoanRecordDuplicates(scopedEmployees);
     const inactive = employees.filter(emp => emp.active === false)
         .map(emp => ({ emp, balance: getAccountSummary(emp).balance })).filter(x => x.balance > 0.004);
-    return {
+    const model = {
         today,
         scoped: scopedEmployees,
         prepared,
@@ -80,13 +83,15 @@ export function buildPortfolioModel(scopedEmployees = []) {
         summary: computePortfolioSummary(employees),
         month: computeMonthChange(employees, today),
         monthFlows: monthFlows(employees, today),
-        risk: riskCache.list,
+        risk,
         duplicates: dup.counts,
         inactive,
         consolidations: scopedEmployees.flatMap(emp => findConsolidations(emp)).length,
         backfill: planLoanBackfill(scopedEmployees, payPeriod),
         review: listPaymentsToReview(scopedEmployees)
     };
+    modelCache = { key, value: model };
+    return model;
 }
 
 // ─── Línea del mes ───────────────────────────────────────────────────────────
@@ -183,7 +188,7 @@ function AlertPanel(key, model) {
     // Las acciones de repetidos cambian los datos reales: se usan los empleados de la obra, no la copia.
     if (key === 'dup') return renderLoanDuplicateReview({ scope: 'general', employees: model.scoped, embedded: true, open: true });
     if (key === 'risk') return RiskPanel(model);
-    if (key === 'inactive') return `<div class="lp-list">${model.inactive.sort((a, b) => b.balance - a.balance).map(x => `<div class="lp-list__row"><span><b>${escapeHTML(x.emp.name || '')}</b> #${escapeHTML(x.emp.number ?? '')}</span><span>${M(x.balance)}</span><button type="button" class="la-btn la-btn--sm" data-app-fn="selectLoansEmployee" data-arg="${escapeAttr(x.emp.id)}">Ver préstamos</button></div>`).join('')}</div>`;
+    if (key === 'inactive') return `<div class="lp-list">${[...model.inactive].sort((a, b) => b.balance - a.balance).map(x => `<div class="lp-list__row"><span><b>${escapeHTML(x.emp.name || '')}</b> #${escapeHTML(x.emp.number ?? '')}</span><span>${M(x.balance)}</span><button type="button" class="la-btn la-btn--sm" data-app-fn="selectLoansEmployee" data-arg="${escapeAttr(x.emp.id)}">Ver préstamos</button></div>`).join('')}</div>`;
     if (key === 'review') return `<div class="lp-list">${model.review.map(({ emp, loan, payment }) => {
         const ref = escapeAttr(`${emp.id}|${loan.id}|${payment.id}`);
         return `<div class="lp-list__row"><span><b>${escapeHTML(emp.name || '')}</b> #${escapeHTML(emp.number ?? '')} · ${dmy(payment.date)} · <b>${M(payment.amount)}</b>${payment.note ? ` · ${escapeHTML(payment.note)}` : ''}</span><span class="lp-list__acts"><button type="button" class="la-btn la-btn--sm" data-app-fn="laReviewPayment" data-arg="${ref}" data-arg2="payroll">Nómina</button><button type="button" class="la-btn la-btn--sm" data-app-fn="laReviewPayment" data-arg="${ref}" data-arg2="direct">Directo</button></span></div>`;
