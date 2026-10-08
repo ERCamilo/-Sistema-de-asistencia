@@ -224,12 +224,32 @@ export function clearLoansEmployee() {
     });
 }
 
+/**
+ * Espera tras la última tecla antes de redibujar la cartera. Dibujarla en cada
+ * tecla bloqueaba el teléfono ~1.7 s por letra con 900 préstamos; con esta
+ * pausa una ráfaga de teclas produce un solo render.
+ */
+export const LOANS_SEARCH_RENDER_DELAY_MS = 150;
+let loansSearchRenderTimer = null;
+
 export function setLoansSearch(value) {
-    ensureLedgerState();
-    stateManager.batchSetState(() => {
-        state.loansLedger.search = String(value || '');
+    if (!stateManager.getState().loansLedger) ensureLedgerState();
+    const search = String(value || '');
+    // Guardar el texto al instante sin agendar render (batchSetState lo haría).
+    stateManager.silentSetState({
+        loansLedger: { ...stateManager.getState().loansLedger, search }
     });
-    render();
+    clearTimeout(loansSearchRenderTimer);
+    loansSearchRenderTimer = null;
+    if (!search) {
+        // «Limpiar búsqueda» es un clic: respuesta inmediata.
+        render();
+        return;
+    }
+    loansSearchRenderTimer = setTimeout(() => {
+        loansSearchRenderTimer = null;
+        render();
+    }, LOANS_SEARCH_RENDER_DELAY_MS);
 }
 
 export function setLoansFilterView(view) {
