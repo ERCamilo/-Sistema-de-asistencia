@@ -12,13 +12,16 @@
     align-items: center;
     border-top: 1px solid rgba(6, 182, 212, 0.3);
     z-index: 1000;
-    padding: 0 10px;
+    padding: 0 4px;
     padding-bottom: env(safe-area-inset-bottom);
     transition: transform 0.3s ease, visibility 0.3s;
 }
 
 .bottom-nav-tab {
     flex: 1;
+    /* Sin esto el ítem flex no baja del ancho de su texto: "ASISTENCIA"
+       (68px) desbordaba su pestaña de ~61px a 390px de ancho. */
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -47,10 +50,18 @@
 }
 
 .bottom-nav-text {
-    font-size: 0.65rem;
+    /* Fluido entre 381px (≈9.7px) y ~410px (tope 0.65rem): la etiqueta más
+       larga, "ASISTENCIA", cabe en su pestaña sin invadir la vecina. */
+    font-size: clamp(0.58rem, 2.55vw, 0.65rem);
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.2px;
+    max-width: 100%;
+    /* Red de seguridad (fuente de respaldo antes de cargar Inter, textos más
+       largos): recortar con "…" en lugar de pisar la pestaña de al lado. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ☰ BOTÓN FLOTANTE (Toggle Landscape) */
