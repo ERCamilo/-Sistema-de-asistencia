@@ -8,7 +8,7 @@ testRunner.addSuite('Service Worker — consistencia de módulos JavaScript', {
     'los módulos propios usan Network First antes que Stale While Revalidate'() {
         const jsRule = SW_SOURCE.indexOf("url.pathname.endsWith('.js')");
         const jsNetworkFirst = SW_SOURCE.indexOf(
-            'event.respondWith(networkFirstAsset(event.request))',
+            'event.respondWith(networkFirstAsset(event.request, event))',
             jsRule
         );
         const genericStaleWhileRevalidate = SW_SOURCE.indexOf(
