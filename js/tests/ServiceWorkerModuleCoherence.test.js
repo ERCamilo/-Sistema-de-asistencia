@@ -8,7 +8,7 @@ describe('Service Worker — coherencia de módulos JavaScript', () => {
     test('las hojas de estilo propias usan la misma estrategia de red que los módulos', () => {
         const styleRule = source.indexOf("url.pathname.endsWith('.css')");
         const networkFirstAfterRule = source.indexOf(
-            'event.respondWith(networkFirstAsset(event.request))',
+            'event.respondWith(networkFirstAsset(event.request, event))',
             styleRule
         );
         const genericStale = source.indexOf(
@@ -27,7 +27,7 @@ describe('Service Worker — coherencia de módulos JavaScript', () => {
 
         const scriptRule = source.indexOf("url.pathname.endsWith('.js')");
         const networkFirstAfterRule = source.indexOf(
-            'event.respondWith(networkFirstAsset(event.request))',
+            'event.respondWith(networkFirstAsset(event.request, event))',
             scriptRule
         );
         expect(scriptRule).toBeGreaterThan(-1);
@@ -44,13 +44,18 @@ describe('Service Worker — coherencia de módulos JavaScript', () => {
     });
 
     test('la ruta offline conserva el fallback del caché', () => {
-        const networkFirstStart = source.indexOf('async function networkFirstAsset(request)');
-        const networkFirstEnd = source.indexOf(
-            'async function staleWhileRevalidate(request)',
-            networkFirstStart
-        );
-        const networkFirstSource = source.slice(networkFirstStart, networkFirstEnd);
-        expect(networkFirstSource).toContain('const cached = await caches.match(request)');
-        expect(networkFirstSource).toContain('if (cached) return cached');
+        // networkFirstAsset delega en el helper con límite de espera, que es
+        // quien cae a la copia del caché (ver ServiceWorkerSlowNetwork.test.js
+        // para el comportamiento ejecutado).
+        const assetStart = source.indexOf('async function networkFirstAsset(request, event)');
+        const assetEnd = source.indexOf('async function staleWhileRevalidate(request)', assetStart);
+        expect(source.slice(assetStart, assetEnd)).toContain('networkFirstWithDeadline(request, event');
+
+        const helperStart = source.indexOf('async function networkFirstWithDeadline(');
+        const helperEnd = source.indexOf('async function networkFirst(', helperStart);
+        const helperSource = source.slice(helperStart, helperEnd);
+        expect(helperStart).toBeGreaterThan(-1);
+        expect(helperSource).toContain('const cached = await caches.match(request)');
+        expect(helperSource).toContain('return cached');
     });
 });

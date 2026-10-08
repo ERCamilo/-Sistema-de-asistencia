@@ -6,8 +6,28 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.1007.191830'
+const CACHE_VERSION = '2026.1008.044729'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
+
+// Grafo completo de módulos de arranque, generado por scripts/sw-precache.cjs
+// (npm run sw:precache). Define self.SW_PRECACHE_MANIFEST. Se versiona con el
+// build para que la actualización del SW nunca reutilice un manifiesto viejo
+// desde la caché HTTP.
+importScripts(`./sw-precache-manifest.js?v=${CACHE_VERSION}`);
+
+// Red lenta ("lie-fi" en obra): pasado este límite, si hay copia en caché se
+// sirve la copia y la red sigue refrescando el caché en segundo plano.
+const NETWORK_TIMEOUT_MS = 3500;
+// Una respuesta que tarda más que esto, aunque llegue a tiempo, delata una red
+// lenta: el arranque espera a la red en cada nivel del árbol de imports (~7),
+// así que a 1.5 s por petición tardaba ~11 s. Las peticiones siguientes salen
+// del caché.
+const SLOW_RESPONSE_MS = 1000;
+// Tras un timeout o un fallo de red, el resto del arranque sale directo del
+// caché durante esta ventana: todas las piezas vienen del mismo caché (mismo
+// build) y no se paga el límite de espera por cada uno de los ~370 módulos.
+const DEGRADED_WINDOW_MS = 30000;
+let networkDegradedUntil = 0;
 
 // ─────────────────────────────────────────────
 // Assets que conforman el "shell" de la app.
@@ -202,6 +222,11 @@ const APP_SHELL = [
     './screenshots/screenshot_5_weekly.png'
 ];
 
+// APP_SHELL (íconos, manifest, capturas y el núcleo histórico) + todo el grafo
+// de módulos que index.html alcanza al arrancar. Sin el grafo completo, tras
+// cada deploy la app no podía arrancar offline hasta una segunda visita online.
+const PRECACHE_URLS = [...new Set([...APP_SHELL, ...(self.SW_PRECACHE_MANIFEST || [])])];
+
 // CDNs externos (se cachean en runtime, no en precache)
 const CDN_HOSTS = [
     'fonts.googleapis.com',
@@ -231,9 +256,11 @@ self.addEventListener('install', (event) => {
             .then((cache) => {
                 // Usar addAll con manejo de errores por archivo individual
                 // para que un 404 en un archivo no rompa todo el precache
+                // 'no-cache': revalidar con el servidor para que el precache
+                // corresponda a este build y no a una copia de la caché HTTP.
                 return Promise.allSettled(
-                    APP_SHELL.map((url) =>
-                        cache.add(url).catch((err) => {
+                    PRECACHE_URLS.map((url) =>
+                        cache.add(new Request(url, { cache: 'no-cache' })).catch((err) => {
                             console.warn(`[SW] No se pudo cachear: ${url}`, err.message);
                         })
                     )
@@ -295,7 +322,7 @@ self.addEventListener('fetch', (event) => {
     // 5) Navegación (HTML) → Network First con fallback a cache
     //    Esto asegura que siempre se obtenga la versión más reciente
     if (event.request.mode === 'navigate') {
-        event.respondWith(networkFirst(event.request));
+        event.respondWith(networkFirst(event.request, event));
         return;
     }
 
@@ -304,7 +331,7 @@ self.addEventListener('fetch', (event) => {
     //    nueva con estilos viejos rompe la interfaz aunque el código cargue.
     if (url.origin === self.location.origin &&
         (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))) {
-        event.respondWith(networkFirstAsset(event.request));
+        event.respondWith(networkFirstAsset(event.request, event));
         return;
     }
 
@@ -342,21 +369,75 @@ async function cacheFirst(request) {
 }
 
 /**
- * Network First: Intenta red primero. Si falla, sirve desde cache.
- * Ideal para navegación HTML (siempre obtener la más reciente).
+ * Lanza la petición de red y guarda la respuesta en caché. La promesa queda
+ * registrada en event.waitUntil para que el SW no se detenga a mitad de la
+ * actualización cuando la respuesta ya se sirvió desde el caché.
  */
-async function networkFirst(request) {
-    try {
-        const response = await fetch(request);
+function fetchAndCache(request, event, init) {
+    const slowTimer = setTimeout(markNetworkDegraded, SLOW_RESPONSE_MS);
+    let cachePut = Promise.resolve();
+    const network = fetch(request, init).then((response) => {
+        clearTimeout(slowTimer);
         if (response.ok) {
-            const cache = await caches.open(CACHE_NAME);
-            cache.put(request, response.clone());
+            const copy = response.clone();
+            cachePut = caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         }
         return response;
-    } catch (error) {
-        const cached = await caches.match(request);
-        if (cached) return cached;
+    }, (error) => {
+        clearTimeout(slowTimer);
+        throw error;
+    });
+    if (event && typeof event.waitUntil === 'function') {
+        event.waitUntil(network.then(() => cachePut).catch(() => {}));
+    }
+    return network;
+}
 
+function markNetworkDegraded() {
+    networkDegradedUntil = Date.now() + DEGRADED_WINDOW_MS;
+}
+
+/**
+ * Red primero con límite de espera. Sin copia en caché siempre espera a la red
+ * (mejor lento que un 503). Con copia: la red gana si responde a tiempo; si
+ * tarda más de NETWORK_TIMEOUT_MS o falla, se sirve la copia y el SW entra en
+ * modo degradado, donde las siguientes peticiones salen del caché al instante.
+ */
+async function networkFirstWithDeadline(request, event, init) {
+    const cached = await caches.match(request);
+
+    if (cached && Date.now() < networkDegradedUntil) {
+        fetchAndCache(request, event, init).catch(() => {});
+        return cached;
+    }
+
+    const network = fetchAndCache(request, event, init);
+    if (!cached) return network;
+
+    let timer;
+    const deadline = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS);
+    });
+    try {
+        const response = await Promise.race([network, deadline]);
+        if (response) return response;
+    } catch (error) {
+        // Sin red: cae a la copia de abajo.
+    } finally {
+        clearTimeout(timer);
+    }
+    markNetworkDegraded();
+    return cached;
+}
+
+/**
+ * Network First: Intenta red primero. Si falla o tarda demasiado, sirve desde cache.
+ * Ideal para navegación HTML (siempre obtener la más reciente).
+ */
+async function networkFirst(request, event) {
+    try {
+        return await networkFirstWithDeadline(request, event);
+    } catch (error) {
         // Fallback: devolver index.html cacheado (SPA)
         const fallback = await caches.match('./index.html');
         if (fallback) return fallback;
@@ -374,18 +455,10 @@ async function networkFirst(request) {
  * No usa index.html como fallback: responder HTML a un import produciría otro
  * SyntaxError y ocultaría el verdadero problema de conectividad.
  */
-async function networkFirstAsset(request) {
+async function networkFirstAsset(request, event) {
     try {
-        const response = await fetch(request, { cache: 'no-cache' });
-        if (response.ok) {
-            const cache = await caches.open(CACHE_NAME);
-            cache.put(request, response.clone());
-        }
-        return response;
+        return await networkFirstWithDeadline(request, event, { cache: 'no-cache' });
     } catch (error) {
-        const cached = await caches.match(request);
-        if (cached) return cached;
-
         return new Response('Recurso no disponible offline', {
             status: 503,
             statusText: 'Service Unavailable'
