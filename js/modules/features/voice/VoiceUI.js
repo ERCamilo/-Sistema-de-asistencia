@@ -2,8 +2,10 @@ import { VoiceStore } from './VoiceStore.js';
 import { VoiceRecorder } from './VoiceRecorder.js';
 import { LOAN_FIELDS, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceName, isVoiceEndpointAllowed, createVoiceContext, sendVoiceRecording, resolveVoiceEmployees, voiceBlocked, voiceDraftReady } from './VoiceCore.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
+import { completeVoiceLoanDraft, voiceLoanNote } from './VoiceLoanDraft.js';
+import { getDateKey } from '../../utils/DateUtils.js';
 
-const fieldLabels = { principal: 'Monto', interestRate: 'Interés (%)', interestIncluded: 'Interés incluido', installmentMode: 'Cobro', installmentCount: 'Cantidad de cuotas', installmentFrequencyWeeks: 'Frecuencia (semanas)', startDate: 'Fecha', concept: 'Concepto' };
+const fieldLabels = { principal: 'Monto', interestRate: 'Interés (%)', interestIncluded: 'Interés incluido', installmentMode: 'Cobro', installmentCount: 'Cantidad de cuotas', startDate: 'Fecha del préstamo', concept: 'Concepto / nota (opcional)' };
 const projectKey = scope => scope?.enabled ? String(scope.projectId || 'pending') : 'legacy';
 const money = value => Number(value).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -65,7 +67,7 @@ export class VoiceMvpUI {
         if (this.record && (this.record.uid !== identity.uid || this.record.projectKey !== identity.projectKey)) this.record = null;
         this.history = await this.store.list(identity.uid, identity.projectKey); this.message = '';
         if (!this.record) this.record = this.history[0] || null;
-        await this.refreshMatches(); this.render(); this.dialog.showModal();
+        await this.prepareLoadedLoan(); await this.refreshMatches(); this.render(); this.dialog.showModal();
     }
     close() {
         this.recorder?.cancel(); this.recording = false;
@@ -80,9 +82,23 @@ export class VoiceMvpUI {
         this.matches = resolveVoiceEmployees(this.record?.mention || {}, this.adapter.getEmployees(), aliases);
     }
     selected() { return this.adapter.getEmployees().find(e => e.id === this.record?.selectedEmployeeId); }
+    loanReady() {
+        if (!voiceDraftReady(this.record?.draft)) return false;
+        if (this.record.draft.installmentMode !== 'lump') return true;
+        const periods = this.adapter.getLoanDefaults?.(this.selected())?.periods;
+        return !!this.record.draft.dueDate && (!periods || periods.some(p => p.payDate === this.record.draft.dueDate && p.payDate > getDateKey(new Date())));
+    }
+    async prepareLoadedLoan() {
+        if (!this.record?.result?.loan || this.record.loanDefaultsVersion) return;
+        this.record.rateDefault = this.record.draft?.interestRate == null;
+        this.record.draft = completeVoiceLoanDraft(this.record.draft || this.record.result.loan, this.adapter.getLoanDefaults?.(this.selected()));
+        this.record.loanDefaultsVersion = 1; await this.save();
+    }
     applyResult(result, record = this.record) {
         record.result = result; record.mention = { ...result.employee }; record.transcript = result.transcript;
-        record.draft = result.loan ? { ...result.loan } : null;
+        record.draft = result.loan ? completeVoiceLoanDraft(result.loan, this.adapter.getLoanDefaults?.(null)) : null;
+        record.rateDefault = result.loan?.interestRate === null;
+        record.loanDefaultsVersion = 1;
         record.selectedEmployeeId = null; record.reviewed = false; record.dirty = false; record.pendingResult = null;
     }
     async action(action, id) {
@@ -106,7 +122,7 @@ export class VoiceMvpUI {
         }
         if (action === 'load') {
             const identity = this.identity(); this.record = await this.store.get(identity.uid, id); this.guard();
-            this.allEmployees = false; this.message = ''; await this.refreshMatches(); this.render(); return;
+            this.allEmployees = false; this.message = ''; await this.prepareLoadedLoan(); await this.refreshMatches(); this.render(); return;
         }
         this.guard();
         if (action === 'save-audio') { delete this.record.unsaved; try { await this.save(); } catch (error) { this.record.unsaved = true; throw error; } this.render(); return; }
@@ -123,9 +139,19 @@ export class VoiceMvpUI {
         if (action === 'choose') { this.allEmployees = true; this.render(); return; }
         if (action === 'select') {
             const employee = this.adapter.getEmployees().find(e => e.id === id); if (!employee) throw Error('Empleado no disponible en el proyecto activo.');
-            this.record.selectedEmployeeId = id; this.record.dirty = true; this.allEmployees = false; await this.save(); this.render(); return;
+            this.record.selectedEmployeeId = id;
+            if (this.record.draft && this.record.rateDefault) {
+                const defaults = this.adapter.getLoanDefaults?.(employee) || {};
+                this.record.draft.interestRate = completeVoiceLoanDraft({ interestRate: null }, defaults).interestRate;
+            }
+            this.record.dirty = true; this.allEmployees = false; await this.save(); this.render(); return;
         }
         const employee = this.selected(); if (!employee) throw Error('Selecciona al empleado correcto primero.');
+        if (action === 'previous-interest') {
+            const rate = this.adapter.getLoanDefaults?.(employee)?.previousRate;
+            if (rate === null || rate === undefined) throw Error('Este empleado no tiene una tasa anterior válida.');
+            this.record.draft.interestRate = rate; this.record.rateDefault = false; this.record.dirty = true; await this.save(); this.render(); return;
+        }
         if (action === 'learn') {
             const alias = this.dialog.querySelector('[data-voice-alias]').value;
             if (!normalizeVoiceName(alias)) throw Error('Escribe la variante que quieres asociar al empleado.');
@@ -135,10 +161,19 @@ export class VoiceMvpUI {
         if (action === 'clear-aliases') { await this.store.clearAliases(this.record.uid, this.record.projectKey, employee.id); this.message = 'Alias locales del empleado eliminados.'; await this.refreshMatches(); this.render(); return; }
         if (voiceBlocked(this.record.result)) throw Error('La instrucción está negada o no se pudo interpretar. Graba una nueva instrucción.');
         if (action === 'loan') {
+            if (this.record.completedLoanId) throw Error('Esta grabación ya registró un préstamo. Graba una instrucción nueva.');
             if ((this.record.result.needsReview || this.record.result.issues.length) && !this.record.reviewed) throw Error('Revisa las advertencias y confirma que las revisaste.');
-            if (!voiceDraftReady(this.record.draft)) throw Error('Completa los campos pendientes del préstamo.');
+            if (!this.loanReady()) throw Error('Completa el monto y la fecha de cobro del préstamo. Revisa el calendario de nómina si no hay fechas disponibles.');
             const validation = this.adapter.validateLoan(this.record.draft); if (!validation.valid) throw Error(validation.errors.join('. '));
-            await this.adapter.onLoan(employee.id, { ...this.record.draft }); this.close(); return;
+            const record = this.record;
+            this.busy = true; this.render();
+            try {
+                const loan = await this.adapter.onLoan(employee.id, { ...record.draft, concept: voiceLoanNote(record, record.draft.concept) }, { requestId: record.requestId, guard: () => this.guard(record) });
+                if (loan === null) { this.message = 'Registro cancelado. Conservamos el borrador.'; return; }
+                record.completedLoanId = loan?.id || null;
+                await this.store.put(record); this.close();
+            } finally { this.busy = false; if (this.dialog.open) this.render(); }
+            return;
         }
         if (action === 'profile') this.adapter.onProfile(employee.id);
         if (action === 'attendance') this.adapter.onAttendance(employee.id);
@@ -175,8 +210,10 @@ export class VoiceMvpUI {
             this.record.draft ||= Object.fromEntries(LOAN_FIELDS.map(k => [k, null]));
             const v = input.value;
             this.record.draft[field] = v === '' ? null : ['principal', 'interestRate', 'installmentCount', 'installmentFrequencyWeeks'].includes(field) ? Number(v) : field === 'interestIncluded' ? v === 'true' : v;
+            if (field === 'interestRate') this.record.rateDefault = false;
+            if (field === 'installmentMode' && v === 'installments' && this.record.draft.installmentCount < 2) this.record.draft.installmentCount = 2;
         }
-        if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.reviewed = false; }
+        if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.reviewed = false; if (this.record.draft && this.record.rateDefault) this.record.draft.interestRate = 20; }
         if (input.dataset.voiceTranscript !== undefined) this.record.transcript = input.value;
         if (input.dataset.voiceReviewed !== undefined) this.record.reviewed = input.checked;
         this.record.dirty = true; await this.save(); await this.refreshMatches(); this.render();
@@ -194,12 +231,14 @@ export class VoiceMvpUI {
         const selecting = !selected || this.allEmployees;
         let preview = '';
         if (selected && record?.draft && voiceDraftReady(record.draft)) {
-            try { const p = this.adapter.previewLoan(selected, record.draft); preview = `<p>Nuevo préstamo: <strong>${money(p.total)}</strong>${p.installments?.length ? ` · Cuotas: ${p.installments.map(x => money(x.amount)).join(' / ')}` : ''}</p><p>Saldo actual → proyectado: <strong>${money(p.current)} → ${money(p.projected)}</strong></p>`; } catch (_) { preview = '<p>Completa o corrige los datos para ver la proyección.</p>'; }
+            try { const p = this.adapter.previewLoan(selected, record.draft); preview = `<p>Nuevo préstamo: <strong>${money(p.total)}</strong>${p.installments?.length ? ` · Cuotas: ${p.installments.map(x => `${money(x.amount)}${x.dueDate ? ` (${escapeHTML(x.dueDate)})` : ''}`).join(' / ')}` : ''}</p><p>Saldo actual → proyectado: <strong>${money(p.current)} → ${money(p.projected)}</strong></p>`; } catch (_) { preview = '<p>Completa o corrige los datos para ver la proyección.</p>'; }
         }
-        const loanInputs = result?.intent === 'crear_prestamo' ? `<fieldset ${disabled ? 'disabled' : ''}><legend>Préstamo · borrador</legend>${LOAN_FIELDS.map(field => {
+        const loanDefaults = this.adapter.getLoanDefaults?.(selected) || {};
+        const futurePeriods = (loanDefaults.periods || []).filter(period => period.payDate > getDateKey(new Date()));
+        const loanInputs = result?.intent === 'crear_prestamo' ? `<fieldset ${disabled ? 'disabled' : ''}><legend>Préstamo · borrador</legend><p>${record.draft.installmentMode === 'lump' ? 'Un solo pago en la nómina seleccionada.' : 'Las cuotas usan el calendario del sistema actual de préstamos.'} Los valores predeterminados son editables.</p>${LOAN_FIELDS.filter(field => field !== 'installmentFrequencyWeeks' && (field !== 'installmentCount' || record.draft.installmentMode === 'installments')).map(field => {
             const v = record.draft?.[field] ?? ''; const options = field === 'installmentMode' ? [['lump', 'Pago único'], ['installments', 'Cuotas']] : field === 'interestIncluded' ? [['true', 'Sí'], ['false', 'No']] : null;
             return `<label>${fieldLabels[field]} ${v === '' ? '<small>Pendiente</small>' : ''}${options ? `<select data-voice-field="${field}"><option value="">Seleccionar</option>${options.map(([key, label]) => `<option value="${key}" ${String(v) === key ? 'selected' : ''}>${label}</option>`).join('')}</select>` : `<input data-voice-field="${field}" type="${field === 'startDate' ? 'date' : ['concept'].includes(field) ? 'text' : 'number'}" ${field === 'concept' ? '' : 'step="any"'} value="${escapeAttr(String(v))}">`}</label>`;
-        }).join('')}</fieldset>${preview}${button('loan', 'Revisar en el formulario habitual', disabled || blocked || !selected || !voiceDraftReady(record.draft) || ((result.needsReview || result.issues.length) && !record.reviewed))}` : '';
+        }).join('')}${record.draft.installmentMode === 'lump' ? `<label>Nómina de cobro<select data-voice-field="dueDate"><option value="">Seleccionar fecha de pago</option>${futurePeriods.map(period => `<option value="${escapeAttr(period.payDate)}" ${record.draft.dueDate === period.payDate ? 'selected' : ''}>${escapeHTML(period.label || period.payDate)}</option>`).join('')}</select></label>${!futurePeriods.length ? '<p role="alert">Configura el calendario de nómina para elegir la próxima fecha de pago.</p>' : ''}` : ''}${selected && loanDefaults.previousRate !== null && loanDefaults.previousRate !== undefined && loanDefaults.previousRate !== 20 ? button('previous-interest', `Usar tasa anterior: ${escapeHTML(String(loanDefaults.previousRate))} %`, disabled) : ''}<p>Nota que se guardará: ${escapeHTML(record.createdAt ? voiceLoanNote(record, record.draft.concept) : 'Pendiente')}</p></fieldset>${preview}${record.completedLoanId ? '<p>Esta grabación ya registró un préstamo.</p>' : ''}${button('loan', 'Aceptar y registrar préstamo', disabled || blocked || !selected || !!record.completedLoanId || !this.loanReady() || ((result.needsReview || result.issues.length) && !record.reviewed))}` : '';
         this.dialog.innerHTML = `<header><h2>Voz · MVP</h2>${button('close', 'Cerrar')}</header>
             <p role="status">${escapeHTML(this.message)}</p><p>Máximo 60 segundos · 10 MiB. Audio conservado en este dispositivo.</p>
             <div class="voice-actions">${button('record', '🎙 Grabar nueva instrucción', disabled)}${this.recording ? button('stop', 'Detener y conservar') : ''}</div>

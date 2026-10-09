@@ -20,7 +20,12 @@ export function SettingsTestsTab(context) {
                     <span class="stg-switch-copy"><strong>Activar botón de voz · MVP</strong><small>Muestra el micrófono para grabar y revisar instrucciones de voz.</small></span>
                     <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
                 </label>
-                <p>La opción se guarda automáticamente con tus ajustes. Desactivarla oculta el botón y detiene la grabación; conserva los audios y alias guardados. Procesar requiere una sesión activa y usa el workflow de voz. Revisa y confirma las operaciones por el formulario habitual.</p>
+                <p>La opción se guarda automáticamente con tus ajustes. Desactivarla oculta el botón y detiene la grabación; conserva los audios y alias guardados. Procesar requiere una sesión activa. Revisa los datos antes de pulsar «Aceptar y registrar préstamo».</p>
+                <label class="stg-switch-row ${state.settings?.voiceUsePreviousInterest === true ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceUsePreviousInterest === true}">
+                    <input type="checkbox" id="voiceUsePreviousInterest" ${state.settings?.voiceUsePreviousInterest === true ? 'checked' : ''}>
+                    <span class="stg-switch-copy"><strong>Usar la tasa anterior del empleado en préstamos por voz</strong><small>Si no indicas interés, reutiliza su última tasa válida; sin una anterior usa 20 %. Una tasa indicada en la voz o editada tiene prioridad.</small></span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
             </section>
             <div class="stg-header" style="margin-bottom: 20px;">
                 <div>

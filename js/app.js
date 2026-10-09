@@ -59,7 +59,10 @@ import { auth, onAuthStateChanged as subscribeVoiceSession } from './modules/dat
 import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
 import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
 import { getAccountSummary as voiceAccountSummary } from './modules/features/loans/LoanAccount.js';
-import { openLoansLedgerFor as openVoiceLoanDraft, setLoanDraftField as setVoiceLoanField, selectLoansEmployee as selectVoiceLoansEmployee } from './modules/features/loans/LoansController.js';
+import { selectLoansEmployee as selectVoiceLoansEmployee } from './modules/features/loans/LoansController.js';
+import { registerNewAccountLoan, laUseClassicView } from './modules/features/loans/LoanAccountController.js';
+import { getAccountPayPeriods } from './modules/features/loans/LoanAccountView.js';
+import { previousVoiceInterest } from './modules/features/voice/VoiceLoanDraft.js';
 import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
 import { sanitizeExportConfig } from './modules/services/ExportConfigSanitizer.js';
@@ -1206,8 +1209,8 @@ AnalyticsUI.init(moduleContext);
 PayrollUI.init(moduleContext);
 SyncUI.initSyncUI(moduleContext);
 
-// Device-local voice MVP. Transports audio only; business writes stay in the
-// existing loan form after the user's normal confirmation.
+// Device-local voice MVP. Transports audio only; confirmed loans use the
+// same registration path as the current account form.
 new VoiceMvpUI({
     getUser: () => auth.currentUser,
     isEnabled: () => state.settings?.voiceMvpEnabled === true,
@@ -1215,6 +1218,7 @@ new VoiceMvpUI({
     getScope: () => peekEntityScope(),
     getEmployees: () => (state.employees || []).filter(employee => entityInScope(employee, peekEntityScope())),
     getEndpoint: () => APP_CONFIG.VOICE_WEBHOOK_URL,
+    getLoanDefaults: employee => ({ periods: getAccountPayPeriods(), previousRate: previousVoiceInterest({ loans: (employee?.loans || []).filter(loan => entityInScope(loan, peekEntityScope())) }), usePrevious: state.settings?.voiceUsePreviousInterest === true }),
     subscribeSession: callback => subscribeVoiceSession(auth, callback),
     subscribeScope: callback => projectContext.subscribe(callback),
     validateLoan: validateVoiceLoan,
@@ -1230,10 +1234,18 @@ new VoiceMvpUI({
     onProfile: employeeId => window.openEmployeeProfile(employeeId),
     onAttendance: employeeId => { window.openEmployeeProfile(employeeId); window.changeProfileTab('asistencia'); },
     onLoans: employeeId => { selectVoiceLoansEmployee(employeeId); window.openCuentasPorCobrar(); },
-    onLoan: (employeeId, draft) => {
-        if (state.loansLedger?.showAddForm && !window.confirm('¿Reemplazar el borrador abierto en el formulario de préstamos?')) throw new Error('Se conservó el formulario existente.');
-        if (openVoiceLoanDraft(employeeId) === false) throw new Error('Empleado no disponible en el proyecto activo.');
-        for (const [field, value] of Object.entries(draft)) if (value !== null) setVoiceLoanField(field, value);
+    onLoan: async (employeeId, draft, context) => {
+        if ((state.loansLedger?.account?.modal || state.loansLedger?.showAddForm) && !window.confirm('Hay otro formulario de préstamos abierto. ¿Registrar el préstamo de voz y cerrar ese formulario?')) return null;
+        const loan = await registerNewAccountLoan(employeeId, draft, { period: draft.dueDate, voiceRequestId: context.requestId, canProceed: context.guard, confirmDuplicate: message => window.confirm(message) });
+        if (loan) {
+            selectVoiceLoansEmployee(employeeId); laUseClassicView(false);
+            stateManager.batchSetState(() => {
+                state.loansLedger.showAddForm = false;
+                state.loansLedger.account.tab = 'loans';
+            });
+            window.openCuentasPorCobrar();
+        }
+        return loan;
     }
 }).mount();
 

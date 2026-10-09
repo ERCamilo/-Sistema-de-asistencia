@@ -17,7 +17,7 @@ function setup() {
     const store = { put: jest.fn().mockResolvedValue(), aliases: async () => [], close: jest.fn() };
     const onLoan = jest.fn();
     const ui = new VoiceMvpUI({ getUser: () => user, getScope: () => ({ enabled: false }), getEmployees: () => [{ id: 'carlos', name: 'Carlos Méndez', number: '00125' }], getEndpoint: () => 'https://n8n.example/voice', validateLoan: () => ({ valid: true, errors: [] }), onLoan }, { store });
-    ui.record = { uid: 'one', projectKey: 'legacy', requestId: 'request-1', fileBase64: 'AQID', mimeType: 'audio/webm', fileName: 'voice.webm', context: {}, result: extracted(), draft: { ...extracted().loan, principal: 6000 }, mention: { spokenName: 'Carlo' }, selectedEmployeeId: 'carlos', dirty: true };
+    ui.record = { uid: 'one', projectKey: 'legacy', requestId: 'request-1', createdAt: Date.UTC(2026, 9, 9, 13, 30), fileBase64: 'AQID', mimeType: 'audio/webm', fileName: 'voice.webm', context: { timeZone: 'America/Santo_Domingo' }, result: extracted(), draft: { ...extracted().loan, principal: 6000, dueDate: '2030-12-31' }, mention: { spokenName: 'Carlo' }, selectedEmployeeId: 'carlos', dirty: true };
     ui.render = jest.fn(); ui.dialog = { open: false }; ui.close = jest.fn();
     return { ui, store, onLoan, setUser: value => { user = value; } };
 }
@@ -65,7 +65,7 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
         expect(ui.record.pendingResult.loan.principal).toBe(5000);
         expect(onLoan).not.toHaveBeenCalled();
         await ui.action('loan');
-        expect(onLoan).toHaveBeenCalledWith('carlos', expect.objectContaining({ principal: 6000 }));
+        expect(onLoan).toHaveBeenCalledWith('carlos', expect.objectContaining({ principal: 6000, concept: expect.stringContaining('voice - el') }), expect.objectContaining({ requestId: 'request-1' }));
     });
     test('negation and unresolved employee never hand off to the normal form', async () => {
         const { ui, onLoan } = setup();
@@ -101,6 +101,27 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
         expect(ui.record.selectedEmployeeId).toBeNull();
         await expect(ui.action('loan')).rejects.toThrow('Selecciona');
         expect(onLoan).not.toHaveBeenCalled();
+    });
+    test('previous-rate preference applies only to defaults; an explicit or edited rate wins', async () => {
+        const { ui } = setup();
+        ui.adapter.getLoanDefaults = employee => ({ previousRate: employee ? 15 : null, usePrevious: true, periods: [{ payDate: '2030-12-31' }] });
+        const response = extracted(); response.loan.interestRate = null;
+        ui.applyResult(response);
+        expect(ui.record.draft.interestRate).toBe(20);
+        await ui.action('select', 'carlos'); expect(ui.record.draft.interestRate).toBe(15);
+        await ui.change({ dataset: { voiceField: 'interestRate' }, value: '0' });
+        await ui.action('select', 'carlos'); expect(ui.record.draft.interestRate).toBe(0);
+        response.loan.interestRate = 30; ui.applyResult(response);
+        await ui.action('select', 'carlos'); expect(ui.record.draft.interestRate).toBe(30);
+    });
+    test('a confirmed recording registers once and keeps the draft if duplicate review is cancelled', async () => {
+        const { ui, onLoan } = setup();
+        onLoan.mockResolvedValueOnce(null); await ui.action('loan');
+        expect(ui.close).not.toHaveBeenCalled();
+        onLoan.mockResolvedValueOnce({ id: 'loan-1' }); await ui.action('loan');
+        expect(ui.record.completedLoanId).toBe('loan-1');
+        await expect(ui.action('loan')).rejects.toThrow('ya registró');
+        expect(onLoan).toHaveBeenCalledTimes(2);
     });
     test('the picker shows suggestions before all others and learns a rare pronunciation for future audio', async () => {
         const { ui, onLoan } = setup();

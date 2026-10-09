@@ -39,9 +39,27 @@ al webhook. Los empleados ficticios están en `js/tests/fixtures/voice-employees
 no se insertan automáticamente en los datos reales.
 
 Las proyecciones usan `getTotalDue`, `generateInstallmentSchedule` y
-`getAccountSummary`. **Revisar en el formulario habitual** traslada los campos
-completos y validados al formulario existente. No registra un préstamo: el usuario
-lo guarda por el flujo normal, incluidos detección de duplicados y persistencia.
+`getAccountSummary`. La tarjeta propone 20 % y un pago único si la extracción
+no especifica otros valores; monto ausente sigue pendiente. Usa el calendario
+de nómina de la obra activa y elige el primer día de pago estrictamente posterior
+a hoy. La fecha del préstamo y la nómina de cobro son campos separados. No se
+pregunta frecuencia semanal; las cuotas explícitas conservan las reglas del
+sistema de préstamos, y sus fechas se muestran en la proyección.
+
+**Configuración → Tests → Usar la tasa anterior del empleado** permite tomar
+su última tasa válida cuando la voz no indicó interés. Está apagado por defecto;
+sin historial se usa 20 %. Una tasa indicada o editada, incluso 0 %, tiene prioridad.
+La tarjeta también permite aplicar explícitamente una tasa anterior distinta de 20 %.
+
+**Aceptar y registrar préstamo** es la confirmación final. Reutiliza el mismo
+registro de la cuenta actual de préstamos: validación, numeración, revisión de
+duplicados y persistencia. Luego abre esa cuenta en la pestaña Préstamos. n8n
+sigue sin escrituras. La nota siempre incluye `voice - el DD/MM/AAAA a las HH:mm`
+con la fecha/hora de la grabación en su zona horaria, más el concepto opcional.
+Se guarda `voiceRequestId` en el préstamo y el ID del préstamo en el audio local
+para impedir volver a registrar la misma grabación. No confirma automáticamente
+una posible duplicación. Si faltan empleado, monto o una nómina futura para un
+pago único, el registro se bloquea; las ediciones se conservan.
 Los botones Perfil/Asistencia/Préstamos solo navegan. Una instrucción negada o no
 reconocida no ofrece una acción confirmable; necesita una grabación nueva.
 

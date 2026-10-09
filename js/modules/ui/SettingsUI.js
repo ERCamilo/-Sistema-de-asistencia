@@ -287,6 +287,7 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'hideDuplicateAlerts',
     'weatherEnabled',
     'voiceMvpEnabled',
+    'voiceUsePreviousInterest',
     'attendancePositionWatermarks'
 ]);
 const AUTO_SAVE_OPTION_VALUES = new Map([
