@@ -1235,8 +1235,8 @@ new VoiceMvpUI({
     onAttendance: employeeId => { window.openEmployeeProfile(employeeId); window.changeProfileTab('asistencia'); },
     onLoans: employeeId => { selectVoiceLoansEmployee(employeeId); window.openCuentasPorCobrar(); },
     onLoan: async (employeeId, draft, context) => {
-        if ((state.loansLedger?.account?.modal || state.loansLedger?.showAddForm) && !window.confirm('Hay otro formulario de préstamos abierto. ¿Registrar el préstamo de voz y cerrar ese formulario?')) return null;
-        const loan = await registerNewAccountLoan(employeeId, draft, { period: draft.dueDate, voiceRequestId: context.requestId, canProceed: context.guard, confirmDuplicate: message => window.confirm(message) });
+        if ((state.loansLedger?.account?.modal || state.loansLedger?.showAddForm) && !await context.confirm('Hay otro formulario de préstamos abierto. ¿Registrar el préstamo de voz y cerrar ese formulario?')) return null;
+        const loan = await registerNewAccountLoan(employeeId, draft, { period: draft.dueDate, voiceRequestId: context.requestId, canProceed: context.guard, confirmDuplicate: message => context.confirm(message) });
         if (loan) {
             selectVoiceLoansEmployee(employeeId); laUseClassicView(false);
             stateManager.batchSetState(() => {

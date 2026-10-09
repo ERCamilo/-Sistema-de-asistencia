@@ -1,19 +1,85 @@
-.voice-launcher { position: fixed; right: 18px; bottom: calc(82px + env(safe-area-inset-bottom)); z-index: 1100; border-radius: 24px; padding: 12px 18px; background: var(--primary, #2563eb); color: white; border: 0; box-shadow: 0 3px 14px #0004; cursor: pointer; }
-.voice-dialog { width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 36px); overflow: auto; border: 1px solid var(--border-color, #64748b); border-radius: 16px; padding: 20px; background: var(--bg-secondary, #1e293b); color: var(--text-primary, #f8fafc); }
-.voice-dialog::backdrop { background: #0009; }
-.voice-dialog header, .voice-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
-.voice-dialog button { min-height: 44px; padding: 9px 12px; border: 1px solid var(--border-color, #64748b); border-radius: 10px; background: var(--bg-primary, #0f172a); color: inherit; cursor: pointer; }
-.voice-dialog button:disabled { opacity: .5; cursor: default; }
-.voice-dialog label { display: block; margin: 12px 0; }
-.voice-dialog input:not([type=checkbox]), .voice-dialog select, .voice-dialog textarea { display: block; box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px; border: 1px solid #64748b; border-radius: 8px; background: var(--bg-primary, #0f172a); color: inherit; }
-.voice-dialog textarea { min-height: 80px; }
-.voice-dialog audio { width: 100%; margin-top: 16px; }
-.voice-dialog .voice-choices { display: grid; gap: 6px; }
-.voice-all { max-height: 230px; overflow: auto; }
-.voice-choices > div { display: grid; gap: 3px; }
-.voice-choices small { margin: 0 8px 6px; }
-.voice-aliases { margin-top: 16px; padding: 12px; border: 1px solid var(--border-color, #64748b); border-radius: 10px; }
-.voice-review { border-left: 4px solid #f59e0b; padding: 8px 12px; }
-.voice-dialog small { color: #fbbf24; }
-.voice-dialog details { margin-top: 16px; }
-.voice-dialog :focus-visible, .voice-launcher:focus-visible { outline: 3px solid #60a5fa; outline-offset: 2px; }
+/* Canonical modal tokens from design.md, scoped to the voice MVP. */
+.voice-dialog, .voice-launcher {
+    --bg: oklch(.185 .012 245); --panel: oklch(.228 .013 245); --panel-2: oklch(.268 .014 245);
+    --hover: oklch(.310 .015 245); --border: oklch(.330 .014 245);
+    --text: oklch(.960 .004 245); --text-dim: oklch(.740 .010 245); --text-faint: oklch(.560 .012 245);
+    --accent: oklch(.760 .110 205); --on-accent: oklch(.160 .020 240);
+    --good: oklch(.740 .120 158); --warn: oklch(.820 .110 78); --bad: oklch(.680 .160 25);
+    --shadow: 0 1px 2px #0006, 0 24px 60px -24px #000c;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}
+.voice-launcher { position: fixed; right: 18px; bottom: calc(82px + env(safe-area-inset-bottom)); z-index: 1100; display: flex; align-items: center; gap: 8px; min-height: 44px; border-radius: 999px; padding: 10px 18px; background: var(--accent); color: var(--on-accent); border: 0; box-shadow: var(--shadow); cursor: pointer; font-weight: 600; }
+.voice-launcher[hidden] { display: none; }
+.voice-launcher svg, .voice-mark svg { width: 20px; height: 20px; }
+.voice-dialog { box-sizing: border-box; width: min(620px, calc(100vw - 32px)); max-height: calc(100dvh - 36px); overflow: hidden; border: 1px solid var(--border); border-radius: 22px; padding: 0; background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+.voice-dialog[open] { display: flex; flex-direction: column; }
+.voice-dialog::backdrop { background: #000a; }
+.voice-header { display: flex; gap: 12px; align-items: center; padding: 18px 26px; flex: none; }
+.voice-header > div:nth-child(2) { flex: 1; min-width: 0; }
+.voice-mark { display: grid; place-items: center; background: var(--accent); color: var(--on-accent); width: 30px; height: 30px; border-radius: 8px; flex: none; }
+.voice-dialog h2 { margin: 5px 0; font-size: 25px; font-weight: 700; letter-spacing: -.015em; line-height: 1.2; }
+.voice-kicker { font-size: 10px; font-weight: 600; letter-spacing: .12em; color: var(--text-dim); }
+.voice-header p { margin: 0; font-size: 14px; color: var(--text-dim); }
+.voice-progress { height: 3px; background: var(--accent); flex: none; }
+.voice-body { padding: 18px 26px; overflow: auto; min-height: 0; overscroll-behavior: contain; }
+.voice-dialog p { font-size: 14px; line-height: 1.55; color: var(--text-dim); overflow-wrap: anywhere; }
+.voice-dialog h3, .voice-dialog h4 { font-size: 14px; margin: 18px 0 10px; }
+.voice-dialog strong { color: var(--text); }
+.voice-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.voice-actions:empty { display: none; }
+.voice-dialog button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.voice-dialog button:hover:not(:disabled) { background: var(--hover); }
+.voice-dialog button:disabled { opacity: .45; cursor: default; }
+.voice-dialog button.voice-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.voice-dialog button.voice-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.voice-dialog label { display: block; margin: 14px 0; font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.voice-dialog input:not([type=checkbox]), .voice-dialog select, .voice-dialog textarea { display: block; box-sizing: border-box; width: 100%; min-height: 44px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); color: var(--text); font: inherit; font-size: 14px; }
+.voice-dialog input[type=checkbox] { accent-color: var(--accent); width: 20px; height: 20px; vertical-align: middle; margin-right: 6px; }
+.voice-dialog textarea { min-height: 80px; resize: vertical; }
+.voice-dialog audio { display: block; width: 100%; margin: 12px 0; }
+.voice-dialog fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; margin: 20px 0 12px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 14px; }
+.voice-dialog fieldset legend { padding: 0 6px; font-weight: 600; font-size: 14px; }
+.voice-dialog fieldset > p, .voice-dialog fieldset > button, .voice-dialog fieldset > label:has([data-voice-field=concept]) { grid-column: 1 / -1; }
+.voice-person { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; }
+.voice-code { font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: var(--text-dim); }
+.voice-choices { display: grid; gap: 8px; }
+.voice-choices > div { display: grid; gap: 4px; }
+.voice-choices > div[hidden] { display: none; }
+.voice-choices button { width: 100%; padding: 16px 18px; border-radius: 14px; }
+.voice-choices small { padding: 0 18px 6px; }
+.voice-all { max-height: 260px; overflow: auto; overscroll-behavior: contain; }
+.voice-dialog small { font-size: 11px; color: var(--text-dim); }
+.voice-dialog label small { color: var(--warn); }
+.voice-review, .voice-status:not(:empty), .voice-confirm { border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: 14px; padding: 12px 16px; background: var(--panel-2); }
+.voice-status:empty { display: none; }
+.voice-review ul { padding-left: 18px; font-size: 13px; color: var(--text-dim); }
+.voice-dialog [role=alert] { color: var(--warn); }
+.voice-dialog details { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 8px; }
+.voice-dialog summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; font-size: 13px; color: var(--text-dim); gap: 8px; }
+.voice-dialog summary::before { content: '+'; font-size: 18px; }
+.voice-dialog details[open] > summary::before { content: '−'; }
+.voice-footer { display: flex; align-items: center; gap: 16px; justify-content: space-between; flex: none; padding: 16px 26px; border-top: 1px solid var(--border); background: var(--panel); }
+.voice-footer .voice-hint { flex: 1; font-size: 12px; color: var(--text-faint); margin: 0; }
+.voice-confirm { width: 100%; }
+.voice-dialog :focus-visible, .voice-launcher:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) {
+    .voice-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); margin: auto 8px 8px; }
+    .voice-header { padding: 14px 16px; gap: 8px; }
+    .voice-header p { font-size: 12px; }
+    .voice-mark { display: none; }
+    .voice-body { padding: 16px; }
+    .voice-footer { flex-direction: column; align-items: stretch; padding: 14px 16px max(14px, env(safe-area-inset-bottom)); gap: 10px; }
+    .voice-footer .voice-hint { text-align: center; }
+    .voice-dialog fieldset { padding: 14px; }
+}
+@media (max-width: 380px) { .voice-dialog fieldset { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .voice-dialog *, .voice-launcher { animation: none !important; transition: none !important; } }
+.voice-selected { display: grid; gap: 6px; padding: 16px 18px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border); }
+.voice-selected > span:first-child { font-size: 11px; font-weight: 500; color: var(--text-dim); }
+.voice-selected strong { font-size: 17px; }
+.voice-selected .voice-code { color: var(--accent); }
+.voice-projection { padding: 16px 18px; border-radius: 14px; background: var(--panel-2); }
+.voice-projection strong { font-family: 'IBM Plex Mono', monospace; font-size: 20px; display: block; margin-top: 8px; }
+.voice-dialog button.voice-primary:hover:not(:disabled) { background: var(--accent); }
+.voice-status:not(:empty) { border-left-color: var(--good); }
+.voice-status.is-error:not(:empty) { border-left-color: var(--bad); }

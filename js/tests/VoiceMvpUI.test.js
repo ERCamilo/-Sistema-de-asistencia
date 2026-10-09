@@ -160,3 +160,52 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
         } finally { store.close(); URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; }
     });
 });
+
+
+describe('Voice modal continuity and inline confirmations', () => {
+    let ui;
+    beforeEach(() => {
+        ({ ui } = setup());
+        ui.dialog = document.createElement('dialog'); document.body.append(ui.dialog);
+        ui.dialog.open = true;
+        ui.record.audio = new Blob(['audio'], { type: 'audio/webm' });
+        ui.render = VoiceMvpUI.prototype.render.bind(ui);
+        URL.createObjectURL = jest.fn(() => 'blob:voice-test');
+        URL.revokeObjectURL = jest.fn();
+        ui.render();
+    });
+    afterEach(() => { ui.dialog.remove(); jest.restoreAllMocks(); });
+    test('editing preserves input, cursor, playback node, URL, disclosure and scroll', async () => {
+        const shell = ui.dialog;
+        const input = shell.querySelector('[data-voice-field=concept]');
+        const audio = shell.querySelector('audio');
+        const body = shell.querySelector('.voice-body');
+        const details = shell.querySelector('.voice-audio-details'); details.open = true;
+        body.scrollTop = 180;
+        input.value = 'Herramientas'; input.focus(); input.setSelectionRange(3, 6);
+        await ui.change(input);
+        expect(shell.querySelector('[data-voice-field=concept]')).toBe(input);
+        expect(document.activeElement).toBe(input);
+        expect([input.selectionStart, input.selectionEnd]).toEqual([3, 6]);
+        expect(shell.querySelector('audio')).toBe(audio);
+        expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+        expect(body.scrollTop).toBe(180);
+        expect(details.open).toBe(true);
+        expect(shell.querySelectorAll('.voice-primary')).toHaveLength(1);
+    });
+    test('inline confirmation cancels without registering and explicitly accepts', async () => {
+        const pending = ui.confirmInline('¿Registrar un préstamo parecido?');
+        expect(ui.dialog.querySelector('.voice-body').inert).toBe(true);
+        expect(document.activeElement.dataset.voiceAction).toBe('confirm-cancel');
+        await ui.action('loan'); expect(ui.adapter.onLoan).not.toHaveBeenCalled();
+        await ui.action('confirm-cancel'); await expect(pending).resolves.toBe(false);
+        expect(ui.dialog.querySelector('.voice-body').inert).toBe(false);
+        const accepted = ui.confirmInline('¿Reemplazar las ediciones?');
+        await ui.action('confirm-accept'); await expect(accepted).resolves.toBe(true);
+    });
+    test('a needsReview draft explains why its only primary action is disabled', () => {
+        ui.record.result.needsReview = true; ui.render();
+        expect(ui.dialog.querySelector('.voice-primary').disabled).toBe(true);
+        expect(ui.dialog.querySelector('.voice-hint').textContent).toMatch('revisaste las advertencias');
+    });
+});
