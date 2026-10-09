@@ -5,6 +5,11 @@ conservan sus reglas y módulos existentes. n8n solo devuelve datos extraídos.
 
 ## Uso
 
+Activar **Configuración → Tests → Activar botón de voz · MVP**. Está apagado
+por defecto; el interruptor se guarda y sincroniza como los demás ajustes.
+El botón aparece con una sesión activa. Desactivar la opción cierra el panel
+y cancela la grabación en curso, conservando audios, borradores y alias guardados.
+
 Con una sesión Firebase activa, abrir **Voz · MVP**, grabar y detener. El audio
 se conserva en IndexedDB (`sa-voice-mvp-v1`) por cuenta y proyecto. En
 **Configuración de la prueba**, se muestra la URL ya configurada del workflow separado:

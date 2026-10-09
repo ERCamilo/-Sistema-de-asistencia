@@ -13,6 +13,15 @@ export function SettingsTestsTab(context) {
 
     return `
         <div class="stg-panel">
+            <section class="stg-card" aria-labelledby="voice-mvp-test-title" style="margin-bottom:20px;">
+                <h3 id="voice-mvp-test-title">Prueba de voz</h3>
+                <label class="stg-switch-row ${state.settings?.voiceMvpEnabled === true ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceMvpEnabled === true}">
+                    <input type="checkbox" id="voiceMvpEnabled" ${state.settings?.voiceMvpEnabled === true ? 'checked' : ''}>
+                    <span class="stg-switch-copy"><strong>Activar botón de voz · MVP</strong><small>Muestra el micrófono para grabar y revisar instrucciones de voz.</small></span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
+                <p>La opción se guarda automáticamente con tus ajustes. Desactivarla oculta el botón y detiene la grabación; conserva los audios y alias guardados. Procesar requiere una sesión activa y usa el workflow de voz. Revisa y confirma las operaciones por el formulario habitual.</p>
+            </section>
             <div class="stg-header" style="margin-bottom: 20px;">
                 <div>
                     <h3>Pruebas del Sistema</h3>

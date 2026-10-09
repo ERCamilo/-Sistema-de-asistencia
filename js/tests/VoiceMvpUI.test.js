@@ -1,6 +1,7 @@
 import { VoiceMvpUI } from '../modules/features/voice/VoiceUI.js';
 import { VoiceStore } from '../modules/features/voice/VoiceStore.js';
 import { indexedDB } from 'fake-indexeddb';
+import { SettingsTestsTab } from '../modules/ui/settings/SettingsTestsTab.js';
 
 // jsdom lacks structuredClone; preserve Blob semantics for fake IndexedDB.
 if (!globalThis.structuredClone) globalThis.structuredClone = function clone(value) {
@@ -24,6 +25,29 @@ function setup() {
 const originalFetch = global.fetch;
 describe('Voice draft UI: confirmation and async boundaries', () => {
     afterEach(() => { global.fetch = originalFetch; jest.restoreAllMocks(); });
+    test('Tests offers an opt-in voice switch and renders its saved state', () => {
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: {} } });
+        expect(document.getElementById('voiceMvpEnabled').checked).toBe(false);
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: { voiceMvpEnabled: true } } });
+        expect(document.getElementById('voiceMvpEnabled').checked).toBe(true);
+    });
+    test('disabling voice hides the launcher, stops capture and retains saved drafts', async () => {
+        const { ui, store } = setup(); let enabled = false; let notify;
+        ui.adapter.isEnabled = () => enabled;
+        const unsubscribe = jest.fn();
+        ui.adapter.subscribeEnabled = callback => { notify = callback; return unsubscribe; };
+        ui.close = VoiceMvpUI.prototype.close.bind(ui);
+        ui.mount(); ui.dialog.close = () => { ui.dialog.open = false; };
+        expect(ui.launcher.hidden).toBe(true);
+        await expect(ui.open()).rejects.toThrow('Configuración');
+        enabled = true; notify(); expect(ui.launcher.hidden).toBe(false);
+        const cancel = jest.fn(); ui.recorder = { cancel }; ui.recording = true; ui.dialog.open = true;
+        enabled = false; notify();
+        expect(cancel).toHaveBeenCalled(); expect(ui.recording).toBe(false); expect(ui.dialog.open).toBe(false);
+        expect(ui.launcher.hidden).toBe(true); expect(ui.record.draft.principal).toBe(6000);
+        expect(store.put).not.toHaveBeenCalled();
+        ui.destroy(); expect(unsubscribe).toHaveBeenCalled();
+    });
     test('a first recording is cancelled on account change even before any audio is saved', () => {
         const { ui, setUser } = setup(); let changed;
         ui.adapter.subscribeSession = callback => { changed = callback; return () => {}; };

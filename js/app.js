@@ -1210,6 +1210,8 @@ SyncUI.initSyncUI(moduleContext);
 // existing loan form after the user's normal confirmation.
 new VoiceMvpUI({
     getUser: () => auth.currentUser,
+    isEnabled: () => state.settings?.voiceMvpEnabled === true,
+    subscribeEnabled: callback => eventBus.on('render:complete', callback),
     getScope: () => peekEntityScope(),
     getEmployees: () => (state.employees || []).filter(employee => entityInScope(employee, peekEntityScope())),
     getEndpoint: () => APP_CONFIG.VOICE_WEBHOOK_URL,

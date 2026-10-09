@@ -27,19 +27,25 @@ export class VoiceMvpUI {
         this.onWipe = () => { this.wiped = true; this.close(); this.record = null; this.history = []; this.launcher.hidden = true; };
         window.addEventListener('sa:voice-wipe', this.onWipe);
         this.unsubscribeScope = this.adapter.subscribeScope?.(() => { this.close(); this.record = null; this.history = []; });
+        this.unsubscribeEnabled = this.adapter.subscribeEnabled?.(() => this.refreshVisibility());
         this.unsubscribe = this.adapter.subscribeSession?.(() => {
-            this.launcher.hidden = this.wiped || !this.adapter.getUser();
+            this.refreshVisibility();
             const uid = this.adapter.getUser()?.uid;
             if (!uid || (this.record && uid !== this.record.uid) || (this.recording && uid !== this.recordingUid)) { this.close(); this.record = null; }
         });
-        this.launcher.hidden = !this.adapter.getUser();
+        this.refreshVisibility();
         return this;
+    }
+    refreshVisibility() {
+        this.launcher.hidden = this.wiped || this.adapter.isEnabled?.() === false || !this.adapter.getUser();
+        if (this.launcher.hidden && (this.dialog.open || this.recording)) this.close();
     }
     async run(callback) {
         try { await callback(); } catch (error) { this.message = error.message || 'No se pudo completar la acción.'; if (this.dialog.open) this.render(); }
     }
     identity() {
         if (this.wiped) throw Error('Los datos locales se borraron. Recarga SA antes de usar Voz.');
+        if (this.adapter.isEnabled?.() === false) throw Error('Activa la prueba de voz en Configuración → Tests.');
         const user = this.adapter.getUser(); if (!user) throw Error('Inicia sesión para usar el MVP de voz.');
         const scope = this.adapter.getScope(); if (scope?.enabled && !scope.projectId) throw Error('Selecciona un proyecto primero.');
         return { uid: user.uid, projectKey: projectKey(scope) };
@@ -218,5 +224,5 @@ export class VoiceMvpUI {
             this.dialog.querySelector('[data-voice-empty]').hidden = count > 0;
         });
     }
-    destroy() { this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
+    destroy() { this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
 }
