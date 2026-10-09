@@ -1,6 +1,6 @@
 import { VoiceStore } from './VoiceStore.js';
 import { VoiceRecorder } from './VoiceRecorder.js';
-import { LOAN_FIELDS, VOICE_ENDPOINT_PREFIX, isVoiceEndpointAllowed, createVoiceContext, sendVoiceRecording, resolveVoiceEmployees, voiceBlocked, voiceDraftReady } from './VoiceCore.js';
+import { LOAN_FIELDS, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceName, isVoiceEndpointAllowed, createVoiceContext, sendVoiceRecording, resolveVoiceEmployees, voiceBlocked, voiceDraftReady } from './VoiceCore.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 
 const fieldLabels = { principal: 'Monto', interestRate: 'Interés (%)', interestIncluded: 'Interés incluido', installmentMode: 'Cobro', installmentCount: 'Cantidad de cuotas', installmentFrequencyWeeks: 'Frecuencia (semanas)', startDate: 'Fecha', concept: 'Concepto' };
@@ -50,7 +50,9 @@ export class VoiceMvpUI {
         return identity;
     }
     endpoint() {
-        return localStorage.getItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`) || this.adapter.getEndpoint() || '';
+        const saved = localStorage.getItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`);
+        // The legacy HTTP endpoint cannot be used from the public HTTPS preview.
+        return (saved === VOICE_DEV_ENDPOINT && location.protocol === 'https:' ? this.adapter.getEndpoint() : saved) || this.adapter.getEndpoint() || '';
     }
     async open() {
         const identity = this.identity();
@@ -68,6 +70,7 @@ export class VoiceMvpUI {
     async refreshMatches() {
         const identity = this.identity();
         const aliases = await this.store.aliases(identity.uid, identity.projectKey);
+        this.employeeAliases = aliases;
         this.matches = resolveVoiceEmployees(this.record?.mention || {}, this.adapter.getEmployees(), aliases);
     }
     selected() { return this.adapter.getEmployees().find(e => e.id === this.record?.selectedEmployeeId); }
@@ -80,6 +83,7 @@ export class VoiceMvpUI {
         if (action === 'close') { this.close(); return; }
         if (action === 'stop') { this.recorder?.stop(); return; }
         if (this.busy || this.recording) return;
+        if (action === 'default-endpoint') { localStorage.removeItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`); this.message = 'URL predeterminada restaurada.'; this.render(); return; }
         if (action === 'record') {
             const identity = this.identity(); this.message = ''; this.recordingUid = identity.uid; this.recording = true; this.render();
             this.recorder = this.recorderFactory({ onError: error => { this.recording = false; this.message = error.message; if (this.dialog.open) this.render(); }, onComplete: captured => this.run(async () => {
@@ -118,7 +122,8 @@ export class VoiceMvpUI {
         const employee = this.selected(); if (!employee) throw Error('Selecciona al empleado correcto primero.');
         if (action === 'learn') {
             const alias = this.dialog.querySelector('[data-voice-alias]').value;
-            await this.store.saveAlias(this.record.uid, this.record.projectKey, employee.id, alias); this.message = 'Coincidencia confirmada y guardada solo en este dispositivo.';
+            if (!normalizeVoiceName(alias)) throw Error('Escribe la variante que quieres asociar al empleado.');
+            await this.store.saveAlias(this.record.uid, this.record.projectKey, employee.id, alias); this.message = `Coincidencia asociada a ${employee.name} y guardada solo en este dispositivo.`;
             await this.refreshMatches(); this.render(); return;
         }
         if (action === 'clear-aliases') { await this.store.clearAliases(this.record.uid, this.record.projectKey, employee.id); this.message = 'Alias locales del empleado eliminados.'; await this.refreshMatches(); this.render(); return; }
@@ -158,13 +163,14 @@ export class VoiceMvpUI {
             localStorage.setItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`, value); this.message = 'Endpoint guardado localmente. No contiene credenciales.'; return;
         }
         if (this.busy || this.recording || !this.record) return;
+        if (!input.dataset.voiceField && !input.dataset.voiceMention && input.dataset.voiceTranscript === undefined && input.dataset.voiceReviewed === undefined) return;
         this.guard(); const field = input.dataset.voiceField;
         if (field) {
             this.record.draft ||= Object.fromEntries(LOAN_FIELDS.map(k => [k, null]));
             const v = input.value;
             this.record.draft[field] = v === '' ? null : ['principal', 'interestRate', 'installmentCount', 'installmentFrequencyWeeks'].includes(field) ? Number(v) : field === 'interestIncluded' ? v === 'true' : v;
         }
-        if (input.dataset.voiceMention) this.record.mention[input.dataset.voiceMention] = input.value || null;
+        if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.reviewed = false; }
         if (input.dataset.voiceTranscript !== undefined) this.record.transcript = input.value;
         if (input.dataset.voiceReviewed !== undefined) this.record.reviewed = input.checked;
         this.record.dirty = true; await this.save(); await this.refreshMatches(); this.render();
@@ -175,6 +181,11 @@ export class VoiceMvpUI {
         if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.audioURL = record?.audio ? URL.createObjectURL(record.audio) : null;
         const button = (action, text, off = false, id = '') => `<button type="button" data-voice-action="${action}" data-id="${escapeAttr(id)}" ${off ? 'disabled' : ''}>${text}</button>`;
         const choice = employee => button('select', `${escapeHTML(employee.name)} · #${escapeHTML(employee.number || '—')}`, disabled, employee.id);
+        const aliasesFor = employee => this.employeeAliases?.find(row => row.employeeId === employee.id)?.aliases || [];
+        const row = (employee, reason = '') => `<div data-voice-name="${escapeAttr(normalizeVoiceName([employee.name, employee.number, ...aliasesFor(employee)].join(' ')))}">${choice(employee)}${reason ? `<small>${escapeHTML(reason)}</small>` : ''}</div>`;
+        const matchedIds = new Set(this.matches.map(match => match.employee.id));
+        const remaining = this.adapter.getEmployees().filter(employee => !matchedIds.has(employee.id)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
+        const selecting = !selected || this.allEmployees;
         let preview = '';
         if (selected && record?.draft && voiceDraftReady(record.draft)) {
             try { const p = this.adapter.previewLoan(selected, record.draft); preview = `<p>Nuevo préstamo: <strong>${money(p.total)}</strong>${p.installments?.length ? ` · Cuotas: ${p.installments.map(x => money(x.amount)).join(' / ')}` : ''}</p><p>Saldo actual → proyectado: <strong>${money(p.current)} → ${money(p.projected)}</strong></p>`; } catch (_) { preview = '<p>Completa o corrige los datos para ver la proyección.</p>'; }
@@ -193,16 +204,18 @@ export class VoiceMvpUI {
                 ${blocked ? '<p role="alert">Instrucción negada o no reconocida. Graba una nueva instrucción; no hay una acción confirmable.</p>' : ''}
                 <label>Nombre mencionado<input data-voice-mention="spokenName" value="${escapeAttr(record.mention.spokenName || '')}" ${disabled ? 'disabled' : ''}></label>
                 <label>Número mencionado<input data-voice-mention="spokenNumber" value="${escapeAttr(record.mention.spokenNumber || '')}" ${disabled ? 'disabled' : ''}></label>
-                <h3>${selected ? `${escapeHTML(selected.name)} · #${escapeHTML(selected.number || '—')}` : 'Selecciona al empleado'}</h3>
-                <h4>Posibles coincidencias</h4><div class="voice-choices">${this.matches.map(x => choice(x.employee)).join('') || '<p>Sin coincidencias. Busca entre todos los empleados.</p>'}</div>
-                ${button('choose', 'Es otro empleado / ver todos', disabled)}
-                ${this.allEmployees ? `<label>Filtrar empleados<input data-voice-search></label><div class="voice-all">${this.adapter.getEmployees().map(e => `<div data-voice-name="${escapeAttr((e.name + ' ' + e.number).toLowerCase())}">${choice(e)}</div>`).join('')}</div>` : ''}
-                ${selected ? `<label>Alias confirmado<input data-voice-alias value="${escapeAttr(record.mention.spokenName || '')}"></label>${button('learn', 'Guardar esta coincidencia', disabled)}${button('clear-aliases', 'Eliminar alias locales del empleado', disabled)}` : ''}
+                <h3>${selected ? `Empleado seleccionado: ${escapeHTML(selected.name)} · #${escapeHTML(selected.number || '—')}` : '¿A qué empleado te refieres?'}</h3>
+                ${selected ? button('choose', 'Es otro empleado / cambiar selección', disabled) : '<p>Elige al empleado correcto. Las coincidencias son sugerencias; ninguna se selecciona automáticamente.</p>'}
+                ${selecting ? `<label>Buscar por nombre, número o alias<input data-voice-search ${disabled ? 'disabled' : ''}></label><div class="voice-all"><h4>Posibles coincidencias</h4><div class="voice-choices">${this.matches.map(x => row(x.employee, x.reason)).join('') || '<p>No encontramos coincidencias. Puedes asociar el nombre con cualquier empleado de la lista.</p>'}</div><h4>Otros empleados del proyecto (${remaining.length})</h4><div class="voice-choices">${remaining.map(e => row(e)).join('') || '<p>No hay otros empleados disponibles.</p>'}</div><p data-voice-empty hidden>Sin resultados para esta búsqueda. Prueba con otra parte del nombre o con el número.</p></div>` : ''}
+                ${selected ? `<section class="voice-aliases"><h4>Asociar pronunciación o nombre reconocido</h4><p>Si el sistema entendió el nombre de otra forma, guarda esa variante para proponer a este empleado en el futuro. Solo se guarda en este dispositivo y proyecto.</p><label>Variante reconocida<input data-voice-alias value="${escapeAttr(record.mention.spokenName || '')}" ${disabled ? 'disabled' : ''}></label>${button('learn', 'Guardar esta coincidencia', disabled)}<p>Variantes guardadas: ${aliasesFor(selected).map(escapeHTML).join(', ') || 'Ninguna'}</p>${button('clear-aliases', 'Eliminar alias locales del empleado', disabled)}</section>` : ''}
                 <div class="voice-actions">${button('profile', 'Abrir perfil', disabled || blocked || !selected)}${button('attendance', 'Ir a asistencia', disabled || blocked || !selected)}${button('loans', 'Ir a préstamos', disabled || blocked || !selected)}</div>${loanInputs}` : ''}
             <details><summary>Audios locales de esta cuenta y proyecto</summary>${this.history.map(x => button('load', new Date(x.createdAt).toLocaleString(), disabled, x.requestId)).join('')}</details>
-            <details><summary>Configuración de la prueba</summary><label>URL del webhook de voz<input data-voice-endpoint value="${escapeAttr(this.endpoint())}" ${disabled ? 'disabled' : ''}></label><p>Origen actual: ${escapeHTML(location.origin)}. Este origen debe autorizarse en n8n. El endpoint HTTP de desarrollo requiere Tailscale y el origen exacto http://127.0.0.1:8080.</p></details>`;
+            <details><summary>Configuración de la prueba</summary><label>URL del webhook de voz<input data-voice-endpoint value="${escapeAttr(this.endpoint())}" ${disabled ? 'disabled' : ''}></label>${button('default-endpoint', 'Usar URL predeterminada', disabled)}<p>Origen actual: ${escapeHTML(location.origin)}. Este origen debe autorizarse en n8n. La prueba pública usa HTTPS; el endpoint HTTP de Tailscale solo se permite desde http://127.0.0.1:8080.</p></details>`;
         this.dialog.querySelector('[data-voice-search]')?.addEventListener('input', event => {
-            for (const row of this.dialog.querySelectorAll('[data-voice-name]')) row.hidden = !row.dataset.voiceName.includes(event.target.value.toLowerCase());
+            const query = normalizeVoiceName(event.target.value).split(' ').filter(Boolean);
+            let count = 0;
+            for (const row of this.dialog.querySelectorAll('[data-voice-name]')) { row.hidden = !query.every(term => row.dataset.voiceName.includes(term)); if (!row.hidden) count++; }
+            this.dialog.querySelector('[data-voice-empty]').hidden = count > 0;
         });
     }
     destroy() { this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }

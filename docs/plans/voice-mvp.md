@@ -8,18 +8,28 @@ conservan sus reglas y módulos existentes. n8n solo devuelve datos extraídos.
 Con una sesión Firebase activa, abrir **Voz · MVP**, grabar y detener. El audio
 se conserva en IndexedDB (`sa-voice-mvp-v1`) por cuenta y proyecto. En
 **Configuración de la prueba**, se muestra la URL ya configurada del workflow separado:
-`http://100.91.16.14:5678/webhook/sa-voice-v1-dev`.
-El navegador debe tener acceso a Tailscale. La excepción HTTP admite únicamente
-esa URL exacta desde `http://127.0.0.1:8080`; no acepta localhost, otro puerto,
+`https://n8n.erlin.do/webhook/sa-voice-v1-dev`.
+La vista previa está en `https://test-sa-voice-mvp.sistema-de-asistencia.pages.dev`.
+Para una prueba local por Tailscale, la excepción HTTP admite únicamente
+`http://100.91.16.14:5678/webhook/sa-voice-v1-dev` desde `http://127.0.0.1:8080`; no acepta localhost, otro puerto,
 otra ruta ni orígenes HTTPS. Fuera de esta excepción, el transporte requiere
 HTTPS. No se reutiliza el endpoint OCR. Una URL personalizada previamente guardada
-por la cuenta sigue teniendo prioridad; puede borrarse para usar el valor configurado.
+por la cuenta sigue teniendo prioridad; **Usar URL predeterminada** permite restaurarla.
+En un origen HTTPS se sustituye la preferencia antigua HTTP de Tailscale por la
+URL predeterminada HTTPS, sin borrar audios, alias ni otras URL personalizadas.
 El ajuste de URL es local, por cuenta, y no admite credenciales.
 
-Procesar devuelve transcripción, intención y campos editables. Seleccionar un
-empleado entre posibles coincidencias o todos los del proyecto. La variante se
+Procesar devuelve transcripción, intención y campos editables. Sin empleado
+seleccionado, se muestra un selector con posibles coincidencias primero y todos
+los otros empleados del proyecto después. Permite filtrar por nombre, número o
+alias sin distinguir tildes ni mayúsculas, conservando alfabetos no latinos.
+Las sugerencias indican si proceden del número, nombre parecido o alias confirmado;
+ninguna se selecciona automáticamente. Editar el nombre o número reconocido
+anula la selección anterior para evitar trasladar una operación a otro empleado.
+La variante se
 aprende únicamente con **Guardar esta coincidencia**. Pueden eliminarse los alias
-locales del empleado. No se envían lista, IDs, alias, saldos ni el borrador editado
+locales del empleado; sus variantes guardadas se muestran junto a la selección.
+No se envían lista, IDs, alias, saldos ni el borrador editado
 al webhook. Los empleados ficticios están en `js/tests/fixtures/voice-employees.js`;
 no se insertan automáticamente en los datos reales.
 
@@ -57,23 +67,19 @@ del MVP. No hay borrado automático
 por días en este MVP ni sincronización o backup de audios/alias; no prometer
 conservación si el usuario/navegador elimina el almacenamiento del origen.
 
-## Despliegue pendiente
+## Despliegue y comprobaciones pendientes
 
-Una vista previa pública de Cloudflare Pages permite abrir SA y grabar desde
-un origen HTTPS. El endpoint HTTP de Tailscale configurado para desarrollo
-no funciona desde esa vista previa: el navegador bloquea contenido mixto y
-el cliente restringe esa excepción a `http://127.0.0.1:8080`. Para procesar
-voz desde la vista previa, configurar en **Configuración de la prueba** un
-endpoint HTTPS accesible desde el dispositivo y autorizar en n8n su origen
-exacto en CORS (OPTIONS y respuestas POST, incluidos errores). La autenticación
-Firebase sigue siendo obligatoria. No sustituirlo por el dominio de n8n
-bloqueado por Cloudflare Access ni incluir secretos de acceso en el cliente.
+La vista previa pública de Cloudflare Pages usa el endpoint HTTPS confirmado
+por el usuario. Se comprobó OPTIONS: 204 con el origen exacto de la vista previa,
+POST y Content-Type permitidos. Esto no valida una sesión Firebase ni una
+respuesta real de Gemini desde este entorno. POST debe conservar autenticación
+y CORS incluso en errores. No incluir secretos de acceso en el cliente.
 El dominio de vista previa también debe estar autorizado en Firebase si el
 método de inicio de sesión usado lo requiere. El almacenamiento local pertenece
 a cada origen: los audios locales del desarrollo no aparecen en la vista previa.
 
-Origen comprobado: `http://127.0.0.1:8080`; `localhost:8080` es distinto. No hay
-dominio HTTPS móvil confirmado. Cloudflare Pages permite microphone=(self),
+Orígenes de prueba: `http://127.0.0.1:8080` y la vista previa HTTPS;
+`localhost:8080` es distinto. Cloudflare Pages permite microphone=(self),
 manteniendo cámara/geolocalización deshabilitadas. El backend debe autorizar
 exactamente los orígenes; Cloudflare Access debe permitir OPTIONS sin token
 Firebase y sin procesar audio. POST conserva autenticación y autorización.
@@ -85,10 +91,11 @@ externa no valida una sesión Firebase ni el procesamiento completo desde SA.
 Desde este entorno cloud, el proxy respondió 403 «Domain forbidden» al endpoint;
 no atribuir esa respuesta a n8n ni afirmar que Tailscale está desconectado.
 
-Pendientes: grabación real desde SA con una sesión Firebase de desarrollo y
-Tailscale, prueba de Safari/iPhone, validación de duración/codec en servidor,
+El usuario confirmó grabación en la vista previa y reconocimiento de nombres
+con el workflow HTTPS. Pendientes desde este entorno: procesamiento real con una
+sesión Firebase de desarrollo, prueba de Safari/iPhone, validación de duración/codec en servidor,
 deduplicación durable, rate limiting y autorización por organización. Para
-producción sigue pendiente un endpoint HTTPS apropiado.
+producción siguen pendientes estas verificaciones del servidor.
 
 ## Verificación
 

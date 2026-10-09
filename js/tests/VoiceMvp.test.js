@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { resolveVoiceEmployees, readVoiceResponse, sendVoiceRecording, createVoiceContext, isVoiceEndpointAllowed, VOICE_DEV_ENDPOINT, VOICE_DEV_ORIGIN } from '../modules/features/voice/VoiceCore.js';
+import { resolveVoiceEmployees, normalizeVoiceName, readVoiceResponse, sendVoiceRecording, createVoiceContext, isVoiceEndpointAllowed, VOICE_ENDPOINT, VOICE_DEV_ENDPOINT, VOICE_DEV_ORIGIN } from '../modules/features/voice/VoiceCore.js';
 import { VoiceStore, clearVoiceLocalData } from '../modules/features/voice/VoiceStore.js';
 import { VoiceRecorder } from '../modules/features/voice/VoiceRecorder.js';
 import { indexedDB as fakeIDB } from 'fake-indexeddb';
@@ -28,6 +28,15 @@ describe('Voice MVP: extraction contract and local matching', () => {
         expect(resolveVoiceEmployees({ spokenNumber: '00126', spokenName: 'Carlos' }, employees, aliases)[0].employee.id).toBe('b');
         expect(resolveVoiceEmployees({ spokenNumber: '126' }, employees, aliases)[0].employee.id).toBe('b');
     });
+    test('non-Latin names remain searchable and aliases associate unrelated pronunciations locally', () => {
+        const list = [{ id: 'jp', name: 'Jean Pierre', number: '7' }, { id: 'cn', name: '王小明', number: '8' }, { id: 'ru', name: 'Алексей', number: '9' }];
+        expect(normalizeVoiceName('王小明')).toBe('王小明');
+        expect(resolveVoiceEmployees({ spokenName: '王小明' }, list)[0].employee.id).toBe('cn');
+        expect(resolveVoiceEmployees({ spokenName: 'Алексей' }, list)[0].employee.id).toBe('ru');
+        expect(resolveVoiceEmployees({ spokenName: 'Pierre Jean' }, list)[0].employee.id).toBe('jp');
+        expect(resolveVoiceEmployees({ spokenName: 'Yanpié' }, list, [{ employeeId: 'jp', aliases: ['YANPIÉ'] }])[0]).toMatchObject({ employee: { id: 'jp' }, score: 1, reason: 'Alias confirmado' });
+        expect(resolveVoiceEmployees({ spokenNumber: '999', spokenName: 'Jean' }, list)).toEqual([]);
+    });
     test('absent interest stays null and untrusted IDs are stripped', () => {
         const raw = reply(); raw.result.employee.id = 'external';
         expect(readVoiceResponse(raw, 'req-1').loan.interestRate).toBeNull();
@@ -42,11 +51,12 @@ describe('Voice MVP: extraction contract and local matching', () => {
 });
 
 describe('Voice transport', () => {
-    test('configuration and CSP contain the same explicit development endpoint', () => {
+    test('public configuration uses HTTPS and retains the scoped local HTTP exception', () => {
         const root = path.resolve(__dirname, '../..');
         const config = fs.readFileSync(path.join(root, 'js/modules/config/Config.js'), 'utf8');
         const headers = fs.readFileSync(path.join(root, '_headers'), 'utf8');
-        expect(config).toContain(`VOICE_WEBHOOK_URL: "${VOICE_DEV_ENDPOINT}"`);
+        expect(config).toContain(`VOICE_WEBHOOK_URL: "${VOICE_ENDPOINT}"`);
+        expect(isVoiceEndpointAllowed(VOICE_ENDPOINT, 'https://test-sa-voice-mvp.sistema-de-asistencia.pages.dev')).toBe(true);
         expect(headers).toContain(`connect-src 'self' ${VOICE_DEV_ENDPOINT}`);
     });
     test.each([

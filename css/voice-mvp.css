@@ -10,6 +10,9 @@
 .voice-dialog audio { width: 100%; margin-top: 16px; }
 .voice-dialog .voice-choices { display: grid; gap: 6px; }
 .voice-all { max-height: 230px; overflow: auto; }
+.voice-choices > div { display: grid; gap: 3px; }
+.voice-choices small { margin: 0 8px 6px; }
+.voice-aliases { margin-top: 16px; padding: 12px; border: 1px solid var(--border-color, #64748b); border-radius: 10px; }
 .voice-review { border-left: 4px solid #f59e0b; padding: 8px 12px; }
 .voice-dialog small { color: #fbbf24; }
 .voice-dialog details { margin-top: 16px; }
