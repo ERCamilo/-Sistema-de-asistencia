@@ -57,6 +57,7 @@ import { projectContext, peekEntityScope } from './modules/features/projects/Pro
 import { projectStore } from './modules/features/projects/ProjectStore.js';
 import { auth, onAuthStateChanged as subscribeVoiceSession } from './modules/data/firebase.js';
 import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
+import { openVoiceAttendanceEmployee } from './modules/features/voice/VoiceAttendanceNavigation.js';
 import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
 import { getAccountSummary as voiceAccountSummary } from './modules/features/loans/LoanAccount.js';
 import { selectLoansEmployee as selectVoiceLoansEmployee } from './modules/features/loans/LoansController.js';
@@ -1238,7 +1239,20 @@ const voiceMvp = new VoiceMvpUI({
         return { total, current, projected: roundVoiceMoney(current + total), installments };
     },
     onProfile: employeeId => window.openEmployeeProfile(employeeId),
-    onAttendance: employeeId => { window.openEmployeeProfile(employeeId); window.changeProfileTab('asistencia'); },
+    onAttendance: employeeId => {
+        const uid = auth.currentUser?.uid;
+        const project = JSON.stringify(peekEntityScope());
+        const proceed = () => openVoiceAttendanceEmployee(employeeId, {
+            state, stateManager, render,
+            isAllowed: employee => !!uid && auth.currentUser?.uid === uid && JSON.stringify(peekEntityScope()) === project && entityInScope(employee),
+            isListed: employee => getFilteredEmployeesForDay().some(item => item.id === employee.id),
+            openDetail: id => window.viewAttendanceEmployee(id),
+            reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+            notify: (message, type) => window.showNotification?.(message, type)
+        });
+        if (state.activeTab === 'settings') guardSettingsDraftOnLeave({ onProceed: proceed });
+        else proceed();
+    },
     onLoans: employeeId => { selectVoiceLoansEmployee(employeeId); window.openCuentasPorCobrar(); },
     onLoan: async (employeeId, draft, context) => {
         if ((state.loansLedger?.account?.modal || state.loansLedger?.showAddForm) && !await context.confirm('Hay otro formulario de préstamos abierto. ¿Registrar el préstamo de voz y cerrar ese formulario?')) return null;

@@ -213,6 +213,18 @@ describe('Voice modal continuity and inline confirmations', () => {
 });
 
 describe('Simplified voice workflow', () => {
+    test.each(['Carlos Méndez','Busca a Carlos Méndez'])('a resolved name or search opens attendance once: %s', async transcript => {
+        const {ui,onLoan}=setup();
+        ui.record.result={...ui.record.result,intent:'buscar_empleado',transcript,loan:null};
+        ui.record.selectedEmployeeId=null;
+        ui.matches=[{employee:ui.adapter.getEmployees()[0],score:1}];
+        ui.adapter.onAttendance=jest.fn(); ui.adapter.onProfile=jest.fn();
+        await ui.routeResult();
+        expect(ui.adapter.onAttendance).toHaveBeenCalledTimes(1);
+        expect(ui.adapter.onAttendance).toHaveBeenCalledWith('carlos');
+        expect(ui.adapter.onProfile).not.toHaveBeenCalled(); expect(onLoan).not.toHaveBeenCalled();
+        expect(ui.record).toBeNull();
+    });
     test('review of a search stays in the employee modal and blocks navigation until acknowledged', async () => {
         const {ui}=setup();
         ui.record.result.intent='buscar_empleado'; ui.record.result.needsReview=true;

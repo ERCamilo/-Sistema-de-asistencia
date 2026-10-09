@@ -47,7 +47,14 @@ exigen selección. El selector muestra tarjetas de sugerencias y “Ver todos”
 se ordena por número. Escribir en el buscador incluye automáticamente toda la lista,
 sin repetir candidatos. Conserva alfabetos no latinos. Recordar una pronunciación
 es opcional y nunca está marcado por defecto. Los alias son locales al proyecto y cuenta.
-Después de resolver una búsqueda, abre el perfil en asistencia y elimina el audio.
+Decir solo el nombre o pedir buscarlo debe producir `intent: buscar_empleado` en
+n8n (sin cambios al contrato v1). Después de resolver una búsqueda, SA abre la vista
+diaria de Asistencia, ubica la tarjeta y usa la misma acción que tocarla: panel
+flotante en móvil o detalle lateral en escritorio. Si los filtros ocultan al
+empleado, se limpian los filtros de búsqueda, posición, líder y estado. Se conserva
+la fecha seleccionada; si el empleado no está visible en esa fecha, se abre su
+panel y se informa esa limitación. No se registra asistencia. Se elimina el audio
+de la búsqueda. Negaciones, acciones desconocidas y ambigüedad conservan sus bloqueos.
 Una negación o acciones múltiples nunca ofrecen registro de préstamo.
 
 No se envían lista, IDs, alias, saldos ni el borrador editado
