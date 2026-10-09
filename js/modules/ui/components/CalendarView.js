@@ -250,11 +250,11 @@ export function CalendarView({
                 </div>
             ` : `
                 <div class="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="-1" aria-label="Mes anterior">${icons.get('chevron-left')}</button>
+                    <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="-1" aria-label="Mes anterior"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                     <div class="calendar-month-title" style="font-weight: 700; color: #f1f5f9; font-size: 0.9rem;">
                         ${formatMonthYear(month)}
                     </div>
-                    <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="1" aria-label="Mes siguiente">${icons.get('chevron-right')}</button>
+                    <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="1" aria-label="Mes siguiente"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
                 </div>
             `}
             

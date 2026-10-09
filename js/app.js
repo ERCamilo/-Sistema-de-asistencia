@@ -4650,6 +4650,7 @@ function _AttendanceDetailPanelInner() {
             ${detailInteractivePanel}
 
             <div class="detail-actions">
+                <button class="detail-btn loan-shortcut" type="button" data-app-fn="openAttendanceEmployeeLoans" data-arg="${emp.id}">Préstamos</button>
                 <button class="detail-btn ghost" type="button" data-app-fn="openEmployeeProfile" data-arg="${emp.id}">
                     📋 Ver perfil completo
                 </button>
@@ -4975,6 +4976,14 @@ window.saveQuickNoteFromDetail = (empId) => {
 // Click delegation and responsive employee-detail routing live below.
 // ⚡ Los componentes UI (StatsGrid, Legend, PositionFilters, EmployeeRow, DateControls, DateControlsCompact, DayView, WeekView, etc.)
 // han sido movidos a ./modules/ui/AttendanceUI.js para mejor mantenimiento.
+
+window.openAttendanceEmployeeLoans = employeeId => {
+    const employee = state.employees.find(item => item.id === employeeId);
+    if (!employee || !entityInScope(employee)) return;
+    selectVoiceLoansEmployee(employeeId);
+    EmployeesUI.closeFloatingCard();
+    window.openCuentasPorCobrar();
+};
 
 window.viewAttendanceEmployee = function (employeeId) {
     const target = state.employees.find(employee => employee.id === employeeId);
