@@ -55,7 +55,11 @@ import { startPayrollLiveSyncAfterOutboxDrain } from './modules/features/payroll
 import { createAuthStartupGuard, runAuthStartupAfterDrain } from './modules/services/AuthStartupGuard.js';
 import { projectContext, peekEntityScope } from './modules/features/projects/ProjectContext.js';
 import { projectStore } from './modules/features/projects/ProjectStore.js';
-import { auth } from './modules/data/firebase.js';
+import { auth, onAuthStateChanged as subscribeVoiceSession } from './modules/data/firebase.js';
+import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
+import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
+import { getAccountSummary as voiceAccountSummary } from './modules/features/loans/LoanAccount.js';
+import { openLoansLedgerFor as openVoiceLoanDraft, setLoanDraftField as setVoiceLoanField, selectLoansEmployee as selectVoiceLoansEmployee } from './modules/features/loans/LoansController.js';
 import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
 import { sanitizeExportConfig } from './modules/services/ExportConfigSanitizer.js';
@@ -1201,6 +1205,36 @@ EmployeesUI.init(moduleContext);
 AnalyticsUI.init(moduleContext);
 PayrollUI.init(moduleContext);
 SyncUI.initSyncUI(moduleContext);
+
+// Device-local voice MVP. Transports audio only; business writes stay in the
+// existing loan form after the user's normal confirmation.
+new VoiceMvpUI({
+    getUser: () => auth.currentUser,
+    getScope: () => peekEntityScope(),
+    getEmployees: () => (state.employees || []).filter(employee => entityInScope(employee, peekEntityScope())),
+    getEndpoint: () => APP_CONFIG.VOICE_WEBHOOK_URL,
+    subscribeSession: callback => subscribeVoiceSession(auth, callback),
+    subscribeScope: callback => projectContext.subscribe(callback),
+    validateLoan: validateVoiceLoan,
+    previewLoan: (employee, draft) => {
+        const validation = validateVoiceLoan(draft);
+        if (!validation.valid) throw new Error(validation.errors.join('. '));
+        const total = voiceLoanTotal({ ...draft, version: 2, refinancings: [], payments: [] });
+        const scope = peekEntityScope();
+        const current = voiceAccountSummary(employee, scope.enabled ? { projectId: scope.projectId } : {}).balance;
+        const installments = draft.installmentMode === 'installments' ? voiceLoanSchedule({ ...draft, count: draft.installmentCount, frequencyWeeks: draft.installmentFrequencyWeeks }) : [];
+        return { total, current, projected: roundVoiceMoney(current + total), installments };
+    },
+    onProfile: employeeId => window.openEmployeeProfile(employeeId),
+    onAttendance: employeeId => { window.openEmployeeProfile(employeeId); window.changeProfileTab('asistencia'); },
+    onLoans: employeeId => { selectVoiceLoansEmployee(employeeId); window.openCuentasPorCobrar(); },
+    onLoan: (employeeId, draft) => {
+        if (state.loansLedger?.showAddForm && !window.confirm('¿Reemplazar el borrador abierto en el formulario de préstamos?')) throw new Error('Se conservó el formulario existente.');
+        if (openVoiceLoanDraft(employeeId) === false) throw new Error('Empleado no disponible en el proyecto activo.');
+        for (const [field, value] of Object.entries(draft)) if (value !== null) setVoiceLoanField(field, value);
+    }
+}).mount();
+
 
 // Expose Modules to Window (for HTML onclick handlers)
 window.EmployeesUI = EmployeesUI;

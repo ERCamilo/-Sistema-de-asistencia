@@ -21,6 +21,8 @@
  * reportado. No recarga la página: eso lo decide el caller (la UI).
  */
 
+import { clearVoiceLocalData } from '../features/voice/VoiceStore.js';
+import { VOICE_ENDPOINT_PREFIX } from '../features/voice/VoiceCore.js';
 import { indexedDBService } from './IndexedDBService.js';
 import { storageService } from './StorageService.js';
 import { clearLocalOwnership } from './LocalDataOwner.js';
@@ -89,6 +91,7 @@ export async function wipeAllLocalTraces(deps = {}) {
         purgePendingCloudWrites = purgeAllPendingCloudWrites,
         clearMainStorage = () => storageService.clear(),
         clearIndexedDB = () => indexedDBService.clearAll(),
+        clearVoiceStorage = clearVoiceLocalData,
         clearOwnership = clearLocalOwnership
     } = deps;
 
@@ -122,7 +125,7 @@ export async function wipeAllLocalTraces(deps = {}) {
 
     // 3b-bis. MC1 WARNING-2: purge canonical/alias prefix caches (global, uid-isolated via prefix)
     await attempt('localStorage:prefix-canonical-alias', () => {
-        purgePrefixCaches([CANONICAL_CACHE_PREFIX, ALIAS_CACHE_PREFIX]);
+        purgePrefixCaches([CANONICAL_CACHE_PREFIX, ALIAS_CACHE_PREFIX, VOICE_ENDPOINT_PREFIX]);
     });
 
     // 3c. Respaldo de sessionStorage.
@@ -134,6 +137,7 @@ export async function wipeAllLocalTraces(deps = {}) {
 
     // 3d. IndexedDB completo (todos los stores, incluido el outbox — H2).
     await attempt('clear-indexeddb', () => clearIndexedDB());
+    await attempt('clear-voice-storage', () => clearVoiceStorage());
 
     // 3e. Propiedad del dispositivo: sin datos ya no hay dueño que proteger.
     await attempt('clear-ownership', () => clearOwnership());
