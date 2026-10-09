@@ -1211,13 +1211,15 @@ SyncUI.initSyncUI(moduleContext);
 
 // Device-local voice MVP. Transports audio only; confirmed loans use the
 // same registration path as the current account form.
-new VoiceMvpUI({
+const voiceMvp = new VoiceMvpUI({
     getUser: () => auth.currentUser,
     isEnabled: () => state.settings?.voiceMvpEnabled === true,
     subscribeEnabled: callback => eventBus.on('render:complete', callback),
     getScope: () => peekEntityScope(),
     getEmployees: () => (state.employees || []).filter(employee => entityInScope(employee, peekEntityScope())),
     getEndpoint: () => APP_CONFIG.VOICE_WEBHOOK_URL,
+    getSettings: () => state.settings,
+    notify: (message, type) => window.showNotification?.(message, type),
     getLoanDefaults: employee => ({ periods: getAccountPayPeriods(), previousRate: previousVoiceInterest({ loans: (employee?.loans || []).filter(loan => entityInScope(loan, peekEntityScope())) }), usePrevious: state.settings?.voiceUsePreviousInterest === true }),
     subscribeSession: callback => subscribeVoiceSession(auth, callback),
     subscribeScope: callback => projectContext.subscribe(callback),
@@ -1248,6 +1250,8 @@ new VoiceMvpUI({
         return loan;
     }
 }).mount();
+window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
+window.openVoiceAudioStorage = () => voiceMvp.run(() => voiceMvp.openStorage());
 
 
 // Expose Modules to Window (for HTML onclick handlers)

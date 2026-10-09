@@ -1,0 +1,5 @@
+import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
+export function VoiceAudioView(ui, button) {
+    const r = ui.record;
+    return r?.audio ? `<audio controls src="${escapeAttr(ui.audioURL || '')}"></audio><p>${Math.ceil(r.durationMs / 1000)} s · ${Math.max(1, Math.ceil(r.audio.size / 1024))} KiB</p>${button('process', ui.busy ? 'Procesando…' : r.error ? 'Reintentar envío' : 'Enviar', ui.busy || !!r.unsaved || r.retryAt > Date.now())}${r.unsaved ? button('save-audio', 'Reintentar guardado local', ui.busy) : ''}<div class="voice-actions">${button('record', 'Volver a grabar', ui.busy)}</div>${r.pendingResult ? button('apply-result', 'Usar nuevo resultado', ui.busy) : ''}<details><summary>Configuración de la prueba</summary><label>URL del webhook<input data-voice-endpoint value="${escapeAttr(ui.endpoint())}" ${ui.busy ? 'disabled' : ''}></label>${button('default-endpoint', 'Usar URL predeterminada', ui.busy)}<p>Origen: ${escapeHTML(location.origin)}</p></details>` : `<p>Mantén pulsado el micrófono y suéltalo al terminar.</p>${button('record', 'Iniciar grabación')}<p>Máximo 60 segundos · 10 MiB.</p>`;
+}

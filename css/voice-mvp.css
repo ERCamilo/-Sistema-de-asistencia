@@ -83,3 +83,24 @@
 .voice-dialog button.voice-primary:hover:not(:disabled) { background: var(--accent); }
 .voice-status:not(:empty) { border-left-color: var(--good); }
 .voice-status.is-error:not(:empty) { border-left-color: var(--bad); }
+.voice-wave { position: fixed; right: 18px; bottom: calc(142px + env(safe-area-inset-bottom)); z-index: 1101; max-width: calc(100vw - 36px); box-sizing: border-box; padding: 14px 18px; border-radius: 14px; background: oklch(.228 .013 245); color: oklch(.960 .004 245); box-shadow: 0 4px 24px #0006; font: 13px 'IBM Plex Sans', system-ui, sans-serif; pointer-events: none; }
+.voice-wave[hidden] { display: none; }
+.voice-wave > div { display: flex; justify-content: center; align-items: center; height: 44px; gap: 5px; margin-top: 8px; }
+.voice-wave i { width: 5px; height: calc(6px + var(--voice-level, 0) * 32px); border-radius: 999px; background: oklch(.760 .110 205); transition: height .08s linear; }
+.voice-wave i:nth-child(2n) { height: calc(6px + var(--voice-level, 0) * 22px); }
+.voice-wave i:nth-child(3n) { height: calc(6px + var(--voice-level, 0) * 12px); }
+.voice-launcher { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.voice-launcher[aria-pressed=true] { background: oklch(.680 .160 25); }
+.voice-dialog[data-voice-view=audio] { width: min(460px, calc(100vw - 32px)); }
+.voice-dialog[data-voice-view=employees] .voice-all { max-height: 380px; }
+.voice-dialog[data-voice-view=playback] { width: min(460px, calc(100vw - 32px)); }
+@media (prefers-reduced-motion: reduce) { .voice-wave i { height: 12px !important; transition: none; } }
+@media (max-width: 640px) { .voice-dialog[data-voice-view] { width: calc(100vw - 16px); } }
+@media (max-width: 640px) {
+    .voice-footer { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .voice-footer .voice-hint { grid-column: 1 / -1; grid-row: 1; }
+    .voice-footer > [data-voice-action=close] { grid-column: 1; grid-row: 2; }
+    .voice-footer > .voice-primary { grid-column: 2; grid-row: 2; }
+    .voice-footer > .voice-confirm { grid-column: 1 / -1; }
+    .voice-dialog[data-voice-view=playback] .voice-footer { display: block; }
+}

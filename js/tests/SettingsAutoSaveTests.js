@@ -55,7 +55,7 @@ function makeHarness(settingsOverrides = {}) {
 testRunner.addSuite("SettingsUI — commitAutoSaveSwitch (auto-save de switches)", {
 
     "cada switch conocido comete su valor en state.settings y dispara el save"() {
-        for (const id of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks', 'voiceMvpEnabled', 'voiceUsePreviousInterest']) {
+        for (const id of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks', 'voiceMvpEnabled', 'voiceUsePreviousInterest', 'voiceKeepLoanAudio']) {
             const { st, calls, deps } = makeHarness();
             const result = commitAutoSaveSwitch({ id, checked: true, deps });
 
@@ -187,5 +187,18 @@ testRunner.addSuite("SettingsUI — cableado del listener de change (source-leve
             !/state\.settings\.[A-Za-z0-9_$]+\s*=/.test(listeners),
             'los handlers no deben asignar state.settings.X directo — eso vive en commitAutoSaveSwitch vía batchSetState'
         );
+    }
+});
+
+testRunner.addSuite('SettingsUI — conservación de audio', {
+    'acepta de uno a cinco días y rechaza valores fuera del dominio'() {
+        const {deps,st,calls}=makeHarness();
+        for (const value of ['1','2','3','4','5']) {
+            testRunner.assert(commitAutoSaveOption({name:'voiceAudioRetentionDays',value,deps}).committed);
+            testRunner.assertEquals(st.settings.voiceAudioRetentionDays,value);
+        }
+        testRunner.assert(!commitAutoSaveOption({name:'voiceAudioRetentionDays',value:'6',deps}).committed);
+        testRunner.assert(!commitAutoSaveOption({name:'voiceAudioRetentionDays',value:'0',deps}).committed);
+        testRunner.assertEquals(calls.save,5);
     }
 });

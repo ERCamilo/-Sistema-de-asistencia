@@ -1,3 +1,4 @@
+import { voiceAudioExpiry, voiceStorageStatus } from './VoiceRetention.js';
 import { normalizeVoiceName } from './VoiceCore.js';
 
 // Separate, device-local MVP data. Never enters business backups/cloud payloads.
@@ -48,6 +49,32 @@ export class VoiceStore {
         });
     }
     clearAliases(uid, projectKey, employeeId) { return this.operation('aliases', 'readwrite', store => store.delete([uid, projectKey, employeeId])); }
+    async maintain(uid, policy, now = Date.now()) {
+        const db = await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('recordings', 'readwrite'); const records = tx.objectStore('recordings');
+            const cursor = records.openCursor();
+            cursor.onsuccess = () => {
+                const row = cursor.result; if (!row) return;
+                const r = row.value;
+                const expiry = voiceAudioExpiry(r, r.uid === uid ? policy : { keep: true, days: 5 });
+                if (r.audio && expiry <= now) {
+                    if (r.completedLoanId) row.update({ uid: r.uid, projectKey: r.projectKey, requestId: r.requestId, createdAt: r.createdAt, registeredAt: r.registeredAt, completedLoanId: r.completedLoanId, selectedEmployeeId: r.selectedEmployeeId, audioDiscardedAt: now });
+                    else row.delete();
+                } else if (r.completedLoanId && r.audio && r.audioExpiresAt !== expiry) row.update({ ...r, audioExpiresAt: expiry });
+                row.continue();
+            };
+            tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(Error('No se pudo limpiar el archivo local de voz.'));
+        });
+    }
+    async clearAudio(uid, now = Date.now()) {
+        const records = await this.operation('recordings', 'readonly', store => store.getAll());
+        for (const r of records.filter(r => r.uid === uid && r.audio)) {
+            if (r.completedLoanId) await this.put({ uid: r.uid, projectKey: r.projectKey, requestId: r.requestId, createdAt: r.createdAt, registeredAt: r.registeredAt, completedLoanId: r.completedLoanId, selectedEmployeeId: r.selectedEmployeeId, audioDiscardedAt: now });
+            else await this.remove(r.uid, r.requestId);
+        }
+    }
+    async storageStatus() { return voiceStorageStatus(await this.operation('recordings', 'readonly', store => store.getAll())); }
     close() { this.db?.close(); this.db = null; this.opening = null; }
 }
 

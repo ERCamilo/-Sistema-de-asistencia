@@ -8,9 +8,9 @@ conservan sus reglas y módulos existentes. n8n solo devuelve datos extraídos.
 Activar **Configuración → Tests → Activar botón de voz · MVP**. Está apagado
 por defecto; el interruptor se guarda y sincroniza como los demás ajustes.
 El botón aparece con una sesión activa. Desactivar la opción cierra el panel
-y cancela la grabación en curso, conservando audios, borradores y alias guardados.
+y cancela la grabación en curso. Descarta el borrador pendiente y conserva los audios de préstamos dentro de su plazo y los alias locales.
 
-Con una sesión Firebase activa, abrir **Voz · MVP**, grabar y detener. El audio
+Con una sesión Firebase activa, mantener pulsado el botón flotante y soltar para terminar. Las ondas reaccionan al volumen; movimiento reducido usa un indicador estático. Con teclado o tecnología asistiva, pulsar inicia y la siguiente pulsación detiene. Una liberación durante el permiso de micrófono cancela la captura pendiente. El audio
 se conserva en IndexedDB (`sa-voice-mvp-v1`) por cuenta y proyecto. En
 **Configuración de la prueba**, se muestra la URL ya configurada del workflow separado:
 `https://n8n.erlin.do/webhook/sa-voice-v1-dev`.
@@ -24,16 +24,20 @@ En un origen HTTPS se sustituye la preferencia antigua HTTP de Tailscale por la
 URL predeterminada HTTPS, sin borrar audios, alias ni otras URL personalizadas.
 El ajuste de URL es local, por cuenta, y no admite credenciales.
 
-Procesar devuelve transcripción, intención y campos editables. Sin empleado
-seleccionado, se muestra un selector con posibles coincidencias primero y todos
-los otros empleados del proyecto después. Permite filtrar por nombre, número o
-alias sin distinguir tildes ni mayúsculas, conservando alfabetos no latinos.
-Las sugerencias indican si proceden del número, nombre parecido o alias confirmado;
-ninguna se selecciona automáticamente. Editar el nombre o número reconocido
-anula la selección anterior para evitar trasladar una operación a otro empleado.
-La variante se
-aprende únicamente con **Guardar esta coincidencia**. Pueden eliminarse los alias
-locales del empleado; sus variantes guardadas se muestran junto a la selección.
+Las vistas de audio, selección de empleado y revisión del préstamo son componentes
+separados (`VoiceAudioView`, `VoiceEmployeeView`, `VoiceLoanView`). Comparten el
+shell visual y transiciones de `design.md`, sin mostrar todas las etapas como una
+lista. El audio ofrece Enviar, Volver a grabar y Cancelar. Solo Enviar llama a n8n.
+
+Una coincidencia exacta y única de nombre, número o alias continúa directamente.
+Las coincidencias compartidas, aproximadas y los conflictos entre nombre y número
+exigen selección. El selector muestra sugerencias y “Ninguno de estos”; el resto
+se ordena por número. Escribir en el buscador incluye automáticamente toda la lista,
+sin repetir candidatos. Conserva alfabetos no latinos. Recordar una pronunciación
+es opcional y nunca está marcado por defecto. Los alias son locales al proyecto y cuenta.
+Después de resolver una búsqueda, abre el perfil en asistencia y elimina el audio.
+Una negación o acciones múltiples nunca ofrecen registro de préstamo.
+
 No se envían lista, IDs, alias, saldos ni el borrador editado
 al webhook. Los empleados ficticios están en `js/tests/fixtures/voice-employees.js`;
 no se insertan automáticamente en los datos reales.
@@ -49,7 +53,7 @@ sistema de préstamos, y sus fechas se muestran en la proyección.
 **Configuración → Tests → Usar la tasa anterior del empleado** permite tomar
 su última tasa válida cuando la voz no indicó interés. Está apagado por defecto;
 sin historial se usa 20 %. Una tasa indicada o editada, incluso 0 %, tiene prioridad.
-La tarjeta también permite aplicar explícitamente una tasa anterior distinta de 20 %.
+La tarjeta permite aplicar explícitamente cualquier tasa anterior válida. Al cambiar de empleado se conservan TODOS los campos del borrador, incluida la tasa; se recalcula solo su saldo/proyección. La preferencia de tasa anterior se aplica a la selección inicial, nunca a un cambio posterior.
 
 **Aceptar y registrar préstamo** es la confirmación final. Reutiliza el mismo
 registro de la cuenta actual de préstamos: validación, numeración, revisión de
@@ -60,7 +64,7 @@ Se guarda `voiceRequestId` en el préstamo y el ID del préstamo en el audio loc
 para impedir volver a registrar la misma grabación. No confirma automáticamente
 una posible duplicación. Si faltan empleado, monto o una nómina futura para un
 pago único, el registro se bloquea; las ediciones se conservan.
-Los botones Perfil/Asistencia/Préstamos solo navegan. Una instrucción negada o no
+Perfil/Asistencia/Préstamos solo navegan y eliminan la grabación de búsqueda. Una instrucción negada o no
 reconocida no ofrece una acción confirmable; necesita una grabación nueva.
 
 ## Contrato y errores
@@ -84,11 +88,36 @@ MediaRecorder negocia formatos soportados y conserva el MIME efectivo. El límit
 es 60 segundos y 10 MiB; el temporizador solicita parada un poco antes de 60 s y
 un audio que exceda el límite no se envía. La pestaña puede retrasar temporizadores,
 por lo que el servidor también debe validar duración/bytes reales. El micrófono
-se libera al detener, cancelar, fallar o cambiar de cuenta. Se pueden reproducir,
-reabrir tras recargar y borrar grabaciones manualmente. Borrar todos los datos locales de SA también elimina audios, alias y endpoint
-del MVP. No hay borrado automático
-por días en este MVP ni sincronización o backup de audios/alias; no prometer
-conservación si el usuario/navegador elimina el almacenamiento del origen.
+se libera al detener, cancelar, fallar, ocultar la pestaña o cambiar de cuenta.
+Los audios cancelados, reemplazados y de búsquedas finalizadas se eliminan. Un
+error conserva la grabación para reintentar; los borradores abandonados se limpian
+a las 24 horas, sin extender el plazo por reintentos. Borrar todos los datos
+locales también elimina audio, alias y endpoint del MVP.
+
+### Audio de préstamos
+
+Configuración → Tests permite conservar audio (predeterminado: sí), elegir de
+1 a 5 días desde REGISTRAR el préstamo (predeterminado: 5) o no conservarlo.
+Desactivar conservación elimina los audios de préstamos existentes de la cuenta;
+no elimina un audio pendiente de enviar mientras se ofrece reintentar. Acortar
+el plazo aplica a los audios existentes; alargarlo no extiende una fecha que ya
+se acortó ni recupera datos borrados. En el detalle del préstamo hay “Escuchar
+audio”; al vencer, eliminarse o faltar en otro navegador queda “Audio no disponible”.
+La consulta valida cuenta, proyecto, empleado e ID del préstamo.
+
+Hay un presupuesto de 50 MiB para los audios del navegador: aviso al 80 %, o
+cuando la estimación de almacenamiento del navegador supera el 85 %. Esta cuota
+estimada incluye otros datos del origen; no equivale a RAM ni espacio exclusivo
+de voz. Si el presupuesto se supera al registrar, no se conserva el nuevo audio.
+Si falla su guardado después del registro, se informa el fallo y no se registra
+el préstamo otra vez: la idempotencia conserva `voiceRequestId` en el préstamo.
+Configuración también permite eliminar los audios de la cuenta sin borrar préstamos.
+
+La limpieza se ejecuta al iniciar/iniciar sesión, al cambiar ajustes y cada cinco
+minutos mientras SA esté abierta. No se garantiza eliminación puntual con la app
+cerrada. No hay sincronización ni backup de audio/alias: pertenecen al navegador y
+origen, y pueden perderse si se elimina ese almacenamiento. Las grabaciones son
+instrucciones del operador, no aceptación contractual del trabajador.
 
 ## Despliegue y comprobaciones pendientes
 

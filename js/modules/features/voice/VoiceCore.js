@@ -92,11 +92,15 @@ export async function voiceBase64(blob) {
     });
 }
 
-export async function sendVoiceRecording({ url, record, getToken, fetchImpl = globalThis.fetch, timeoutMs = 90000, origin = globalThis.location?.origin }) {
+export async function sendVoiceRecording({ url, record, getToken, fetchImpl = globalThis.fetch, timeoutMs = 90000, externalSignal = null, origin = globalThis.location?.origin }) {
     if (!isVoiceEndpointAllowed(url, origin)) throw Error('Usa HTTPS o el endpoint Tailscale de desarrollo desde http://127.0.0.1:8080.');
     if (record.audio && (record.audio.size > VOICE_LIMITS.maxBytes || record.durationMs > VOICE_LIMITS.maxDurationMs)) throw Error('El audio supera el límite de 60 segundos o 10 MiB.');
     const fileBase64 = record.fileBase64 || await voiceBase64(record.audio);
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    externalSignal?.addEventListener('abort', abort, { once: true });
+    if (externalSignal?.aborted) controller.abort();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
         for (let attempt = 0; attempt < 2; attempt++) {
             const idToken = await getToken(attempt === 1);
@@ -116,5 +120,5 @@ export async function sendVoiceRecording({ url, record, getToken, fetchImpl = gl
     } catch (error) {
         if (!error.status && !error.code) throw Object.assign(Error(error.name === 'AbortError' ? 'El procesamiento tardó demasiado. Puedes reintentar.' : 'No se pudo conectar con n8n. Revisa la conexión y la preflight.'), { code: error.name === 'AbortError' ? 'PROCESSING_TIMEOUT' : 'NETWORK_ERROR', retryable: true });
         throw error;
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); externalSignal?.removeEventListener('abort', abort); }
 }

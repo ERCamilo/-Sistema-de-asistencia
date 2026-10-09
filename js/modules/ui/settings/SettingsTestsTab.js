@@ -20,12 +20,25 @@ export function SettingsTestsTab(context) {
                     <span class="stg-switch-copy"><strong>Activar botón de voz · MVP</strong><small>Muestra el micrófono para grabar y revisar instrucciones de voz.</small></span>
                     <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
                 </label>
-                <p>La opción se guarda automáticamente con tus ajustes. Desactivarla oculta el botón y detiene la grabación; conserva los audios y alias guardados. Procesar requiere una sesión activa. Revisa los datos antes de pulsar «Aceptar y registrar préstamo».</p>
+                <p>Mantén pulsado para grabar y suelta para terminar. Revisa el préstamo antes de registrarlo.</p>
                 <label class="stg-switch-row ${state.settings?.voiceUsePreviousInterest === true ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceUsePreviousInterest === true}">
                     <input type="checkbox" id="voiceUsePreviousInterest" ${state.settings?.voiceUsePreviousInterest === true ? 'checked' : ''}>
                     <span class="stg-switch-copy"><strong>Usar la tasa anterior del empleado en préstamos por voz</strong><small>Si no indicas interés, reutiliza su última tasa válida; sin una anterior usa 20 %. Una tasa indicada en la voz o editada tiene prioridad.</small></span>
                     <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
                 </label>
+                <label class="stg-switch-row ${state.settings?.voiceKeepLoanAudio !== false ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceKeepLoanAudio !== false}">
+                    <input type="checkbox" id="voiceKeepLoanAudio" ${state.settings?.voiceKeepLoanAudio !== false ? 'checked' : ''}>
+                    <span class="stg-switch-copy"><strong>Conservar audio de préstamos</strong><small>Solo en este navegador. Desactivarlo elimina los audios de préstamos guardados y no conserva los nuevos.</small></span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
+                <h4>Tiempo de conservación desde el registro</h4>
+                <div class="stg-choice-group" role="group" aria-label="Días de conservación de audio">
+                    ${[1, 2, 3, 4, 5].map(days => `<label class="stg-choice-option ${Number(state.settings?.voiceAudioRetentionDays ?? 5) === days ? 'is-selected' : ''}"><input type="radio" name="voiceAudioRetentionDays" value="${days}" ${Number(state.settings?.voiceAudioRetentionDays ?? 5) === days ? 'checked' : ''}><span>${days} ${days === 1 ? 'día' : 'días'}</span></label>`).join('')}
+                </div>
+                <p data-voice-storage-status>Calculando el espacio de audios…</p>
+                <p data-voice-storage-warning role="status" hidden></p>
+                <button type="button" class="btn btn-secondary" data-settings-action="manage-voice-audio">Gestionar audios guardados</button>
+                <p>Las búsquedas y los audios descartados se eliminan. Los vencidos se limpian al abrir la app y mientras está abierta. Límite local: 50 MiB.</p>
             </section>
             <div class="stg-header" style="margin-bottom: 20px;">
                 <div>

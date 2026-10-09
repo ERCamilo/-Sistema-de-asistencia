@@ -136,9 +136,11 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
             ui.record.audio = new Blob(['audio']); ui.record.selectedEmployeeId = null;
             await ui.refreshMatches(); ui.render();
             expect(ui.dialog.querySelector('[data-voice-action="select"]').dataset.id).toBe('carlos');
+            expect(ui.dialog.querySelector('[data-voice-field]')).toBeNull();
+            await ui.action('choose');
             expect(ui.dialog.textContent).toContain('Jean Pierre');
             expect(ui.dialog.textContent).toContain('王小明');
-            expect(ui.dialog.querySelector('[data-voice-action="loan"]').disabled).toBe(true);
+            expect(ui.dialog.querySelector('[data-voice-action="loan"]')).toBeNull();
             const search = ui.dialog.querySelector('[data-voice-search]');
             search.value = 'MENDEZ'; search.dispatchEvent(new Event('input'));
             expect([...ui.dialog.querySelectorAll('[data-voice-name]')].filter(row => !row.hidden)).toHaveLength(1);
@@ -175,19 +177,19 @@ describe('Voice modal continuity and inline confirmations', () => {
         ui.render();
     });
     afterEach(() => { ui.dialog.remove(); jest.restoreAllMocks(); });
-    test('editing preserves input, cursor, playback node, URL, disclosure and scroll', async () => {
+    test('editing the loan preserves input, cursor, disclosure and scroll', async () => {
         const shell = ui.dialog;
         const input = shell.querySelector('[data-voice-field=concept]');
         const audio = shell.querySelector('audio');
         const body = shell.querySelector('.voice-body');
-        const details = shell.querySelector('.voice-audio-details'); details.open = true;
+        const details = shell.querySelector('details'); details.open = true;
         body.scrollTop = 180;
         input.value = 'Herramientas'; input.focus(); input.setSelectionRange(3, 6);
         await ui.change(input);
         expect(shell.querySelector('[data-voice-field=concept]')).toBe(input);
         expect(document.activeElement).toBe(input);
         expect([input.selectionStart, input.selectionEnd]).toEqual([3, 6]);
-        expect(shell.querySelector('audio')).toBe(audio);
+        expect(shell.querySelector('audio')).toBeNull();
         expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
         expect(body.scrollTop).toBe(180);
         expect(details.open).toBe(true);
@@ -207,5 +209,56 @@ describe('Voice modal continuity and inline confirmations', () => {
         ui.record.result.needsReview = true; ui.render();
         expect(ui.dialog.querySelector('.voice-primary').disabled).toBe(true);
         expect(ui.dialog.querySelector('.voice-hint').textContent).toMatch('revisaste las advertencias');
+    });
+});
+
+describe('Simplified voice workflow', () => {
+    test('unique exact match continues directly, shared names and conflicting number require a choice', async () => {
+        const { ui } = setup();
+        ui.record.selectedEmployeeId = null; ui.matches = [{employee:ui.adapter.getEmployees()[0],score:1}];
+        await ui.routeResult(); expect(ui.view).toBe('loan'); expect(ui.record.selectedEmployeeId).toBe('carlos');
+        ui.record.selectedEmployeeId = null; ui.matches.push({employee:{id:'other'},score:1});
+        await ui.routeResult(); expect(ui.view).toBe('employees'); expect(ui.record.selectedEmployeeId).toBeNull();
+        ui.matches = [ui.matches[0]]; ui.record.mention={spokenName:'Carla Medina',spokenNumber:'00125'};
+        await ui.routeResult(); expect(ui.view).toBe('employees');
+    });
+    test('changing employee preserves the whole draft; historical rate requires an explicit action', async () => {
+        const { ui } = setup();
+        ui.adapter.getEmployees=()=>[{id:'carlos',name:'Carlos Méndez'},{id:'carla',name:'Carla Medina'}];
+        ui.adapter.getLoanDefaults=()=>({previousRate:30});
+        ui.record.rateDefault=true; ui.record.employeeDefaultsApplied=true;
+        const draft={...ui.record.draft};
+        await ui.action('choose'); await ui.action('select','carla');
+        expect(ui.record.selectedEmployeeId).toBe('carla'); expect(ui.record.draft).toEqual(draft);
+        await ui.action('previous-interest'); expect(ui.record.draft).toEqual({...draft,interestRate:30});
+    });
+    test('cancel removes pending audio and a late provider response cannot restore it', async () => {
+        const {ui,store}=setup();let resolve;
+        store.remove=jest.fn().mockResolvedValue();
+        global.fetch=jest.fn(()=>new Promise(done=>{resolve=done;}));
+        const processing=ui.process(); await Promise.resolve(); await Promise.resolve();
+        ui.close=VoiceMvpUI.prototype.close.bind(ui); ui.dialog.close=jest.fn(); ui.launcher={focus:jest.fn(),setAttribute:jest.fn()};
+        const record=ui.record; await ui.action('close');
+        expect(record.discarded).toBe(true); expect(store.remove).toHaveBeenCalledWith('one','request-1');
+        const writes=store.put.mock.calls.length;
+        resolve({ok:true,status:200,json:async()=>({ok:true,schemaVersion:1,requestId:'request-1',result:extracted()})});
+        await processing; expect(store.put.mock.calls.length).toBe(writes);
+        global.fetch=originalFetch;
+    });
+    test('no-retention keeps the normal loan registration but removes its audio', async () => {
+        const {ui,onLoan,store}=setup();
+        ui.record.audio=new Blob(['audio']); ui.adapter.getSettings=()=>({voiceKeepLoanAudio:false});
+        onLoan.mockResolvedValue({id:'registered'}); await ui.action('loan');
+        expect(ui.record.completedLoanId).toBe('registered'); expect(ui.record.audio).toBeUndefined();
+        expect(store.put).toHaveBeenCalledWith(expect.objectContaining({completedLoanId:'registered',audioDiscardedAt:expect.any(Number)}));
+    });
+    test('keyboard start-stop and release during permission do not record after release', async () => {
+        const {ui,store}=setup(); store.remove=jest.fn().mockResolvedValue();
+        let permitted; const stop=jest.fn(); let constructed=0;
+        const {VoiceRecorder}=await import('../modules/features/voice/VoiceRecorder.js');
+        ui.recorderFactory=options=>new VoiceRecorder({...options, mediaDevices:{getUserMedia:()=>new Promise(resolve=>{permitted=resolve;})},Recorder:class {constructor(){constructed++;}}});
+        const starting=ui.beginHold(); await Promise.resolve(); await Promise.resolve();
+        ui.finishHold(); permitted({getTracks:()=>[{stop}]}); await starting;
+        expect(constructed).toBe(0); expect(stop).toHaveBeenCalled(); expect(ui.recording).toBe(false);
     });
 });

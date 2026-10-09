@@ -1,8 +1,8 @@
 import { VOICE_LIMITS } from './VoiceCore.js';
 
 export class VoiceRecorder {
-    constructor({ mediaDevices = globalThis.navigator?.mediaDevices, Recorder = globalThis.MediaRecorder, onComplete, onError = () => {}, setTimer = (...args) => globalThis.setTimeout(...args), clearTimer = id => globalThis.clearTimeout(id) } = {}) {
-        Object.assign(this, { mediaDevices, Recorder, onComplete, onError, setTimer, clearTimer }); this.generation = 0;
+    constructor({ mediaDevices = globalThis.navigator?.mediaDevices, Recorder = globalThis.MediaRecorder, onComplete, onLevel = () => {}, onError = () => {}, setTimer = (...args) => globalThis.setTimeout(...args), clearTimer = id => globalThis.clearTimeout(id) } = {}) {
+        Object.assign(this, { mediaDevices, Recorder, onComplete, onLevel, onError, setTimer, clearTimer }); this.generation = 0;
     }
     async start() {
         if (!this.mediaDevices?.getUserMedia || !this.Recorder) throw Error('Este navegador no permite grabar. Usa HTTPS o el origen local compatible.');
@@ -26,10 +26,27 @@ export class VoiceRecorder {
                 if (!audio.size || !mimeType) { this.onError(Error('No se capturó audio.')); return; }
                 this.onComplete({ audio, mimeType, durationMs: Date.now() - this.startedAt });
             };
-            this.recorder.start(1000); this.timer = this.setTimer(() => this.stop(), VOICE_LIMITS.maxDurationMs - 250);
+            this.recorder.start(1000); this.startMeter(); this.timer = this.setTimer(() => this.stop(), VOICE_LIMITS.maxDurationMs - 250);
         } catch (error) { this.cancel(); throw error; }
+    }
+    startMeter() {
+        try {
+            const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
+            if (!Context) return;
+            this.audioContext = new Context();
+            this.analyser = this.audioContext.createAnalyser(); this.analyser.fftSize = 256;
+            this.audioContext.createMediaStreamSource(this.stream).connect(this.analyser);
+            const samples = new Uint8Array(this.analyser.fftSize);
+            const tick = () => {
+                if (!this.stream) return;
+                this.analyser.getByteTimeDomainData(samples);
+                const rms = Math.sqrt(samples.reduce((sum, x) => sum + ((x - 128) / 128) ** 2, 0) / samples.length);
+                this.onLevel(Math.min(1, rms * 5)); this.meterTimer = this.setTimer(tick, 80);
+            };
+            this.audioContext.resume?.().catch(() => {}); tick();
+        } catch (_) { /* Capture works even when the optional volume meter is unavailable. */ }
     }
     stop() { if (this.recorder?.state === 'recording' || this.recorder?.state === 'paused') this.recorder.stop(); }
     cancel() { this.generation++; this.cancelled = true; this.stop(); this.release(); }
-    release() { this.clearTimer(this.timer); this.stream?.getTracks().forEach(t => t.stop()); this.stream = null; }
+    release() { this.clearTimer(this.meterTimer); this.audioContext?.close?.().catch(() => {}); this.audioContext = null; this.onLevel(0); this.clearTimer(this.timer); this.stream?.getTracks().forEach(t => t.stop()); this.stream = null; }
 }
