@@ -213,6 +213,33 @@ describe('Voice modal continuity and inline confirmations', () => {
 });
 
 describe('Simplified voice workflow', () => {
+    test('review of a search stays in the employee modal and blocks navigation until acknowledged', async () => {
+        const {ui}=setup();
+        ui.record.result.intent='buscar_empleado'; ui.record.result.needsReview=true;
+        ui.matches=[{employee:ui.adapter.getEmployees()[0],score:1}];
+        ui.adapter.onAttendance=jest.fn();
+        await ui.routeResult(); expect(ui.view).toBe('employees');
+        await expect(ui.action('attendance')).rejects.toThrow('Revisa las advertencias');
+        expect(ui.adapter.onAttendance).not.toHaveBeenCalled();
+        await ui.change({dataset:{voiceReviewed:''},checked:true});
+        await ui.action('attendance'); expect(ui.adapter.onAttendance).toHaveBeenCalledWith('carlos');
+    });
+    test('editing payment count uses the existing collection modes and preserves loan terms', async () => {
+        const {ui}=setup(); const draft={...ui.record.draft};
+        await ui.change({dataset:{voiceField:'installmentCount'},value:'3'});
+        expect(ui.record.draft).toEqual({...draft,installmentCount:3,installmentMode:'installments'});
+        await ui.change({dataset:{voiceField:'installmentCount'},value:'1'});
+        expect(ui.record.draft).toEqual({...draft,installmentCount:1,installmentMode:'lump'});
+    });
+    test('choosing no retention is explicit, cancellable and cannot apply after an account switch', async () => {
+        const {ui,setUser}=setup(); ui.view='storage';
+        ui.adapter.setAudioRetention=jest.fn(); ui.maintenance=jest.fn();
+        ui.confirmInline=jest.fn().mockResolvedValue(false);
+        await ui.action('retention','0'); expect(ui.adapter.setAudioRetention).not.toHaveBeenCalled();
+        ui.confirmInline.mockImplementation(async()=>{setUser({uid:'two'});return true;});
+        await expect(ui.action('retention','0')).rejects.toThrow('Cambió la cuenta');
+        expect(ui.adapter.setAudioRetention).not.toHaveBeenCalled();
+    });
     test('unique exact match continues directly, shared names and conflicting number require a choice', async () => {
         const { ui } = setup();
         ui.record.selectedEmployeeId = null; ui.matches = [{employee:ui.adapter.getEmployees()[0],score:1}];

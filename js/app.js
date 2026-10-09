@@ -158,7 +158,7 @@ import { ProjectPayrollUIRuntime } from './modules/features/payroll/ProjectPayro
 import { getBalance, getPayrollDeductionOptions } from './modules/features/loans/LoansService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
-import { initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
+import { commitAutoSaveOption, commitAutoSaveSwitch, initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
 import { guardSettingsDraftOnLeave, isSettingsDraftDirty } from './modules/ui/settings/SettingsDraftBar.js';
 import { createAppHistory, EXIT_HINT_MS } from './modules/core/AppHistory.js';
 import { TabComponent } from './modules/components/TabComponent.js';
@@ -1219,6 +1219,10 @@ const voiceMvp = new VoiceMvpUI({
     getEmployees: () => (state.employees || []).filter(employee => entityInScope(employee, peekEntityScope())),
     getEndpoint: () => APP_CONFIG.VOICE_WEBHOOK_URL,
     getSettings: () => state.settings,
+    setAudioRetention: days => {
+        if (days) commitAutoSaveOption({ name: 'voiceAudioRetentionDays', value: String(days) });
+        commitAutoSaveSwitch({ id: 'voiceKeepLoanAudio', checked: days > 0 });
+    },
     notify: (message, type) => window.showNotification?.(message, type),
     getLoanDefaults: employee => ({ periods: getAccountPayPeriods(), previousRate: previousVoiceInterest({ loans: (employee?.loans || []).filter(loan => entityInScope(loan, peekEntityScope())) }), usePrevious: state.settings?.voiceUsePreviousInterest === true }),
     subscribeSession: callback => subscribeVoiceSession(auth, callback),

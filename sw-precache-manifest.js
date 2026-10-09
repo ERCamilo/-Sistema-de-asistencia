@@ -234,6 +234,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/voice/VoiceRetention.js",
     "./js/modules/features/voice/VoiceStore.js",
     "./js/modules/features/voice/VoiceUI.js",
+    "./js/modules/features/voice/VoiceVisuals.js",
     "./js/modules/features/weather/WeatherAlertRules.js",
     "./js/modules/features/weather/WeatherBar.js",
     "./js/modules/features/weather/WeatherChip.js",

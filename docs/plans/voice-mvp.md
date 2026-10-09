@@ -27,11 +27,23 @@ El ajuste de URL es local, por cuenta, y no admite credenciales.
 Las vistas de audio, selección de empleado y revisión del préstamo son componentes
 separados (`VoiceAudioView`, `VoiceEmployeeView`, `VoiceLoanView`). Comparten el
 shell visual y transiciones de `design.md`, sin mostrar todas las etapas como una
-lista. El audio ofrece Enviar, Volver a grabar y Cancelar. Solo Enviar llama a n8n.
+lista. El rediseño aprobado usa negro/gris y acentos amarillos; el préstamo tiene
+fondo amarillo, identidad del empleado en negro, monto destacado, tasa y cuotas,
+nómina de cobro, nota opcional y proyección total/saldo. Las opciones secundarias
+están plegadas. Cambiar empleado conserva los datos del préstamo. Las advertencias
+se muestran en los campos o en el selector de empleado, sin una etapa independiente
+de “revisar instrucción”; el reconocimiento que requiere revisión sigue bloqueando
+la confirmación hasta que el usuario revise los datos. El reproductor permite
+reproducir/pausar y mover la posición, con una forma de onda basada en el volumen
+capturado (sin muestras disponibles se muestra una línea neutra).
+El audio ofrece Enviar y Cancelar, con Volver a grabar y configuración en un
+desplegable. Solo Enviar llama a n8n. En Audio guardado, las tarjetas de 0–5 días
+usan los mismos ajustes existentes; desactivar la conservación requiere confirmar
+la eliminación de audios de préstamos de la cuenta en este navegador.
 
 Una coincidencia exacta y única de nombre, número o alias continúa directamente.
 Las coincidencias compartidas, aproximadas y los conflictos entre nombre y número
-exigen selección. El selector muestra sugerencias y “Ninguno de estos”; el resto
+exigen selección. El selector muestra tarjetas de sugerencias y “Ver todos”; el resto
 se ordena por número. Escribir en el buscador incluye automáticamente toda la lista,
 sin repetir candidatos. Conserva alfabetos no latinos. Recordar una pronunciación
 es opcional y nunca está marcado por defecto. Los alias son locales al proyecto y cuenta.
@@ -55,7 +67,7 @@ su última tasa válida cuando la voz no indicó interés. Está apagado por def
 sin historial se usa 20 %. Una tasa indicada o editada, incluso 0 %, tiene prioridad.
 La tarjeta permite aplicar explícitamente cualquier tasa anterior válida. Al cambiar de empleado se conservan TODOS los campos del borrador, incluida la tasa; se recalcula solo su saldo/proyección. La preferencia de tasa anterior se aplica a la selección inicial, nunca a un cambio posterior.
 
-**Aceptar y registrar préstamo** es la confirmación final. Reutiliza el mismo
+**Agregar préstamo** es la confirmación final. Reutiliza el mismo
 registro de la cuenta actual de préstamos: validación, numeración, revisión de
 duplicados y persistencia. Luego abre esa cuenta en la pestaña Préstamos. n8n
 sigue sin escrituras. La nota siempre incluye `voice - el DD/MM/AAAA a las HH:mm`
