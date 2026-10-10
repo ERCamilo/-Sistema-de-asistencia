@@ -60,7 +60,8 @@ verificar el alojamiento y una instalación existente después del despliegue.
 - Carrera preexistente de fotos: si llega la señal de revisión v2 mientras se
   descarga v1, ambas pueden compartir la descarga y guardar los bytes de v1
   como v2. Reproducida tanto en HEAD como en esta entrega; requiere aislar las
-  descargas por revisión y descartar resultados obsoletos.
+  descargas por revisión y descartar resultados obsoletos. Corregida en la
+  [entrega de estabilidad de fotos](photo-update-stability-20261010.md).
 - El visor se cierra sin explicación si no consigue el original. Conserva la
   miniatura para reintentar; un mensaje breve sería una mejora posterior.
 - Medir con carteras grandes antes de ampliar las optimizaciones. Algunos

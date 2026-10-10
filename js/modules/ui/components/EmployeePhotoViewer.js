@@ -190,6 +190,10 @@ export class EmployeePhotoViewerController {
             }
         } else if (result?.status === 'current') {
             status.textContent = 'La foto ya está actualizada.';
+        } else if (result?.status === 'pending') {
+            status.textContent = 'La foto se está sincronizando. Vuelve a actualizar en unos segundos.';
+        } else if (result?.status === 'superseded') {
+            status.textContent = 'La foto cambió mientras se actualizaba. Vuelve a actualizar.';
         } else if (result?.status === 'deleted') {
             resetEmployeeAvatarToInitials(active.trigger);
             this.close();

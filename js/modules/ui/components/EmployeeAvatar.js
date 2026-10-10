@@ -23,8 +23,12 @@ function accessibleEmployeeName(value) {
 export function EmployeeAvatar(employee = {}, { variant = 'default' } = {}) {
     const safeVariant = ALLOWED_VARIANTS.has(variant) ? variant : 'default';
     const name = accessibleEmployeeName(employee.name);
+    // Hydration owns image visibility, URLs and viewer eligibility. A render
+    // of the same avatar must not reset them to the camera template.
+    const fingerprint = JSON.stringify(['employee-avatar', String(employee.id ?? ''), name, safeVariant]);
     return `
         <button class="employee-avatar employee-avatar--${safeVariant}" type="button"
+              data-memo-f="${escapeAttribute(fingerprint)}"
               data-employee-avatar data-employee-id="${escapeAttribute(employee.id)}"
               data-employee-name="${escapeAttribute(name)}"
               data-employee-photo-acquisition-trigger
@@ -135,7 +139,7 @@ async function hydrateAvatar(element, { photoStore, urlApi }) {
     }
 
     const active = activeAvatarUrls.get(element);
-    if (active && active.version === record.version) {
+    if (active && active.employeeId === employeeId && active.version === record.version) {
         element.querySelector('[data-avatar-image]').src = active.url;
         element.querySelector('[data-avatar-image]').hidden = false;
         element.querySelector('[data-avatar-fallback]').hidden = true;
@@ -155,7 +159,7 @@ async function hydrateAvatar(element, { photoStore, urlApi }) {
     image.hidden = false;
     fallback.hidden = true;
     enablePhotoViewer(element, record.version);
-    activeAvatarUrls.set(element, { url: nextUrl, urlApi, version: record.version });
+    activeAvatarUrls.set(element, { url: nextUrl, urlApi, version: record.version, employeeId });
     if (active) active.urlApi.revokeObjectURL(active.url);
 }
 

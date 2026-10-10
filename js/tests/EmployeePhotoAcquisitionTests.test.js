@@ -10,6 +10,7 @@ import {
     registerEmployeePhotoAcquisitionEvents
 } from '../modules/ui/components/EmployeePhotoAcquisition.js';
 import { EmployeeFloatingCard } from '../modules/ui/components/EmployeeFloatingCard.js';
+import { DOMDiff } from '../modules/utils/DOMDiff.js';
 
 const CARD_SOURCE = fs.readFileSync(
     path.resolve(__dirname, '../modules/ui/components/EmployeeFloatingCard.js'), 'utf8'
@@ -225,6 +226,88 @@ describe('EmployeePhotoAcquisitionController', () => {
         expect([...sheet.querySelectorAll('button')].every(button => button.disabled)).toBe(true);
         finish({ thumbnailBlob: file, optimizedBlob: file, width: 10, height: 10 });
         await Promise.all([first, duplicate]);
+    });
+
+    test('a live render preserves an open sheet and its busy state while the photo is saved', async () => {
+        const { badge, sheet, camera } = mountUI();
+        let finish;
+        const photoStore = { replaceEmployeePhoto: jest.fn(() => new Promise(resolve => { finish = resolve; })) };
+        const controller = new EmployeePhotoAcquisitionController({
+            photoStore, processPhoto: jest.fn().mockResolvedValue({ marker: 'new' }), hydrateAvatars: jest.fn()
+        });
+        controller.handleAction('open', badge);
+        setFile(camera, new File(['new'], 'new.jpg', { type: 'image/jpeg' }));
+        const saving = controller.handleInput(camera);
+        for (let i = 0; i < 10 && !finish; i++) await Promise.resolve();
+        expect(typeof finish).toBe('function');
+        DOMDiff.apply(document.body, `<div class="floating-card">${EmployeePhotoAcquisitionUI({
+            id: 'emp-1', name: 'Franklin Henrriquez'
+        })}</div>`);
+        expect(sheet.hidden).toBe(false);
+        expect(sheet.getAttribute('aria-busy')).toBe('true');
+        expect(sheet.querySelector('[data-employee-photo-status]').hidden).toBe(false);
+        expect([...sheet.querySelectorAll('button')].every(button => button.disabled)).toBe(true);
+        finish({ version: 2 });
+        expect(await saving).toBe(true);
+        expect(sheet.hidden).toBe(true);
+        expect(sheet.querySelector('[data-employee-photo-error]').hidden).toBe(true);
+    });
+
+    test('a focus failure after saving does not report that the replacement failed', async () => {
+        const { badge, sheet, camera } = mountUI();
+        const photoStore = { replaceEmployeePhoto: jest.fn().mockResolvedValue({ version: 2 }) };
+        const hydrateAvatars = jest.fn();
+        const controller = new EmployeePhotoAcquisitionController({
+            photoStore, processPhoto: jest.fn().mockResolvedValue({ marker: 'saved' }), hydrateAvatars
+        });
+        controller.handleAction('open', badge);
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const focus = jest.spyOn(badge, 'focus').mockImplementation(() => { throw new Error('focus failed'); });
+        try {
+            setFile(camera, new File(['new'], 'new.jpg', { type: 'image/jpeg' }));
+            expect(await controller.handleInput(camera)).toBe(true);
+            expect(photoStore.replaceEmployeePhoto).toHaveBeenCalledTimes(1);
+            expect(hydrateAvatars).toHaveBeenCalledWith(badge);
+            expect(sheet.querySelector('[data-employee-photo-error]').hidden).toBe(true);
+            expect(sheet.hidden).toBe(true);
+        } finally {
+            focus.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
+    test('a DOM failure after saving returns success while a processing failure preserves the previous photo', async () => {
+        const { badge, sheet, camera } = mountUI();
+        const photoStore = { replaceEmployeePhoto: jest.fn().mockResolvedValue({ version: 2 }) };
+        const processPhoto = jest.fn().mockResolvedValue({ marker: 'saved' });
+        const controller = new EmployeePhotoAcquisitionController({ photoStore, processPhoto, hydrateAvatars: jest.fn() });
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const nativeQuery = sheet.querySelectorAll.bind(sheet);
+        const query = jest.spyOn(sheet, 'querySelectorAll').mockImplementation(selector => {
+            if (selector === '[data-employee-photo-input]') throw new Error('post-save DOM failure');
+            return nativeQuery(selector);
+        });
+        try {
+            controller.handleAction('open', badge);
+            setFile(camera, new File(['new'], 'new.jpg', { type: 'image/jpeg' }));
+            expect(await controller.handleInput(camera)).toBe(true);
+            expect(photoStore.replaceEmployeePhoto).toHaveBeenCalledTimes(1);
+            expect(sheet.querySelector('[data-employee-photo-error]').hidden).toBe(true);
+            expect(sheet.hidden).toBe(true);
+            query.mockRestore();
+            controller.handleAction('open', badge);
+            processPhoto.mockRejectedValueOnce(Object.assign(new Error('unsupported photo'), { code: 'unsupported-type' }));
+            setFile(camera, new File(['bad'], 'bad.heic', { type: 'image/heic' }));
+            expect(await controller.handleInput(camera)).toBe(false);
+            expect(photoStore.replaceEmployeePhoto).toHaveBeenCalledTimes(1);
+            expect(sheet.querySelector('[data-employee-photo-error]').hidden).toBe(false);
+            expect(warn).toHaveBeenLastCalledWith('[employee-photo] replacement failed', {
+                stage: 'processing', name: 'Error', code: 'unsupported-type'
+            });
+        } finally {
+            query.mockRestore();
+            warn.mockRestore();
+        }
     });
 
     test('keeps the previous cache on error and permits the same file retry', async () => {
