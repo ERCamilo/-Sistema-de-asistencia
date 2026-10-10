@@ -15,6 +15,8 @@ export const DEFAULT_ORIGINAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 // reemplazo explícito del usuario siempre lo intenta de inmediato.
 const UPLOAD_RETRY_BASE_MS = 15_000;
 const UPLOAD_RETRY_MAX_MS = 15 * 60 * 1000;
+const READ_RETRY_BASE_MS = 15_000;
+const READ_RETRY_MAX_MS = 15 * 60 * 1000;
 
 function normalizeEmployeeId(employeeId) {
     return String(employeeId || '').trim();
@@ -22,6 +24,12 @@ function normalizeEmployeeId(employeeId) {
 
 function coordinates(employeeId, variant) {
     return { ...PROFILE_COORDINATES, ownerId: normalizeEmployeeId(employeeId), variant };
+}
+
+function uploadFileName(employeeId, variant, blob) {
+    // Pending uploads can still contain photos processed before WebP was used.
+    const extension = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/png' ? 'png' : 'webp';
+    return `${employeeId}-profile-${variant}.${extension}`;
 }
 
 function assetStamp(asset, fallback) {
@@ -114,6 +122,8 @@ export class EmployeePhotoService {
         this.intentRevisions = new Map();
         this.localMutations = new Map();
         this.uploadRetries = new Map();
+        this.remoteReadRetries = new Map();
+        this.remotePhotoRevisions = new Map();
     }
 
     /** Estado de la subida remota pendiente (diagnóstico), o null si no hay fallo. */
@@ -145,6 +155,7 @@ export class EmployeePhotoService {
     }
 
     nextIntent(employeeId) {
+        this.clearRemoteReadRetries(employeeId);
         const revision = (this.intentRevisions.get(employeeId) || 0) + 1;
         this.intentRevisions.set(employeeId, revision);
         return revision;
@@ -168,10 +179,40 @@ export class EmployeePhotoService {
         catch { return null; }
     }
 
-    readRemoteVariant(employeeId, variant) {
+    clearRemoteReadRetries(employeeId) {
+        for (const variant of PHOTO_VARIANTS) {
+            this.remoteReadRetries.delete(`${employeeId}:${variant}`);
+        }
+    }
+
+    readRemoteVariant(employeeId, variant, { force = false } = {}) {
         const key = `${employeeId}:${variant}`;
         if (this.pendingRemoteReads.has(key)) return this.pendingRemoteReads.get(key);
+        const retry = this.remoteReadRetries.get(key);
+        if (!force && retry && this.now() < retry.retryAt) return Promise.reject(retry.error);
+        const intent = this.currentIntent(employeeId);
+        const revision = this.remotePhotoRevisions.get(employeeId);
         const pending = this.imageClient.lookupAndDownload(coordinates(employeeId, variant))
+            .then(remote => {
+                this.remoteReadRetries.delete(key);
+                return remote;
+            })
+            .catch(error => {
+                // Local and backend authentication failures must not delay
+                // recovery after the session/token becomes valid again.
+                if (['AUTH_REQUIRED', 'AUTH_CHANGED', 'INVALID_FIREBASE_TOKEN', 'MISSING_ID_TOKEN'].includes(error?.code)) {
+                    this.remoteReadRetries.delete(key);
+                    throw error;
+                }
+                // An obsolete request must not delay recovery of a newer photo.
+                if (this.currentIntent(employeeId) === intent
+                    && this.remotePhotoRevisions.get(employeeId) === revision) {
+                    const attempts = (retry?.attempts || 0) + 1;
+                    const delay = Math.min(READ_RETRY_MAX_MS, READ_RETRY_BASE_MS * (2 ** (attempts - 1)));
+                    this.remoteReadRetries.set(key, { attempts, error, retryAt: this.now() + delay });
+                }
+                throw error;
+            })
             .finally(() => {
                 if (this.pendingRemoteReads.get(key) === pending) this.pendingRemoteReads.delete(key);
             });
@@ -184,8 +225,8 @@ export class EmployeePhotoService {
         return this.runDelete(employeeId, { registerIntent: false });
     }
 
-    async recoverRemoteVariant(employeeId, variant, current, intentRevision) {
-        const remote = await this.readRemoteVariant(employeeId, variant);
+    async recoverRemoteVariant(employeeId, variant, current, intentRevision, options) {
+        const remote = await this.readRemoteVariant(employeeId, variant, options);
         if (this.currentIntent(employeeId) !== intentRevision) return this.readLocal(employeeId);
         return this.enqueueLocalMutation(employeeId, async () => {
             const latest = await this.readLocal(employeeId);
@@ -248,7 +289,9 @@ export class EmployeePhotoService {
         }
         if (current?.optimizedBlob instanceof Blob) return current;
         try {
-            return await this.recoverRemoteVariant(id, 'original', current, intentRevision);
+            // Originals are requested by an explicit viewer action, rather
+            // than avatar renders, so reopening must allow an immediate retry.
+            return await this.recoverRemoteVariant(id, 'original', current, intentRevision, { force: true });
         } catch {
             const latest = await this.readLocal(id);
             return latest?.pendingDelete ? null : latest || current;
@@ -286,12 +329,12 @@ export class EmployeePhotoService {
                         const original = await this.imageClient.upload(
                             coordinates(id, 'original'),
                             target.optimizedBlob,
-                            `${id}-profile-original.webp`
+                            uploadFileName(id, 'original', target.optimizedBlob)
                         );
                         const thumbnail = await this.imageClient.upload(
                             coordinates(id, 'thumbnail'),
                             target.thumbnailBlob,
-                            `${id}-profile-thumbnail.webp`
+                            uploadFileName(id, 'thumbnail', target.thumbnailBlob)
                         );
                         const signal = {
                             state: 'ready',
@@ -377,6 +420,10 @@ export class EmployeePhotoService {
 
         const intentRevision = this.currentIntent(id);
         try {
+            if (this.remotePhotoRevisions.get(id) !== signal.revision) {
+                this.remotePhotoRevisions.set(id, signal.revision);
+                this.clearRemoteReadRetries(id);
+            }
             const remote = await this.readRemoteVariant(id, 'thumbnail');
             if (this.currentIntent(id) !== intentRevision) {
                 return { status: 'current', record: await this.readLocal(id) };
@@ -456,8 +503,8 @@ export class EmployeePhotoService {
         const intentRevision = this.currentIntent(id);
         try {
             const [original, thumbnail] = await Promise.all([
-                this.readRemoteVariant(id, 'original'),
-                this.readRemoteVariant(id, 'thumbnail')
+                this.readRemoteVariant(id, 'original', { force: true }),
+                this.readRemoteVariant(id, 'thumbnail', { force: true })
             ]);
             const revision = combinedRemoteRevision(original.asset, thumbnail.asset, this.now());
             if (current?.remoteRevision === revision) return { status: 'current', record: current };

@@ -161,6 +161,27 @@ describe('EmployeePhotoViewerController', () => {
         if (!outcome) expect(avatar.getAttribute('role')).toBe('button');
     });
 
+    test('a failed original download keeps the cached avatar available for reopening', async () => {
+        const avatar = mountAvatar();
+        const cached = { ...record('cached', 1), optimizedBlob: null };
+        await hydrateEmployeeAvatars(document, {
+            photoStore: { getEmployeePhoto: jest.fn().mockResolvedValue(cached) },
+            urlApi: urlApi('thumb')
+        });
+        const image = avatar.querySelector('img');
+        const source = image.src;
+        const photoStore = {
+            getEmployeeOriginal: jest.fn().mockResolvedValueOnce(cached)
+                .mockResolvedValueOnce(record('recovered', 1))
+        };
+        const viewer = controller({ photoStore, urlApi: urlApi() });
+        expect(await viewer.open(avatar)).toBe(false);
+        expect(image.src).toBe(source);
+        expect(image.hidden).toBe(false);
+        expect(avatar.hasAttribute('data-employee-photo-viewer-trigger')).toBe(true);
+        expect(await viewer.open(avatar)).toBe(true);
+    });
+
     test('image decode error closes the viewer and revokes the created URL', async () => {
         const avatar = mountAvatar();
         markInteractive(avatar, 1);

@@ -116,6 +116,15 @@ testRunner.addSuite("Security headers — Content-Security-Policy", {
             'connect-src debe permitir wss://p2p.erlin.do');
     },
 
+    "permite la foto de Google en imágenes y en fetch del Service Worker"() {
+        const directives = readCsp().split(';').map(value => value.trim().split(/\s+/));
+        for (const name of ['img-src', 'connect-src']) {
+            const directive = directives.find(parts => parts[0] === name) || [];
+            testRunner.assert(directive.includes('https://lh3.googleusercontent.com'),
+                `${name} debe permitir el origen exacto de la foto de Google`);
+        }
+    },
+
     "permite el espejo de caja chica en Supabase y el beacon de analytics"() {
         const csp = readCsp();
         testRunner.assert(/connect-src[^;]*supabase\.co/i.test(csp),
