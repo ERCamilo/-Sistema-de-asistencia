@@ -10,6 +10,9 @@ import { PositionModal } from '../../ui/modals/PositionModal.js';
 import { PositionIconModal } from '../../ui/modals/PositionIconModal.js';
 import { LeaderIconModal } from '../../ui/modals/LeaderIconModal.js';
 import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.js';
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
+import { resolvePayrollPeriod } from '../payroll/PayrollPeriod.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { state as _appState, stateManager } from '../../core/AppState.js';
 import { peekEntityScope, entityInScope } from '../projects/ProjectContext.js';
 import { EmployeeCard, getEmployeeOpenFilter } from './EmployeesList.js';
@@ -122,14 +125,69 @@ function _handleDelegatedKeydown(e) {
 
 let _delegationAttached = false;
 let _employeeEditorFrame = null;
+const _employeeEditorSignatures = new WeakMap();
+let _lastEmployeeEditorData = null;
+let _employeeEditorVersion = 0;
 
-function scheduleEmployeeEditorPanel(employeeId) {
+function employeeEditorSignature(state, employee) {
+    // Photo hydration updates its own controls; these synchronization fields
+    // do not change the form and must not discard an unsaved draft.
+    const editorEmployee = employee ? { ...employee } : null;
+    if (editorEmployee) {
+        delete editorEmployee.photo;
+        delete editorEmployee.updatedAt;
+        delete editorEmployee._isDirty;
+    }
+    const activeSettings = getActivePayrollSettings(state);
+    const today = new Date();
+    const period = resolvePayrollPeriod(activeSettings.payPeriod, today);
+    const attendance = [];
+    // The editor calculates this employee's current payroll period only.
+    // Use keyed reads instead of scanning the entire attendance history.
+    if (employee && !isProjectsEnabled()) {
+        const end = new Date(`${period.periodEnd}T12:00:00`);
+        for (const date = new Date(`${period.periodStart}T12:00:00`); date <= end; date.setDate(date.getDate() + 1)) {
+            const key = `${employee.id}-${getDateKey(date)}`;
+            if (state.attendance?.[key]) attendance.push([key, state.attendance[key]]);
+        }
+    }
+    const payrollSettings = value => ({
+        regularHoursPerDay: value?.regularHoursPerDay,
+        overtimeFactor: value?.overtimeFactor,
+        holidayFactor: value?.holidayFactor,
+        restDayFactor: value?.restDayFactor,
+        holidays: value?.holidays,
+        payPeriod: value?.payPeriod
+    });
+    const data = JSON.stringify({
+        employee: editorEmployee,
+        positions: state.positions,
+        leaders: state.leaders,
+        attendance,
+        settings: payrollSettings(state.settings),
+        activeSettings: payrollSettings(activeSettings),
+        scope: peekEntityScope(),
+        projectsEnabled: isProjectsEnabled(),
+        today: getDateKey(today)
+    });
+    if (data !== _lastEmployeeEditorData) {
+        _lastEmployeeEditorData = data;
+        _employeeEditorVersion++;
+    }
+    // Reuse DOMDiff's memoization without embedding employee/attendance data
+    // in a potentially large HTML attribute.
+    return `employee-editor:${_employeeEditorVersion}`;
+}
+
+function scheduleEmployeeEditorPanel(employeeId, signature) {
     if (typeof requestAnimationFrame !== 'function') return;
     if (_employeeEditorFrame) cancelAnimationFrame(_employeeEditorFrame);
     _employeeEditorFrame = requestAnimationFrame(() => {
         _employeeEditorFrame = null;
         const host = document.getElementById('employee-editor-panel');
         if (!host) return;
+        if (host.getAttribute('data-memo-f') !== signature) return;
+        if (_employeeEditorSignatures.get(host) === signature) return;
         if (!employeeId) {
             host.innerHTML = `
                 <div class="employee-editor-panel__empty">
@@ -137,9 +195,11 @@ function scheduleEmployeeEditorPanel(employeeId) {
                     <span>Ajusta los filtros para editar un empleado.</span>
                 </div>
             `;
+            _employeeEditorSignatures.set(host, signature);
             return;
         }
         EmployeeModal.open(employeeId, { inlineHost: host });
+        _employeeEditorSignatures.set(host, signature);
     });
 }
 
@@ -510,7 +570,8 @@ export function EmployeesTab() {
             || employee.key === state.selectedPersonnelEmployeeId
         ) || filteredItems[0] || null;
         const selectedEmployeeId = selectedEmployee?.key || selectedEmployee?.id || null;
-        scheduleEmployeeEditorPanel(selectedEmployeeId);
+        const editorSignature = employeeEditorSignature(state, selectedEmployee);
+        scheduleEmployeeEditorPanel(selectedEmployeeId, editorSignature);
 
         return `
                 ${subTabsHTML}
@@ -588,6 +649,7 @@ export function EmployeesTab() {
                         </div>
                     </section>
                     <aside id="employee-editor-panel" class="employee-editor-panel"
+                           data-memo-f="${escapeAttr(editorSignature)}"
                            aria-label="Editor de empleado">
                         <div class="employee-editor-panel__loading">Cargando editor…</div>
                     </aside>

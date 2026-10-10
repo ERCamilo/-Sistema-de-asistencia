@@ -150,82 +150,86 @@ export const renderZone = (zoneId, data) => renderManager.renderZone(zoneId, dat
  * Utiliza DOMDiff para actualizar solo lo necesario del árbol DOM.
  */
 export function render() {
-    renderOptimizer.scheduleRender(() => {
-        perfMonitor.start('render');
+    renderOptimizer.scheduleRender(renderFrame);
+}
 
-        // Preservar foco
-        const activeEl = document.activeElement;
-        const isSearchActive = activeEl && activeEl.classList?.contains('employee-search-input');
-        const searchCursorPos = isSearchActive ? activeEl.selectionStart : null;
-        const searchValue = isSearchActive ? activeEl.value : null;
+function renderFrame() {
+    perfMonitor.start('render');
 
-        saveScrollPosition();
+    // Preservar foco
+    const activeEl = document.activeElement;
+    const isSearchActive = activeEl && activeEl.classList?.contains('employee-search-input');
+    const searchCursorPos = isSearchActive ? activeEl.selectionStart : null;
+    const searchValue = isSearchActive ? activeEl.value : null;
 
-        // Actualizar clases del body según el estado
-        document.body.classList.toggle('sidebar-collapsed', !!state.settings.sidebarCollapsed);
-        document.body.classList.toggle('has-sidebar', !state.settings.legacyNavigation);
-        document.body.classList.toggle('bottom-nav-hidden', !!state.bottomNavHidden);
-        if (state.settings.legacyNavigation) {
-            document.body.classList.remove('sidebar-collapsed');
-        }
+    saveScrollPosition();
 
-        // 🛡️ HEALTH CHECK: Evaluar estado del sistema antes de inyectar HTML de la UI
-        if (window._systemAlerts) {
-            window._systemAlerts.checkHealth();
-        }
+    // Actualizar clases del body según el estado
+    document.body.classList.toggle('sidebar-collapsed', !!state.settings.sidebarCollapsed);
+    document.body.classList.toggle('has-sidebar', !state.settings.legacyNavigation);
+    document.body.classList.toggle('bottom-nav-hidden', !!state.bottomNavHidden);
+    if (state.settings.legacyNavigation) {
+        document.body.classList.remove('sidebar-collapsed');
+    }
 
-        // Aplicar cambios al DOM
-        const root = document.getElementById('root');
-        if (root) {
-            const newHTML = rootComponent ? rootComponent() : '<div class="empty-state">⚠️ Error: Componente raíz no cargado</div>';
-            DOMDiff.apply(root, newHTML);
-        }
+    // 🛡️ HEALTH CHECK: Evaluar estado del sistema antes de inyectar HTML de la UI
+    if (window._systemAlerts) {
+        window._systemAlerts.checkHealth();
+    }
 
-        if (typeof window.clarifyDefaultHoursControl === 'function') {
-            window.clarifyDefaultHoursControl();
-        }
-        // ⚡ updateHeaderOffset() removed from the render path — it was forcing
-        // a synchronous layout (~1.9s during initial load per Sprint 5 profile).
-        // The header offset is now seeded once on boot and re-read on window
-        // resize via setupHeaderHeightObserver().
+    // Aplicar cambios al DOM
+    const root = document.getElementById('root');
+    if (root) {
+        const newHTML = rootComponent ? rootComponent() : '<div class="empty-state">⚠️ Error: Componente raíz no cargado</div>';
+        DOMDiff.apply(root, newHTML);
+    }
 
-        // Restaurar foco del buscador
-        if (isSearchActive) {
-            requestAnimationFrame(() => {
-                const input = document.querySelector('.employee-search-input');
-                if (input) {
-                    input.focus();
-                    if (searchValue !== null && input.value !== searchValue) {
-                        input.value = searchValue;
-                    }
-                    const pos = searchCursorPos !== null ? searchCursorPos : input.value.length;
-                    if (input.setSelectionRange) input.setSelectionRange(pos, pos);
-                }
-            });
-        }
+    if (typeof window.clarifyDefaultHoursControl === 'function') {
+        window.clarifyDefaultHoursControl();
+    }
+    // ⚡ updateHeaderOffset() removed from the render path — it was forcing
+    // a synchronous layout (~1.9s during initial load per Sprint 5 profile).
+    // The header offset is now seeded once on boot and re-read on window
+    // resize via setupHeaderHeightObserver().
 
-        restoreScrollPosition();
-
-        // 🛰️ Inicializar mini-mapa (ScrollService)
+    // Restaurar foco del buscador
+    if (isSearchActive) {
         requestAnimationFrame(() => {
-            if (window.ScrollService) {
-                window.ScrollService.init();
+            const input = document.querySelector('.employee-search-input');
+            if (input) {
+                input.focus();
+                if (searchValue !== null && input.value !== searchValue) {
+                    input.value = searchValue;
+                }
+                const pos = searchCursorPos !== null ? searchCursorPos : input.value.length;
+                if (input.setSelectionRange) input.setSelectionRange(pos, pos);
             }
         });
+    }
 
-        // ⚡ P1-OPT: El guardado fue eliminado del ciclo de render.
-        // saveApplicationData() se llama directamente en los handlers de mutación de datos
-        // (handleWeekCheck, toggleHoliday, changeBaseHours, etc.) para evitar escrituras
-        // innecesarias en IndexedDB con cada repintado de UI.
+    restoreScrollPosition();
 
-        eventBus.emit('render:complete', {
-            timestamp: Date.now(),
-            activeTab: state.activeTab
-        });
-
-        perfMonitor.end('render');
+    // 🛰️ Inicializar mini-mapa (ScrollService)
+    requestAnimationFrame(() => {
+        if (window.ScrollService) {
+            window.ScrollService.init();
+        }
     });
+
+    // ⚡ P1-OPT: El guardado fue eliminado del ciclo de render.
+    // saveApplicationData() se llama directamente en los handlers de mutación de datos
+    // (handleWeekCheck, toggleHoliday, changeBaseHours, etc.) para evitar escrituras
+    // innecesarias en IndexedDB con cada repintado de UI.
+
+    eventBus.emit('render:complete', {
+        timestamp: Date.now(),
+        activeTab: state.activeTab
+    });
+
+    perfMonitor.end('render');
 }
+
+renderOptimizer.registerRenderTask(render, renderFrame);
 
 /**
  * ⚡ UTILIDADES DE SCROLL

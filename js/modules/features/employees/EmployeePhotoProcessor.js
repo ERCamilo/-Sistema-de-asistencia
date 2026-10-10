@@ -76,16 +76,19 @@ function defaultCanvasFactory() {
     return document.createElement('canvas');
 }
 
-function encodeCanvas(canvas, quality) {
+function encodeCanvas(canvas, quality, mimeType = 'image/webp') {
     return new Promise((resolve, reject) => {
         if (!canvas || typeof canvas.toBlob !== 'function') {
             reject(new EmployeePhotoProcessingError('unsupported-runtime', 'Canvas Blob encoding is not available'));
             return;
         }
         canvas.toBlob(blob => {
-            if (blob instanceof Blob && blob.size > 0) resolve(blob);
+            if (blob instanceof Blob && blob.size > 0 && blob.type === mimeType) resolve(blob);
+            // Browsers without WebP encoding may silently return PNG. Retry
+            // with JPEG and verify the actual MIME before caching or uploading.
+            else if (mimeType === 'image/webp') resolve(encodeCanvas(canvas, quality, 'image/jpeg'));
             else reject(new EmployeePhotoProcessingError('encode-failed', 'Employee photo encoding failed'));
-        }, 'image/jpeg', quality);
+        }, mimeType, quality);
     });
 }
 
@@ -148,7 +151,7 @@ export async function processEmployeePhoto(source, options = {}) {
             optimizedBlob,
             width: dimensions.width,
             height: dimensions.height,
-            mimeType: 'image/jpeg'
+            mimeType: optimizedBlob.type
         };
     } catch (error) {
         if (error instanceof EmployeePhotoProcessingError) throw error;

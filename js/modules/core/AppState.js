@@ -14,9 +14,17 @@ class RenderOptimizer {
         this._rendering = false;
         this._lastRender = 0;
         this._minRenderInterval = 16;
+        this._renderRequest = null;
+        this._renderTask = null;
+    }
+    registerRenderTask(request, task) {
+        this._renderRequest = request;
+        this._renderTask = task;
     }
     scheduleRender(callback) {
         if (typeof callback !== 'function') return;
+        // Both proxy writes and explicit render() calls enqueue the same task.
+        if (callback === this._renderRequest) callback = this._renderTask;
         if (!this._renderQueue.includes(callback)) this._renderQueue.push(callback);
         this._processQueue();
     }
@@ -38,10 +46,8 @@ class RenderOptimizer {
                 try { cb(); } catch (e) { console.error('❌ Error en render:', e); }
             });
             this._rendering = false;
-            // batchSetState programa window.render, que a su vez programa el render
-            // real mientras _rendering sigue activo: sin este drenaje ese render
-            // quedaba en cola hasta el siguiente disparo (p. ej. el perfil abierto
-            // con un toque no se pintaba).
+            // Los cambios de estado durante un render pueden encolar otro.
+            // Drenarlo en el siguiente frame, sin esperar otra acción del usuario.
             if (this._renderQueue.length) this._processQueue();
         });
     }
@@ -96,12 +102,18 @@ class StateManager {
         
         // 🧹 Sanitizar actualizaciones para evitar filtración de Proxies
         const sanitizedUpdates = toRaw(updates);
+        // Objects are cloned by toRaw and remain real updates. Avoid a deep
+        // comparison or suppressing callers that intentionally replace them.
+        const changed = Object.keys(sanitizedUpdates).some(key =>
+            !Object.prototype.hasOwnProperty.call(this._state, key)
+            || !Object.is(this._state[key], sanitizedUpdates[key])
+        );
         Object.assign(this._state, sanitizedUpdates);
         
         // ⚡ P3-OPT: Si se actualizó la asistencia, marcamos para rebuild
         if (updates.attendance) this.markAttendanceDirty();
         
-        if (!this._silent && window.render) {
+        if (changed && !this._silent && window.render) {
             renderOptimizer.scheduleRender(window.render);
         }
         
@@ -252,13 +264,14 @@ const createRecursiveProxy = (obj) => {
             return value;
         },
         set(target, prop, value, receiver) {
+            const hadOwn = Object.prototype.hasOwnProperty.call(target, prop);
             const oldValue = target[prop];
             // 🧹 Desenvolver el valor si es un proxy antes de guardarlo en el target real
             const rawValue = toRaw(value);
             // Importante: Reflect.set sin receiver previene problemas en arrays y herencia
             const result = Reflect.set(target, prop, rawValue);
 
-            if (oldValue !== value && !stateManager.isSilent()) {
+            if (result && (!hadOwn || !Object.is(oldValue, rawValue)) && !stateManager.isSilent()) {
                 // 🎯 Fase 4 Paso 4: el proxy es AGNÓSTICO al dominio. La coherencia de
                 // asistencia (statsCache.mtd / attendanceByDate) la mantienen ahora los
                 // handlers de forma EXPLÍCITA (invalidateEmployeeStats + buildAttendanceIndex;
@@ -268,9 +281,10 @@ const createRecursiveProxy = (obj) => {
             return result;
         },
         deleteProperty(target, prop) {
+            const hadOwn = Object.prototype.hasOwnProperty.call(target, prop);
             const result = Reflect.deleteProperty(target, prop);
 
-            if (result && !stateManager.isSilent()) {
+            if (result && hadOwn && !stateManager.isSilent()) {
                 // 🎯 Fase 4 Paso 4: proxy agnóstico — la coherencia de asistencia al borrar
                 // la mantienen ahora los handlers de forma EXPLÍCITA. El proxy sólo agenda render.
                 if (window.render) renderOptimizer.scheduleRender(window.render);
