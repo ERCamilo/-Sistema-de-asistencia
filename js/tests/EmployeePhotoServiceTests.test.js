@@ -31,6 +31,32 @@ function processedPhoto(version = 7) {
 }
 
 describe('EmployeePhotoService', () => {
+    test.each([
+        ['image/webp', 'webp', 'image/jpeg', 'jpg'],
+        ['image/jpeg', 'jpg', 'image/png', 'png']
+    ])('uses matching extensions for %s originals (.%s) and their thumbnails', async (originalType, originalExtension, thumbnailType, thumbnailExtension) => {
+        let cached = null;
+        const localStore = {
+            replaceEmployeePhoto: jest.fn(async (_id, value) => (cached = { employeeId: 'emp-1', ...value })),
+            getEmployeePhoto: jest.fn(async () => cached)
+        };
+        const imageClient = { upload: jest.fn().mockResolvedValue({ asset: {} }) };
+        const service = new EmployeePhotoService({ localStore, imageClient });
+        const photo = {
+            ...processedPhoto(),
+            optimizedBlob: new Blob(['original'], { type: originalType }),
+            thumbnailBlob: new Blob(['thumb'], { type: thumbnailType })
+        };
+        await service.replaceEmployeePhoto('emp-1', photo);
+        expect(await service.waitForPendingSync('emp-1')).toBe(true);
+        expect(imageClient.upload).toHaveBeenNthCalledWith(1,
+            expect.objectContaining({ variant: 'original' }), photo.optimizedBlob,
+            `emp-1-profile-original.${originalExtension}`);
+        expect(imageClient.upload).toHaveBeenNthCalledWith(2,
+            expect.objectContaining({ variant: 'thumbnail' }), photo.thumbnailBlob,
+            `emp-1-profile-thumbnail.${thumbnailExtension}`);
+    });
+
     test('publishes a durable ready signal only after both remote variants succeed', async () => {
         const events = [];
         let cached = null;

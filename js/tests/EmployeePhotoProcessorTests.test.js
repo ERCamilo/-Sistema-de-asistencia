@@ -7,7 +7,7 @@ import {
     validateEmployeePhotoSource
 } from '../modules/features/employees/EmployeePhotoProcessor.js';
 
-function createCanvasHarness({ encode = true } = {}) {
+function createCanvasHarness({ encode = true, supportsWebP = true, webpNull = false, fallbackType = 'image/jpeg' } = {}) {
     const canvases = [];
     const createCanvas = () => {
         const context = { drawImage: jest.fn() };
@@ -15,8 +15,10 @@ function createCanvasHarness({ encode = true } = {}) {
             width: 0,
             height: 0,
             getContext: jest.fn(() => context),
-            toBlob: jest.fn(callback => callback(
-                encode ? new Blob(['encoded'], { type: 'image/jpeg' }) : null
+            toBlob: jest.fn((callback, type) => callback(
+                encode && !(webpNull && type === 'image/webp') ? new Blob(['encoded'], {
+                    type: type === 'image/webp' ? (supportsWebP ? type : 'image/png') : fallbackType
+                }) : null
             )),
             context
         };
@@ -75,6 +77,9 @@ describe('Employee photo processing pipeline', () => {
 
         expect(result.thumbnailBlob).toBeInstanceOf(Blob);
         expect(result.optimizedBlob).toBeInstanceOf(Blob);
+        expect(result.thumbnailBlob.type).toBe('image/webp');
+        expect(result.optimizedBlob.type).toBe('image/webp');
+        expect(result.mimeType).toBe('image/webp');
         expect(result.width).toBe(300);
         expect(result.height).toBe(150);
         expect(harness.canvases[0]).toMatchObject({ width: 256, height: 256 });
@@ -82,6 +87,30 @@ describe('Employee photo processing pipeline', () => {
         expect(harness.canvases[0].context.drawImage).toHaveBeenCalledWith(
             bitmap, 300, 0, 600, 600, 0, 0, 256, 256
         );
+        expect(bitmap.close).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([['PNG', false], ['null', true]])('uses JPEG when the browser returns %s instead of WebP', async (_label, webpNull) => {
+        const bitmap = { width: 400, height: 300, close: jest.fn() };
+        const harness = createCanvasHarness({ supportsWebP: false, webpNull });
+        const result = await processEmployeePhoto(new Blob(['photo'], { type: 'image/png' }), {
+            createBitmap: async () => bitmap,
+            createCanvas: harness.createCanvas
+        });
+        expect(result.thumbnailBlob.type).toBe('image/jpeg');
+        expect(result.optimizedBlob.type).toBe('image/jpeg');
+        expect(result.mimeType).toBe('image/jpeg');
+        expect(harness.canvases.every(canvas => canvas.toBlob.mock.calls.length === 2)).toBe(true);
+        expect(bitmap.close).toHaveBeenCalledTimes(1);
+    });
+
+    test('rejects unexpected MIME output instead of labeling it as WebP or JPEG', async () => {
+        const bitmap = { width: 400, height: 300, close: jest.fn() };
+        const harness = createCanvasHarness({ supportsWebP: false, fallbackType: 'image/png' });
+        await expect(processEmployeePhoto(new Blob(['photo'], { type: 'image/png' }), {
+            createBitmap: async () => bitmap,
+            createCanvas: harness.createCanvas
+        })).rejects.toMatchObject({ code: 'encode-failed' });
         expect(bitmap.close).toHaveBeenCalledTimes(1);
     });
 

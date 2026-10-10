@@ -121,7 +121,9 @@ export class EmployeePhotoViewerController {
             return false;
         }
         if (!(cached?.optimizedBlob instanceof Blob)) {
-            resetEmployeeAvatarToInitials(trigger);
+            // The original may be unavailable while a valid thumbnail remains
+            // cached. Keep that avatar and its viewer action available to retry.
+            if (!(cached?.thumbnailBlob instanceof Blob)) resetEmployeeAvatarToInitials(trigger);
             this.close();
             return false;
         }

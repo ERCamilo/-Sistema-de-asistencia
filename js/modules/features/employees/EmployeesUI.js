@@ -4,6 +4,7 @@ import { slugify } from '../../utils/Helpers.js';
 import { Modal } from '../../components/Modal.js';
 import { EmptyState } from '../../components/EmptyState.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
+import { employeeEditorData } from './EmployeeEditorDraft.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
@@ -122,14 +123,30 @@ function _handleDelegatedKeydown(e) {
 
 let _delegationAttached = false;
 let _employeeEditorFrame = null;
+const _employeeEditorSignatures = new WeakMap();
+let _lastEmployeeEditorData = null;
+let _employeeEditorVersion = 0;
 
-function scheduleEmployeeEditorPanel(employeeId) {
+function employeeEditorSignature(state, employee) {
+    const data = employeeEditorData(state, employee);
+    if (data !== _lastEmployeeEditorData) {
+        _lastEmployeeEditorData = data;
+        _employeeEditorVersion++;
+    }
+    // Reuse DOMDiff's memoization without embedding employee/attendance data
+    // in a potentially large HTML attribute.
+    return `employee-editor:${_employeeEditorVersion}`;
+}
+
+function scheduleEmployeeEditorPanel(employeeId, signature) {
     if (typeof requestAnimationFrame !== 'function') return;
     if (_employeeEditorFrame) cancelAnimationFrame(_employeeEditorFrame);
     _employeeEditorFrame = requestAnimationFrame(() => {
         _employeeEditorFrame = null;
         const host = document.getElementById('employee-editor-panel');
         if (!host) return;
+        if (host.getAttribute('data-memo-f') !== signature) return;
+        if (_employeeEditorSignatures.get(host) === signature) return;
         if (!employeeId) {
             host.innerHTML = `
                 <div class="employee-editor-panel__empty">
@@ -137,9 +154,11 @@ function scheduleEmployeeEditorPanel(employeeId) {
                     <span>Ajusta los filtros para editar un empleado.</span>
                 </div>
             `;
+            _employeeEditorSignatures.set(host, signature);
             return;
         }
         EmployeeModal.open(employeeId, { inlineHost: host });
+        _employeeEditorSignatures.set(host, signature);
     });
 }
 
@@ -505,12 +524,24 @@ export function EmployeesTab() {
     }
 
     if (isEmployees) {
-        const selectedEmployee = filteredItems.find(employee =>
+        const host = document.getElementById('employee-editor-panel');
+        const draftId = EmployeeModal.inlineDraftEmployeeId(host);
+        // A synchronized name/status can remove the employee from the list.
+        // Keep their dirty editor until the user selects another employee.
+        const retainDraft = draftId && (!state.selectedPersonnelEmployeeId
+            || EmployeeModal.preserveInlineDraft(host, state.selectedPersonnelEmployeeId));
+        const selectedEmployee = retainDraft
+            ? state.employees.find(employee => employee.id === draftId || employee.key === draftId) || null
+            : filteredItems.find(employee =>
             employee.id === state.selectedPersonnelEmployeeId
             || employee.key === state.selectedPersonnelEmployeeId
         ) || filteredItems[0] || null;
-        const selectedEmployeeId = selectedEmployee?.key || selectedEmployee?.id || null;
-        scheduleEmployeeEditorPanel(selectedEmployeeId);
+        const selectedEmployeeId = retainDraft ? draftId : selectedEmployee?.key || selectedEmployee?.id || null;
+        const latestSignature = employeeEditorSignature(state, selectedEmployee);
+        const editorSignature = EmployeeModal.preserveInlineDraft(host, selectedEmployeeId)
+            ? host.getAttribute('data-memo-f')
+            : latestSignature;
+        scheduleEmployeeEditorPanel(selectedEmployeeId, editorSignature);
 
         return `
                 ${subTabsHTML}
@@ -588,6 +619,7 @@ export function EmployeesTab() {
                         </div>
                     </section>
                     <aside id="employee-editor-panel" class="employee-editor-panel"
+                           data-memo-f="${escapeAttr(editorSignature)}"
                            aria-label="Editor de empleado">
                         <div class="employee-editor-panel__loading">Cargando editor…</div>
                     </aside>

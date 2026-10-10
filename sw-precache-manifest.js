@@ -72,6 +72,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/employees/DuplicateGroups.js",
     "./js/modules/features/employees/Employee.js",
     "./js/modules/features/employees/EmployeeDuplicateService.js",
+    "./js/modules/features/employees/EmployeeEditorDraft.js",
     "./js/modules/features/employees/EmployeeMergeRegistry.js",
     "./js/modules/features/employees/EmployeeNumberIdentity.js",
     "./js/modules/features/employees/EmployeePhotoProcessor.js",
