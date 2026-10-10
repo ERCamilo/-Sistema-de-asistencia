@@ -16,7 +16,7 @@ export const firebaseConfig = {
 export const APP_CONFIG = {
     // Lo sube el workflow «refresh PR build version» en cada cambio que entra a
     // main (1.7.0 → 1.7.1 → …). No editar a mano el número de parche.
-    VERSION: "1.7.46",
+    VERSION: "1.7.47",
     LAST_UPDATED: "2026-07-11",
     DATABASE_NAME: "attendance-app-db", // L2: coincide con el nombre real de la BD IndexedDB
     STORAGE_KEY: "asistencia-data",
@@ -24,6 +24,8 @@ export const APP_CONFIG = {
     RELEVANT_DAYS_LIMIT: 60,
     // 🤖 Caja chica — OCR de facturas (webhook configurable; hoy n8n,
     // migrable a Firebase Function sin tocar la app).
+    // Development-only Tailscale endpoint; HTTP is accepted only from 127.0.0.1:8080.
+    VOICE_WEBHOOK_URL: "https://n8n.erlin.do/webhook/sa-voice-v1-dev",
     OCR_WEBHOOK_URL: "https://n8n.erlin.do/webhook/caja-chica-ocr",
     // 📤 Caja chica — subir foto del comprobante a Supabase (vía n8n).
     RECEIPT_UPLOAD_URL: "https://n8n.erlin.do/webhook/caja-chica-subir",

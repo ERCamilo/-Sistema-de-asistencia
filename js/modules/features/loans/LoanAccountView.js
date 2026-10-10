@@ -260,6 +260,7 @@ function LoanRow(emp, loan, numbers, payDates, today, isOpen) {
                 <div><span>Capital pend.</span><b class="la-t-cap">${M(pending.capital, 0)}</b></div>
                 <div><span>Saldo</span><b>${M(pending.balance, 0)}</b></div>
             </div>
+            ${loan.voiceRequestId ? `<button type="button" class="la-btn" data-app-fn="playVoiceLoanAudio" data-arg="${escapeAttr(String(emp.id))}" data-arg2="${escapeAttr(loan.voiceRequestId)}" data-voice-loan-audio="${escapeAttr(loan.voiceRequestId)}" data-loan-id="${escapeAttr(String(loan.id))}" disabled>Comprobando audio…</button>` : ''}
             <span class="la-act-h">Actividad del préstamo #${n} · ${visibleActs.length} movimiento${visibleActs.length === 1 ? '' : 's'}</span>
             <div class="la-inner">${visibleActs.map(m => MovementRow(m, { loanId: loan.id })).join('') || '<div class="la-mv"><span></span><div class="la-mv__w"><small>Sin movimientos</small></div></div>'}</div>
             ${active ? `<div class="la-loan-acts">

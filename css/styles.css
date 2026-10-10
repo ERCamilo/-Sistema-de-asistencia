@@ -1818,6 +1818,41 @@
             }
         }
 
+        .floating-card-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            padding: 16px;
+            border-top: 1px solid #334155;
+        }
+        .floating-card-loans, .detail-btn.loan-shortcut {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 44px;
+            padding: 12px;
+            background: #f5c542;
+            color: #111315;
+            border: 0;
+            border-radius: 8px;
+            font: inherit;
+            font-size: .875rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .premium-calendar .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 44px;
+            min-height: 44px;
+            color: #f1f5f9;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            cursor: pointer;
+        }
         .floating-card-header {
             display: flex;
             justify-content: space-between;
