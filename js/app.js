@@ -62,7 +62,7 @@ import { openVoiceAttendanceEmployee } from './modules/features/voice/VoiceAtten
 import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
 import { getAccountSummary as voiceAccountSummary } from './modules/features/loans/LoanAccount.js';
 import { selectLoansEmployee as selectVoiceLoansEmployee } from './modules/features/loans/LoansController.js';
-import { registerNewAccountLoan, laUseClassicView } from './modules/features/loans/LoanAccountController.js';
+import { registerNewAccountLoan, laUseClassicView, laSetTab } from './modules/features/loans/LoanAccountController.js';
 import { getAccountPayPeriods } from './modules/features/loans/LoanAccountView.js';
 import { previousVoiceInterest } from './modules/features/voice/VoiceLoanDraft.js';
 import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
@@ -1263,10 +1263,8 @@ const voiceMvp = new VoiceMvpUI({
         const loan = await registerNewAccountLoan(employeeId, draft, { period: draft.dueDate, voiceRequestId: context.requestId, canProceed: context.guard, confirmDuplicate: message => context.confirm(message) });
         if (loan) {
             selectVoiceLoansEmployee(employeeId); laUseClassicView(false);
-            stateManager.batchSetState(() => {
-                state.loansLedger.showAddForm = false;
-                state.loansLedger.account.tab = 'loans';
-            });
+            // Voice may register before the loans screen has initialized its account.
+            laSetTab('loans');
             window.openCuentasPorCobrar();
         }
         return loan;
