@@ -352,6 +352,9 @@ function _handleAppKeydown(e) {
     // en pantallas chicas podía quedar fuera de vista). Solo si hay un overlay
     // presente, para no interferir con otros usos de Escape.
     if (e.key === 'Escape') {
+        // Component Modal owns its Escape/confirmation lifecycle. Removing
+        // every overlay here would discard the employee draft underneath.
+        if (e.defaultPrevented || document.querySelector('[data-modal-overlay]')) return;
         if (typeof document !== 'undefined' && document.querySelector('.modal-overlay')) {
             e.preventDefault();
             window.closeModal?.();

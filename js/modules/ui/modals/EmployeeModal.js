@@ -6,7 +6,8 @@ import { positionsChanged } from '../../features/employees/Employee.js';
 import icons from '../../ui/IconSystem.js';
 import { swapEmployeeNumbers } from '../../services/PersistenceService.js';
 import { mergeDuplicateEmployees, purgeMergedEmployeesFromLocalStore } from '../../features/employees/EmployeeDuplicateService.js';
-import { toStoredHourly } from '../../features/payroll/SalaryConversion.js';
+import { EmployeeEditorDraft, readEmployeeForm } from '../../features/employees/EmployeeEditorDraft.js';
+import { eventBus } from '../../core/Events.js';
 import { collectPositionDays, reassignPositionDays } from '../../services/AttendancePositionAudit.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
@@ -19,7 +20,20 @@ import {
 } from '../../features/employees/EmployeePositionEditor.js';
 import { EmployeeAvatar, hydrateEmployeeAvatars } from '../components/EmployeeAvatar.js';
 
+const inlineDrafts = new WeakMap();
+
 export class EmployeeModal {
+    static inlineDraftEmployeeId(host) {
+        const draft = host && inlineDrafts.get(host);
+        return draft && EmployeeModal.preserveInlineDraft(host, draft.employeeId) ? draft.employeeId : null;
+    }
+
+    static preserveInlineDraft(host, employeeId) {
+        const draft = host && inlineDrafts.get(host);
+        return !!(draft && draft.root.isConnected && draft.inScope()
+            && (draft.employeeId === employeeId || draft.employeeKey === employeeId) && draft.isDirty());
+    }
+
     static open(employeeId = null, options = {}) {
         const state = getState();
         const emp = employeeId ? (state.employees.find(e => e.id === employeeId) || state.employees.find(e => e.key === employeeId)) : null;
@@ -201,46 +215,74 @@ export class EmployeeModal {
             }
         });
 
+        const draft = new EmployeeEditorDraft({
+            root: body, employee: emp, state, regularHours, readState: getState,
+            reload: () => {
+                if (options.inlineHost) modal.close();
+                else { modal.close(); EmployeeModal.open(employeeId, options); }
+            }
+        });
+        modal.employeeDraft = draft;
+        if (options.inlineHost) inlineDrafts.set(options.inlineHost, draft);
+        const unsubscribe = eventBus.on('render:complete', () => {
+            // EventBus iterates a live listener array. Removing this listener
+            // synchronously would skip the next (e.g. the mobile editor).
+            if (!body.isConnected) Promise.resolve().then(unsubscribe);
+            else draft.refresh();
+        });
+        const close = modal.close.bind(modal);
+        modal.close = () => { unsubscribe(); return close(); };
+
         return modal;
     }
 
-    static save(modalInstance, existingEmp) {
+    static save(modalInstance, existingEmp, { confirmedVersion } = {}) {
         const el = modalInstance.element;
         // F1.4: alcance activo para sello de nacimiento y detección de duplicados.
         const scope = peekEntityScope();
-        const number = el.querySelector('#empNumber').value.trim();
-        const name = el.querySelector('#empName').value.trim();
-        const hireDate = el.querySelector('#empHireDate').value;
-        const phone = el.querySelector('#empPhone').value.trim();
-        const email = el.querySelector('#empEmail').value.trim();
-        const notes = el.querySelector('#empNotes').value.trim();
-        
-        const selectedPositions = Array.from(el.querySelectorAll('input[name="empPosition"]:checked')).map(cb => cb.value);
-        
-        // Validaciones
+        const state = getState();
+        const draft = modalInstance.employeeDraft;
+        const plan = draft?.prepareSave(state) || {
+            fields: readEmployeeForm(el, normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay)),
+            conflicts: []
+        };
+        if (plan.error) return window.showAlert(plan.error, 'error');
+        if (plan.conflicts.length && confirmedVersion !== plan.version) {
+            if (modalInstance._draftConfirmationOpen) return;
+            modalInstance._draftConfirmationOpen = true;
+            Modal.confirm({
+                title: 'Cambios en los mismos campos',
+                message: `Recibiste cambios en: ${escapeHTML(plan.conflicts.join(', '))}. ¿Guardar tus valores para esos campos? Los campos que no editaste conservarán los datos más recientes.`,
+                confirmText: 'Guardar mis cambios', cancelText: 'Seguir editando'
+            }).then(confirmed => {
+                modalInstance._draftConfirmationOpen = false;
+                if (confirmed && el.isConnected) {
+                    if (!draft.isCurrent(plan)) {
+                        window.showAlert('Llegaron más cambios. Revisa el aviso y vuelve a guardar.', 'warning');
+                        return;
+                    }
+                    EmployeeModal.save(modalInstance, existingEmp, { confirmedVersion: plan.version });
+                }
+            });
+            return;
+        }
+        const { number, name, hireDate, phone, email, notes,
+            positions: selectedPositions, positionSalaries, positionSalaryModes } = plan.fields;
+
         if (!number) return window.showAlert('El número de empleado es obligatorio', 'error');
         if (!name) return window.showAlert('El nombre es obligatorio', 'error');
         if (selectedPositions.length === 0) return window.showAlert('Debes asignar al menos una posición', 'error');
 
-        const state = getState();
-
-        // Sueldos personalizados (común a todos los caminos)
-        const regularHours = normalizeRegularHoursPerDay(getActivePayrollSettings(state).regularHoursPerDay);
-        const positionSalaries = {};
-        const positionSalaryModes = {};
-        el.querySelectorAll('.custom-salary-input').forEach(input => {
-            const raw = parseFloat(input.value);
-            const posId = input.dataset.posId;
-            const modeSel = el.querySelector(`.custom-salary-mode[data-pos-id="${posId}"]`);
-            const mode = modeSel?.value === 'daily' ? 'daily' : 'hourly';
-            const assignment = input.closest('[data-position-assignment]');
-            const usesDefault = assignment?.dataset.salarySource === 'default';
-            if (mode === 'daily') positionSalaryModes[posId] = 'daily';
-            if (!usesDefault && !isNaN(raw) && raw > 0) {
-                // Se guarda SIEMPRE por hora; si el modo es 'día', se convierte.
-                positionSalaries[posId] = toStoredHourly(raw, mode, regularHours);
+        // Confirmation dialogs can remain open while synchronization changes
+        // the employee, attendance or project. Recheck before any mutation.
+        const dialogChecks = [];
+        const canApply = () => {
+            if ((draft && (!el.isConnected || !draft.isCurrent(plan))) || dialogChecks.some(check => !check())) {
+                window.showAlert('Llegaron más cambios. Revisa el aviso y vuelve a guardar.', 'warning');
+                return false;
             }
-        });
+            return true;
+        };
 
         // Decisiones del modal de impacto por posiciones removidas con
         // historial (llenadas por _showPositionRemovalImpact). Viven acá para
@@ -252,6 +294,7 @@ export class EmployeeModal {
         // Aplica los campos del formulario al empleado (existente o nuevo) con
         // el número indicado. Devuelve el id del empleado afectado.
         const applyFields = (numberToUse) => {
+            if (!canApply()) return null;
             if (existingEmp) {
                 const empToEdit = state.employees.find(e => e.id === existingEmp.id) || state.employees.find(e => e.key === existingEmp.id);
                 if (!empToEdit) return null;
@@ -331,6 +374,7 @@ export class EmployeeModal {
         };
 
         const continueSave = () => {
+            if (!canApply()) return;
             // 🔢 Conflicto de número: otro empleado ya tiene esta ficha.
             // En vez de bloquear, ofrecemos resolución: cancelar, intercambiar
             // o fusionar (misma persona). F1.4: la colisión sólo cuenta dentro
@@ -341,14 +385,16 @@ export class EmployeeModal {
                 && entityInScope(e, scope)
             );
             if (duplicate) {
+                const employeesVersion = JSON.stringify(state.employees);
+                dialogChecks.push(() => JSON.stringify(getState().employees) === employeesVersion);
                 EmployeeModal._showNumberConflict({
-                    intendedNumber: number, editingName: name, existingEmp, duplicate,
+                    intendedNumber: number, editingName: name, existingEmp: draft?.currentEmployee(state) || existingEmp, duplicate,
                     applyFields, finish, state
                 });
                 return;
             }
 
-            applyFields(number);
+            if (!applyFields(number)) return;
             // Label de ACCIÓN para el toast (el SaveOutcomeNotifier lo envuelve en
             // "Guardando — … · en este equipo"). Sin "correctamente" ni ícono: el
             // mensaje de éxito lo arma el notifier con el resultado real.
@@ -367,6 +413,13 @@ export class EmployeeModal {
                 .map(pid => ({ pid, audit: collectPositionDays(state.attendance, { employeeId: current.id, positionId: pid }) }))
                 .filter(x => x.audit.count > 0);
             if (removedWithHistory.length > 0) {
+                const impactVersion = () => JSON.stringify(removedWithHistory.map(({ pid }) => {
+                    const attendance = getState().attendance;
+                    const audit = collectPositionDays(attendance, { employeeId: current.id, positionId: pid });
+                    return audit.keys.map(key => [key, attendance[key]]);
+                }));
+                const originalImpact = impactVersion();
+                dialogChecks.push(() => impactVersion() === originalImpact);
                 EmployeeModal._showPositionRemovalImpact({
                     emp: current, items: removedWithHistory, remaining: selectedPositions, state,
                     onDecide: (decisions) => { _reassignDecisions = decisions; continueSave(); }
@@ -408,7 +461,7 @@ export class EmployeeModal {
                 text: `🔁 Intercambiar (#${oldNumber} ↔ #${intendedNumber})`,
                 class: 'btn-primary',
                 onClick: function () {
-                    applyFields(oldNumber);                       // aplica edits con el número viejo
+                    if (!applyFields(oldNumber)) { this.close(); return; } // aplica edits con el número viejo
                     swapEmployeeNumbers(existingEmp.id, duplicate.id); // luego intercambia
                     this.close();
                     finish(`🔁 Números intercambiados: ${who} #${intendedNumber}, ${duplicate.name} #${oldNumber}`);

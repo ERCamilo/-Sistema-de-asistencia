@@ -4,15 +4,13 @@ import { slugify } from '../../utils/Helpers.js';
 import { Modal } from '../../components/Modal.js';
 import { EmptyState } from '../../components/EmptyState.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
+import { employeeEditorData } from './EmployeeEditorDraft.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
 import { PositionIconModal } from '../../ui/modals/PositionIconModal.js';
 import { LeaderIconModal } from '../../ui/modals/LeaderIconModal.js';
 import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.js';
-import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
-import { resolvePayrollPeriod } from '../payroll/PayrollPeriod.js';
-import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { state as _appState, stateManager } from '../../core/AppState.js';
 import { peekEntityScope, entityInScope } from '../projects/ProjectContext.js';
 import { EmployeeCard, getEmployeeOpenFilter } from './EmployeesList.js';
@@ -130,47 +128,7 @@ let _lastEmployeeEditorData = null;
 let _employeeEditorVersion = 0;
 
 function employeeEditorSignature(state, employee) {
-    // Photo hydration updates its own controls; these synchronization fields
-    // do not change the form and must not discard an unsaved draft.
-    const editorEmployee = employee ? { ...employee } : null;
-    if (editorEmployee) {
-        delete editorEmployee.photo;
-        delete editorEmployee.updatedAt;
-        delete editorEmployee._isDirty;
-    }
-    const activeSettings = getActivePayrollSettings(state);
-    const today = new Date();
-    const period = resolvePayrollPeriod(activeSettings.payPeriod, today);
-    const attendance = [];
-    // The editor calculates this employee's current payroll period only.
-    // Use keyed reads instead of scanning the entire attendance history.
-    if (employee && !isProjectsEnabled()) {
-        const end = new Date(`${period.periodEnd}T12:00:00`);
-        for (const date = new Date(`${period.periodStart}T12:00:00`); date <= end; date.setDate(date.getDate() + 1)) {
-            const key = `${employee.id}-${getDateKey(date)}`;
-            if (state.attendance?.[key]) attendance.push([key, state.attendance[key]]);
-        }
-    }
-    const payrollSettings = value => ({
-        voiceMvpEnabled: value?.voiceMvpEnabled,
-        regularHoursPerDay: value?.regularHoursPerDay,
-        overtimeFactor: value?.overtimeFactor,
-        holidayFactor: value?.holidayFactor,
-        restDayFactor: value?.restDayFactor,
-        holidays: value?.holidays,
-        payPeriod: value?.payPeriod
-    });
-    const data = JSON.stringify({
-        employee: editorEmployee,
-        positions: state.positions,
-        leaders: state.leaders,
-        attendance,
-        settings: payrollSettings(state.settings),
-        activeSettings: payrollSettings(activeSettings),
-        scope: peekEntityScope(),
-        projectsEnabled: isProjectsEnabled(),
-        today: getDateKey(today)
-    });
+    const data = employeeEditorData(state, employee);
     if (data !== _lastEmployeeEditorData) {
         _lastEmployeeEditorData = data;
         _employeeEditorVersion++;
@@ -566,12 +524,23 @@ export function EmployeesTab() {
     }
 
     if (isEmployees) {
-        const selectedEmployee = filteredItems.find(employee =>
+        const host = document.getElementById('employee-editor-panel');
+        const draftId = EmployeeModal.inlineDraftEmployeeId(host);
+        // A synchronized name/status can remove the employee from the list.
+        // Keep their dirty editor until the user selects another employee.
+        const retainDraft = draftId && (!state.selectedPersonnelEmployeeId
+            || EmployeeModal.preserveInlineDraft(host, state.selectedPersonnelEmployeeId));
+        const selectedEmployee = retainDraft
+            ? state.employees.find(employee => employee.id === draftId || employee.key === draftId) || null
+            : filteredItems.find(employee =>
             employee.id === state.selectedPersonnelEmployeeId
             || employee.key === state.selectedPersonnelEmployeeId
         ) || filteredItems[0] || null;
-        const selectedEmployeeId = selectedEmployee?.key || selectedEmployee?.id || null;
-        const editorSignature = employeeEditorSignature(state, selectedEmployee);
+        const selectedEmployeeId = retainDraft ? draftId : selectedEmployee?.key || selectedEmployee?.id || null;
+        const latestSignature = employeeEditorSignature(state, selectedEmployee);
+        const editorSignature = EmployeeModal.preserveInlineDraft(host, selectedEmployeeId)
+            ? host.getAttribute('data-memo-f')
+            : latestSignature;
         scheduleEmployeeEditorPanel(selectedEmployeeId, editorSignature);
 
         return `
