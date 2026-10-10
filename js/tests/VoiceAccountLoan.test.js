@@ -1,6 +1,7 @@
 import { state } from '../modules/core/AppState.js';
 import { resetEntityScope } from '../modules/features/projects/EntityProjectScope.js';
-import { registerNewAccountLoan } from '../modules/features/loans/LoanAccountController.js';
+import { registerNewAccountLoan, laUseClassicView, laSetTab } from '../modules/features/loans/LoanAccountController.js';
+import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
 import { getTotalDue } from '../modules/features/loans/LoansService.js';
 import { saveApplicationData } from '../modules/services/PersistenceService.js';
 jest.mock('../modules/services/PersistenceService.js', () => ({ saveApplicationData: jest.fn() }));
@@ -30,6 +31,21 @@ test('missing or same-day payroll cannot create a voice loan', async () => {
     state.settings.payPeriod = null;
     await expect(registerNewAccountLoan('a', draft(), { period: '2026-10-24', voiceRequestId: 'r-1' })).rejects.toThrow('futura');
     expect(state.employees[0].loans).toHaveLength(0);
+});
+test('first voice loan opens its account even before visiting the loans screen', async () => {
+    state.loansLedger = undefined;
+    const options = { period: '2026-10-24', voiceRequestId: 'first-voice' };
+    const loan = await registerNewAccountLoan('a', draft(), options);
+    expect(state.loansLedger).toBeUndefined();
+    selectLoansEmployee('a');
+    expect(state.loansLedger.account).toBeUndefined();
+    laUseClassicView(false);
+    expect(() => laSetTab('loans')).not.toThrow();
+    expect(state.loansLedger).toMatchObject({ selectedEmployeeId: 'a', showAddForm: false, account: { tab: 'loans', modal: null } });
+    const retried = await registerNewAccountLoan('a', draft(), options);
+    expect(retried.id).toBe(loan.id);
+    expect(state.employees[0].loans).toHaveLength(1);
+    expect(saveApplicationData).toHaveBeenCalledTimes(1);
 });
 test('duplicate cancellation and an account change during confirmation preserve business data', async () => {
     await registerNewAccountLoan('a', draft(), { period: '2026-10-24', voiceRequestId: 'r-1' });
