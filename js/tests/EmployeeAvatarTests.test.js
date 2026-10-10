@@ -136,6 +136,25 @@ describe('EmployeeAvatar hydration and object URL lifecycle', () => {
 });
 
 describe('active employee floating card integration', () => {
+    test('loan shortcut delegates the selected employee and calendar chevrons keep month navigation', () => {
+        const previousLoans=window.openAttendanceEmployeeLoans, previousMonth=window.changeFloatingMonth;
+        const originalMonth=state.floatingCardMonth;
+        window.openAttendanceEmployeeLoans=jest.fn(); window.changeFloatingMonth=jest.fn();
+        state.showFloatingCard=true;
+        state.floatingCardMonth=new Date(2026,9,1);
+        state.floatingCardEmployee={id:'emp-1',name:'Carlos Méndez',positions:[]};
+        try {
+            document.body.innerHTML=new EmployeeFloatingCard({getFloatingCardSummary:()=>({employee:state.floatingCardEmployee,stats:{h7:0,hw:0,hm:0,hp:0,gross:0}})}).render();
+            document.querySelector('[data-fc-action="open-employee-loans"] svg').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+            expect(window.openAttendanceEmployeeLoans).toHaveBeenCalledWith('emp-1');
+            document.querySelector('[aria-label="Mes anterior"] svg').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+            document.querySelector('[aria-label="Mes siguiente"] svg').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+            expect(window.changeFloatingMonth.mock.calls).toEqual([[-1],[1]]);
+        } finally {
+            window.openAttendanceEmployeeLoans=previousLoans; window.changeFloatingMonth=previousMonth;
+            state.floatingCardMonth=originalMonth;
+        }
+    });
     afterEach(() => {
         state.showFloatingCard = false;
         state.floatingCardEmployee = null;

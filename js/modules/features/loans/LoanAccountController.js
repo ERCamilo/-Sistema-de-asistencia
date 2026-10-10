@@ -16,7 +16,7 @@ import { getDateKey } from '../../utils/DateUtils.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import { captureEntityProjectScope } from '../projects/EntityProjectScope.js';
-import { createLoan, LOAN_STATUS, INSTALLMENT_MODE, round2 } from './LoansService.js';
+import { createLoan, validateLoanInput, LOAN_STATUS, INSTALLMENT_MODE, round2 } from './LoansService.js';
 import { findSimilarExistingLoan } from './LoanDuplicateDetector.js';
 import {
     VOID_MODE, REFINANCE_REASON, AGREEMENT_INTEREST, AGREEMENT_NEW_LOANS,
@@ -190,6 +190,57 @@ export function laCopySummary() {
 
 // ─── Guardar ─────────────────────────────────────────────────────────────────
 
+/** Shared registration path for the account form and a confirmed voice draft. */
+export async function registerNewAccountLoan(employeeId, draft, { period = null, voiceRequestId = null, confirmDuplicate = null, canProceed = null } = {}) {
+    const snapshot = { ...draft };
+    const scope = peekEntityScope();
+    const uid = window.currentUser?.uid || null;
+    const check = () => {
+        canProceed?.();
+        const current = peekEntityScope();
+        if ((window.currentUser?.uid || null) !== uid || current.enabled !== scope.enabled || current.projectId !== scope.projectId || current.defaultProjectId !== scope.defaultProjectId) throw Error('Cambió la cuenta o proyecto. Revisa el borrador nuevamente.');
+        const emp = (state.employees || []).find(e => String(e.id) === String(employeeId));
+        if (!emp || !entityInScope(emp, current)) throw Error('Empleado no disponible en el proyecto activo');
+        return emp;
+    };
+    let emp = check();
+    const validation = validateLoanInput(snapshot);
+    if (!validation.valid) throw Error(validation.errors.join('. '));
+    const alreadyRegistered = () => {
+        if (!voiceRequestId) return null;
+        const entry = (state.employees || []).flatMap(e => (e.loans || []).map(loan => ({ employee: e, loan }))).find(item => item.loan.voiceRequestId === voiceRequestId);
+        if (entry && String(entry.employee.id) !== String(employeeId)) throw Error('Esta grabación ya registró un préstamo para otro empleado. Graba una instrucción nueva.');
+        return entry?.loan || null;
+    };
+    const registered = alreadyRegistered();
+    if (registered) return registered;
+    if (voiceRequestId && snapshot.installmentMode === INSTALLMENT_MODE.LUMP) {
+        const today = getDateKey(new Date());
+        if (!getAccountPayPeriods(today).some(p => p.payDate === period && p.payDate > today)) throw Error('Selecciona una fecha de cobro futura del calendario de nómina actual.');
+    }
+    const similar = findSimilarExistingLoan(emp, snapshot);
+    if (similar) {
+        const message = `Este empleado ya tiene un préstamo por el mismo monto con fecha cercana (${similar.concept || 'Préstamo'}, ${similar.startDate}). ¿Registrar de todas formas?`;
+        if (confirmDuplicate) { if (!await confirmDuplicate(message)) return null; }
+        else if (typeof window.showConfirm === 'function') {
+            const accepted = await new Promise(resolve => window.showConfirm({ title: 'Préstamo parecido ya registrado', message: escapeHTML(message), confirmText: 'Sí, registrar igual', cancelText: 'Cancelar', type: 'warning', onConfirm: () => resolve(true), onCancel: () => resolve(false) }));
+            if (!accepted) return null;
+        }
+    }
+    emp = check();
+    const existing = alreadyRegistered();
+    if (existing) return existing;
+    const number = nextLoanNumber(emp.loans);
+    const created = createLoan(emp, snapshot, { projectScope: captureEntityProjectScope() });
+    const loan = (emp.loans || []).find(item => item.id === created.id) || created;
+    if (number) loan.number = number;
+    if (snapshot.installmentMode === INSTALLMENT_MODE.LUMP && /^\d{4}-\d{2}-\d{2}$/.test(String(period || ''))) { loan.dueDate = period; loan.dueDateSetAt = Date.now(); }
+    if (voiceRequestId) loan.voiceRequestId = voiceRequestId;
+    commit(`Préstamo registrado: ${escapeHTML(loan.concept)}`);
+    update(view => { view.modal = null; view.tab = 'loans'; });
+    return loan;
+}
+
 export function laSave() {
     const m = ui().modal;
     if (!m) return;
@@ -221,25 +272,7 @@ export function laSave() {
             installmentMode: m.plan === 'installments' ? INSTALLMENT_MODE.INSTALLMENTS : INSTALLMENT_MODE.LUMP,
             installmentCount: Math.max(2, Math.round(Number(m.count) || 2)), installmentFrequencyWeeks: Number(m.freq) || 2
         };
-        const create = () => act(e => {
-            const number = nextLoanNumber(e.loans);
-            const created = createLoan(e, draft, { projectScope: captureEntityProjectScope() });
-            // El estado guarda su propia copia del préstamo: la nómina de cobro se pone en esa.
-            const loan = (e.loans || []).find(l => l.id === created.id) || created;
-            if (number) loan.number = number;
-            if (m.plan === 'lump' && /^\d{4}-\d{2}-\d{2}$/.test(String(m.period || ''))) { loan.dueDate = m.period; loan.dueDateSetAt = Date.now(); }
-            return loan;
-        }, loan => `Préstamo registrado: ${escapeHTML(loan.concept)}`, view => { view.modal = null; view.tab = 'loans'; });
-        const similar = findSimilarExistingLoan(emp, draft);
-        if (similar && typeof window !== 'undefined' && typeof window.showConfirm === 'function') {
-            window.showConfirm({
-                title: 'Préstamo parecido ya registrado',
-                message: `Este empleado ya tiene un préstamo por el MISMO monto con fecha cercana ("${escapeHTML(similar.concept || 'Préstamo')}", ${escapeHTML(similar.startDate)}). Puede que ya esté anotado, quizá desde otro dispositivo.<br><br>¿Registrar este préstamo de todas formas?`,
-                confirmText: 'Sí, registrar igual', cancelText: 'Cancelar', type: 'warning', onConfirm: create
-            });
-            return;
-        }
-        create();
+        return registerNewAccountLoan(emp.id, draft, { period: m.plan === 'lump' ? m.period : null }).catch(error => alertMsg(`❌ ${error.message}`));
     } else if (m.type === 'edit') {
         const changes = { principal: money(m.amount), interestRate: money(m.rate), startDate: m.date, concept: m.concept };
         if (m.dueDate) changes.dueDate = m.dueDate;

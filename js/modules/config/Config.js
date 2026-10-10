@@ -24,6 +24,8 @@ export const APP_CONFIG = {
     RELEVANT_DAYS_LIMIT: 60,
     // 🤖 Caja chica — OCR de facturas (webhook configurable; hoy n8n,
     // migrable a Firebase Function sin tocar la app).
+    // Development-only Tailscale endpoint; HTTP is accepted only from 127.0.0.1:8080.
+    VOICE_WEBHOOK_URL: "https://n8n.erlin.do/webhook/sa-voice-v1-dev",
     OCR_WEBHOOK_URL: "https://n8n.erlin.do/webhook/caja-chica-ocr",
     // 📤 Caja chica — subir foto del comprobante a Supabase (vía n8n).
     RECEIPT_UPLOAD_URL: "https://n8n.erlin.do/webhook/caja-chica-subir",
