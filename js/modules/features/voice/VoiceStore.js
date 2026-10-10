@@ -48,6 +48,18 @@ export class VoiceStore {
             tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(Error('No se pudo guardar la coincidencia local.'));
         });
     }
+    async removeAlias(uid, projectKey, employeeId, alias) {
+        alias = normalizeVoiceName(alias).slice(0, 160);
+        const db = await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('aliases', 'readwrite'); const store = tx.objectStore('aliases');
+            const get = store.get([uid, projectKey, employeeId]);
+            get.onsuccess = () => {
+                if (get.result) store.put({ ...get.result, aliases: get.result.aliases.filter(value => value !== alias) });
+            };
+            tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(Error('No se pudo eliminar la variante local.'));
+        });
+    }
     clearAliases(uid, projectKey, employeeId) { return this.operation('aliases', 'readwrite', store => store.delete([uid, projectKey, employeeId])); }
     async maintain(uid, policy, now = Date.now()) {
         const db = await this.open();

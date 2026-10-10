@@ -116,7 +116,7 @@ export class VoiceMvpUI {
         if (this.record && (this.record.uid !== identity.uid || this.record.projectKey !== identity.projectKey)) this.record = null;
         await this.maintenance();
         this.history = await this.store.list(identity.uid, identity.projectKey); this.message = '';
-        if (!this.record?.audio || this.record.discarded || this.record.completedLoanId) this.record = this.history.find(r => r.audio && !r.completedLoanId) || null;
+        if (!this.record?.audio || this.record.discarded || this.record.completedLoanId) this.record = this.history.find(r => r.audio && !r.completedLoanId && r.purpose !== 'name-example') || null;
         this.view = this.record?.result ? (this.record.selectedEmployeeId ? 'loan' : 'employees') : 'audio';
         await this.prepareLoadedLoan(); await this.refreshMatches(); this.render(); this.dialog.showModal();
     }
@@ -241,7 +241,7 @@ export class VoiceMvpUI {
         record.draft = result.loan ? completeVoiceLoanDraft(result.loan, this.adapter.getLoanDefaults?.(null)) : null;
         record.rateDefault = result.loan?.interestRate === null;
         record.loanDefaultsVersion = 1;
-        record.employeeDefaultsApplied = false; record.selectedEmployeeId = null; record.reviewed = false; record.dirty = false; record.pendingResult = null;
+        record.employeeDefaultsApplied = false; record.selectedEmployeeId = null; record.reviewed = false; record.dirty = false; record.pendingResult = null; record.rememberName = false;
     }
     confirmInline(message) {
         return new Promise(resolve => {
@@ -311,7 +311,7 @@ export class VoiceMvpUI {
         if (action === 'apply-result') {
             if (!await this.confirmInline('¿Reemplazar los campos editados con el nuevo resultado?')) return;
             this.guard();
-            this.applyResult(this.record.pendingResult); await this.save(); await this.refreshMatches(); await this.routeResult(); this.render(); return;
+            this.applyResult(this.record.pendingResult); await this.save(); await this.refreshMatches(); await this.routeResult(); if (this.record) this.render(); return;
         }
         if (action === 'delete') {
             if (!await this.confirmInline('¿Eliminar este audio y su borrador del dispositivo?')) return;
@@ -325,7 +325,7 @@ export class VoiceMvpUI {
             this.record.selectedEmployeeId = id;
             this.applyInitialRate(employee);
             if (this.dialog.querySelector?.('[data-voice-remember]')?.checked) await this.store.saveAlias(this.record.uid, this.record.projectKey, employee.id, this.record.mention.spokenName);
-            this.record.dirty = true; this.allEmployees = false; await this.save(); await this.routeResult(); this.render(); return;
+            this.record.dirty = true; this.allEmployees = false; await this.save(); await this.routeResult(); if (this.record) this.render(); return;
         }
         const employee = this.selected(); if (!employee) throw Error('Selecciona al empleado correcto primero.');
         if (action === 'previous-interest') {
@@ -400,7 +400,7 @@ export class VoiceMvpUI {
             localStorage.setItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`, value); this.message = 'Endpoint guardado localmente. No contiene credenciales.'; return;
         }
         if (this.busy || this.recording || !this.record) return;
-        if (!input.dataset.voiceField && !input.dataset.voiceMention && input.dataset.voiceTranscript === undefined && input.dataset.voiceReviewed === undefined) return;
+        if (!input.dataset.voiceField && !input.dataset.voiceMention && input.dataset.voiceTranscript === undefined && input.dataset.voiceReviewed === undefined && input.dataset.voiceRemember === undefined) return;
         this.guard(); const field = input.dataset.voiceField;
         if (field) {
             this.record.draft ||= Object.fromEntries(LOAN_FIELDS.map(k => [k, null]));
@@ -410,9 +410,10 @@ export class VoiceMvpUI {
             if (field === 'installmentCount' && Number.isInteger(this.record.draft.installmentCount) && this.record.draft.installmentCount >= 1) this.record.draft.installmentMode = this.record.draft.installmentCount > 1 ? 'installments' : 'lump';
             if (field === 'installmentMode' && v === 'installments' && this.record.draft.installmentCount < 2) this.record.draft.installmentCount = 2;
         }
-        if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.reviewed = false; this.view = 'employees'; }
+        if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.reviewed = false; this.record.rememberName = false; this.view = 'employees'; }
         if (input.dataset.voiceTranscript !== undefined) this.record.transcript = input.value;
         if (input.dataset.voiceReviewed !== undefined) this.record.reviewed = input.checked;
+        if (input.dataset.voiceRemember !== undefined) this.record.rememberName = input.checked;
         this.record.dirty = true; await this.save(); await this.refreshMatches(); this.render();
     }
     render() {

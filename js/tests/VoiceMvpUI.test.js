@@ -147,7 +147,7 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
             search.value = '不存在'; search.dispatchEvent(new Event('input'));
             expect(ui.dialog.querySelector('[data-voice-empty]').hidden).toBe(false);
             await ui.change({ dataset: { voiceMention: 'spokenName' }, value: 'Yanpié' });
-            expect(ui.matches).toHaveLength(0);
+            expect(ui.matches[0]).toMatchObject({ employee: { id: 'jean' }, reason: 'Nombre parecido', threshold: .4 });
             await ui.action('select', 'jean');
             expect(ui.dialog.querySelector('[data-voice-alias]').value).toBe('Yanpié');
             await ui.action('learn');
@@ -213,6 +213,23 @@ describe('Voice modal continuity and inline confirmations', () => {
 });
 
 describe('Simplified voice workflow', () => {
+    test('only an explicitly remembered employee choice learns a variant; shared exact aliases stay ambiguous', async () => {
+        const {ui,store}=setup();
+        store.saveAlias=jest.fn().mockResolvedValue();
+        ui.adapter.getEmployees=()=>[{id:'cliff',name:'Cliff'},{id:'cleeft',name:'Cleeft'}];
+        ui.record.result.intent='buscar_empleado';ui.record.mention.spokenName='Clift';ui.record.selectedEmployeeId=null;
+        ui.adapter.onAttendance=jest.fn();
+        ui.dialog.querySelector=()=>({checked:true});
+        await ui.action('select','cleeft');
+        expect(store.saveAlias).toHaveBeenCalledWith('one','legacy','cleeft','Clift');
+        expect(ui.adapter.onAttendance).toHaveBeenCalledWith('cleeft');expect(ui.record).toBeNull();
+        const second=setup();second.store.saveAlias=jest.fn();
+        second.ui.matches=[{employee:second.ui.adapter.getEmployees()[0],score:1}];second.ui.record.result.intent='buscar_empleado';second.ui.record.selectedEmployeeId=null;second.ui.adapter.onAttendance=jest.fn();
+        await second.ui.routeResult();expect(second.store.saveAlias).not.toHaveBeenCalled();
+        const third=setup();third.ui.record.selectedEmployeeId=null;third.ui.adapter.onAttendance=jest.fn();
+        third.ui.matches=[{employee:{id:'cliff'},score:1},{employee:{id:'cleeft'},score:1}];
+        await third.ui.routeResult();expect(third.ui.view).toBe('employees');expect(third.ui.adapter.onAttendance).not.toHaveBeenCalled();
+    });
     test.each(['Carlos Méndez','Busca a Carlos Méndez'])('a resolved name or search opens attendance once: %s', async transcript => {
         const {ui,onLoan}=setup();
         ui.record.result={...ui.record.result,intent:'buscar_empleado',transcript,loan:null};

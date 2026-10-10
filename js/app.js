@@ -56,6 +56,7 @@ import { createAuthStartupGuard, runAuthStartupAfterDrain } from './modules/serv
 import { projectContext, peekEntityScope } from './modules/features/projects/ProjectContext.js';
 import { projectStore } from './modules/features/projects/ProjectStore.js';
 import { auth, onAuthStateChanged as subscribeVoiceSession } from './modules/data/firebase.js';
+import { VoiceNameEnrollmentUI } from './modules/features/voice/VoiceNameEnrollmentUI.js';
 import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
 import { openVoiceAttendanceEmployee } from './modules/features/voice/VoiceAttendanceNavigation.js';
 import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
@@ -1268,6 +1269,8 @@ const voiceMvp = new VoiceMvpUI({
         return loan;
     }
 }).mount();
+new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.endpoint() }, { store: voiceMvp.store }).mount();
+
 window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
 window.openVoiceAudioStorage = () => voiceMvp.run(() => voiceMvp.openStorage());
 

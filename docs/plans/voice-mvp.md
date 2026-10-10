@@ -57,6 +57,42 @@ panel y se informa esa limitación. No se registra asistencia. Se elimina el aud
 de la búsqueda. Negaciones, acciones desconocidas y ambigüedad conservan sus bloqueos.
 Una negación o acciones múltiples nunca ofrecen registro de préstamo.
 
+## Comparación de nombres y enseñanza
+
+SA combina similitud de Levenshtein (75 %) y Jaro-Winkler (25 %). Compara el nombre
+completo, sus palabras y las variantes confirmadas; para consultas con varias
+palabras también alinea tokens uno a uno, ponderando las partes menos comunes en
+el listado local. Estas puntuaciones son parecido de escritura, no probabilidades
+ni IPA. Mantiene coincidencias exactas de nombre/alias y número, incluidos alfabetos
+no latinos y nombres completos en distinto orden.
+
+La búsqueda usa niveles inclusivos ≥60 %, ≥50 %, ≥40 %. Solo baja si el nivel
+anterior no devuelve candidatos. El selector indica cuándo amplió el nivel.
+Las aproximaciones nunca continúan automáticamente; una variante compartida con
+otro alias o nombre exacto exige selección. Debe evaluarse con ejemplos reales de
+la obra antes de afirmar una mejora de precisión general.
+
+Con Voz habilitada en Configuración → Tests, el formulario de Personal muestra
+**Enseñar nombre por voz**. Los empleados nuevos deben guardarse primero. El panel
+permite grabar cómo lo llaman, enviar el audio al mismo workflow v1, revisar/editar
+el nombre entendido y confirmar una variante. También permite añadir una variante
+escrita, ver cuántas variantes distintas hay y eliminar variantes individuales.
+Gemini no recibe la lista ni el ID del empleado; tampoco se entrena el modelo.
+La asociación ocurre solo en SA después de la confirmación.
+
+Las variantes se deduplican y conservan en IndexedDB por cuenta/proyecto/origen,
+con el límite existente de 50 por empleado; no se incluyen en sincronización ni
+backups de negocio. El audio de enseñanza es un borrador temporal: se elimina al
+confirmar o cancelar. Si el navegador se cierra abruptamente, se aplica la limpieza
+existente de borradores a las 24 horas cuando SA vuelva a abrirse. Los audios de
+enseñanza no se restauran como instrucciones de búsqueda o préstamo.
+
+En el selector de empleado de una búsqueda normal, **Recordar «variante»** está
+visible y desmarcado por defecto. Solo aprende al marcarlo y seleccionar a la
+persona. Una selección automática no enseña alias. Las variantes que coinciden
+con el nombre/alias de otra persona mantienen la ambigüedad; el panel de enseñanza
+advierte el conflicto. No hay todavía un asistente de grabación por lotes.
+
 No se envían lista, IDs, alias, saldos ni el borrador editado
 al webhook. Los empleados ficticios están en `js/tests/fixtures/voice-employees.js`;
 no se insertan automáticamente en los datos reales.

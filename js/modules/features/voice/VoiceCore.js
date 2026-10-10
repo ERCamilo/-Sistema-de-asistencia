@@ -1,4 +1,4 @@
-import { sameEmployeeNumber } from '../employees/EmployeeNumberIdentity.js';
+export { normalizeVoiceName, resolveVoiceEmployees } from './VoiceMatching.js';
 
 export const VOICE_LIMITS = Object.freeze({ maxBytes: 10 * 1024 * 1024, maxDurationMs: 60000 });
 export const VOICE_ENDPOINT_PREFIX = 'sa-voice-endpoint:';
@@ -15,37 +15,6 @@ export function isVoiceEndpointAllowed(value, origin = globalThis.location?.orig
 }
 export const LOAN_FIELDS = ['principal', 'interestRate', 'interestIncluded', 'installmentMode', 'installmentCount', 'installmentFrequencyWeeks', 'startDate', 'concept'];
 const INTENTS = ['buscar_empleado', 'crear_prestamo', 'abrir_asistencia', 'abrir_prestamos', 'desconocida'];
-export const normalizeVoiceName = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
-
-function distance(a, b) {
-    a = Array.from(a); b = Array.from(b);
-    let row = Array.from({ length: b.length + 1 }, (_, i) => i);
-    for (let i = 1; i <= a.length; i++) {
-        const next = [i];
-        for (let j = 1; j <= b.length; j++) next[j] = Math.min(next[j - 1] + 1, row[j] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-        row = next;
-    }
-    return row[b.length];
-}
-
-export function resolveVoiceEmployees(mention = {}, employees = [], aliases = []) {
-    const name = normalizeVoiceName(mention.spokenName).slice(0, 160);
-    const number = String(mention.spokenNumber || '').trim();
-    if (!name && !number) return [];
-    const aliasMap = new Map(aliases.map(row => [row.employeeId, row.aliases || []]));
-    return employees.map(employee => {
-        if (number) return { employee, score: sameEmployeeNumber(employee.number, number) ? 2 : 0, reason: 'Número coincidente' };
-        const full = normalizeVoiceName(employee.name).slice(0, 160);
-        const variants = [full, ...full.split(' ')];
-        const known = (aliasMap.get(employee.id) || []).map(normalizeVoiceName).filter(Boolean);
-        if (known.includes(name)) return { employee, score: 1, reason: 'Alias confirmado' };
-        const ordered = value => value.split(' ').sort().join(' ');
-        if (variants.includes(name) || (full && ordered(full) === ordered(name))) return { employee, score: 1, reason: 'Nombre coincidente' };
-        const score = Math.max(0, ...[...variants, ...known].filter(v => v.length >= 3 && name.length >= 3).map(v => 1 - distance(name, v) / Math.max(Array.from(name).length, Array.from(v).length)));
-        return { employee, score, reason: 'Nombre parecido' };
-    }).filter(x => x.score >= 0.6).sort((a, b) => b.score - a.score || String(a.employee.name).localeCompare(String(b.employee.name)));
-}
-
 export function createVoiceContext(date = new Date(), timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
     const parts = new Intl.DateTimeFormat('en', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
     const get = key => parts.find(x => x.type === key).value;

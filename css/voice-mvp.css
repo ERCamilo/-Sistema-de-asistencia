@@ -120,3 +120,16 @@
 @media(max-width:640px) { .voice-dialog { width:calc(100vw - 16px); margin:auto 8px 8px; max-height:calc(100dvh - 16px); } .voice-header { padding:16px 16px 12px; } .voice-body { padding:0 16px 12px; } .voice-footer { padding:10px 16px max(14px,env(safe-area-inset-bottom)); } }
 @media(max-width:360px) { .voice-dialog h2 { font-size:22px; } .voice-totals strong { font-size:17px; } }
 @media(prefers-reduced-motion:reduce) { .voice-dialog *, .voice-wave i { animation:none !important; transition:none !important; } .voice-wave i { height:12px; } }
+.employee-voice-name { display:flex; flex-direction:column; gap:6px; margin:16px 0; }
+.employee-voice-name > button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:10px 14px; border:1px solid #34393d; border-radius:12px; background:#111315; color:#f5c542; font:600 14px 'IBM Plex Sans',system-ui,sans-serif; cursor:pointer; }
+.employee-voice-name > button:disabled { opacity:.45; cursor:default; }
+.employee-voice-name svg { width:20px; height:20px; }
+.employee-voice-name > span { color:#94a3b8; font-size:12px; }
+.voice-name-dialog h3 { font-size:14px; margin-top:20px; }
+.voice-name-audio { color-scheme:dark; display:block; width:100%; height:44px; margin:12px 0; }
+.voice-name-variants > div { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:6px 0; padding:6px 8px 6px 12px; background:var(--panel-2); border-radius:12px; }
+.voice-name-variants > div > span { overflow-wrap:anywhere; min-width:0; }
+.voice-name-meter { margin:14px 0; color:var(--accent); }
+.voice-name-meter > span { display:block; height:8px; margin-top:8px; border-radius:8px; background:var(--accent); transform:scaleX(max(.03,var(--level,0))); transform-origin:left; transition:transform .08s linear; }
+.voice-remember { min-height:44px; display:flex !important; align-items:center; }
+@media(prefers-reduced-motion:reduce) { .voice-name-meter > span { transition:none; transform:scaleX(.5); } }
