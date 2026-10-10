@@ -192,14 +192,19 @@ exactamente los orígenes; Cloudflare Access debe permitir OPTIONS sin token
 Firebase y sin procesar audio. POST conserva autenticación y autorización.
 No colocar secretos de Cloudflare/Gemini en el navegador.
 
-Según la confirmación del responsable de n8n, SA Voice está activo, la preflight
-por Tailscale devuelve 204 y un POST vacío devuelve JSON 400. Esa comprobación
-externa no valida una sesión Firebase ni el procesamiento completo desde SA.
-Desde este entorno cloud, el proxy respondió 403 «Domain forbidden» al endpoint;
-no atribuir esa respuesta a n8n ni afirmar que Tailscale está desconectado.
+SA Voice está activo. El 10 de octubre de 2026 se comprobó desde Chromium que
+el endpoint público HTTPS permite leer sus respuestas desde el origen exacto de
+la vista previa: POST vacío devuelve JSON 400 y POST v1 con un token de prueba
+inválido devuelve JSON 401. Estas pruebas verifican transporte y CORS en esas
+rutas; no prueban la respuesta al procesar audio con una sesión válida.
+El origen de producción `https://sistema-de-asistencia.pages.dev` no superó
+esa prueba CORS: el servidor devolvió el origen de la vista previa. Debe
+configurarse y verificarse antes de habilitar voz en producción.
 
-El usuario confirmó grabación en la vista previa y reconocimiento de nombres
-con el workflow HTTPS. Pendientes desde este entorno: procesamiento real con una
+El usuario confirmó grabación, reconocimiento de nombres con el workflow HTTPS
+y que la conexión volvió a funcionar después de reportar un error. Esta es una
+confirmación del usuario, no una ejecución autenticada realizada por este agente.
+Pendientes desde este entorno: procesamiento real con una
 sesión Firebase de desarrollo, prueba de Safari/iPhone, validación de duración/codec en servidor,
 deduplicación durable, rate limiting y autorización por organización. Para
 producción siguen pendientes estas verificaciones del servidor.
@@ -214,3 +219,25 @@ ediciones. En Chromium se capturó `audio/webm;codecs=opus`; Safari/iPhone sigue
 pendiente. La página de prueba aislada carga los módulos reales con adaptadores
 de prueba y un webhook simulado, no una sesión Firebase o Gemini reales. Pruebas de transporte usan webhook simulado; no prueban Gemini ni
 Cloudflare Access reales. Se ejecutan también guard de estado y suite de SA.
+
+## Prueba piloto y responsables
+
+Usar empleados y proyecto de prueba para comparar el préstamo por voz con el
+formulario habitual.
+
+| Prueba | Resultado esperado | Responsable |
+| --- | --- | --- |
+| Decir un nombre o «Busca a…» | Abrir Asistencia y el panel del empleado; no registrar asistencia. | Usuario, desde la vista previa con sesión real. |
+| Decir un nombre poco común o parecido | Mostrar sugerencias; una coincidencia aproximada exige selección. | Usuario, con ejemplos de la obra. |
+| Marcar Recordar y seleccionar empleado | Tras otra grabación y recarga, recuperar la variante en la misma cuenta, proyecto y navegador. | Usuario; agente SA revisa fallos. |
+| Personal → Enseñar nombre por voz | Revisar y confirmar la variante; una colisión sigue mostrando ambos empleados. | Usuario; agente SA revisa fallos. |
+| Preparar préstamo y cambiar empleado | Mantener monto, tasa y nota; permitir aplicar tasa anterior explícitamente. | Usuario, con datos de prueba. |
+| Cancelar o decir una negación | No crear préstamo ni asistencia. | Usuario; agente SA revisa fallos. |
+| Confirmar préstamo de prueba | Usar la operación original, una cuota por defecto, próxima fecha de pago posterior a hoy y nota con prefijo voice. Reintentar no duplica el préstamo. | Usuario; agente SA compara el resultado con el formulario habitual. |
+| Conservación de audio | Poder escucharlo en el mismo navegador; respetar el plazo de 1–5 días o desactivar conservación. | Usuario; agente SA revisa almacenamiento y vencimiento. |
+| Safari/iPhone | Verificar grabación, MIME efectivo, transcripción y permisos. | Usuario con dispositivo; agente SA revisa compatibilidad. |
+| Límites y acceso del servicio | Verificar codec/duración, deduplicación durable, rate limiting y autorización por organización. | Agente de n8n, antes de producción. |
+
+El agente SA mantiene la rama de pruebas y resuelve los fallos reportados. Para
+diagnosticar transporte, compartir origen, endpoint, hora, requestId y estados
+HTTP de OPTIONS/POST; no compartir el token ni el cuerpo de la solicitud.
