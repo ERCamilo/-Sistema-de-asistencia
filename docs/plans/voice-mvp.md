@@ -222,6 +222,27 @@ Cloudflare Access reales. Se ejecutan también guard de estado y suite de SA.
 
 ## Prueba piloto y responsables
 
+### Revisión de integración — 10 de octubre de 2026
+
+El MVP ya fue integrado en `main` mediante el PR #231. Se actualizó la rama
+`test/sa-voice-mvp` con `origin/main` en `5c0bf66b` (v1.7.49), incluidos los
+cambios del editor de empleados y fotos, sin conflictos. No se identificaron
+correcciones adicionales de código en esta revisión.
+
+- Jest completo: **579 suites y 5.431 pruebas aprobadas**.
+- Chromium con micrófono sintético: enseñanza de nombres desde el editor,
+  selección ambigua, confirmación de variantes y eliminación del audio temporal.
+- Chromium: pulsar/soltar, búsqueda hacia Asistencia, préstamo editable,
+  conservación de campos al cambiar empleado, tasa anterior explícita,
+  registro solo al confirmar, reproducción y conservación de audio.
+- Las dos pruebas de navegador usan identidad Firebase y respuestas de n8n
+  simuladas; no sustituyen las pruebas con sesión real del piloto.
+- `npm run lint:state`: sin deuda nueva; precache actualizado y diff sin errores.
+- El botón de voz y la enseñanza desde Personal requieren activar Voz en
+  Configuración → Tests. Sin esa opción, permanecen ocultos.
+
+### Recorrido del piloto
+
 Usar empleados y proyecto de prueba para comparar el préstamo por voz con el
 formulario habitual.
 
