@@ -115,6 +115,7 @@ export class EmployeePhotoService {
         this.publishSignal = publishSignal;
         this.now = now;
         this.pendingSyncs = new Map();
+        this.activeUploadVersions = new Map();
         this.queuedRecords = new Map();
         this.pendingRemoteReads = new Map();
         this.pendingDeletes = new Map();
@@ -124,6 +125,8 @@ export class EmployeePhotoService {
         this.uploadRetries = new Map();
         this.remoteReadRetries = new Map();
         this.remotePhotoRevisions = new Map();
+        this.remotePhotoSignals = new Map();
+        this.pendingSignalReconciliations = new Map();
     }
 
     /** Estado de la subida remota pendiente (diagnóstico), o null si no hay fallo. */
@@ -187,14 +190,19 @@ export class EmployeePhotoService {
 
     readRemoteVariant(employeeId, variant, { force = false } = {}) {
         const key = `${employeeId}:${variant}`;
-        if (this.pendingRemoteReads.has(key)) return this.pendingRemoteReads.get(key);
-        const retry = this.remoteReadRetries.get(key);
-        if (!force && retry && this.now() < retry.retryAt) return Promise.reject(retry.error);
         const intent = this.currentIntent(employeeId);
         const revision = this.remotePhotoRevisions.get(employeeId);
+        // Only requests for the same photo revision and local intent may share bytes.
+        const requestKey = JSON.stringify([employeeId, variant, intent, revision ?? null]);
+        if (this.pendingRemoteReads.has(requestKey)) return this.pendingRemoteReads.get(requestKey);
+        const retry = this.remoteReadRetries.get(key);
+        if (!force && retry && this.now() < retry.retryAt) return Promise.reject(retry.error);
         const pending = this.imageClient.lookupAndDownload(coordinates(employeeId, variant))
             .then(remote => {
-                this.remoteReadRetries.delete(key);
+                if (this.currentIntent(employeeId) === intent
+                    && this.remotePhotoRevisions.get(employeeId) === revision) {
+                    this.remoteReadRetries.delete(key);
+                }
                 return remote;
             })
             .catch(error => {
@@ -214,9 +222,9 @@ export class EmployeePhotoService {
                 throw error;
             })
             .finally(() => {
-                if (this.pendingRemoteReads.get(key) === pending) this.pendingRemoteReads.delete(key);
+                if (this.pendingRemoteReads.get(requestKey) === pending) this.pendingRemoteReads.delete(requestKey);
             });
-        this.pendingRemoteReads.set(key, pending);
+        this.pendingRemoteReads.set(requestKey, pending);
         return pending;
     }
 
@@ -226,12 +234,18 @@ export class EmployeePhotoService {
     }
 
     async recoverRemoteVariant(employeeId, variant, current, intentRevision, options) {
+        const revision = this.remotePhotoRevisions.get(employeeId);
         const remote = await this.readRemoteVariant(employeeId, variant, options);
-        if (this.currentIntent(employeeId) !== intentRevision) return this.readLocal(employeeId);
+        const isCurrent = () => this.currentIntent(employeeId) === intentRevision
+            && this.remotePhotoRevisions.get(employeeId) === revision;
+        if (!isCurrent()) return this.readLocal(employeeId);
         return this.enqueueLocalMutation(employeeId, async () => {
             const latest = await this.readLocal(employeeId);
             if (latest?.pendingDelete) return null;
-            if (this.currentIntent(employeeId) !== intentRevision) return latest;
+            if (!isCurrent()) return latest;
+            if (variant === 'original' && revision && latest?.remoteRevision !== revision) return latest;
+            if (variant === 'original' && (latest?.version !== current?.version
+                || latest?.remoteRevision !== current?.remoteRevision)) return latest;
             const version = variant === 'thumbnail'
                 ? remoteVersion(remote.asset, this.now())
                 : latest?.version || remoteVersion(remote.asset, this.now());
@@ -317,6 +331,9 @@ export class EmployeePhotoService {
         if (!record || record.pendingDelete) return false;
         const retry = this.uploadRetries.get(id);
         if (retry && this.now() < retry.retryAt && !this.pendingSyncs.has(id)) return false;
+        if (this.pendingSyncs.has(id) && this.activeUploadVersions.get(id) === record.version) {
+            return this.pendingSyncs.get(id);
+        }
         this.queuedRecords.set(id, record);
         if (this.pendingSyncs.has(id)) return this.pendingSyncs.get(id);
         const pending = (async () => {
@@ -325,6 +342,7 @@ export class EmployeePhotoService {
                 while (this.queuedRecords.has(id)) {
                     const target = this.queuedRecords.get(id);
                     this.queuedRecords.delete(id);
+                    this.activeUploadVersions.set(id, target.version);
                     try {
                         const original = await this.imageClient.upload(
                             coordinates(id, 'original'),
@@ -366,6 +384,7 @@ export class EmployeePhotoService {
                         allSynced = false;
                     } finally {
                         this.pendingSignalPublications.delete(id);
+                        this.activeUploadVersions.delete(id);
                     }
                 }
                 return allSynced;
@@ -388,7 +407,41 @@ export class EmployeePhotoService {
         const id = normalizeEmployeeId(employeeId);
         const signal = normalizeEmployeePhoto(value);
         if (!id || !signal) return { status: 'error', record: await this.readLocal(id) };
+        const accepted = this.remotePhotoSignals.get(id);
+        if (accepted && signal.updatedAt < accepted.updatedAt) {
+            return { status: 'current', record: await this.readLocal(id) };
+        }
+        this.remotePhotoSignals.set(id, signal);
+        if (this.remotePhotoRevisions.get(id) !== signal.revision) {
+            this.remotePhotoRevisions.set(id, signal.revision);
+            this.clearRemoteReadRetries(id);
+        }
+        const key = JSON.stringify([id, signal.state, signal.revision, signal.updatedAt, this.currentIntent(id)]);
+        const existing = this.pendingSignalReconciliations.get(key);
+        if (existing) {
+            // Only the initiating reconciliation requests a visual update.
+            return existing.then(result => ['updated', 'deleted'].includes(result.status)
+                ? { ...result, status: 'current' } : result);
+        }
+        const pending = this.applyRemotePhotoSignal(id, signal).finally(() => {
+            if (this.pendingSignalReconciliations.get(key) === pending) this.pendingSignalReconciliations.delete(key);
+        });
+        this.pendingSignalReconciliations.set(key, pending);
+        return pending;
+    }
+
+    isCurrentRemotePhotoSignal(employeeId, signal) {
+        const accepted = this.remotePhotoSignals.get(employeeId);
+        return accepted?.revision === signal.revision
+            && accepted?.updatedAt === signal.updatedAt && accepted?.state === signal.state;
+    }
+
+    async applyRemotePhotoSignal(id, signal) {
+        const intentRevision = this.currentIntent(id);
         const current = await this.readLocal(id);
+        if (!this.isCurrentRemotePhotoSignal(id, signal) || this.currentIntent(id) !== intentRevision) {
+            return { status: 'current', record: current };
+        }
         const localUpdatedAt = localSignalUpdatedAt(current);
 
         if (localUpdatedAt !== null && signal.updatedAt < localUpdatedAt) {
@@ -398,41 +451,45 @@ export class EmployeePhotoService {
             };
         }
 
+        if (this.pendingSignalPublications.get(id)?.revision === signal.revision) {
+            return { status: 'current', record: current };
+        }
         if (isUnsyncedLocalPhoto(current)) {
             this.queueRemoteUpload(id, current);
             return { status: 'pending', record: current };
-        }
-        if (this.pendingSignalPublications.get(id)?.revision === signal.revision) {
-            return { status: 'current', record: current };
         }
         if (current?.pendingDelete && signal.state === 'ready') {
             return { status: 'pending', record: current };
         }
         if (signal.state === 'deleted') {
             if (!current) return { status: 'current', record: null };
-            this.nextIntent(id);
-            await this.enqueueLocalMutation(id, () => this.localStore.deleteEmployeePhoto(id));
-            return { status: 'deleted', record: null };
+            const deleteIntent = this.nextIntent(id);
+            let deleted = false;
+            await this.enqueueLocalMutation(id, async () => {
+                if (!this.isCurrentRemotePhotoSignal(id, signal) || this.currentIntent(id) !== deleteIntent) return;
+                await this.localStore.deleteEmployeePhoto(id);
+                deleted = true;
+            });
+            return { status: deleted ? 'deleted' : 'current', record: await this.readLocal(id) };
         }
         if (current?.remoteRevision === signal.revision && current.thumbnailBlob instanceof Blob) {
             return { status: 'current', record: current };
         }
 
-        const intentRevision = this.currentIntent(id);
         try {
-            if (this.remotePhotoRevisions.get(id) !== signal.revision) {
-                this.remotePhotoRevisions.set(id, signal.revision);
-                this.clearRemoteReadRetries(id);
-            }
             const remote = await this.readRemoteVariant(id, 'thumbnail');
-            if (this.currentIntent(id) !== intentRevision) {
+            const isCurrent = () => this.currentIntent(id) === intentRevision
+                && this.isCurrentRemotePhotoSignal(id, signal);
+            if (!isCurrent()) {
                 return { status: 'current', record: await this.readLocal(id) };
             }
+            let updated = false;
             const record = await this.enqueueLocalMutation(id, async () => {
                 const latest = await this.readLocal(id);
-                if (latest?.pendingDelete || isUnsyncedLocalPhoto(latest)) return latest;
+                if (!isCurrent() || latest?.pendingDelete || isUnsyncedLocalPhoto(latest)) return latest;
+                if (latest?.remoteRevision === signal.revision && latest.thumbnailBlob instanceof Blob) return latest;
                 const version = Math.max(1, Math.floor(signal.updatedAt));
-                return this.localStore.replaceEmployeePhoto(id, mergeRecord(id, latest, {
+                const saved = await this.localStore.replaceEmployeePhoto(id, mergeRecord(id, latest, {
                     thumbnailBlob: remote.blob,
                     optimizedBlob: null,
                     version,
@@ -441,9 +498,14 @@ export class EmployeePhotoService {
                     remoteRevision: signal.revision,
                     remoteSignalUpdatedAt: signal.updatedAt
                 }, this.now()));
+                updated = true;
+                return saved;
             });
-            return { status: 'updated', record };
+            return { status: updated ? 'updated' : 'current', record };
         } catch {
+            if (!this.isCurrentRemotePhotoSignal(id, signal) || this.currentIntent(id) !== intentRevision) {
+                return { status: 'current', record: await this.readLocal(id) };
+            }
             return { status: 'error', record: await this.readLocal(id) || current };
         }
     }
@@ -497,29 +559,35 @@ export class EmployeePhotoService {
     async refreshEmployeePhoto(employeeId) {
         const id = normalizeEmployeeId(employeeId);
         const current = await this.readLocal(id);
-        if (!id || current?.pendingDelete || isUnsyncedLocalPhoto(current)) {
+        if (!id) {
             return { status: 'error', record: current };
         }
+        if (current?.pendingDelete || isUnsyncedLocalPhoto(current)) return { status: 'pending', record: current };
         const intentRevision = this.currentIntent(id);
+        const remoteRevision = this.remotePhotoRevisions.get(id);
+        const isCurrent = () => this.currentIntent(id) === intentRevision
+            && this.remotePhotoRevisions.get(id) === remoteRevision;
         try {
             const [original, thumbnail] = await Promise.all([
                 this.readRemoteVariant(id, 'original', { force: true }),
                 this.readRemoteVariant(id, 'thumbnail', { force: true })
             ]);
             const revision = combinedRemoteRevision(original.asset, thumbnail.asset, this.now());
-            if (current?.remoteRevision === revision) return { status: 'current', record: current };
-            if (this.currentIntent(id) !== intentRevision) {
-                return { status: 'error', record: await this.readLocal(id) || current };
+            if (!isCurrent()) {
+                return { status: 'superseded', record: await this.readLocal(id) };
             }
+            if (current?.remoteRevision === revision && current.optimizedBlob instanceof Blob
+                && current.thumbnailBlob instanceof Blob) return { status: 'current', record: current };
+            let updated = false;
             const record = await this.enqueueLocalMutation(id, async () => {
                 const latest = await this.readLocal(id);
-                if (latest?.pendingDelete || isUnsyncedLocalPhoto(latest)) return latest;
+                if (!isCurrent() || latest?.pendingDelete || isUnsyncedLocalPhoto(latest)) return latest;
                 const version = Math.max(
                     1,
                     remoteVersion(original.asset, this.now()),
                     remoteVersion(thumbnail.asset, this.now())
                 );
-                return this.localStore.replaceEmployeePhoto(id, mergeRecord(id, latest, {
+                const saved = await this.localStore.replaceEmployeePhoto(id, mergeRecord(id, latest, {
                     thumbnailBlob: thumbnail.blob,
                     optimizedBlob: original.blob,
                     version,
@@ -528,9 +596,12 @@ export class EmployeePhotoService {
                     remoteRevision: revision,
                     remoteSignalUpdatedAt: version
                 }, this.now()));
+                updated = true;
+                return saved;
             });
-            return { status: 'updated', record };
+            return { status: updated ? 'updated' : 'superseded', record };
         } catch {
+            if (!isCurrent()) return { status: 'superseded', record: await this.readLocal(id) };
             return { status: 'error', record: await this.readLocal(id) || current };
         }
     }

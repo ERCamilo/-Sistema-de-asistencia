@@ -445,7 +445,7 @@ describe('EmployeePhotoService', () => {
         const before = cached;
         const readsBeforePending = imageClient.lookupAndDownload.mock.calls.length;
         const result = await service.refreshEmployeePhoto('emp-1');
-        expect(result.status).toBe('error');
+        expect(result.status).toBe('pending');
         expect(result.record).toBe(before);
         expect(cached).toBe(before);
         expect(imageClient.lookupAndDownload).toHaveBeenCalledTimes(readsBeforePending);

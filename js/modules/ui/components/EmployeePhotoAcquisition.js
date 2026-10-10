@@ -49,12 +49,14 @@ export function EmployeePhotoAcquisitionUI(employee = {}, { avatarHtml = '' } = 
     const name = String(employee.name || 'Empleado').trim() || 'Empleado';
     const safeName = escapeAttribute(name);
     const employeeId = escapeAttribute(employee.id);
+    const sheetFingerprint = escapeAttribute(JSON.stringify(['employee-photo-sheet', String(employee.id ?? ''), name]));
     const resolvedAvatarHtml = avatarHtml || EmployeeAvatar(employee, { variant: 'compact' });
     return `
         <div class="employee-avatar-control">
             ${resolvedAvatarHtml}
         </div>
         <div class="employee-photo-sheet" data-employee-photo-sheet data-employee-id="${employeeId}"
+             data-memo-f="${sheetFingerprint}"
              data-employee-name="${safeName}"
              role="dialog" aria-modal="true" aria-label="Cambiar foto de ${safeName}"
              tabindex="-1" hidden>
@@ -103,7 +105,8 @@ function clearInputs(sheet) {
 
 function setBusy(sheet, busy) {
     sheet.setAttribute('aria-busy', String(busy));
-    sheet.querySelector('[data-employee-photo-status]').hidden = !busy;
+    const status = sheet.querySelector('[data-employee-photo-status]');
+    if (status) status.hidden = !busy;
     sheet.querySelectorAll('button').forEach(button => { button.disabled = busy; });
     if (busy) sheet.focus();
 }
@@ -283,20 +286,41 @@ export class EmployeePhotoAcquisitionController {
         this.processing.add(sheet);
         hideError(sheet);
         setBusy(sheet, true);
+        let stage = 'processing';
         try {
             const processed = await this.processPhoto(file);
+            stage = 'local-save';
             const saved = await this.commitLatest(employeeId, operation, processed);
             if (!saved || this.latestOperations.get(employeeId) !== operation) return false;
+            stage = 'view-refresh';
+            // Saving has completed. A focus/DOM refresh failure must not tell
+            // the user their new photo was rejected after it was persisted.
             clearInputs(sheet);
             sheet.hidden = true;
             this.openSheets.delete(sheet);
-            this.openers.get(sheet)?.focus();
+            const opener = this.openers.get(sheet);
             this.openers.delete(sheet);
-            await this.hydrateMatchingAvatars(employeeId, sheet.ownerDocument);
             sheet.closest('[data-employee-photo-dynamic-host]')?.remove();
+            try { this.restoreFocus(sheet, opener); } catch (error) {
+                console.warn('[employee-photo] saved photo; focus restoration failed', error);
+            }
+            await this.hydrateMatchingAvatars(employeeId, sheet.ownerDocument);
             return true;
-        } catch {
+        } catch (error) {
+            if (stage === 'view-refresh') {
+                console.warn('[employee-photo] saved photo; view refresh failed', {
+                    name: error?.name || null, code: error?.code || null
+                });
+                sheet.hidden = true;
+                this.openSheets.delete(sheet);
+                this.openers.delete(sheet);
+                sheet.closest('[data-employee-photo-dynamic-host]')?.remove();
+                return true;
+            }
             if (this.latestOperations.get(employeeId) === operation) {
+                console.warn('[employee-photo] replacement failed', {
+                    stage, name: error?.name || null, code: error?.code || null
+                });
                 sheet.querySelector('[data-employee-photo-error]').hidden = false;
             }
             return false;
@@ -326,9 +350,9 @@ export class EmployeePhotoAcquisitionController {
     }
 
     async hydrateMatchingAvatars(employeeId, documentRef) {
-        const avatars = [...documentRef.querySelectorAll('[data-employee-avatar]')]
-            .filter(element => element.dataset.employeeId === employeeId);
         try {
+            const avatars = [...documentRef.querySelectorAll('[data-employee-avatar]')]
+                .filter(element => element.dataset.employeeId === employeeId);
             await Promise.all(avatars.map(element => this.hydrateAvatars(element)));
         } catch { /* cache is already saved; a later render can hydrate it */ }
     }

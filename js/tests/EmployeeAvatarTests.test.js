@@ -9,6 +9,7 @@ import {
     hydrateEmployeeAvatars
 } from '../modules/ui/components/EmployeeAvatar.js';
 import { EmployeeFloatingCard } from '../modules/ui/components/EmployeeFloatingCard.js';
+import { DOMDiff } from '../modules/utils/DOMDiff.js';
 
 const FLOATING_CARD_SOURCE = fs.readFileSync(
     path.resolve(__dirname, '../modules/ui/components/EmployeeFloatingCard.js'),
@@ -69,6 +70,43 @@ describe('EmployeeAvatar hydration and object URL lifecycle', () => {
         expect(avatar.querySelector('[data-avatar-image]').getAttribute('src')).toBe('blob:employee-1');
         expect(avatar.querySelector('[data-avatar-image]').hidden).toBe(false);
         expect(avatar.querySelector('[data-avatar-fallback]').hidden).toBe(true);
+    });
+
+    test('keeps the visible photo and viewer action during renders until a new version is hydrated', async () => {
+        const employee = { id: 'emp-1', name: 'Franklin Henrriquez' };
+        const template = value => `<section>${EmployeeAvatar(value, { variant: 'compact' })}</section>`;
+        document.body.innerHTML = template(employee);
+        const avatar = document.querySelector('[data-employee-avatar]');
+        const urls = createUrlApi();
+        const photoStore = { getEmployeePhoto: jest.fn().mockResolvedValue({
+            thumbnailBlob: new Blob(['old'], { type: 'image/webp' }), version: 1
+        }) };
+        await hydrateEmployeeAvatars(document, { photoStore, urlApi: urls });
+        const image = avatar.querySelector('[data-avatar-image]');
+        for (let i = 0; i < 3; i++) {
+            DOMDiff.apply(document.body, template(employee));
+            // Assert before asynchronous hydration: no frame may show the camera again.
+            expect(image.hidden).toBe(false);
+            expect(image.getAttribute('src')).toBe('blob:employee-1');
+            expect(avatar.hasAttribute('data-employee-photo-viewer-trigger')).toBe(true);
+            await hydrateEmployeeAvatars(document, { photoStore, urlApi: urls });
+        }
+        expect(urls.createObjectURL).toHaveBeenCalledTimes(1);
+        photoStore.getEmployeePhoto.mockResolvedValue({
+            thumbnailBlob: new Blob(['new'], { type: 'image/webp' }), version: 2
+        });
+        await hydrateEmployeeAvatars(document, { photoStore, urlApi: urls });
+        expect(image.getAttribute('src')).toBe('blob:employee-2');
+        expect(avatar.dataset.employeePhotoVersion).toBe('2');
+        expect(urls.revokeObjectURL).toHaveBeenCalledWith('blob:employee-1');
+        DOMDiff.apply(document.body, template({ id: 'emp-2', name: 'Otro empleado' }));
+        expect(avatar.dataset.employeeId).toBe('emp-2');
+        expect(image.hasAttribute('src')).toBe(false);
+        expect(image.hidden).toBe(true);
+        photoStore.getEmployeePhoto.mockResolvedValue({ thumbnailBlob: new Blob(['other']), version: 2 });
+        await hydrateEmployeeAvatars(document, { photoStore, urlApi: urls });
+        expect(image.getAttribute('src')).toBe('blob:employee-3');
+        cleanupEmployeeAvatars(document);
     });
 
     test('synchronizes editor actions with photo availability', async () => {

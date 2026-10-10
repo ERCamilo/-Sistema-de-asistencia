@@ -238,6 +238,26 @@ describe('EmployeePhotoViewerController', () => {
         unregister();
     });
 
+    test.each(['pending', 'superseded'])('refresh reports %s without claiming that a saved photo was rejected', async state => {
+        const avatar = mountAvatar();
+        markInteractive(avatar, 1);
+        const initial = record('initial', 1);
+        const viewer = controller({
+            photoStore: {
+                getEmployeeOriginal: jest.fn().mockResolvedValue(initial),
+                refreshEmployeePhoto: jest.fn().mockResolvedValue({ status: state, record: initial })
+            }, urlApi: urlApi()
+        });
+        await viewer.open(avatar);
+        const image = document.querySelector('[data-employee-photo-viewer-image]');
+        const source = image.src;
+        expect(await viewer.refresh()).toBe(false);
+        expect(document.querySelector('[data-employee-photo-viewer-status]').textContent).not.toMatch(/no se pudo/i);
+        expect(image.src).toBe(source);
+        expect(viewer.isOpen()).toBe(true);
+        expect(document.querySelector('[data-employee-photo-action="update"]').disabled).toBe(false);
+    });
+
     test('close button, backdrop, Escape, and inside clicks have correct focus behavior', async () => {
         const avatar = mountAvatar();
         markInteractive(avatar, 1);
