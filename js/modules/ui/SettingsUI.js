@@ -29,6 +29,7 @@ import { getLocalOwnerUid } from '../services/LocalDataOwner.js';
 // EVENT DELEGATION (data-settings-action)
 // ============================================
 const _SETTINGS_ACTION_MAP = {
+    'manage-voice-audio': () => window.openVoiceAudioStorage?.(),
     // Cambiar de sub-pestaña re-renderiza el formulario desde state y pisa el
     // draft: con draft sucio se pregunta antes (guardSettingsDraftOnLeave).
     'change-settings-tab': (tab) => guardSettingsDraftOnLeave({
@@ -286,9 +287,13 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'legacyNavigation',
     'hideDuplicateAlerts',
     'weatherEnabled',
+    'voiceMvpEnabled',
+    'voiceUsePreviousInterest',
+    'voiceKeepLoanAudio',
     'attendancePositionWatermarks'
 ]);
 const AUTO_SAVE_OPTION_VALUES = new Map([
+    ['voiceAudioRetentionDays', new Set(['1', '2', '3', '4', '5'])],
     ['attendanceWatermarkVisibility', new Set(['always', 'present'])],
     ['attendanceWatermarkContent', new Set(['number', 'position'])],
     ['loansCapacityStyle', new Set(['gauge', 'stacked'])],

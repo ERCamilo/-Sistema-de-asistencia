@@ -55,7 +55,16 @@ import { startPayrollLiveSyncAfterOutboxDrain } from './modules/features/payroll
 import { createAuthStartupGuard, runAuthStartupAfterDrain } from './modules/services/AuthStartupGuard.js';
 import { projectContext, peekEntityScope } from './modules/features/projects/ProjectContext.js';
 import { projectStore } from './modules/features/projects/ProjectStore.js';
-import { auth } from './modules/data/firebase.js';
+import { auth, onAuthStateChanged as subscribeVoiceSession } from './modules/data/firebase.js';
+import { VoiceNameEnrollmentUI } from './modules/features/voice/VoiceNameEnrollmentUI.js';
+import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
+import { openVoiceAttendanceEmployee } from './modules/features/voice/VoiceAttendanceNavigation.js';
+import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
+import { getAccountSummary as voiceAccountSummary } from './modules/features/loans/LoanAccount.js';
+import { selectLoansEmployee as selectVoiceLoansEmployee } from './modules/features/loans/LoansController.js';
+import { registerNewAccountLoan, laUseClassicView } from './modules/features/loans/LoanAccountController.js';
+import { getAccountPayPeriods } from './modules/features/loans/LoanAccountView.js';
+import { previousVoiceInterest } from './modules/features/voice/VoiceLoanDraft.js';
 import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
 import { sanitizeExportConfig } from './modules/services/ExportConfigSanitizer.js';
@@ -151,7 +160,7 @@ import { ProjectPayrollUIRuntime } from './modules/features/payroll/ProjectPayro
 import { getBalance, getPayrollDeductionOptions } from './modules/features/loans/LoansService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
-import { initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
+import { commitAutoSaveOption, commitAutoSaveSwitch, initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
 import { guardSettingsDraftOnLeave, isSettingsDraftDirty } from './modules/ui/settings/SettingsDraftBar.js';
 import { createAppHistory, EXIT_HINT_MS } from './modules/core/AppHistory.js';
 import { TabComponent } from './modules/components/TabComponent.js';
@@ -1204,6 +1213,70 @@ EmployeesUI.init(moduleContext);
 AnalyticsUI.init(moduleContext);
 PayrollUI.init(moduleContext);
 SyncUI.initSyncUI(moduleContext);
+
+// Device-local voice MVP. Transports audio only; confirmed loans use the
+// same registration path as the current account form.
+const voiceMvp = new VoiceMvpUI({
+    getUser: () => auth.currentUser,
+    isEnabled: () => state.settings?.voiceMvpEnabled === true,
+    subscribeEnabled: callback => eventBus.on('render:complete', callback),
+    getScope: () => peekEntityScope(),
+    getEmployees: () => (state.employees || []).filter(employee => entityInScope(employee, peekEntityScope())),
+    getEndpoint: () => APP_CONFIG.VOICE_WEBHOOK_URL,
+    getSettings: () => state.settings,
+    setAudioRetention: days => {
+        if (days) commitAutoSaveOption({ name: 'voiceAudioRetentionDays', value: String(days) });
+        commitAutoSaveSwitch({ id: 'voiceKeepLoanAudio', checked: days > 0 });
+    },
+    notify: (message, type) => window.showNotification?.(message, type),
+    getLoanDefaults: employee => ({ periods: getAccountPayPeriods(), previousRate: previousVoiceInterest({ loans: (employee?.loans || []).filter(loan => entityInScope(loan, peekEntityScope())) }), usePrevious: state.settings?.voiceUsePreviousInterest === true }),
+    subscribeSession: callback => subscribeVoiceSession(auth, callback),
+    subscribeScope: callback => projectContext.subscribe(callback),
+    validateLoan: validateVoiceLoan,
+    previewLoan: (employee, draft) => {
+        const validation = validateVoiceLoan(draft);
+        if (!validation.valid) throw new Error(validation.errors.join('. '));
+        const total = voiceLoanTotal({ ...draft, version: 2, refinancings: [], payments: [] });
+        const scope = peekEntityScope();
+        const current = voiceAccountSummary(employee, scope.enabled ? { projectId: scope.projectId } : {}).balance;
+        const installments = draft.installmentMode === 'installments' ? voiceLoanSchedule({ ...draft, count: draft.installmentCount, frequencyWeeks: draft.installmentFrequencyWeeks }) : [];
+        return { total, current, projected: roundVoiceMoney(current + total), installments };
+    },
+    onProfile: employeeId => window.openEmployeeProfile(employeeId),
+    onAttendance: employeeId => {
+        const uid = auth.currentUser?.uid;
+        const project = JSON.stringify(peekEntityScope());
+        const proceed = () => openVoiceAttendanceEmployee(employeeId, {
+            state, stateManager, render,
+            isAllowed: employee => !!uid && auth.currentUser?.uid === uid && JSON.stringify(peekEntityScope()) === project && entityInScope(employee),
+            isListed: employee => getFilteredEmployeesForDay().some(item => item.id === employee.id),
+            openDetail: id => window.viewAttendanceEmployee(id),
+            reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+            notify: (message, type) => window.showNotification?.(message, type)
+        });
+        if (state.activeTab === 'settings') guardSettingsDraftOnLeave({ onProceed: proceed });
+        else proceed();
+    },
+    onLoans: employeeId => { selectVoiceLoansEmployee(employeeId); window.openCuentasPorCobrar(); },
+    onLoan: async (employeeId, draft, context) => {
+        if ((state.loansLedger?.account?.modal || state.loansLedger?.showAddForm) && !await context.confirm('Hay otro formulario de préstamos abierto. ¿Registrar el préstamo de voz y cerrar ese formulario?')) return null;
+        const loan = await registerNewAccountLoan(employeeId, draft, { period: draft.dueDate, voiceRequestId: context.requestId, canProceed: context.guard, confirmDuplicate: message => context.confirm(message) });
+        if (loan) {
+            selectVoiceLoansEmployee(employeeId); laUseClassicView(false);
+            stateManager.batchSetState(() => {
+                state.loansLedger.showAddForm = false;
+                state.loansLedger.account.tab = 'loans';
+            });
+            window.openCuentasPorCobrar();
+        }
+        return loan;
+    }
+}).mount();
+new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.endpoint() }, { store: voiceMvp.store }).mount();
+
+window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
+window.openVoiceAudioStorage = () => voiceMvp.run(() => voiceMvp.openStorage());
+
 
 // Expose Modules to Window (for HTML onclick handlers)
 window.EmployeesUI = EmployeesUI;
@@ -4583,6 +4656,7 @@ function _AttendanceDetailPanelInner() {
             ${detailInteractivePanel}
 
             <div class="detail-actions">
+                <button class="detail-btn loan-shortcut" type="button" data-app-fn="openAttendanceEmployeeLoans" data-arg="${emp.id}">Préstamos</button>
                 <button class="detail-btn ghost" type="button" data-app-fn="openEmployeeProfile" data-arg="${emp.id}">
                     📋 Ver perfil completo
                 </button>
@@ -4908,6 +4982,14 @@ window.saveQuickNoteFromDetail = (empId) => {
 // Click delegation and responsive employee-detail routing live below.
 // ⚡ Los componentes UI (StatsGrid, Legend, PositionFilters, EmployeeRow, DateControls, DateControlsCompact, DayView, WeekView, etc.)
 // han sido movidos a ./modules/ui/AttendanceUI.js para mejor mantenimiento.
+
+window.openAttendanceEmployeeLoans = employeeId => {
+    const employee = state.employees.find(item => item.id === employeeId);
+    if (!employee || !entityInScope(employee)) return;
+    selectVoiceLoansEmployee(employeeId);
+    EmployeesUI.closeFloatingCard();
+    window.openCuentasPorCobrar();
+};
 
 window.viewAttendanceEmployee = function (employeeId) {
     const target = state.employees.find(employee => employee.id === employeeId);

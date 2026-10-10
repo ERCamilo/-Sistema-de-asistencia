@@ -80,6 +80,17 @@ test('selecting a different employee replaces the editor', () => {
     expect(document.getElementById('empName').value).toBe('Dos');
 });
 
+test('toggling voice refreshes the name enrollment control in a clean editor', () => {
+    mount();
+    expect(document.querySelector('[data-voice-name-employee]')).toBeNull();
+    state.settings.voiceMvpEnabled = true;
+    flush();
+    expect(document.querySelector('[data-voice-name-employee]').dataset.voiceNameEmployee).toBe('e1');
+    state.settings.voiceMvpEnabled = false;
+    flush();
+    expect(document.querySelector('[data-voice-name-employee]')).toBeNull();
+});
+
 test('photo signals and sync metadata do not discard an unsaved employee name', () => {
     const input = mount();
     input.value = 'Nombre sin guardar';

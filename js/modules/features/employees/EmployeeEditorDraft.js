@@ -30,6 +30,7 @@ export function employeeEditorData(state, employee) {
         }
     }
     const payrollSettings = value => ({
+        voiceMvpEnabled: value?.voiceMvpEnabled,
         regularHoursPerDay: value?.regularHoursPerDay,
         overtimeFactor: value?.overtimeFactor,
         holidayFactor: value?.holidayFactor,
