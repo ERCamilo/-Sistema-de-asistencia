@@ -109,7 +109,10 @@ export class Modal {
 
         // Cerrar con ESC + Focus trap (Tab/Shift+Tab cycling)
         this.keydownHandler = (e) => {
+            const activeOverlay = [...document.querySelectorAll('[data-modal-overlay]:not([data-modal-closing])')].pop();
+            if (e.defaultPrevented || (activeOverlay && activeOverlay !== this.element)) return;
             if (e.key === 'Escape' && this.closable) {
+                e.preventDefault();
                 this.close();
                 return;
             }
@@ -188,6 +191,10 @@ export class Modal {
     close() {
         if (!this.isOpen) return this;
 
+        const closingElement = this.element;
+        const previouslyFocused = this._previouslyFocused;
+        this._previouslyFocused = null;
+        closingElement.dataset.modalClosing = 'true';
         const container = this.element.querySelector('[data-modal-container]');
         if (container) {
             const visibleClass = this.variant === 'drawer' ? 'drawer-visible' : 'modal-visible';
@@ -203,15 +210,16 @@ export class Modal {
         }
 
         setTimeout(() => {
-            if (this.element && this.element.parentNode) {
-                this.element.parentNode.removeChild(this.element);
+            if (closingElement.parentNode) {
+                closingElement.parentNode.removeChild(closingElement);
             }
-            document.body.style.overflow = '';
+            const activeOverlay = [...document.querySelectorAll('[data-modal-overlay]:not([data-modal-closing])')].pop();
+            document.body.style.overflow = activeOverlay ? 'hidden' : '';
 
             // Restaurar el foco al elemento que lo tenía antes de abrir
-            if (this._previouslyFocused && typeof this._previouslyFocused.focus === 'function') {
-                try { this._previouslyFocused.focus(); } catch (_) { /* element no longer in DOM */ }
-                this._previouslyFocused = null;
+            if (previouslyFocused?.isConnected && typeof previouslyFocused.focus === 'function'
+                && (!activeOverlay || activeOverlay.contains(previouslyFocused))) {
+                try { previouslyFocused.focus(); } catch (_) { /* element no longer in DOM */ }
             }
         }, 300);
 

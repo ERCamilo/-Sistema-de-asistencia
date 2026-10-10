@@ -120,6 +120,62 @@ test.each(['employee', 'position', 'attendance', 'payroll'])('updates the editor
     expect(open).toHaveBeenCalledTimes(2);
 });
 
+test.each(['employee', 'position', 'attendance', 'payroll'])('preserves a dirty editor and warns after a relevant %s change', kind => {
+    const input = mount();
+    input.value = 'Borrador';
+    input.focus();
+    input.setSelectionRange(2, 4);
+    if (kind === 'employee') state.employees[0].name = 'Remoto';
+    if (kind === 'position') state.positions[0].name = 'Puesto remoto';
+    if (kind === 'attendance') state.attendance['e1-2026-10-09'] = {
+        employeeId: 'e1', date: '2026-10-09', present: true, hoursWorked: 8, positionId: 'p1'
+    };
+    if (kind === 'payroll') state.settings.regularHoursPerDay = 7;
+    flush();
+    expect(document.getElementById('empName')).toBe(input);
+    expect(input.value).toBe('Borrador');
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(2);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-employee-draft-notice]').hidden).toBe(false);
+});
+
+test('editing a rate with the same value still protects the custom-rate intent', () => {
+    const input = mount();
+    const rate = document.querySelector('.custom-salary-input');
+    rate.dispatchEvent(new Event('input', { bubbles: true }));
+    state.positions[0].hourlyRate = 200;
+    flush();
+    expect(document.getElementById('empName')).toBe(input);
+    expect(rate.closest('[data-position-assignment]').dataset.salarySource).toBe('custom');
+});
+
+test('an incomplete salary input remains a dirty draft', () => {
+    const input = mount();
+    const rate = document.querySelector('.custom-salary-input');
+    rate.value = '';
+    rate.dispatchEvent(new Event('input', { bubbles: true }));
+    state.positions[0].hourlyRate = 200;
+    flush();
+    expect(document.getElementById('empName')).toBe(input);
+    expect(document.querySelector('.custom-salary-input')).toBe(rate);
+    expect(rate.value).toBe('');
+});
+
+test.each(['status', 'search', 'deleted'])('preserves the dirty selection when a remote %s change removes it from the list', kind => {
+    if (kind === 'search') state.employeeFilters.search = 'Uno';
+    const input = mount();
+    input.value = 'Borrador';
+    if (kind === 'status') state.employees[0].active = false;
+    if (kind === 'search') state.employees[0].name = 'Nombre remoto';
+    if (kind === 'deleted') state.employees = [state.employees[1]];
+    flush();
+    expect(document.getElementById('empName')).toBe(input);
+    expect(input.value).toBe('Borrador');
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-employee-draft-notice]').hidden).toBe(false);
+});
+
 test('removing the selection clears the editor and returning to the tab mounts it again', () => {
     mount();
     state.employeeFilters.search = 'no matching employee';

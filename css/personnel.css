@@ -2619,3 +2619,25 @@
         border-color: #34445c;
     }
 }
+
+.employee-draft-notice {
+    margin-bottom: 16px;
+    padding: 12px;
+    border: 1px solid #b45309;
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.08);
+    color: #fbbf24;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.employee-draft-notice p { margin: 0 0 8px; }
+.employee-draft-notice button {
+    padding: 6px 10px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+.employee-draft-notice button:disabled { opacity: 0.6; cursor: default; }
