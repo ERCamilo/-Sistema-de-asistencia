@@ -5,6 +5,7 @@
 import { normalizeHelpMode } from '../../components/HelpController.js';
 import { escapeAttr } from '../../utils/Sanitize.js';
 
+
 export function SettingsGeneralTab(context) {
     const state = context.state;
     const icons = context.icons;

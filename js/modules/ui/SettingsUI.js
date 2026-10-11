@@ -299,6 +299,7 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'voiceMvpEnabled',
     'voiceUsePreviousInterest',
     'voiceKeepLoanAudio',
+    'newBottomNav',
     'attendancePositionWatermarks'
 ]);
 const AUTO_SAVE_OPTION_VALUES = new Map([
@@ -307,7 +308,8 @@ const AUTO_SAVE_OPTION_VALUES = new Map([
     ['attendanceWatermarkContent', new Set(['number', 'position'])],
     ['loansCapacityStyle', new Set(['gauge', 'stacked'])],
     ['loansKpiDensity', new Set(['full', 'compact'])],
-    ['miniConnectedReviewMode', new Set(['daily', 'compare'])]
+    ['miniConnectedReviewMode', new Set(['daily', 'compare'])],
+    ['navCenterMode', new Set(['auto', 'plus', 'mic'])]
 ]);
 
 function commitAutoSaveSetting({ key, value, deps = {} } = {}) {

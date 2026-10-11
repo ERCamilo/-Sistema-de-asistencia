@@ -133,3 +133,5 @@
 .voice-name-meter > span { display:block; height:8px; margin-top:8px; border-radius:8px; background:var(--accent); transform:scaleX(max(.03,var(--level,0))); transform-origin:left; transition:transform .08s linear; }
 .voice-remember { min-height:44px; display:flex !important; align-items:center; }
 @media(prefers-reduced-motion:reduce) { .voice-name-meter > span { transition:none; transform:scaleX(.5); } }
+/* En móvil el botón central de la barra inferior reemplaza al flotante. */
+@media (max-width: 1023px) { body:has(.bnav) .voice-launcher { display:none; } }

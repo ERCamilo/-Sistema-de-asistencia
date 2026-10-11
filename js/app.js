@@ -194,7 +194,9 @@ import { BUILD } from './modules/config/BuildInfo.js';
 import { formatBuild } from './modules/utils/BuildVersion.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
-import { PettyCashTab, registerPettyCashGlobals } from './modules/features/pettycash/PettyCashUI.js';
+import { PettyCashTab, registerPettyCashGlobals, canCapturePettyCashReceipt } from './modules/features/pettycash/PettyCashUI.js';
+import { initBottomNav, watchMicPermission } from './modules/ui/navigation/BottomNav.js';
+import { chooseBottomNav } from './modules/ui/navigation/LegacyBottomNav.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
 import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
@@ -1273,6 +1275,20 @@ new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.end
 
 window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
 window.openVoiceAudioStorage = () => voiceMvp.run(() => voiceMvp.openStorage());
+
+// Barra inferior de 5 posiciones (prueba): su botón central dicta con la misma Voz
+// (mantener pulsado) y abre la captura rápida (foto de factura, buscar).
+// Solo con la barra nueva activa (prueba en Configuración → Tests) un cambio
+// de conexión o de permiso de micrófono cambia lo que se dibuja.
+const renderIfNewBottomNav = () => { if (state.settings?.newBottomNav === true) render(); };
+const isMicDenied = watchMicPermission({ onChange: renderIfNewBottomNav });
+initBottomNav({
+    getState: () => state,
+    voice: voiceMvp,
+    pettyCash: { canCapture: canCapturePettyCashReceipt },
+    notify: (message, type) => window.showNotification?.(message, type),
+    refresh: renderIfNewBottomNav
+});
 
 
 // Expose Modules to Window (for HTML onclick handlers)
@@ -4012,44 +4028,12 @@ function SyncIndicator() {
 
 
 function BottomNavigation() {
-    return `<nav class="bottom-nav glass-effect">
-                <button class="bottom-nav-tab ${state.activeTab === 'attendance' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="attendance"
-                        title="Registrar asistencia diaria">
-                    <span class="bottom-nav-icon">${icons.get('attendance')}</span>
-                    <span class="bottom-nav-text">Asistencia</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'employees' || state.activeTab === 'positions' ? 'active' : ''}" 
-                        type="button" data-app-fn="openEmpleadosPersonal"
-                        title="Gestionar empleados y posiciones">
-                    <span class="bottom-nav-icon">${icons.get('personnel')}</span>
-                    <span class="bottom-nav-text">Personal</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'employee-report' || state.activeTab === 'dashboard' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="employee-report"
-                        title="Ver reportes y estadísticas">
-                    <span class="bottom-nav-icon">${icons.get('reports')}</span>
-                    <span class="bottom-nav-text">Reportes</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'export' ? 'active' : ''}" 
-                        type="button" data-app-fn="openNomina"
-                        title="Nómina">
-                    <span class="bottom-nav-icon">${icons.get('payroll')}</span>
-                    <span class="bottom-nav-text">Nómina</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'pettycash' ? 'active' : ''}"
-                        type="button" data-app-fn="changeTab" data-arg="pettycash"
-                        title="Caja Chica">
-                    <span class="bottom-nav-icon">${icons.get('dollar')}</span>
-                    <span class="bottom-nav-text">Caja</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'settings' ? 'active' : ''}"
-                        type="button" data-app-fn="openAjustesGenerales"
-                        title="Configuración del sistema">
-                    <span class="bottom-nav-icon">${icons.get('settings')}</span>
-                    <span class="bottom-nav-text">Ajustes</span>
-                </button>
-            </nav>`;
+    return chooseBottomNav(state, {
+        icons,
+        voiceAvailable: voiceMvp.isAvailable(),
+        online: typeof navigator === 'undefined' || navigator.onLine !== false,
+        micDenied: isMicDenied()
+    });
 }
 
 /**

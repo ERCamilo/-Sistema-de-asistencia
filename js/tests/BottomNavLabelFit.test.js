@@ -51,4 +51,14 @@ describe('Barra de navegación inferior — las etiquetas caben en su pestaña',
         expect(text['text-transform']).toBe('uppercase');
         expect(text['font-weight']).toBe('600');
     });
+
+    test('a 360–380 px: la barra de 6 pestañas oculta los nombres; la de 5 posiciones (.bnav) los mantiene', () => {
+        const shell = fs.readFileSync(path.resolve(__dirname, '../../css/sidebar-shell.css'), 'utf8');
+        const block = [...shell.matchAll(/@media\s*\(max-width:\s*380px\)\s*\{([\s\S]*?)\n\}/g)].map(m => m[1]).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+        const rules = [...block.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(m => [m[1].trim(), m[2]]);
+        const hides = rules.filter(([, body]) => /display\s*:\s*none/.test(body)).map(([sel]) => sel);
+        expect(hides).toContain('.bottom-nav:not(.bnav) .bottom-nav-text');
+        expect(hides.some(sel => /\.bnav(?!\))/.test(sel.replace(':not(.bnav)', '')))).toBe(false);
+        expect(hides).not.toContain('.bottom-nav-text');
+    });
 });

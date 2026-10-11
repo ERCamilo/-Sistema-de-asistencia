@@ -376,6 +376,8 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/ui/modals/PersonnelIconPickerModal.js",
     "./js/modules/ui/modals/PositionIconModal.js",
     "./js/modules/ui/modals/PositionModal.js",
+    "./js/modules/ui/navigation/BottomNav.js",
+    "./js/modules/ui/navigation/LegacyBottomNav.js",
     "./js/modules/ui/onboarding/OnboardingActions.js",
     "./js/modules/ui/onboarding/OnboardingApply.js",
     "./js/modules/ui/onboarding/OnboardingCore.js",
