@@ -1,0 +1,486 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Cámara de facturas a pantalla completa (js/modules/features/pettycash/PettyCashCamera.js)
+   Visor en vivo · pila de fotos junto al disparador · bandeja · vista previa
+   ═══════════════════════════════════════════════════════════════════════ */
+body.pcam-open { overflow: hidden; }
+
+.pcam {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    background: #000;
+    color: #f8fafc;
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.pcam-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Marco guía: oscurece alrededor de la zona donde va la factura. */
+.pcam-guide {
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    width: min(76vw, 340px);
+    aspect-ratio: 0.64;
+    max-height: 62vh;
+    transform: translate(-50%, -50%);
+    border: 3px solid #22d3ee;
+    border-radius: 12px;
+    box-shadow: 0 0 0 200vmax rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+}
+
+.pcam-flash {
+    position: absolute;
+    inset: 0;
+    background: #fff;
+    pointer-events: none;
+    opacity: 0;
+}
+
+.pcam-flash.is-on { animation: pcam-flash 0.35s ease-out; }
+
+@keyframes pcam-flash {
+    from { opacity: 0.8; }
+    to { opacity: 0; }
+}
+
+.pcam-top {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    padding: calc(14px + env(safe-area-inset-top)) 16px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    z-index: 2;
+}
+
+.pcam-top-spacer { width: 44px; flex: none; }
+
+.pcam-icon {
+    width: 44px;
+    height: 44px;
+    flex: none;
+    border-radius: 50%;
+    border: 0;
+    background: rgba(15, 23, 42, 0.72);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+}
+
+.pcam-period,
+.pcam-counter {
+    min-width: 0;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.8);
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pcam-counter { background: transparent; font-size: 14px; font-weight: 800; }
+
+.pcam-bottom {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 12px 18px calc(24px + env(safe-area-inset-bottom));
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.88) 35%);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 2;
+}
+
+.pcam-status { display: flex; justify-content: center; }
+
+.pcam-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.85);
+    font-size: 12px;
+    font-weight: 700;
+    color: #cbd5e1;
+}
+
+.pcam-spin {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid rgba(147, 197, 253, 0.35);
+    border-top-color: #93c5fd;
+    animation: pcam-rot 0.8s linear infinite;
+}
+
+@keyframes pcam-rot { to { transform: rotate(360deg); } }
+
+.pcam-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Pila de fotos (ocupa lo mismo que un botón). */
+.pcam-stack {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    border: 0;
+    padding: 0;
+    background: none;
+    cursor: pointer;
+}
+
+.pcam-stack.is-empty { visibility: hidden; }
+
+.pcam-card {
+    position: absolute;
+    left: 12px;
+    top: 6px;
+    width: 38px;
+    height: 50px;
+    border-radius: 6px;
+    border: 2px solid #0b1120;
+    background: #e7e2d6 center / cover no-repeat;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+
+.pcam-card:nth-last-child(3) { transform: rotate(-10deg) translate(-4px, 2px); }
+.pcam-card:nth-last-child(2) { transform: rotate(7deg) translate(4px, 1px); }
+
+.pcam-stack.is-drop .pcam-card.is-top { animation: pcam-drop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+
+@keyframes pcam-drop {
+    from { transform: translate(110px, -160px) scale(2.4); opacity: 0.2; }
+    to { transform: none; opacity: 1; }
+}
+
+.pcam-count {
+    position: absolute;
+    right: 0;
+    top: 0;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    border: 2px solid #0b1120;
+    background: #06b6d4;
+    color: #06202a;
+    font-size: 11px;
+    font-weight: 800;
+    display: grid;
+    place-items: center;
+}
+
+.pcam-shutter {
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    border: 5px solid #fff;
+    background: #fff;
+    box-shadow: inset 0 0 0 4px #000;
+    cursor: pointer;
+    transition: transform 0.12s;
+}
+
+.pcam-shutter:active,
+.pcam-shutter[aria-busy="true"] { transform: scale(0.92); }
+
+.pcam-done {
+    min-width: 64px;
+    min-height: 44px;
+    border: 0;
+    border-radius: 10px;
+    background: #06b6d4;
+    color: #06202a;
+    font: 800 14px 'Inter', system-ui, sans-serif;
+    cursor: pointer;
+}
+
+.pcam-shutter:focus-visible,
+.pcam-done:focus-visible,
+.pcam-icon:focus-visible,
+.pcam-stack:focus-visible { outline: 2px solid #67e8f9; outline-offset: 3px; }
+
+/* Bandeja compacta. */
+.pcam-tray {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: calc(150px + env(safe-area-inset-bottom));
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.94);
+    border: 1px solid #273449;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 3;
+    animation: pcam-up 0.26s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+.pcam-tray[hidden] { display: none; }
+
+@keyframes pcam-up {
+    from { transform: translateY(40px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+}
+
+.pcam-tray-head { display: flex; justify-content: space-between; font-size: 12px; }
+.pcam-tray-head span { color: #94a3b8; }
+
+.pcam-tray-row {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding: 4px 2px;
+}
+
+.pcam-thumb {
+    position: relative;
+    width: 46px;
+    height: 60px;
+    flex: 0 0 46px;
+    border-radius: 7px;
+    border: 2px solid #1e293b;
+    background: #e7e2d6 center / cover no-repeat;
+    cursor: pointer;
+    padding: 0;
+}
+
+.pcam-dot {
+    position: absolute;
+    right: -4px;
+    top: -4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #0f172a;
+}
+
+/* Colores por estado: verde = leída, naranja = por revisar, azul = leyendo/en cola. */
+.pcam-dot.pcam-tone-ok,
+.pcam-pip.is-on.pcam-tone-ok { background: #22c55e; }
+.pcam-dot.pcam-tone-review,
+.pcam-dot.pcam-tone-failed,
+.pcam-pip.is-on.pcam-tone-review,
+.pcam-pip.is-on.pcam-tone-failed { background: #f97316; }
+.pcam-dot.pcam-tone-reading,
+.pcam-pip.is-on.pcam-tone-reading { background: #60a5fa; }
+
+/* Vista previa de una foto. */
+.pcam-preview {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    background: #05070d;
+    display: flex;
+    flex-direction: column;
+    animation: pcam-fade 0.2s ease-out;
+}
+
+@keyframes pcam-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.pcam-preview .pcam-top { position: relative; }
+
+.pcam-photo {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+    padding: 0 64px;
+    overflow: hidden;
+}
+
+.pcam-photo img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 6px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+    animation: pcam-slide 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+@keyframes pcam-slide {
+    from { opacity: 0; transform: translateX(24px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+}
+
+.pcam-scan {
+    position: absolute;
+    left: 64px;
+    right: 64px;
+    height: 46px;
+    background: linear-gradient(transparent, rgba(34, 211, 238, 0.35), transparent);
+    border-bottom: 2px solid #22d3ee;
+    animation: pcam-scan 1.8s ease-in-out infinite;
+    pointer-events: none;
+}
+
+@keyframes pcam-scan {
+    from { top: -46px; }
+    to { top: 100%; }
+}
+
+.pcam-nav {
+    position: absolute;
+    top: 50%;
+    width: 48px;
+    height: 48px;
+    margin-top: -24px;
+    border-radius: 50%;
+    border: 1px solid #334155;
+    background: rgba(15, 23, 42, 0.75);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+}
+
+.pcam-nav.is-prev { left: 10px; }
+.pcam-nav.is-next { right: 10px; }
+.pcam-nav[disabled] { opacity: 0.3; cursor: default; }
+
+.pcam-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+}
+
+.pcam-chip {
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 800;
+}
+
+.pcam-chip.pcam-tone-ok { background: #052e1a; color: #4ade80; }
+.pcam-chip.pcam-tone-review,
+.pcam-chip.pcam-tone-failed { background: #422006; color: #fdba74; }
+.pcam-chip.pcam-tone-reading { background: #1e3a5f; color: #93c5fd; }
+
+.pcam-dots { display: flex; gap: 6px; }
+
+.pcam-pip {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: #475569;
+    transition: width 0.25s, background 0.25s;
+}
+
+.pcam-pip.is-on { width: 22px; }
+
+.pcam-sheet {
+    padding: 16px 16px calc(22px + env(safe-area-inset-bottom));
+    border-radius: 20px 20px 0 0;
+    background: #0f172a;
+    border-top: 1px solid #273449;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    animation: pcam-up 0.26s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+.pcam-muted { margin: 0; font-size: 13px; color: #94a3b8; }
+
+.pcam-skeleton { display: flex; flex-direction: column; gap: 10px; }
+
+.pcam-skeleton i {
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background-size: 200% 100%;
+    animation: pcam-shimmer 1.2s linear infinite;
+}
+
+.pcam-skeleton i:nth-child(1) { width: 70%; }
+.pcam-skeleton i:nth-child(2) { width: 50%; }
+.pcam-skeleton i:nth-child(3) { width: 60%; }
+
+@keyframes pcam-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+.pcam-rows { margin: 0; }
+
+.pcam-rows div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid #1e293b;
+    font-size: 13px;
+}
+
+.pcam-rows div:last-child { border-bottom: 0; }
+.pcam-rows dt { color: #94a3b8; }
+.pcam-rows dd { margin: 0; font-weight: 700; text-align: right; }
+
+.pcam-issues {
+    list-style: none;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: #1f1309;
+    border: 1px solid #7c2d12;
+    color: #fdba74;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pcam-issues li { display: flex; gap: 8px; align-items: flex-start; }
+.pcam-issues svg { flex: none; margin-top: 1px; }
+
+.pcam-actions { display: flex; gap: 10px; }
+
+.pcam-btn {
+    flex: 1;
+    min-height: 48px;
+    border-radius: 12px;
+    border: 1px solid #475569;
+    background: #263244;
+    color: #f8fafc;
+    font: 800 14px 'Inter', system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.pcam-btn.is-primary { border: 0; background: #06b6d4; color: #06202a; }
+.pcam-btn.is-ok { border: 0; background: #22c55e; color: #052e16; }
+
+@media (prefers-reduced-motion: reduce) {
+    .pcam *,
+    .pcam *::before,
+    .pcam *::after { animation: none !important; transition: none !important; }
+}

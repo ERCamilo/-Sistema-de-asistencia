@@ -9,9 +9,8 @@
  * Fix: version a `_headers` file with a default-deny security posture and
  * keep it under test so it can never silently disappear or drift.
  *
- * Note: camera/geolocation are denied today; microphone is permitted for voice.
- * The app does not use camera/geolocation. When the in-app camera (getUserMedia) lands, relax camera to
- * `camera=(self)` here and the assertion below will guard the change.
+ * Note: geolocation is denied; camera and microphone are permitted for the
+ * app's own origin only (in-app receipt camera via getUserMedia, voice MVP).
  */
 
 import fs from 'fs';
@@ -50,10 +49,11 @@ testRunner.addSuite("Security headers — _headers en Cloudflare Pages", {
     },
 
     "restringe Permissions-Policy (cámara, micrófono, geolocalización)"() {
-        const src = read('_headers') || '';
+        // Solo la línea del header: los comentarios de _headers no cuentan.
+        const src = ((read('_headers') || '').match(/^\s*Permissions-Policy:.*$/mi) || [''])[0];
         testRunner.assert(/Permissions-Policy:/i.test(src),
             'debe declarar una Permissions-Policy');
-        testRunner.assert(/camera=\(\)/i.test(src), 'camera deshabilitada por defecto');
+        testRunner.assert(/camera=\(self\)/i.test(src), 'camera solo para el origen propio (cámara de facturas)');
         testRunner.assert(/microphone=\(self\)/i.test(src), 'microphone solo para el origen propio');
         testRunner.assert(/geolocation=\(\)/i.test(src), 'geolocation deshabilitada por defecto');
     }
