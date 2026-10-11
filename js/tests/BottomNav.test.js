@@ -289,6 +289,21 @@ describe('BottomNav — interacción', () => {
         expect(voice.endHold).not.toHaveBeenCalled();
     });
 
+    test('sigue el estado real de Voz: escuchando → ✓ guardado → normal', () => {
+        mount();
+        const center = $('[data-bnav-center]');
+        const send = state => window.dispatchEvent(new CustomEvent('sa:voice-state', { detail: { state } }));
+        send('listening');
+        expect(center.classList.contains('is-listening')).toBe(true);
+        send('saved');
+        expect(center.classList.contains('is-listening')).toBe(false);
+        expect(center.classList.contains('is-saved')).toBe(true);
+        expect(center.querySelector('.bnav-center-icon--check')).not.toBeNull();
+        send('idle');
+        expect(center.classList.contains('is-saved')).toBe(false);
+        expect(center.getAttribute('aria-pressed')).toBe('false');
+    });
+
     test('modo "+": mantener pulsado no graba; tocar abre el menú', () => {
         jest.useFakeTimers();
         const { voice } = mount({ setting: 'plus' });
@@ -307,6 +322,7 @@ describe('BottomNav — interacción', () => {
         pointer('pointerdown', center); pointer('pointerup', center);
         $('[data-bnav-capture="dictate"]').click();
         expect(voice.startHold).toHaveBeenCalledTimes(1);
+        expect(voice.startHold).toHaveBeenCalledWith({ toggle: true });
         expect(notify).toHaveBeenCalledWith(expect.stringContaining('botón central'), 'info');
         expect(isOpen('center')).toBe(false);
         pointer('pointerdown', center); pointer('pointerup', center);

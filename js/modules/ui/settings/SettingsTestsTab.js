@@ -69,6 +69,11 @@ export function SettingsTestsTab(context) {
                     <span class="stg-switch-copy"><strong>Conservar audio de préstamos</strong><small>Solo en este navegador. Desactivarlo elimina los audios de préstamos guardados y no conserva los nuevos.</small></span>
                     <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
                 </label>
+                <label class="stg-switch-row ${state.settings?.voiceFeedback !== false ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceFeedback !== false}">
+                    <input type="checkbox" id="voiceFeedback" ${state.settings?.voiceFeedback !== false ? 'checked' : ''}>
+                    <span class="stg-switch-copy"><strong>Sonido y vibración al grabar</strong><small>Un tic y una vibración corta al empezar a escuchar, y otro al terminar. En iPhone solo suena: el navegador no permite vibrar.</small></span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
                 <h4>Tiempo de conservación desde el registro</h4>
                 <div class="stg-choice-group" role="group" aria-label="Días de conservación de audio">
                     ${[1, 2, 3, 4, 5].map(days => `<label class="stg-choice-option ${Number(state.settings?.voiceAudioRetentionDays ?? 5) === days ? 'is-selected' : ''}"><input type="radio" name="voiceAudioRetentionDays" value="${days}" ${Number(state.settings?.voiceAudioRetentionDays ?? 5) === days ? 'checked' : ''}><span>${days} ${days === 1 ? 'día' : 'días'}</span></label>`).join('')}
