@@ -111,6 +111,11 @@ export const SyncStatus = {
         return () => { _subscribers.delete(cb); };
     },
 
+    // Connectivity changes refresh the UI without confirming any cloud write.
+    refresh() {
+        _notify(_lastSyncedAt);
+    },
+
     /**
      * Limpia el estado (útil en logout y en tests). Notifica a los
      * suscriptores con null para que la UI borre el badge.

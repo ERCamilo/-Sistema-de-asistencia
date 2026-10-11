@@ -160,7 +160,7 @@ import { ProjectPayrollUIRuntime } from './modules/features/payroll/ProjectPayro
 import { getBalance, getPayrollDeductionOptions } from './modules/features/loans/LoansService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
-import { commitAutoSaveOption, commitAutoSaveSwitch, initSettingsUI, reconcileSettingsDraftBeforeSave, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
+import { commitAutoSaveOption, commitAutoSaveSwitch, initSettingsUI, reconcileSettingsDraftBeforeSave, refreshDeviceSettingsDiagnostics, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
 import { guardSettingsDraftOnLeave, guardSettingsDraftBeforeSave, isSettingsDraftDirty } from './modules/ui/settings/SettingsDraftBar.js';
 import { createAppHistory, EXIT_HINT_MS } from './modules/core/AppHistory.js';
 import { TabComponent } from './modules/components/TabComponent.js';
@@ -1158,8 +1158,7 @@ initSettingsUI({
     payrollRuntime: payrollUIRuntime,
     render,
     get currentUser() { return window.currentUser; },
-    get autoSyncEnabled() { return autoSyncEnabled; },
-    calculateStorageStats: () => calculateStorageStats()
+    get autoSyncEnabled() { return autoSyncEnabled; }
 });
 
 // ============================================
@@ -4107,13 +4106,8 @@ if (typeof window !== 'undefined') {
         compact:          true  // El header usa modo icono-solo
     });
     // Cuando cambia el estado de conexión, refrescar inmediatamente.
-    window.addEventListener('online',  () => SyncStatus.markSynced(SyncStatus.getLastSyncedAt() || Date.now()));
-    window.addEventListener('offline', () => {
-        // Forzar refresh visual sin tocar el ts real (lo dispara internalmente
-        // notificando con el mismo timestamp existente).
-        const ts = SyncStatus.getLastSyncedAt();
-        if (ts !== null) SyncStatus.markSynced(ts);
-    });
+    window.addEventListener('online', () => SyncStatus.refresh());
+    window.addEventListener('offline', () => SyncStatus.refresh());
 }
 window.openCalendarioAjustes = () => {
     if (state) state.settingsActiveTab = 'calendar';
@@ -5760,25 +5754,7 @@ window.handleStorageTypeChange = async function (storageType) {
 
 // Actualizar estadísticas de IndexedDB
 window.updateIndexedDBStats = async function () {
-    try {
-        const statsEl = document.getElementById('indexeddb-stats');
-        if (!statsEl) return;
-
-        const employeesCount = await indexedDBService.count('employees');
-        const positionsCount = await indexedDBService.count('positions');
-        const attendanceCount = await indexedDBService.count('attendance');
-        const leadersCount = await indexedDBService.count('leaders');
-
-        statsEl.innerHTML = `
-                    • Empleados: <strong style="color: #06b6d4;">${employeesCount}</strong><br>
-                    • Posiciones: <strong style="color: #06b6d4;">${positionsCount}</strong><br>
-                    • Líderes: <strong style="color: #06b6d4;">${leadersCount}</strong><br>
-                    • Registros de asistencia: <strong style="color: #06b6d4;">${attendanceCount}</strong><br>
-                    • Estado: <strong style="color: #10b981;">✅ Funcionando correctamente</strong>
-                `;
-    } catch (error) {
-        debug.error('Error obteniendo estadísticas:', error);
-    }
+    await refreshDeviceSettingsDiagnostics();
 };
 
 // ============================================
@@ -5927,36 +5903,6 @@ window.toggleAutoBackup = function (enabled) {
 // ============================================
 // Dashboard de Configuración - Funciones de Cálculo
 // ============================================
-
-/**
- * Calcula estadísticas de uso de localStorage
- */
-function calculateStorageStats() {
-    let totalSize = 0;
-
-    // Calcular tamaño total del localStorage
-    for (let key in localStorage) {
-        if (localStorage.hasOwnProperty(key)) {
-            const value = localStorage[key];
-            totalSize += (key.length + value.length) * 2; // UTF-16 = 2 bytes por carácter
-        }
-    }
-
-    const usedBytes = totalSize;
-    const usedKB = (totalSize / 1024).toFixed(2);
-    const usedMB = (totalSize / 1024 / 1024).toFixed(2);
-    const limitMB = 5; // Límite aproximado de localStorage
-    const percentage = Math.min(100, ((usedMB / limitMB) * 100).toFixed(0));
-
-    return {
-        usedBytes,
-        usedKB,
-        usedMB,
-        limitMB,
-        percentage: parseInt(percentage),
-        available: (limitMB - usedMB).toFixed(2)
-    };
-}
 
 /**
  * Obtiene el estado de sincronización con Supabase
