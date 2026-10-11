@@ -7,6 +7,6 @@
  * el formateo a UI.
  */
 
-export const BUILD = '2026.1011.150446'
+export const BUILD = '2026.1011.151032'
 
 export default BUILD;
