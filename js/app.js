@@ -195,7 +195,8 @@ import { formatBuild } from './modules/utils/BuildVersion.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
 import { PettyCashTab, registerPettyCashGlobals, canCapturePettyCashReceipt } from './modules/features/pettycash/PettyCashUI.js';
-import { renderBottomNav, initBottomNav, watchMicPermission } from './modules/ui/navigation/BottomNav.js';
+import { initBottomNav, watchMicPermission } from './modules/ui/navigation/BottomNav.js';
+import { chooseBottomNav } from './modules/ui/navigation/LegacyBottomNav.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
 import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
@@ -1275,15 +1276,18 @@ new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.end
 window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
 window.openVoiceAudioStorage = () => voiceMvp.run(() => voiceMvp.openStorage());
 
-// Barra inferior de 5 posiciones: su botón central dicta con la misma Voz
+// Barra inferior de 5 posiciones (prueba): su botón central dicta con la misma Voz
 // (mantener pulsado) y abre la captura rápida (foto de factura, buscar).
-const isMicDenied = watchMicPermission({ onChange: () => render() });
+// Solo con la barra nueva activa (prueba en Configuración → Tests) un cambio
+// de conexión o de permiso de micrófono cambia lo que se dibuja.
+const renderIfNewBottomNav = () => { if (state.settings?.newBottomNav === true) render(); };
+const isMicDenied = watchMicPermission({ onChange: renderIfNewBottomNav });
 initBottomNav({
     getState: () => state,
     voice: voiceMvp,
     pettyCash: { canCapture: canCapturePettyCashReceipt },
     notify: (message, type) => window.showNotification?.(message, type),
-    refresh: () => render()
+    refresh: renderIfNewBottomNav
 });
 
 
@@ -4024,7 +4028,8 @@ function SyncIndicator() {
 
 
 function BottomNavigation() {
-    return renderBottomNav(state, {
+    return chooseBottomNav(state, {
+        icons,
         voiceAvailable: voiceMvp.isAvailable(),
         online: typeof navigator === 'undefined' || navigator.onLine !== false,
         micDenied: isMicDenied()

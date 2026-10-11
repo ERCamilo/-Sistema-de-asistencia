@@ -299,6 +299,7 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'voiceMvpEnabled',
     'voiceUsePreviousInterest',
     'voiceKeepLoanAudio',
+    'newBottomNav',
     'attendancePositionWatermarks'
 ]);
 const AUTO_SAVE_OPTION_VALUES = new Map([

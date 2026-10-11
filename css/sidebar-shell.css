@@ -1608,13 +1608,20 @@ body.has-sidebar {
         padding-left: 2px;
     }
 
+    .bottom-nav:not(.bnav) {
+        height: 58px;
+    }
+
     .bottom-nav-tab {
         min-width: 0;
         padding: 6px 0;
     }
 
-    /* Con 5 posiciones (~72 px cada una a 360 px) los nombres caben: se
-       mantienen visibles para no depender solo del icono. */
+    /* Con 6 pestañas (~60 px) los nombres no caben: solo iconos. La barra de
+       5 posiciones (.bnav, ~72 px cada una) los mantiene visibles. */
+    .bottom-nav:not(.bnav) .bottom-nav-text {
+        display: none;
+    }
 }
 
 /* Botón oficial "Iniciar sesión con Google" (guías de marca de Google:

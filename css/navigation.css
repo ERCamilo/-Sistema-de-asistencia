@@ -441,3 +441,10 @@
         animation: none;
     }
 }
+
+/* El botón "volver arriba" (centrado) no debe pegarse al botón central. */
+@media (max-width: 1023px) {
+    body:has(.bnav) .back-to-top {
+        bottom: calc(var(--bottom-nav-offset, 85px) + 22px);
+    }
+}
