@@ -1604,7 +1604,6 @@ body.has-sidebar {
 
 @media (max-width: 380px) {
     .bottom-nav {
-        height: 58px;
         padding-right: 2px;
         padding-left: 2px;
     }
@@ -1614,9 +1613,8 @@ body.has-sidebar {
         padding: 6px 0;
     }
 
-    .bottom-nav-text {
-        display: none;
-    }
+    /* Con 5 posiciones (~72 px cada una a 360 px) los nombres caben: se
+       mantienen visibles para no depender solo del icono. */
 }
 
 /* Botón oficial "Iniciar sesión con Google" (guías de marca de Google:

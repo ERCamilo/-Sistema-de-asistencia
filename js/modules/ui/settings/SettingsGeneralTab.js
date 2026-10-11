@@ -5,6 +5,35 @@
 import { normalizeHelpMode } from '../../components/HelpController.js';
 import { escapeAttr } from '../../utils/Sanitize.js';
 
+const NAV_CENTER_MODES = [
+    ['auto', 'Automático', 'Micrófono con conexión; "+" sin conexión o sin permiso de micrófono.'],
+    ['plus', 'Siempre +', 'Foto de factura y buscar empleado; dictar queda en el menú.'],
+    ['mic', 'Siempre micrófono', 'Mantén pulsado para dictar, aunque no haya conexión.']
+];
+
+// Botón central de la barra inferior (ver js/modules/ui/navigation/BottomNav.js).
+function navCenterModeChoice(settings) {
+    const current = NAV_CENTER_MODES.some(([value]) => value === settings.navCenterMode) ? settings.navCenterMode : 'auto';
+    const voiceNote = settings.voiceMvpEnabled === true
+        ? ''
+        : '<small style="display:block;color:#94a3b8;margin:-4px 0 10px;">El micrófono aparece cuando Voz está activa (Configuración → Tests). Mientras tanto se muestra "+".</small>';
+    return `
+                    <div style="margin:4px 0 14px;">
+                        <strong style="display:block;font-size:.88rem;color:#e2e8f0;margin-bottom:8px;">Botón central de la barra</strong>
+                        ${voiceNote}
+                        <div class="stg-choice-group">
+                            ${NAV_CENTER_MODES.map(([value, label, hint]) => `
+                            <label class="stg-choice-option ${current === value ? 'is-selected' : ''}">
+                                <input type="radio" name="navCenterMode" value="${value}" ${current === value ? 'checked' : ''}>
+                                <span class="stg-choice-copy">
+                                    <strong>${label}</strong>
+                                    <small>${hint}</small>
+                                </span>
+                            </label>`).join('')}
+                        </div>
+                    </div>`;
+}
+
 export function SettingsGeneralTab(context) {
     const state = context.state;
     const icons = context.icons;
@@ -65,6 +94,8 @@ export function SettingsGeneralTab(context) {
                             <span class="stg-switch-handle"></span>
                         </span>
                     </label>
+
+                    ${navCenterModeChoice(state.settings)}
 
                     <label class="stg-switch-row ${state.settings.hideDuplicateAlerts ? 'is-active' : ''}"
                            role="switch" aria-checked="${!!state.settings.hideDuplicateAlerts}">

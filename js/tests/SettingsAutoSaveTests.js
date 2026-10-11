@@ -121,7 +121,10 @@ testRunner.addSuite("SettingsUI — commitAutoSaveOption (opciones cerradas)", {
             ['loansCapacityStyle', 'gauge'],
             ['loansCapacityStyle', 'stacked'],
             ['loansKpiDensity', 'full'],
-            ['loansKpiDensity', 'compact']
+            ['loansKpiDensity', 'compact'],
+            ['navCenterMode', 'auto'],
+            ['navCenterMode', 'plus'],
+            ['navCenterMode', 'mic']
         ];
 
         for (const [name, value] of cases) {

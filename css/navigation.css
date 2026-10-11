@@ -109,3 +109,335 @@
         color: #f1f5f9;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Barra de 5 posiciones (js/modules/ui/navigation/BottomNav.js)
+   Asistencia · Personal · [captura] · Finanzas · Más
+   ═══════════════════════════════════════════════════════════════════════ */
+.bnav {
+    height: 72px;
+    padding: 0 6px;
+    padding-bottom: env(safe-area-inset-bottom);
+    align-items: stretch;
+}
+
+.bnav .bottom-nav-tab {
+    position: relative;
+    z-index: 1;
+}
+
+.bnav .bottom-nav-icon {
+    position: relative;
+    display: grid;
+    place-items: center;
+}
+
+.bnav .bottom-nav-icon svg {
+    width: 23px;
+    height: 23px;
+    position: relative;
+}
+
+/* Pastilla detrás del icono de la sección activa. */
+.bnav .bottom-nav-icon::before {
+    content: '';
+    position: absolute;
+    inset: -6px -17px;
+    border-radius: 12px;
+    background: rgba(6, 182, 212, 0.14);
+    opacity: 0;
+    transform: scaleX(0.4);
+    transition: opacity 0.2s, transform 0.32s cubic-bezier(0.3, 1.35, 0.5, 1);
+}
+
+.bnav .bottom-nav-tab.active .bottom-nav-icon {
+    transform: none;
+}
+
+.bnav .bottom-nav-tab.active .bottom-nav-icon::before {
+    opacity: 1;
+    transform: none;
+}
+
+.bnav .bottom-nav-tab:active .bottom-nav-icon svg {
+    transform: scale(0.86);
+}
+
+/* ── Botón central ─────────────────────────────────────────────────────── */
+.bnav-center-slot {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
+}
+
+.bnav-center {
+    position: relative;
+    width: 60px;
+    height: 60px;
+    margin-top: -20px;
+    border-radius: 50%;
+    border: 4px solid #0b1120;
+    background: #06b6d4;
+    color: #06202a;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: 0 8px 22px rgba(6, 182, 212, 0.35);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.22s cubic-bezier(0.3, 1.6, 0.5, 1), box-shadow 0.25s, background 0.25s;
+}
+
+.bnav-center:active {
+    transform: scale(0.94);
+}
+
+.bnav-center:focus-visible {
+    outline: 2px solid #67e8f9;
+    outline-offset: 3px;
+}
+
+.bnav-center-icon {
+    grid-area: 1 / 1;
+    display: grid;
+    transition: transform 0.34s cubic-bezier(0.3, 1.6, 0.5, 1), opacity 0.2s;
+}
+
+.bnav-center-icon svg {
+    width: 27px;
+    height: 27px;
+}
+
+/* Cambio micrófono ↔ "+" con giro. */
+.bnav-center[data-mode="mic"] .bnav-center-icon--plus,
+.bnav-center[data-mode="plus"] .bnav-center-icon--mic {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.4);
+}
+
+.bnav-center[data-mode="plus"][aria-expanded="true"] .bnav-center-icon--plus {
+    transform: rotate(45deg);
+}
+
+.bnav-center.is-listening {
+    background: #22d3ee;
+    transform: scale(1.12);
+    box-shadow: 0 0 0 8px rgba(34, 211, 238, 0.18), 0 12px 30px rgba(34, 211, 238, 0.45);
+}
+
+.bnav-center.is-listening::before,
+.bnav-center.is-listening::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid #22d3ee;
+    animation: bnav-ripple 1.6s ease-out infinite;
+    pointer-events: none;
+}
+
+.bnav-center.is-listening::after {
+    animation-delay: 0.8s;
+}
+
+@keyframes bnav-ripple {
+    from { transform: scale(1); opacity: 0.7; }
+    to { transform: scale(2.1); opacity: 0; }
+}
+
+/* ── Menús de sección y de captura ─────────────────────────────────────── */
+.bnav-pop {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 10px);
+    z-index: 3;
+    pointer-events: none;
+    transform-origin: var(--c) 100%;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(8px) scale(0.9);
+    transition: opacity 0.15s ease-in, transform 0.16s ease-in, visibility 0s linear 0.16s;
+}
+
+.bnav-pop[data-open="true"] {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition: opacity 0.2s ease-out, transform 0.26s cubic-bezier(0.2, 0.95, 0.3, 1.12), visibility 0s;
+}
+
+.bnav-menu {
+    position: absolute;
+    bottom: 0;
+    left: clamp(8px, calc(var(--c) - 128px), calc(100% - 264px));
+    width: 256px;
+    max-width: calc(100% - 16px);
+    box-sizing: border-box;
+    padding: 6px;
+    border-radius: 18px;
+    background: rgba(17, 24, 39, 0.98);
+    border: 1px solid #2b3a52;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+    font-family: 'Inter', system-ui, sans-serif;
+}
+
+.bnav-pop[data-open="true"] .bnav-menu {
+    pointer-events: auto;
+}
+
+.bnav-caret {
+    position: absolute;
+    bottom: -6px;
+    left: calc(var(--c) - 7px);
+    width: 14px;
+    height: 14px;
+    background: #111827;
+    border-right: 1px solid #2b3a52;
+    border-bottom: 1px solid #2b3a52;
+    transform: rotate(45deg);
+}
+
+.bnav-menu-head {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 10px 6px;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.bnav-menu-head span + span {
+    text-transform: none;
+    letter-spacing: 0.2px;
+    font-weight: 600;
+}
+
+.bnav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 52px;
+    padding: 7px 10px 7px 7px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: #e2e8f0;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.12s, transform 0.16s, background 0.18s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Entrada escalonada: cada fila llega 35 ms después de la anterior. */
+.bnav-pop[data-open="true"] .bnav-item {
+    opacity: 1;
+    transform: none;
+    transition:
+        opacity 0.22s ease-out calc(40ms + var(--i, 0) * 35ms),
+        transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) calc(40ms + var(--i, 0) * 35ms),
+        background 0.18s;
+}
+
+.bnav-item:hover {
+    background: #1a2436;
+}
+
+.bnav-item:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px #22d3ee;
+}
+
+.bnav-item.is-current {
+    background: rgba(6, 182, 212, 0.12);
+}
+
+.bnav-item-icon {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    background: #1e293b;
+    color: #cbd5e1;
+    transition: background 0.2s, color 0.2s;
+}
+
+.bnav-item-icon svg {
+    width: 19px;
+    height: 19px;
+}
+
+.bnav-item.is-current .bnav-item-icon,
+.bnav-item-icon--photo {
+    background: #06b6d4;
+    color: #06202a;
+}
+
+.bnav-item-copy {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.bnav-item-label {
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.bnav-item.is-current .bnav-item-label {
+    color: #e6fbff;
+}
+
+.bnav-item-desc {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #7c8aa0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bnav-item-check {
+    display: grid;
+    color: #22d3ee;
+}
+
+.bnav-item-check svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 2.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bnav-pop,
+    .bnav-pop[data-open="true"],
+    .bnav-item,
+    .bnav-pop[data-open="true"] .bnav-item,
+    .bnav-center,
+    .bnav-center-icon,
+    .bnav .bottom-nav-icon::before {
+        transition: none;
+    }
+
+    .bnav-center.is-listening::before,
+    .bnav-center.is-listening::after {
+        animation: none;
+    }
+}

@@ -86,6 +86,23 @@ export class VoiceMvpUI {
         this.maintenanceTimer = setInterval(() => this.run(() => this.maintenance()), 5 * 60 * 1000);
         return this;
     }
+    // Same conditions that show the launcher, computed live so other entry
+    // points (bottom-nav centre button) never read a stale `hidden`.
+    isAvailable() {
+        return !this.wiped && this.adapter.isEnabled?.() !== false && !!this.adapter.getUser();
+    }
+    // Hold-to-talk for entry points other than the launcher. Resolves true
+    // while recording; on failure (already notified) the hold is released so
+    // the next attempt is not ignored.
+    startHold() {
+        if (this.held) return Promise.resolve(!!this.recording);
+        this.held = true;
+        return this.run(() => this.beginHold()).then(() => {
+            if (!this.recording) this.held = false;
+            return !!this.recording;
+        });
+    }
+    endHold() { if (this.held || this.recording) this.finishHold(); }
     refreshVisibility() {
         this.launcher.hidden = this.wiped || this.adapter.isEnabled?.() === false || !this.adapter.getUser();
         if (this.launcher.hidden && ((this.dialog.open && this.view !== 'playback' && this.view !== 'storage') || this.recording)) this.close({ discard: true });

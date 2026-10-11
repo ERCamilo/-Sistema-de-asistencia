@@ -51,4 +51,14 @@ describe('Barra de navegación inferior — las etiquetas caben en su pestaña',
         expect(text['text-transform']).toBe('uppercase');
         expect(text['font-weight']).toBe('600');
     });
+
+    test('en teléfonos de 360–380 px los nombres siguen visibles (5 posiciones: ~72 px cada una)', () => {
+        const shell = fs.readFileSync(path.resolve(__dirname, '../../css/sidebar-shell.css'), 'utf8');
+        const blocks = [...shell.matchAll(/@media\s*\(max-width:\s*380px\)\s*\{([\s\S]*?)\n\}/g)].map(m => m[1]);
+        expect(blocks.length).toBeGreaterThan(0);
+        for (const block of blocks) {
+            const text = block.match(/\.bottom-nav-text\s*\{([^}]*)\}/);
+            expect(text ? text[1] : '').not.toMatch(/display\s*:\s*none/);
+        }
+    });
 });
