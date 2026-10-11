@@ -160,8 +160,8 @@ import { ProjectPayrollUIRuntime } from './modules/features/payroll/ProjectPayro
 import { getBalance, getPayrollDeductionOptions } from './modules/features/loans/LoansService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
-import { commitAutoSaveOption, commitAutoSaveSwitch, initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
-import { guardSettingsDraftOnLeave, isSettingsDraftDirty } from './modules/ui/settings/SettingsDraftBar.js';
+import { commitAutoSaveOption, commitAutoSaveSwitch, initSettingsUI, reconcileSettingsDraftBeforeSave, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
+import { guardSettingsDraftOnLeave, guardSettingsDraftBeforeSave, isSettingsDraftDirty } from './modules/ui/settings/SettingsDraftBar.js';
 import { createAppHistory, EXIT_HINT_MS } from './modules/core/AppHistory.js';
 import { TabComponent } from './modules/components/TabComponent.js';
 import './modules/ui/AttendanceHandlers.js';
@@ -6019,6 +6019,7 @@ window.commitIconSet = function (value) {
     saveApplicationData();
 };
 window.saveSettings = function () {
+    reconcileSettingsDraftBeforeSave();
     const projectsEnabled = isProjectsEnabled();
     const projectView = projectsEnabled ? payrollUIRuntime.getCurrentView() : null;
     const projectSettings = projectsEnabled
@@ -6028,6 +6029,13 @@ window.saveSettings = function () {
         showNotification(`❌ Payroll config unavailable for project "${projectView.projectId}"`, 'error');
         return;
     }
+    if (guardSettingsDraftBeforeSave({
+        onProceed: () => window.saveSettings(),
+        getRevision: () => JSON.stringify([
+            state.settings.localUpdatedAt, state.settings.updatedAt,
+            projectsEnabled ? payrollUIRuntime.getCurrentView().config?.updatedAt : null
+        ])
+    }).blocked) return;
     // Leer valores del formulario
     const companyNameElement = document.getElementById('companyName');
     const companyName = companyNameElement ? companyNameElement.value.trim() : state.settings.companyName;
@@ -6041,11 +6049,11 @@ window.saveSettings = function () {
     const holidayFactorElement = document.getElementById('holidayFactor');
     const holidayFactor = holidayFactorElement ? parseFloat(holidayFactorElement.value) : projectSettings.holidayFactor;
     const restDayFactorElement = document.getElementById('restDayFactor');
-    const restDayFactor = restDayFactorElement ? parseFloat(restDayFactorElement.value) : (state.settings.restDayFactor || 1.5);
+    const restDayFactor = restDayFactorElement ? parseFloat(restDayFactorElement.value) : (state.settings.restDayFactor ?? 1.5);
 
     // ⚡ Leer configuración de nómina
     const defaultDeductionPercentageElement = document.getElementById('defaultDeductionPercentage');
-    const defaultDeductionPercentage = defaultDeductionPercentageElement ? (parseFloat(defaultDeductionPercentageElement.value) || 2) : (projectSettings.defaultDeductionPercentage || 2);
+    const defaultDeductionPercentage = defaultDeductionPercentageElement ? parseFloat(defaultDeductionPercentageElement.value) : (projectSettings.defaultDeductionPercentage ?? 2);
     // iconSet NO se lee del DOM: es un control auto-commit (window.commitIconSet).
 
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
@@ -6075,27 +6083,27 @@ window.saveSettings = function () {
         return;
     }
 
-    if (regularHoursPerDay < 1 || regularHoursPerDay > 24) {
+    if (!Number.isFinite(regularHoursPerDay) || regularHoursPerDay < 1 || regularHoursPerDay > 24) {
         showNotification('❌ Las horas regulares deben estar entre 1 y 24', 'error');
         return;
     }
 
-    if (overtimeFactor < 1 || overtimeFactor > 5) {
+    if (!Number.isFinite(overtimeFactor) || overtimeFactor < 1 || overtimeFactor > 5) {
         showNotification('❌ El factor de horas extras debe estar entre 1 y 5', 'error');
         return;
     }
 
-    if (holidayFactor < 1 || holidayFactor > 5) {
+    if (!Number.isFinite(holidayFactor) || holidayFactor < 1 || holidayFactor > 5) {
         showNotification('❌ El factor festivo debe estar entre 1 y 5', 'error');
         return;
     }
 
-    if (restDayFactor < 1 || restDayFactor > 5) {
+    if (!Number.isFinite(restDayFactor) || restDayFactor < 1 || restDayFactor > 5) {
         showNotification('❌ El factor de día no laborable debe estar entre 1 y 5', 'error');
         return;
     }
 
-    if (defaultDeductionPercentage < 0 || defaultDeductionPercentage > 100) {
+    if (!Number.isFinite(defaultDeductionPercentage) || defaultDeductionPercentage < 0 || defaultDeductionPercentage > 100) {
         showNotification('❌ El porcentaje de deducción debe estar entre 0 y 100', 'error');
         return;
     }
@@ -6122,6 +6130,16 @@ window.saveSettings = function () {
     }
 
     // Guardar configuración
+    // Keep the draft's live values in the same canonical form we commit.
+    // Otherwise trimming text or normalizing "9.00" to 9 looks like a remote conflict.
+    for (const [element, value] of [
+        [companyNameElement, companyName], [regularHoursPerDayElement, regularHoursPerDay],
+        [overtimeFactorElement, overtimeFactor], [holidayFactorElement, holidayFactor],
+        [restDayFactorElement, restDayFactor], [defaultDeductionPercentageElement, defaultDeductionPercentage],
+        [weatherApiKeyElement, weatherApiKey], [weatherLocationInputElement, weatherLocationRaw]
+    ]) {
+        if (element) element.value = String(value);
+    }
     const scopedConfigSave = projectsEnabled
         ? payrollUIRuntime.updateConfig(config => ({
             ...config,

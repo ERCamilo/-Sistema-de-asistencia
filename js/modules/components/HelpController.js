@@ -13,6 +13,13 @@
 const VALID_MODES = ['off', 'first-time', 'always'];
 const DEFAULT_MODE = 'first-time';
 
+// Read preferences saved by older versions of the Settings select.
+export function normalizeHelpMode(mode) {
+    if (mode === 'once') return 'first-time';
+    if (mode === 'hidden') return 'off';
+    return VALID_MODES.includes(mode) ? mode : DEFAULT_MODE;
+}
+
 export class HelpController {
     /**
      * @param {Object} options
@@ -31,7 +38,7 @@ export class HelpController {
      */
     getMode() {
         const mode = this._getSettings().helpMode;
-        return VALID_MODES.includes(mode) ? mode : DEFAULT_MODE;
+        return normalizeHelpMode(mode);
     }
 
     /**

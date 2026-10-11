@@ -14,14 +14,12 @@
  * `defaultValue` (y la opción `defaultSelected` en selects). El formulario se
  * renderiza desde state, así que los defaults del DOM SON la línea de base:
  *   - un revert manual vuelve a "limpio" solo (no es un flag pegajoso),
- *   - cualquier re-render reconstruye los defaults y resetea la base,
+ *   - los defaults siguen los valores guardados tras cada render,
  *   - campos ausentes (otra pestaña activa) simplemente no participan.
  *
- * Limitación conocida: un re-render de fondo (p.ej. sync entrante de otro
- * dispositivo) reconstruye el formulario desde state y PISA el draft tipeado
- * — eso ya pasaba antes de esta barra (los drafts viven solo en el DOM). La
- * barra al menos deja de mentir: al reconstruirse el DOM queda limpio y se
- * oculta en el próximo refresh.
+ * RenderManager captura los campos editados antes de parchear el DOM y los
+ * restaura después. Un cambio externo del mismo campo conserva el borrador
+ * y exige una decisión explícita antes de guardarlo.
  *
  * window.render() NUNCA es síncrono: agenda el trabajo real vía
  * renderOptimizer.scheduleRender (requestAnimationFrame) y RenderManager
@@ -65,6 +63,7 @@ export const SETTINGS_DRAFT_FIELD_IDS = [
  * @returns {boolean}
  */
 export function isSettingsDraftDirty(doc = document) {
+    if (heldFields.size) return true;
     for (const id of SETTINGS_DRAFT_FIELD_IDS) {
         const el = doc.getElementById(id);
         if (!el) continue;
@@ -84,6 +83,110 @@ export function isSettingsDraftDirty(doc = document) {
     return false;
 }
 
+// Transient UI metadata only: never persisted or synchronized.
+const conflicts = new Map();
+const heldFields = new Map();
+let scopeConflict = false;
+
+function fieldValue(el, baseline = false) {
+    if (el.type === 'checkbox') return baseline ? el.defaultChecked : el.checked;
+    if (el.tagName === 'SELECT' && baseline) {
+        return Array.from(el.options).find(option => option.defaultSelected)?.value ?? el.options[0]?.value ?? '';
+    }
+    return baseline ? el.defaultValue : el.value;
+}
+
+function writeFieldValue(el, value) {
+    if (el.type === 'checkbox') el.checked = value;
+    else el.value = value;
+}
+
+function pruneConflicts(doc) {
+    for (const id of conflicts.keys()) {
+        const el = doc.getElementById(id);
+        if ((!el && !heldFields.has(id)) || (el && fieldValue(el) === fieldValue(el, true))) conflicts.delete(id);
+    }
+}
+
+export function captureSettingsDraft(doc = document) {
+    const screen = doc.getElementById('settings-screen');
+    if (!screen) return null;
+    const fields = SETTINGS_DRAFT_FIELD_IDS.flatMap(id => {
+        const el = doc.getElementById(id);
+        if (!el || fieldValue(el) === fieldValue(el, true)) return [];
+        return [{ id, value: fieldValue(el), base: fieldValue(el, true) }];
+    });
+    for (const field of heldFields.values()) {
+        if (!doc.getElementById(field.id)) fields.push(field);
+    }
+    const active = doc.activeElement;
+    return { scope: screen.dataset.settingsDraftScope, tab: screen.dataset.settingsDraftTab, fields,
+        focus: fields.some(field => field.id === active?.id)
+            ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null };
+}
+
+export function restoreSettingsDraft(snapshot, doc = document) {
+    const screen = doc.getElementById('settings-screen');
+    if (!snapshot || !screen || screen.dataset.settingsDraftTab !== snapshot.tab) {
+        conflicts.clear();
+        heldFields.clear();
+        scopeConflict = false;
+        return;
+    }
+    if (snapshot.fields.length && screen.dataset.settingsDraftScope !== snapshot.scope) scopeConflict = true;
+    for (const field of snapshot.fields) {
+        const el = doc.getElementById(field.id);
+        // Project configuration may briefly replace the form with a loading panel.
+        if (!el) { heldFields.set(field.id, field); continue; }
+        heldFields.delete(field.id);
+        const remote = fieldValue(el, true);
+        if (remote !== field.base && remote !== field.value) conflicts.set(field.id, remote);
+        writeFieldValue(el, field.value);
+    }
+    pruneConflicts(doc);
+    if (snapshot.focus) {
+        const el = doc.getElementById(snapshot.focus.id);
+        if (el) {
+            if (doc.activeElement !== el) el.focus({ preventScroll: true });
+            if (snapshot.focus.start !== null && el.setSelectionRange) el.setSelectionRange(snapshot.focus.start, snapshot.focus.end);
+        }
+    }
+}
+
+/** A conflict is never silently saved. Re-check after an asynchronous dialog. */
+export function guardSettingsDraftBeforeSave({ doc = document, showConfirm, onProceed, getRevision = () => '' } = {}) {
+    pruneConflicts(doc);
+    if (scopeConflict) {
+        window.showNotification?.('Cambió el proyecto. Descarta el borrador antes de guardar.', 'warning');
+        return { blocked: true };
+    }
+    if (!conflicts.size) return { blocked: false };
+    const ask = showConfirm || window.showConfirm;
+    if (typeof ask !== 'function') {
+        window.showNotification?.('Hay cambios de otro dispositivo. Descarta el borrador o resuelve el conflicto antes de guardar.', 'warning');
+        return { blocked: true };
+    }
+    const signature = () => {
+        const draft = captureSettingsDraft(doc);
+        return JSON.stringify([getRevision(), draft?.scope, draft?.tab, draft?.fields, [...conflicts]]);
+    };
+    const before = signature();
+    ask({
+        title: 'Ajustes modificados en otro dispositivo',
+        message: 'Tu borrador se conserva. Guardarlo reemplazará los valores nuevos de los campos que editaste. Puedes cancelar y pulsar Descartar para usar los valores actuales.',
+        confirmText: 'Guardar mi borrador', cancelText: 'Seguir revisando', type: 'warning',
+        onConfirm: () => {
+            if (signature() !== before) {
+                window.showNotification?.('Los ajustes cambiaron mientras confirmabas. Revisa los cambios y vuelve a guardar.', 'warning');
+                return;
+            }
+            conflicts.clear();
+            onProceed?.();
+        }
+    });
+    return { blocked: true };
+}
+
 function _ensureBar(doc) {
     let bar = doc.getElementById(SETTINGS_DRAFT_BAR_ID);
     if (bar) return bar;
@@ -91,23 +194,8 @@ function _ensureBar(doc) {
     bar = doc.createElement('div');
     bar.id = SETTINGS_DRAFT_BAR_ID;
     bar.setAttribute('role', 'status');
-    bar.style.cssText = [
-        'position: fixed',
-        'left: 50%',
-        'bottom: 16px',
-        'transform: translateX(-50%)',
-        'z-index: 1200',
-        'align-items: center',
-        'gap: 12px',
-        'padding: 10px 16px',
-        'border-radius: 10px',
-        'background: #1e293b',
-        'border: 1px solid #334155',
-        'box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35)',
-        'max-width: calc(100vw - 32px)'
-    ].join('; ');
     bar.innerHTML = `
-        <span style="color: #e2e8f0; font-size: 0.85rem; white-space: nowrap;">
+        <span data-settings-draft-message>
             Hay cambios sin guardar
         </span>
         <button type="button" class="btn btn-primary" data-settings-action="save-settings"
@@ -132,8 +220,15 @@ function _ensureBar(doc) {
 export function refreshSettingsDraftBar(doc = document) {
     const bar = _ensureBar(doc);
     const dirty = isSettingsDraftDirty(doc);
-    bar.hidden = !dirty;
-    bar.style.display = dirty ? 'flex' : 'none';
+    pruneConflicts(doc);
+    const visible = dirty || scopeConflict;
+    bar.hidden = !visible;
+    bar.style.display = visible ? 'flex' : 'none';
+    const message = bar.querySelector('[data-settings-draft-message]');
+    if (message) message.textContent = scopeConflict
+        ? 'Cambió el proyecto. Descarta el borrador para editar el proyecto actual.'
+        : conflicts.size ? 'Estos ajustes cambiaron en otro dispositivo. Tu borrador se conserva.'
+        : 'Hay cambios sin guardar';
     return dirty;
 }
 
@@ -165,6 +260,9 @@ export function hideSettingsDraftBar(doc = document) {
  * @param {Document} [args.doc]
  */
 export function discardSettingsDraft({ doc = document } = {}) {
+    conflicts.clear();
+    heldFields.clear();
+    scopeConflict = false;
     for (const id of SETTINGS_DRAFT_FIELD_IDS) {
         const el = doc.getElementById(id);
         if (!el) continue;
@@ -216,7 +314,7 @@ export function guardSettingsDraftOnLeave({ doc = document, showConfirm, onProce
             // onProceed solo AGENDA la navegación (setTimeout/render async) —
             // no toca el DOM en este mismo tick. Ocultar la barra ya mismo en
             // vez de refrescarla contra el DOM viejo (todavía sin navegar).
-            hideSettingsDraftBar(doc);
+            discardSettingsDraft({ doc });
             onProceed?.();
         }
     });

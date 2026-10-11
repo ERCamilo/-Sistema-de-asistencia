@@ -214,7 +214,7 @@ describe('A4 productive project payroll UI wiring', () => {
         runtime.dispose();
     });
 
-    test('project settings render/save use scoped values without dual-writing global settings', async () => {
+    test('project settings render scoped values and runtime.updateConfig avoids dual-writing global settings', async () => {
         setProjectsEnabled(true);
         replaceEntityScope({ enabled: true, projectId: A, defaultProjectId: DEFAULT });
         const currentState = state();
