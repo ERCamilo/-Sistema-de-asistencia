@@ -167,7 +167,7 @@ describe('BottomNav — navegación', () => {
 describe('BottomNav — interacción', () => {
     let nav; let env; let state;
 
-    const mount = ({ voiceAvailable = true, canCapture = true, setting } = {}) => {
+    const mount = ({ voiceAvailable = true, canCapture = true, setting, inAppCamera = null } = {}) => {
         _resetBottomNavState();
         state = { activeTab: 'attendance', viewMode: 'day', settings: setting ? { navCenterMode: setting } : {} };
         env = makeWin();
@@ -180,7 +180,7 @@ describe('BottomNav — interacción', () => {
         const notify = jest.fn();
         const draw = () => { document.body.innerHTML = renderBottomNav(state, { voiceAvailable, win: env.win }); };
         draw();
-        nav = initBottomNav({ doc: document, win: env.win, getState: () => state, voice, pettyCash: { canCapture: () => canCapture }, notify, refresh: draw });
+        nav = initBottomNav({ doc: document, win: env.win, getState: () => state, voice, pettyCash: { canCapture: () => canCapture, ...(inAppCamera || {}) }, notify, refresh: draw });
         return { voice, notify, draw };
     };
     const $ = sel => document.querySelector(sel);
@@ -359,6 +359,17 @@ describe('BottomNav — interacción', () => {
         Object.defineProperty(input(), 'files', { value: [new File(['x'], 'f.jpg', { type: 'image/jpeg' })], configurable: true });
         input().dispatchEvent(new Event('change'));
         expect(env.calls).toEqual([['changeTab', 'pettycash'], ['pcCameraBatchPhoto', input()]]);
+        click.mockRestore();
+    });
+
+    test('con la cámara nueva activa, Foto de factura va a Caja chica y la abre', () => {
+        const openCamera = jest.fn();
+        mount({ inAppCamera: { useInAppCamera: () => true, openCamera } });
+        const click = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+        $('[data-bnav-capture="photo"]').click();
+        expect(click).not.toHaveBeenCalled();
+        expect(env.calls).toEqual([['changeTab', 'pettycash']]);
+        expect(openCamera).toHaveBeenCalledTimes(1);
         click.mockRestore();
     });
 

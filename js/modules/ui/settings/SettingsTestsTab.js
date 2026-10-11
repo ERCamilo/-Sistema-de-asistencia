@@ -44,6 +44,23 @@ function newBottomNavCard(settings = {}) {
             </section>`;
 }
 
+// Prueba de la cámara de facturas a pantalla completa (PettyCashCamera.js).
+function newReceiptCameraCard(settings = {}) {
+    const on = settings.newReceiptCamera === true;
+    return `
+            <section class="stg-card" aria-labelledby="new-receipt-camera-test-title" style="margin-bottom:20px;">
+                <h3 id="new-receipt-camera-test-title">Cámara de facturas nueva</h3>
+                <label class="stg-switch-row ${on ? 'is-active' : ''}" role="switch" aria-checked="${on}">
+                    <input type="checkbox" id="newReceiptCamera" ${on ? 'checked' : ''}>
+                    <span class="stg-switch-copy">
+                        <strong>Cámara a pantalla completa en Caja chica</strong>
+                        <small>Varias fotos seguidas, con las facturas en una pila junto al disparador y vista previa de cada una. Si el navegador no lo permite, se usa la cámara del teléfono.</small>
+                    </span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
+            </section>`;
+}
+
 export function SettingsTestsTab(context) {
     const state = context?.state || {};
     const splitxActiveUrl = state.settings?.splitxUrl || 'https://splitx.erlin.do';
@@ -51,6 +68,7 @@ export function SettingsTestsTab(context) {
     return `
         <div class="stg-panel">
             ${newBottomNavCard(state.settings)}
+            ${newReceiptCameraCard(state.settings)}
             <section class="stg-card" aria-labelledby="voice-mvp-test-title" style="margin-bottom:20px;">
                 <h3 id="voice-mvp-test-title">Prueba de voz</h3>
                 <label class="stg-switch-row ${state.settings?.voiceMvpEnabled === true ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceMvpEnabled === true}">

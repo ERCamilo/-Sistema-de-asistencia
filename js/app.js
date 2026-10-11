@@ -194,7 +194,7 @@ import { BUILD } from './modules/config/BuildInfo.js';
 import { formatBuild } from './modules/utils/BuildVersion.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
-import { PettyCashTab, registerPettyCashGlobals, canCapturePettyCashReceipt } from './modules/features/pettycash/PettyCashUI.js';
+import { PettyCashTab, registerPettyCashGlobals, canCapturePettyCashReceipt, openReceiptCamera } from './modules/features/pettycash/PettyCashUI.js';
 import { initBottomNav, watchMicPermission } from './modules/ui/navigation/BottomNav.js';
 import { chooseBottomNav } from './modules/ui/navigation/LegacyBottomNav.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
@@ -1285,7 +1285,11 @@ const isMicDenied = watchMicPermission({ onChange: renderIfNewBottomNav });
 initBottomNav({
     getState: () => state,
     voice: voiceMvp,
-    pettyCash: { canCapture: canCapturePettyCashReceipt },
+    pettyCash: {
+        canCapture: canCapturePettyCashReceipt,
+        useInAppCamera: () => state.settings?.newReceiptCamera === true,
+        openCamera: openReceiptCamera
+    },
     notify: (message, type) => window.showNotification?.(message, type),
     refresh: renderIfNewBottomNav
 });

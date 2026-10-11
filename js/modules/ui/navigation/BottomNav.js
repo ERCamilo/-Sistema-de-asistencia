@@ -357,6 +357,12 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
             notify('Abre o elige un periodo de caja chica para agregar facturas.', 'info');
             return;
         }
+        // Cámara a pantalla completa (prueba en Configuración → Tests).
+        if (pettyCash.useInAppCamera?.()) {
+            if (state().activeTab !== 'pettycash') navigateToItem('pettycash', { win, state: state() });
+            pettyCash.openCamera?.();
+            return;
+        }
         if (!photoInput) {
             photoInput = doc.createElement('input');
             photoInput.type = 'file';
