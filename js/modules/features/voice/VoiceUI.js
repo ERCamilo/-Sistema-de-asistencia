@@ -165,6 +165,7 @@ export class VoiceMvpUI {
         if (!this.record?.audio || this.record.discarded || this.record.completedLoanId) this.record = this.history.find(r => r.audio && !r.completedLoanId && r.purpose !== 'name-example') || null;
         this.view = this.record?.result ? (this.record.selectedEmployeeId ? 'loan' : 'employees') : 'audio';
         await this.prepareLoadedLoan(); await this.refreshMatches(); this.render(); this.dialog.showModal();
+        if (this.record?.result?.intent === 'registrar_gasto_caja_chica' && !this.record.pendingResult) await this.routeResult();
     }
     close({ discard = false } = {}) {
         if (discard && this.record && !this.record.completedLoanId) { const record = this.record; record.discarded = true; if (this.processingRecord === record) this.processingController?.abort(); this.store.remove?.(record.uid, record.requestId).catch(() => this.adapter.notify?.('No se pudo eliminar el audio descartado.', 'warning')); }
@@ -241,6 +242,18 @@ export class VoiceMvpUI {
     async routeResult() {
         if (!this.record?.result || this.record.pendingResult) return;
         if (voiceBlocked(this.record.result)) { this.view = 'audio'; return; }
+        if (this.record.result.intent === 'registrar_gasto_caja_chica') {
+            if (!this.adapter.onPettyCash) throw Error('Esta versión no tiene el formulario de Caja Chica por voz.');
+            const record = this.record;
+            this.close();
+            await this.adapter.onPettyCash(record, {
+                guard: () => this.guard(record),
+                save: async () => { this.guard(record); await this.store.put(record); },
+                back: () => { this.guard(record); this.view = 'audio'; this.render(); this.dialog.showModal(); },
+                remove: async () => { await this.store.remove(record.uid, record.requestId); if (this.record === record) this.record = null; }
+            });
+            return;
+        }
         if (!this.selected()) {
             const exact = this.matches.filter(m => m.score >= 1);
             // Conflicting name/number must be resolved by the user, even when the number is exact.
@@ -267,6 +280,9 @@ export class VoiceMvpUI {
     async save() { this.guard(); await this.store.put(this.record); }
     async refreshMatches() {
         const identity = this.identity();
+        if (this.record?.result?.intent === 'registrar_gasto_caja_chica') {
+            this.employeeAliases = []; this.matches = []; return;
+        }
         const aliases = await this.store.aliases(identity.uid, identity.projectKey);
         this.employeeAliases = aliases;
         this.matches = resolveVoiceEmployees(this.record?.mention || {}, this.adapter.getEmployees(), aliases);
@@ -285,6 +301,7 @@ export class VoiceMvpUI {
         this.record.loanDefaultsVersion = 1; await this.save();
     }
     applyResult(result, record = this.record) {
+        record.cashDraft = null;
         record.result = result; record.mention = { ...result.employee }; record.transcript = result.transcript;
         record.draft = result.loan ? completeVoiceLoanDraft(result.loan, this.adapter.getLoanDefaults?.(null)) : null;
         record.rateDefault = result.loan?.interestRate === null;

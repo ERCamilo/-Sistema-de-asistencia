@@ -158,6 +158,11 @@ export const PettyCashStore = {
             });
             console.warn('pc save local:', e);
         }
+        // A voice draft needs durable local confirmation before any remote queue.
+        if (opts.requireLocal && !localOk) {
+            if (opts.announce) saveOutcomeNotifier.recordLocalResult({ localOk: false, cloudExpected: !!auth?.currentUser, label: opts.announce });
+            return { localOk: false };
+        }
         try {
             await indexedDBService.update(OUTBOX, {
                 op: 'save', col, id: item.id, data: item, source,
@@ -186,6 +191,7 @@ export const PettyCashStore = {
         }
         this.flush();
         this.flushMirror();
+        return { localOk };
     },
 
     /** Borra un item: local + encola delete + intenta flush.

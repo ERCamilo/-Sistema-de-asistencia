@@ -194,7 +194,13 @@ import { BUILD } from './modules/config/BuildInfo.js';
 import { formatBuild } from './modules/utils/BuildVersion.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
-import { PettyCashTab, registerPettyCashGlobals, canCapturePettyCashReceipt, openReceiptCamera } from './modules/features/pettycash/PettyCashUI.js';
+import {
+    PettyCashTab, registerPettyCashGlobals, canCapturePettyCashReceipt,
+    openReceiptCamera, pettyCashVoiceContext, prepareReceiptCapture,
+    scanPettyCashDraftReceipt, savePettyCashMovementDraft,
+    openPettyCashVoiceMovement, discardPettyCashVoiceDraft
+} from './modules/features/pettycash/PettyCashUI.js';
+import { VoicePettyCashUI } from './modules/features/voice/VoicePettyCashUI.js';
 import { initBottomNav, watchMicPermission } from './modules/ui/navigation/BottomNav.js';
 import { chooseBottomNav } from './modules/ui/navigation/LegacyBottomNav.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
@@ -1217,7 +1223,9 @@ SyncUI.initSyncUI(moduleContext);
 
 // Device-local voice MVP. Transports audio only; confirmed loans use the
 // same registration path as the current account form.
+let voicePettyCash;
 const voiceMvp = new VoiceMvpUI({
+    onPettyCash: (record, bridge) => voicePettyCash.open(record, bridge),
     getUser: () => auth.currentUser,
     isEnabled: () => state.settings?.voiceMvpEnabled === true,
     subscribeEnabled: callback => eventBus.on('render:complete', callback),
@@ -1272,6 +1280,19 @@ const voiceMvp = new VoiceMvpUI({
     }
 }).mount();
 new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.endpoint() }, { store: voiceMvp.store }).mount();
+voicePettyCash = new VoicePettyCashUI({
+    ...voiceMvp.adapter,
+    getContext: pettyCashVoiceContext,
+    preparePhoto: prepareReceiptCapture,
+    scan: scanPettyCashDraftReceipt,
+    discard: discardPettyCashVoiceDraft,
+    save: (draft, context) => savePettyCashMovementDraft(draft, {
+        amount: draft.amount, date: draft.date,
+        description: [draft.concept, draft.note ? `Nota: ${draft.note}` : ''].filter(Boolean).join('\n'),
+        paidTo: draft.paidTo, category: draft.category, hasReceipt: draft.hasReceipt
+    }, { periodId: draft.periodId, voiceRequestId: context.requestId, canProceed: context.guard }),
+    onSaved: openPettyCashVoiceMovement
+}).mount();
 
 window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
 window.openVoiceAudioStorage = () => voiceMvp.run(() => voiceMvp.openStorage());
