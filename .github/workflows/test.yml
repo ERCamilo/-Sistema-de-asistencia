@@ -34,7 +34,12 @@ jobs:
         run: npm run lint:state
 
       - name: Run tests
-        run: npm test
+        run: npm test -- --json --outputFile="$RUNNER_TEMP/jest-results.json"
+
+      # Preserve Jest's exit status; expose failures via annotations/summary too.
+      - name: Report test failures
+        if: always()
+        run: node scripts/report-jest-results.cjs "$RUNNER_TEMP/jest-results.json"
 
       # Same command Cloudflare Pages runs to publish dist/: a bundle that
       # fails to build must fail here, on the PR, not in the deploy.
@@ -47,3 +52,8 @@ jobs:
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: npm run test:settings-layout
+
+      - name: Photo viewer recovery in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: npm run test:photo-viewer
