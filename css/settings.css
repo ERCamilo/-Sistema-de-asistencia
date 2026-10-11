@@ -106,6 +106,30 @@
 .stg-status-cell .stg-value.danger  { color: var(--stg-danger); }
 .stg-status-cell .stg-value.accent  { color: var(--stg-accent); }
 
+.stg-diagnostic-detail {
+    font-size: 0.7rem;
+    color: var(--stg-text-muted);
+    margin-top: 5px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+[data-settings-sync-card] .stg-value {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.stg-diagnostic-refresh {
+    margin-top: 8px;
+    padding: 5px 8px;
+    border: 1px solid var(--stg-border-card);
+    border-radius: 6px;
+    background: var(--stg-card-bg);
+    color: var(--stg-text-primary);
+    font-size: 0.7rem;
+    cursor: pointer;
+}
+
 /* ─── Subcard interna ─── */
 .stg-card {
     background: var(--stg-card-bg);

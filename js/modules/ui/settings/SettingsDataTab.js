@@ -6,6 +6,7 @@ import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { DateUtils } from '../../utils/DateUtils.js';
 import { getReasonInfo } from '../../services/SnapshotReasons.js';
 import { renderProjectReconciliationSettingsAction } from '../../features/projects/ProjectReconciliationUI.js';
+import { StorageRecords } from './SettingsDiagnostics.js';
 
 export function SettingsDataTab(context) {
     const state = context.state;
@@ -143,7 +144,7 @@ export function SettingsDataTab(context) {
                                             </div>
                                         </label>
                                     </div>
-                                    <div id="indexeddb-stats" style="font-size: 0.7rem; color: #64748b; line-height: 1.5;">${state.useIndexedDB ? 'Cargando estadísticas...' : 'Usando LocalStorage (límite 5MB)'}</div>
+                                    ${StorageRecords(state.useIndexedDB)}
                                 </div>
 
                                 <!-- Backups Manuales -->
