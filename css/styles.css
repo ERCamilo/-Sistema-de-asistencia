@@ -2108,6 +2108,7 @@
         .employee-photo-viewer__loading {
             color: #cbd5e1;
             font-weight: 700;
+            padding: 24px;
         }
 
         .employee-photo-viewer__image {
@@ -2117,6 +2118,8 @@
             object-fit: contain;
         }
 
+        .employee-photo-viewer [hidden] { display: none; }
+
         .employee-photo-viewer__status {
             position: absolute;
             right: 16px;
@@ -2125,6 +2128,31 @@
             color: #e2e8f0;
             text-align: center;
             text-shadow: 0 1px 3px #020617;
+        }
+
+        .employee-photo-viewer--unavailable .employee-photo-viewer__status {
+            bottom: 126px;
+            padding: 10px;
+            border-radius: 8px;
+            background: rgba(2, 6, 23, 0.92);
+        }
+
+        .employee-photo-viewer__retry {
+            position: absolute;
+            bottom: 76px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 9px 18px;
+            border: 1px solid #22d3ee;
+            border-radius: 8px;
+            background: #164e63;
+            color: #f8fafc;
+            cursor: pointer;
+        }
+
+        .employee-photo-viewer__retry:disabled {
+            opacity: 0.6;
+            cursor: wait;
         }
 
         .employee-photo-viewer__actions {

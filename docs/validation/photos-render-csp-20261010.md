@@ -62,8 +62,9 @@ verificar el alojamiento y una instalación existente después del despliegue.
   como v2. Reproducida tanto en HEAD como en esta entrega; requiere aislar las
   descargas por revisión y descartar resultados obsoletos. Corregida en la
   [entrega de estabilidad de fotos](photo-update-stability-20261010.md).
-- El visor se cierra sin explicación si no consigue el original. Conserva la
-  miniatura para reintentar; un mensaje breve sería una mejora posterior.
+- El cierre del visor sin explicación al faltar el original se resuelve en la
+  [entrega de recuperación del visor](ci-photo-viewer-recovery-20261011.md),
+  que conserva el diálogo y permite reintentar.
 - Medir con carteras grandes antes de ampliar las optimizaciones. Algunos
   callbacks anónimos de PayrollUI pueden solicitar un frame adicional; la
   detección de batches vacíos también queda fuera de esta entrega.

@@ -59,6 +59,7 @@ class FakeDataChannel {
     }
     send(data) {
         this.sent.push(data);
+        this.onSent?.(JSON.parse(data));
     }
     receiveMessage(data) {
         const event = { data: typeof data === 'string' ? data : JSON.stringify(data) };
@@ -111,9 +112,13 @@ function makeMockP2PEnvironment({
     peerName = 'Mini Obra 1',
     authSucceeds = true,
     autoRespond = true,
-    responsePayload = null
+    responsePayload = null,
+    channelDelayMs = 0
 } = {}) {
     const channel = new FakeDataChannel();
+    let ready;
+    const channelReady = new Promise(resolve => { ready = resolve; });
+    const requestSent = new Promise(resolve => { channel.onSent = resolve; });
     let sessionClosed = false;
     let sessionCloseReason = null;
 
@@ -173,7 +178,8 @@ function makeMockP2PEnvironment({
         createRtcSession: jest.fn().mockImplementation(async ({ onChannel }) => {
             setTimeout(() => {
                 onChannel?.(channel);
-            }, 0);
+                ready();
+            }, channelDelayMs);
             return {
                 channel,
                 close: jest.fn((reason) => {
@@ -227,6 +233,8 @@ function makeMockP2PEnvironment({
 
     return {
         channel,
+        channelReady,
+        requestSent,
         identityStore,
         p2pCore,
         p2pPairing,
@@ -459,50 +467,62 @@ describe('P2PAttendanceBridge — Request & Response Validation', () => {
 });
 
 describe('P2PAttendanceBridge — Trusted Connection, Timeout & Session Cleanup', () => {
-    test('does not send request after local auth until Mini announces attendance-ready', async () => {
-        const env = makeMockP2PEnvironment({ autoRespond: false });
-        env.p2pPairing.attachTrusted = jest.fn().mockImplementation((channel, { onAuthenticated }) => {
-            onAuthenticated();
-            return { detach: jest.fn() };
-        });
-        const pending = requestAttendanceFromPeer({
-            peerId: 'peer-mini-1', saProjectId: SA_PROJECT,
-            fromDate: '2026-09-06', toDate: '2026-09-06', timeoutMs: 250,
-            identityStore: env.identityStore, p2pCore: env.p2pCore, p2pPairing: env.p2pPairing
-        });
-        await new Promise(r => setTimeout(r, 15));
-        expect(env.channel.sent).toHaveLength(0);
-        env.channel.receiveMessage({ schema: ATTENDANCE_READY_SCHEMA });
-        await new Promise(r => setTimeout(r, 0));
-        expect(env.channel.sent).toHaveLength(1);
-        const req = JSON.parse(env.channel.sent[0]);
-        env.channel.receiveMessage({
-            schema: ATTENDANCE_RESPONSE_SCHEMA, requestId: req.requestId, saProjectId: req.saProjectId,
-            ok: true, fromDate: req.fromDate, toDate: req.toDate, submissions: []
-        });
-        await expect(pending).resolves.toMatchObject({ peerId: 'peer-mini-1' });
+    test.each([0, 40])('does not send request before attendance-ready, including a %i ms channel delay', async channelDelayMs => {
+        jest.useFakeTimers();
+        try {
+            const env = makeMockP2PEnvironment({ autoRespond: false, channelDelayMs });
+            env.p2pPairing.attachTrusted = jest.fn().mockImplementation((channel, { onAuthenticated }) => {
+                onAuthenticated();
+                return { detach: jest.fn() };
+            });
+            const pending = requestAttendanceFromPeer({
+                peerId: 'peer-mini-1', saProjectId: SA_PROJECT,
+                fromDate: '2026-09-06', toDate: '2026-09-06', timeoutMs: 250,
+                identityStore: env.identityStore, p2pCore: env.p2pCore, p2pPairing: env.p2pPairing
+            });
+            await jest.advanceTimersByTimeAsync(channelDelayMs + 1);
+            await env.channelReady;
+            expect(env.channel.sent).toHaveLength(0);
+            env.channel.receiveMessage({ schema: ATTENDANCE_READY_SCHEMA });
+            await env.requestSent;
+            expect(env.channel.sent).toHaveLength(1);
+            const req = JSON.parse(env.channel.sent[0]);
+            env.channel.receiveMessage({
+                schema: ATTENDANCE_RESPONSE_SCHEMA, requestId: req.requestId, saProjectId: req.saProjectId,
+                ok: true, fromDate: req.fromDate, toDate: req.toDate, submissions: []
+            });
+            await expect(pending).resolves.toMatchObject({ peerId: 'peer-mini-1' });
+        } finally { jest.useRealTimers(); }
     });
 
-    test('retains an early attendance-ready frame that arrives before local auth completes', async () => {
-        const env = makeMockP2PEnvironment({ autoRespond: false });
-        env.p2pPairing.attachTrusted = jest.fn().mockImplementation((channel, { onAuthenticated }) => {
-            channel.receiveMessage({ schema: ATTENDANCE_READY_SCHEMA });
-            setTimeout(onAuthenticated, 10);
-            return { detach: jest.fn() };
-        });
-        const pending = requestAttendanceFromPeer({
-            peerId: 'peer-mini-1', saProjectId: SA_PROJECT,
-            fromDate: '2026-09-06', toDate: '2026-09-06', timeoutMs: 250,
-            identityStore: env.identityStore, p2pCore: env.p2pCore, p2pPairing: env.p2pPairing
-        });
-        await new Promise(r => setTimeout(r, 25));
-        expect(env.channel.sent).toHaveLength(1);
-        const req = JSON.parse(env.channel.sent[0]);
-        env.channel.receiveMessage({
-            schema: ATTENDANCE_RESPONSE_SCHEMA, requestId: req.requestId, saProjectId: req.saProjectId,
-            ok: true, fromDate: req.fromDate, toDate: req.toDate, submissions: []
-        });
-        await expect(pending).resolves.toMatchObject({ peerId: 'peer-mini-1' });
+    test.each([0, 40])('retains early attendance-ready before local auth, with a %i ms channel delay', async channelDelayMs => {
+        jest.useFakeTimers();
+        try {
+            const env = makeMockP2PEnvironment({ autoRespond: false, channelDelayMs });
+            let authenticate;
+            env.p2pPairing.attachTrusted = jest.fn().mockImplementation((channel, { onAuthenticated }) => {
+                channel.receiveMessage({ schema: ATTENDANCE_READY_SCHEMA });
+                authenticate = onAuthenticated;
+                return { detach: jest.fn() };
+            });
+            const pending = requestAttendanceFromPeer({
+                peerId: 'peer-mini-1', saProjectId: SA_PROJECT,
+                fromDate: '2026-09-06', toDate: '2026-09-06', timeoutMs: 250,
+                identityStore: env.identityStore, p2pCore: env.p2pCore, p2pPairing: env.p2pPairing
+            });
+            await jest.advanceTimersByTimeAsync(channelDelayMs + 1);
+            await env.channelReady;
+            expect(env.channel.sent).toHaveLength(0);
+            authenticate();
+            await env.requestSent;
+            expect(env.channel.sent).toHaveLength(1);
+            const req = JSON.parse(env.channel.sent[0]);
+            env.channel.receiveMessage({
+                schema: ATTENDANCE_RESPONSE_SCHEMA, requestId: req.requestId, saProjectId: req.saProjectId,
+                ok: true, fromDate: req.fromDate, toDate: req.toDate, submissions: []
+            });
+            await expect(pending).resolves.toMatchObject({ peerId: 'peer-mini-1' });
+        } finally { jest.useRealTimers(); }
     });
 
     test('sends attendance request only after channel authentication', async () => {
@@ -536,16 +556,11 @@ describe('P2PAttendanceBridge — Trusted Connection, Timeout & Session Cleanup'
     test('closes the RTC session even when response settles before createRtcSession promise resolves', async () => {
         const env = makeMockP2PEnvironment({ autoRespond: false });
         let closed = false;
+        let resolveSession;
+        const lateSession = new Promise(resolve => { resolveSession = resolve; });
         env.p2pCore.createRtcSession = jest.fn().mockImplementation(({ onChannel }) => {
             onChannel(env.channel);
-            return new Promise(resolve => {
-                setTimeout(() => resolve({
-                    close: jest.fn(() => {
-                        closed = true;
-                        env.channel.close();
-                    })
-                }), 30);
-            });
+            return lateSession;
         });
         env.p2pPairing.attachTrusted = jest.fn().mockImplementation((channel, { onAuthenticated }) => {
             onAuthenticated();
@@ -563,7 +578,7 @@ describe('P2PAttendanceBridge — Trusted Connection, Timeout & Session Cleanup'
             return { detach: jest.fn() };
         });
 
-        const result = await requestAttendanceFromPeer({
+        const pending = requestAttendanceFromPeer({
             peerId: 'peer-mini-1',
             saProjectId: SA_PROJECT,
             fromDate: '2026-09-06',
@@ -574,26 +589,35 @@ describe('P2PAttendanceBridge — Trusted Connection, Timeout & Session Cleanup'
             p2pPairing: env.p2pPairing
         });
 
+        await env.requestSent;
+        expect(closed).toBe(false);
+        resolveSession({ close: jest.fn(() => { closed = true; env.channel.close(); }) });
+        const result = await pending;
         expect(result.submissions).toEqual([]);
         expect(closed).toBe(true);
     });
 
     test('times out and fails closed if peer does not respond in time', async () => {
-        const env = makeMockP2PEnvironment({ autoRespond: false });
+        jest.useFakeTimers();
+        try {
+            const env = makeMockP2PEnvironment({ autoRespond: false });
 
-        await expect(requestAttendanceFromPeer({
-            peerId: 'peer-mini-1',
-            saProjectId: SA_PROJECT,
-            fromDate: '2026-09-06',
-            toDate: '2026-09-06',
-            timeoutMs: 50,
-            identityStore: env.identityStore,
-            p2pCore: env.p2pCore,
-            p2pPairing: env.p2pPairing
-        })).rejects.toThrow(/timeout/);
+            const assertion = expect(requestAttendanceFromPeer({
+                peerId: 'peer-mini-1',
+                saProjectId: SA_PROJECT,
+                fromDate: '2026-09-06',
+                toDate: '2026-09-06',
+                timeoutMs: 50,
+                identityStore: env.identityStore,
+                p2pCore: env.p2pCore,
+                p2pPairing: env.p2pPairing
+            })).rejects.toThrow(/timeout/);
+            await jest.advanceTimersByTimeAsync(51);
+            await assertion;
 
-        // Ensure session closed fail-closed
-        expect(env.isSessionClosed()).toBe(true);
+            // Ensure session closed fail-closed
+            expect(env.isSessionClosed()).toBe(true);
+        } finally { jest.useRealTimers(); }
     });
 
     test('ignores unrelated control / roster traffic frames and resolves only on attendance-response/v1', async () => {
@@ -610,7 +634,7 @@ describe('P2PAttendanceBridge — Trusted Connection, Timeout & Session Cleanup'
         });
 
         // Wait for channel to be ready and send request
-        await new Promise(r => setTimeout(r, 10));
+        await env.requestSent;
         expect(env.channel.sent.length).toBe(1);
         const req = JSON.parse(env.channel.sent[0]);
 
@@ -954,6 +978,7 @@ describe('MiniAttendanceImportModal — Connected Mode Async Behavior', () => {
             onRequestSubmissions: onRequestSpy
         });
         modal.mount(host);
+        const fetch = jest.spyOn(modal, 'handleFetchConnected');
 
         const fetchBtn = host.querySelector('[data-mini-action="fetch-connected"]');
         expect(fetchBtn).not.toBeNull();
@@ -983,7 +1008,7 @@ describe('MiniAttendanceImportModal — Connected Mode Async Behavior', () => {
             duplicateCount: 0,
             message: '✓ Asistencia recibida (1 importados)'
         });
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await fetch.mock.results[0].value;
 
         // After completion: success status, drafts refreshed, isFetching cleared
         expect(modal.isFetchingConnected).toBe(false);
@@ -1002,11 +1027,12 @@ describe('MiniAttendanceImportModal — Connected Mode Async Behavior', () => {
             onRequestSubmissions: onRequestSpy
         });
         modal.mount(host);
+        const fetch = jest.spyOn(modal, 'handleFetchConnected');
 
         const fetchBtn = host.querySelector('[data-mini-action="fetch-connected"]');
         fetchBtn.click();
 
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await fetch.mock.results[0].value;
 
         expect(modal.isFetchingConnected).toBe(false);
         expect(modal.transportStatusMessage).toContain('Error: Conexión P2P rechazada por Mini');
