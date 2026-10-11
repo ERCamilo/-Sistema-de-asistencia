@@ -1,5 +1,8 @@
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 const paths = {
+    receipt: '<path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3Zm3 5h8M8 12h6"/>',
+    building: '<rect x="4" y="3" width="12" height="18" rx="1"/><path d="M16 10h4v11H4M8 7h4m-4 4h4m-4 4h4m-2 6v-3"/>',
+    camera: '<path d="M8 5 10 3h4l2 2h4v15H4V5h4Z"/><circle cx="12" cy="12" r="4"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
     play: '<path d="m8 5 11 7-11 7Z" fill="currentColor" stroke="none"/>',
     pause: '<path d="M8 5v14M16 5v14" stroke-width="4"/>',

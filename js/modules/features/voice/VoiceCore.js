@@ -14,7 +14,7 @@ export function isVoiceEndpointAllowed(value, origin = globalThis.location?.orig
     } catch (_) { return false; }
 }
 export const LOAN_FIELDS = ['principal', 'interestRate', 'interestIncluded', 'installmentMode', 'installmentCount', 'installmentFrequencyWeeks', 'startDate', 'concept'];
-const INTENTS = ['buscar_empleado', 'crear_prestamo', 'abrir_asistencia', 'abrir_prestamos', 'desconocida'];
+const INTENTS = ['buscar_empleado', 'crear_prestamo', 'registrar_gasto_caja_chica', 'abrir_asistencia', 'abrir_prestamos', 'desconocida'];
 export function createVoiceContext(date = new Date(), timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
     const parts = new Intl.DateTimeFormat('en', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
     const get = key => parts.find(x => x.type === key).value;
@@ -44,7 +44,22 @@ export function readVoiceResponse(data, requestId) {
             loan[field] = v;
         }
     }
-    return { transcript: r.transcript, intent: r.intent, employee: { spokenName: r.employee.spokenName, spokenNumber: r.employee.spokenNumber }, loan, needsReview: r.needsReview, issues: r.issues.map(x => ({ code: x.code.slice(0, 100), field: x.field, message: x.message.slice(0, 1000) })) };
+    let pettyCash;
+    if (r.intent === 'registrar_gasto_caja_chica') {
+        if (!r.pettyCash || typeof r.pettyCash !== 'object') invalid();
+        pettyCash = {};
+        for (const field of ['amount', 'concept', 'date', 'note', 'spokenCategory', 'paidTo']) {
+            const v = r.pettyCash[field];
+            if (field === 'amount' ? v !== null && (typeof v !== 'number' || !Number.isFinite(v)) : !nullableString(v)) invalid();
+            pettyCash[field] = v;
+        }
+        if (pettyCash.date !== null) {
+            const date = new Date(`${pettyCash.date}T12:00:00Z`);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(pettyCash.date) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== pettyCash.date) invalid();
+        }
+        if (r.loan != null || r.employee.spokenName !== null || r.employee.spokenNumber !== null) invalid();
+    }
+    return { transcript: r.transcript, intent: r.intent, employee: { spokenName: r.employee.spokenName, spokenNumber: r.employee.spokenNumber }, loan, ...(pettyCash ? { pettyCash } : {}), needsReview: r.needsReview, issues: r.issues.map(x => ({ code: x.code.slice(0, 100), field: x.field, message: x.message.slice(0, 1000) })) };
 }
 
 export function voiceBlocked(result) {

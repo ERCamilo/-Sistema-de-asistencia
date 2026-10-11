@@ -1,9 +1,9 @@
 # Caja Chica por voz: contrato e integración propuesta
 
-Estado: revisión del código terminada; extensión propuesta, aún sin soporte en
-el cliente ni en el workflow. El endpoint de voz actual solo acepta las
-intenciones anteriores. Coordinar el contrato con el agente de n8n antes de
-activar la nueva intención. El registro de préstamos permanece sin cambios.
+Estado: cliente implementado en la rama `feat/voice-petty-cash`. El agente de
+n8n debe actualizar el prompt y la validación de respuesta para devolver la nueva
+intención. No se modificó el workflow desde esta entrega. El registro de
+préstamos permanece sin cambios. El diseño aprobado usa negro, morado y blanco.
 
 ## Alcance acordado
 
@@ -16,36 +16,37 @@ ilegible sigue siendo comprobante adjunto; el OCR no es requisito para guardar.
 No se añade por ahora un segundo botón flotante global. Caja Chica ya tiene
 accesos a cámara individual y por lotes; se conserva ese recorrido.
 
-## Qué existe y se reutiliza
+## Implementación y reutilización
 
-En `js/modules/features/pettycash/PettyCashUI.js`:
+`VoicePettyCashUI.js` contiene el modal independiente, bajo la misma opción
+Voz de Configuración → Tests. El controlador de voz entrega esta intención
+antes de resolver empleados. La solicitud de audio v1 sigue igual.
 
-- `pcOpenForm('gasto')` inicia el formulario actual con un ID de movimiento.
-- `pcPhotoNew(input)` conserva el original en IndexedDB, prepara la miniatura y
-  marca el borrador con comprobante. La cámara usa un input de archivo
-  `accept="image/*" capture="environment"`, sin `getUserMedia`: no requiere
-  cambiar `camera=()` en `_headers` para este mecanismo.
-- `pcRemovePhotoNew()` y `pcCancelForm()` eliminan el comprobante temporal.
-- `pcScanReceipt()` usa el workflow OCR existente. Actualmente aplica los datos
-  directamente al formulario y sus inputs; no llamarlo sin adaptación desde el
-  modal de voz, porque reemplazaría valores dictados o editados.
-- `pcSaveMovement()` valida el monto, asigna la numeración, crea el movimiento
-  en su periodo, confirma el comprobante y llama a la persistencia habitual.
-  El nuevo modal debe terminar en esta operación; no escribir directamente en
-  `PettyCashStore` ni crear otra operación de registro.
+En `PettyCashUI.js`, el cuerpo de `pcSaveMovement()` se extrajo a
+`savePettyCashMovementDraft`: formulario manual y voz comparten numeración,
+redondeo, comprobantes, datos fiscales, persistencia y respaldo habitual. El
+modal usa inputs propios y no modifica `state.pettyCash.form`; así conserva
+cualquier formulario manual abierto y evita IDs DOM duplicados.
 
-En `PettyCashPhoto.js`, reutilizar `validateReceiptFile`,
-`prepareReceiptForOcr`, `createReceiptPreview` y la conservación del original.
-En `PettyCashReceiptOCR.js`, reutilizar `requestReceiptOcr`,
-`normalizeReceiptOcr` y `applyReceiptOcrToForm`; la aplicación se realiza sobre
-una copia propuesta, que el usuario acepta antes de modificar el borrador vivo.
+La captura comparte `prepareReceiptCapture` con `pcPhotoNew`, incluyendo
+validación, compresión, miniatura y Blob original. El borrador completo se
+conserva en el IndexedDB de voz hasta confirmar; al registrar, el mismo flujo
+actual confirma la foto en el almacén de comprobantes. Cancelar elimina el
+borrador y cualquier foto temporal creada durante un registro fallido.
+La cámara sigue siendo un input `accept="image/*" capture="environment"`;
+no requiere cambiar la política `camera=()` para este mecanismo.
 
-El código actual lee campos DOM `pc-amount`, `pc-date`, `pc-desc`, `pc-tienda`,
-`pc-cat` y `pc-receipt`, además de `state.pettyCash.form`. La integración debe
-adaptar el formulario compartido y su presentación, evitando dos formularios
-con esos mismos IDs simultáneamente. Captura, cancelación y guardado deben
-seguir usando el mismo borrador. Proteger cualquier formulario previo mediante
-la confirmación de reemplazo habitual.
+`scanPettyCashDraftReceipt` utiliza `requestReceiptOcr` y `normalizeReceiptOcr`
+del OCR actual. Sus datos quedan como una propuesta con checkboxes sin marcar:
+se aplican únicamente los seleccionados, incluyendo una aceptación separada
+para los datos fiscales. Ningún resultado reemplaza las ediciones por sí solo.
+
+`voiceRequestId` e ID estable del movimiento permiten reintentar sin insertar
+otra copia. `PettyCashStore.save` devuelve el resultado local; para voz usa
+`requireLocal`, que no encola operaciones remotas si falla ese guardado. Si la
+foto o el registro fallan, el modal conserva el borrador. Volver al audio
+conserva las ediciones; aplicar una nueva transcripción mantiene la confirmación
+explícita existente para sustituirlas.
 
 ## Destino, fechas y datos
 
@@ -75,16 +76,15 @@ la confirmación de reemplazo habitual.
   comprobante marcado, `hasReceipt=false`. Con foto adjunta, se aplica el
   comportamiento actual aunque el OCR falle.
 
-## Extensión propuesta de respuesta para n8n
+## Contrato de respuesta para el agente de n8n
 
 Mantener la solicitud v1 de audio: `schemaVersion`, `requestId`, `fileBase64`,
 `mimeType`, `fileName`, `idToken`, `context`. No enviar empleados, categorías,
 proyectos, periodos o IDs de negocio. Firebase ID token sigue siendo validado
 por n8n y no se envía a Gemini. El flujo no escribe operaciones de negocio.
 
-Proponer una extensión aditiva de respuesta v1 con intención
-`registrar_gasto_caja_chica` y objeto `pettyCash`. Esta extensión requiere
-actualizar la lista de intenciones y validación de SA: los clientes anteriores
+La extensión aditiva de respuesta v1 implementada tiene intención
+`registrar_gasto_caja_chica` y objeto `pettyCash`. SA ya actualizó la lista de intenciones y la validación: los clientes anteriores
 la rechazan como respuesta incompatible, sin guardar datos.
 
 Ejemplo para «Reporta en caja chica ochocientos pesos por transporte de
@@ -157,5 +157,23 @@ negación y acciones múltiples mantienen el bloqueo existente.
 4. Usuario: piloto con sesión real, gasto sin comprobante, factura manuscrita,
    foto legible y cambio de monto después del OCR.
 
-Esta revisión no implementa ni activa la extensión. No se enviaron audios,
-fotos o cargos reales a n8n para elaborar el plan.
+La extensión requiere el prompt actualizado de n8n para una prueba completa.
+Las pruebas locales usan respuestas simuladas; no se enviaron cargos, audios
+ni fotos reales a los workflows durante esta implementación.
+
+## Validación de la entrega
+
+- Rama integrada con `main` en `3a278f6e`.
+- Jest completo: **597 suites y 5.649 pruebas aprobadas**.
+- Build de producción aprobado; guard de estado sin deuda nueva y precache
+  actualizado con el modal nuevo.
+- Chromium real a 320, 360 y 390 px: sin desbordamiento horizontal y con footer
+  accesible; foto procesada mediante el código original, borrador en IndexedDB,
+  edición del concepto conservada frente a OCR, aplicación selectiva del monto,
+  registro solo al confirmar y eliminación del audio temporal.
+- Identidad, proveedores y adaptador de registro de la prueba de navegador
+  simulados. Las pruebas Jest ejercitan también el registro compartido y el
+  almacén real sobre sus dependencias mockeadas: reintento sin duplicación,
+  cambio de sesión/destino y fallo local sin envíos remotos.
+- Para probar desde la nueva vista previa, n8n debe permitir su origen exacto:
+  `https://feat-voice-petty-cash.sistema-de-asistencia.pages.dev`.

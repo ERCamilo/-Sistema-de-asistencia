@@ -159,8 +159,8 @@ const saveProject = (p, announce, source = 'manual') =>
     PettyCashStore.save('projects', p, { announce, source });
 const savePeriod = (p, announce, source = 'manual') =>
     PettyCashStore.save('periods', p, { announce, source });
-const saveMovement = (m, announce, source = 'manual') =>
-    PettyCashStore.save('movements', m, { announce, source });
+const saveMovement = (m, announce, source = 'manual', extra = {}) =>
+    PettyCashStore.save('movements', m, { announce, source, ...extra });
 const saveProjectLocal = (p, source = 'unspecified') =>
     PettyCashStore.saveLocal('projects', p, { source });
 const saveMovementLocal = (m, source = 'unspecified') =>
@@ -208,7 +208,7 @@ export async function normalizeMovementIdentity(d = pc(), persistence = {}) {
     return { changedProjects, changedMovements };
 }
 
-async function prepareReceiptCapture(file) {
+export async function prepareReceiptCapture(file) {
     const isPdf = isPdfReceipt(file);
     const originalBlob = cloneOriginalReceipt(file);
     if (!originalBlob) throw new Error('Comprobante inválido.');
@@ -479,6 +479,27 @@ function currentPeriod() {
 export function canCapturePettyCashReceipt() {
     const period = currentPeriod();
     return !!period && period.status !== 'cerrada';
+}
+
+export function pettyCashVoiceContext() {
+    const d = pc();
+    return { projects: d.projects, periods: d.periods.filter(p => p.status !== 'cerrada'), selectedPeriodId: d.selectedPeriodId, categories: CATEGORIAS };
+}
+export async function scanPettyCashDraftReceipt(form) {
+    const capture = form.photoCapture;
+    const user = auth?.currentUser;
+    if (!capture || !user) throw Error('Adjunta una foto e inicia sesión para leerla.');
+    const data = await requestReceiptOcr({ url: APP_CONFIG.OCR_WEBHOOK_URL, idToken: await user.getIdToken(), fileDataUrl: capture.processingDataUrl, mimeType: capture.processingMimeType, fileName: capture.originalName });
+    return normalizeReceiptOcr(data, CATEGORIAS);
+}
+export function openPettyCashVoiceMovement(movement) {
+    const d = pc();
+    d.selectedProjectId = movement.projectId; d.selectedPeriodId = movement.periodId; d.editMov = movement.id;
+    persist(); window.changeTab?.('pettycash');
+}
+export async function discardPettyCashVoiceDraft(form) {
+    if (!form?.photoDataUrl || pc().movements.some(movement => movement.id === form.id)) return;
+    await indexedDBService.deleteReceipt(form.id);
 }
 
 // ══ carga local (IndexedDB) — corre al arrancar, con o sin sesión ═════════
@@ -1431,6 +1452,123 @@ function _movementsList(
 }
 
 // ══ handlers (window.*) ════════════════════════════════════════════════
+// Shared manual/voice registration. A draft never enters the ledger before confirmation.
+export async function savePettyCashMovementDraft(form, fields, { periodId = null, voiceRequestId = null, canProceed = () => {} } = {}) {
+    const d = pc();
+    const period = periodId ? d.periods.find(item => item.id === periodId) : currentPeriod();
+    const owner = auth?.currentUser?.uid;
+    const guard = () => {
+        canProceed();
+        if (auth?.currentUser?.uid !== owner) throw Error('Cambió la sesión de Caja Chica.');
+        if (!period || !d.periods.some(item => item.id === period.id && item.projectId === period.projectId && item.status !== 'cerrada') || !d.projects.some(item => item.id === period.projectId)) throw Error('Selecciona una caja y un periodo abierto.');
+    };
+    guard();
+    const existing = voiceRequestId && d.movements.find(item => item.voiceRequestId === voiceRequestId);
+    if (existing) return existing;
+    if (!form) throw Error('No hay un borrador de gasto.');
+    const amount = parseFloat(fields.amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw Error('Ingresa un monto válido mayor que 0.');
+    const photo = form.photoDataUrl || null;
+    const hasLocalOriginal = !!form.receiptStoredLocally;
+    const now = Date.now();
+    const mov = form.pendingMovement || {
+        id: form.id || uid('mov'), periodId: period.id, projectId: period.projectId,
+        type: form.type, amount: round2(amount),
+        date: fields.date || today(),
+        description: String(fields.description || '').trim(),
+        createdBy: 'app', updatedAt: now
+    };
+    if (mov.periodId !== period.id || mov.projectId !== period.projectId) throw Error('Reintenta el registro pendiente en su caja y periodo originales.');
+    mov.amount = round2(amount); mov.date = fields.date || today(); mov.description = String(fields.description || '').trim();
+    if (voiceRequestId) mov.voiceRequestId = voiceRequestId;
+    if (!form.pendingMovement) await assignNewMovementIdentity(mov, period, now, {
+        source: photo ? 'receipt-confirm' : 'manual'
+    });
+    guard();
+    if (form.type === 'gasto') {
+        mov.paidTo = String(fields.paidTo || '').trim();
+        mov.category = fields.category || '';
+        mov.hasReceipt = !!fields.hasReceipt || !!photo;
+        if (hasLocalOriginal) {
+            mov.receiptStatus = 'local';
+            mov.receiptStorage = 'local-only';
+            mov.receiptKind = form.photoCapture?.receiptKind || null;
+            mov.receiptMimeType = form.photoCapture?.originalType || null;
+            mov.receiptPageCount = form.photoCapture?.pageCount || null;
+        }
+        // Datos fiscales pre-extraídos por el OCR (no visibles en el form rápido)
+        if (form.ocr) {
+            if (form.ocr.rncEmisor) mov.rncEmisor = form.ocr.rncEmisor;
+            if (form.ocr.ncf) mov.ncf = form.ocr.ncf;
+            if (form.ocr.cliente) mov.cliente = form.ocr.cliente;
+            if (form.ocr.rncCliente) mov.rncCliente = form.ocr.rncCliente;
+            if (form.ocr.subtotal != null) mov.subtotal = form.ocr.subtotal;
+            if (form.ocr.itbis != null) mov.itbis = form.ocr.itbis;
+            if (form.ocr.total != null) mov.total = form.ocr.total;
+            if (form.ocr.fechaEmision) mov.fechaEmision = form.ocr.fechaEmision;
+            if (form.ocr.notas) mov.notas = form.ocr.notas;
+            if (Array.isArray(form.ocr.items) && form.ocr.items.length) mov.items = form.ocr.items;
+        }
+    }
+    // La captura se guarda al seleccionarla. Aquí se confirma el borrador,
+    // se conserva el Blob original y se inicia el respaldo remoto.
+    let receiptReadyForBackup = false;
+    if (photo && mov.type === 'gasto') {
+        try {
+            if (!hasLocalOriginal && form.photoCapture) {
+                await saveLocalReceiptCapture(mov.id, form.photoCapture, {
+                    periodId: period.id,
+                    projectId: period.projectId,
+                    queueStatus: 'confirmed',
+                    ocrStatus: form.ocr ? 'extracted' : 'skipped',
+                    userConfirmedAt: Date.now()
+                });
+            } else {
+                await indexedDBService.updateReceiptJob(mov.id, {
+                    periodId: period.id,
+                    projectId: period.projectId,
+                    queueStatus: 'confirmed',
+                    ocrStatus: form.ocr ? 'extracted' : 'skipped',
+                    userConfirmedAt: Date.now()
+                });
+            }
+            mov.receiptStatus = 'local';
+            mov.receiptStorage = 'local-only';
+            mov.hasReceipt = true;
+            mov.receiptKind = form.photoCapture?.receiptKind || mov.receiptKind || null;
+            mov.receiptMimeType = form.photoCapture?.originalType || mov.receiptMimeType || null;
+            mov.receiptPageCount = form.photoCapture?.pageCount || mov.receiptPageCount || null;
+            mov.updatedAt = Date.now();
+            receiptReadyForBackup = true;
+        } catch (e) {
+            console.warn('⚠️ saveReceipt local:', e);
+            if (voiceRequestId) throw new Error('No se pudo guardar la foto. Conservamos el borrador para reintentar.');
+            Modal.alert({ title: 'Comprobante', message: 'El gasto se guardó, pero el comprobante no se pudo guardar localmente.' });
+        }
+    }
+    guard();
+    form.pendingMovement = mov;
+    const outcome = await saveMovement(
+        mov,
+        mov.type === 'gasto' ? 'Gasto guardado' : 'Movimiento guardado',
+        photo ? 'receipt-confirm' : 'manual',
+        { requireLocal: !!voiceRequestId }
+    );
+    if (voiceRequestId && outcome?.localOk !== true) {
+        if (photo) await indexedDBService.updateReceiptJob(mov.id, { queueStatus: 'draft', userConfirmedAt: null }).catch(() => {});
+        throw new Error('No se pudo conservar el cargo localmente. Reintenta sin crear otra grabación.');
+    }
+    guard();
+    if (!d.movements.some(item => item.id === mov.id)) d.movements.push(mov);
+    if (d.form === form) d.form = null;
+    persist();
+    window.render?.();
+    if (receiptReadyForBackup) {
+        uploadPendingReceipts().catch((error) => console.warn('receipt backup after save', error));
+    }
+    return mov;
+}
+
 export function registerPettyCashGlobals() {
     window.startPettyCashSync = startPettyCashSync;
     window.stopPettyCashSync = () => {
@@ -1654,94 +1792,18 @@ export function registerPettyCashGlobals() {
     };
 
     window.pcSaveMovement = async () => {
-        const d = pc();
-        const period = currentPeriod();
-        const form = d.form;
-        if (!period || !form) return;
-        const amount = parseFloat(document.getElementById('pc-amount')?.value);
-        if (!Number.isFinite(amount) || amount <= 0) { Modal.alert({ title: 'Monto inválido', message: 'Ingresa un monto válido mayor que 0.' }); return; }
-        const photo = form.photoDataUrl || null;
-        const hasLocalOriginal = !!form.receiptStoredLocally;
-        const now = Date.now();
-        const mov = {
-            id: form.id || uid('mov'), periodId: period.id, projectId: period.projectId,
-            type: form.type, amount: round2(amount),
-            date: document.getElementById('pc-date')?.value || today(),
-            description: document.getElementById('pc-desc')?.value?.trim() || '',
-            createdBy: 'app', updatedAt: now
+        const form = pc().form;
+        if (!currentPeriod() || !form) return;
+        const fields = {
+            amount: document.getElementById('pc-amount')?.value,
+            date: document.getElementById('pc-date')?.value,
+            description: document.getElementById('pc-desc')?.value,
+            paidTo: document.getElementById('pc-tienda')?.value,
+            category: document.getElementById('pc-cat')?.value,
+            hasReceipt: document.getElementById('pc-receipt')?.checked
         };
-        await assignNewMovementIdentity(mov, period, now, {
-            source: photo ? 'receipt-confirm' : 'manual'
-        });
-        if (form.type === 'gasto') {
-            mov.paidTo = document.getElementById('pc-tienda')?.value?.trim() || '';
-            mov.category = document.getElementById('pc-cat')?.value || '';
-            mov.hasReceipt = !!document.getElementById('pc-receipt')?.checked || !!photo;
-            if (hasLocalOriginal) {
-                mov.receiptStatus = 'local';
-                mov.receiptStorage = 'local-only';
-                mov.receiptKind = form.photoCapture?.receiptKind || null;
-                mov.receiptMimeType = form.photoCapture?.originalType || null;
-                mov.receiptPageCount = form.photoCapture?.pageCount || null;
-            }
-            // Datos fiscales pre-extraídos por el OCR (no visibles en el form rápido)
-            if (form.ocr) {
-                if (form.ocr.rncEmisor) mov.rncEmisor = form.ocr.rncEmisor;
-                if (form.ocr.ncf) mov.ncf = form.ocr.ncf;
-                if (form.ocr.cliente) mov.cliente = form.ocr.cliente;
-                if (form.ocr.rncCliente) mov.rncCliente = form.ocr.rncCliente;
-                if (form.ocr.subtotal != null) mov.subtotal = form.ocr.subtotal;
-                if (form.ocr.itbis != null) mov.itbis = form.ocr.itbis;
-                if (form.ocr.total != null) mov.total = form.ocr.total;
-                if (form.ocr.fechaEmision) mov.fechaEmision = form.ocr.fechaEmision;
-                if (form.ocr.notas) mov.notas = form.ocr.notas;
-                if (Array.isArray(form.ocr.items) && form.ocr.items.length) mov.items = form.ocr.items;
-            }
-        }
-        // La captura se guarda al seleccionarla. Aquí se confirma el borrador,
-        // se conserva el Blob original y se inicia el respaldo remoto.
-        let receiptReadyForBackup = false;
-        if (photo && mov.type === 'gasto') {
-            try {
-                if (!hasLocalOriginal && form.photoCapture) {
-                    await saveLocalReceiptCapture(mov.id, form.photoCapture, {
-                        periodId: period.id,
-                        projectId: period.projectId,
-                        queueStatus: 'confirmed',
-                        ocrStatus: form.ocr ? 'extracted' : 'skipped',
-                        userConfirmedAt: Date.now()
-                    });
-                } else {
-                    await indexedDBService.updateReceiptJob(mov.id, {
-                        periodId: period.id,
-                        projectId: period.projectId,
-                        queueStatus: 'confirmed',
-                        ocrStatus: form.ocr ? 'extracted' : 'skipped',
-                        userConfirmedAt: Date.now()
-                    });
-                }
-                mov.receiptStatus = 'local';
-                mov.receiptStorage = 'local-only';
-                mov.hasReceipt = true;
-                mov.updatedAt = Date.now();
-                receiptReadyForBackup = true;
-            } catch (e) {
-                console.warn('⚠️ saveReceipt local:', e);
-                Modal.alert({ title: 'Comprobante', message: 'El gasto se guardó, pero el comprobante no se pudo guardar localmente.' });
-            }
-        }
-        d.movements.push(mov);
-        d.form = null;
-        persist();
-        await saveMovement(
-            mov,
-            mov.type === 'gasto' ? 'Gasto guardado' : 'Movimiento guardado',
-            photo ? 'receipt-confirm' : 'manual'
-        );
-        window.render?.();
-        if (receiptReadyForBackup) {
-            uploadPendingReceipts().catch((error) => console.warn('receipt backup after save', error));
-        }
+        try { return await savePettyCashMovementDraft(form, fields); }
+        catch (error) { Modal.alert({ title: 'Gasto', message: error.message }); }
     };
 
     window.pcOpenMovement = (movId) => {
