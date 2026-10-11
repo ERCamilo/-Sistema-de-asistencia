@@ -301,6 +301,7 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'voiceKeepLoanAudio',
     'newBottomNav',
     'voiceFeedback',
+    'newReceiptCamera',
     'attendancePositionWatermarks'
 ]);
 const AUTO_SAVE_OPTION_VALUES = new Map([

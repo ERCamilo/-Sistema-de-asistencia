@@ -34,7 +34,8 @@ conserva en el IndexedDB de voz hasta confirmar; al registrar, el mismo flujo
 actual confirma la foto en el almacén de comprobantes. Cancelar elimina el
 borrador y cualquier foto temporal creada durante un registro fallido.
 La cámara sigue siendo un input `accept="image/*" capture="environment"`;
-no requiere cambiar la política `camera=()` para este mecanismo.
+no usa `getUserMedia`. La nueva cámara integrada de `main` usa su propio flujo
+y mantiene la política `camera=(self)` incorporada en esa entrega.
 
 `scanPettyCashDraftReceipt` utiliza `requestReceiptOcr` y `normalizeReceiptOcr`
 del OCR actual. Sus datos quedan como una propuesta con checkboxes sin marcar:
@@ -163,8 +164,8 @@ ni fotos reales a los workflows durante esta implementación.
 
 ## Validación de la entrega
 
-- Rama integrada con `main` en `3a278f6e`.
-- Jest completo: **597 suites y 5.649 pruebas aprobadas**.
+- Rama integrada con `main` en `ab8518aa`, incluida la nueva cámara de Caja Chica.
+- Jest completo: **600 suites y 5.686 pruebas aprobadas**.
 - Build de producción aprobado; guard de estado sin deuda nueva y precache
   actualizado con el modal nuevo.
 - Chromium real a 320, 360 y 390 px: sin desbordamiento horizontal y con footer

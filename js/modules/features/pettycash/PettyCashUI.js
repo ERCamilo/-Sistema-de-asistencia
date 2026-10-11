@@ -41,6 +41,8 @@ import {
     receiptRetryState
 } from './PettyCashReceiptOCR.js';
 import { createReceiptQueueProcessor } from './PettyCashReceiptProcessor.js';
+import { createReceiptCamera } from './PettyCashCamera.js';
+import { receiptReviewState } from './PettyCashReceiptChecks.js';
 import {
     isReceiptReadyForBackup,
     uploadReceiptBackup,
@@ -500,6 +502,85 @@ export function openPettyCashVoiceMovement(movement) {
 export async function discardPettyCashVoiceDraft(form) {
     if (!form?.photoDataUrl || pc().movements.some(movement => movement.id === form.id)) return;
     await indexedDBService.deleteReceipt(form.id);
+}
+
+/**
+ * Estado de cada foto de la cámara nueva (PettyCashCamera): lectura en la
+ * cola + revisiones locales del gasto leído (PettyCashReceiptChecks).
+ * @returns {Promise<Map<string, {state, issues, data}>>}
+ */
+export async function cameraItemsState(ids = [], { listJobs = () => indexedDBService.listReceiptJobs() } = {}) {
+    const jobs = await listJobs();
+    const byId = new Map((jobs || []).map(job => [job.txId, job]));
+    const d = pc();
+    const period = currentPeriod();
+    const periodMovements = d.movements.filter(m => m.periodId === period?.id);
+    return new Map(ids.map((id) => {
+        const movement = d.movements.find(m => m.id === id) || null;
+        const job = byId.get(id) || (movement && Number(movement.amount) ? { ocrStatus: 'extracted' } : {});
+        const review = receiptReviewState(job, movement, { period, movements: periodMovements });
+        const data = movement ? {
+            paidTo: movement.paidTo || null,
+            ncf: movement.ncf || null,
+            total: Number(movement.amount) ? rd(movement.amount) : null,
+            category: movement.category || null
+        } : {};
+        return [id, { ...review, data }];
+    }));
+}
+
+function pickWithSystemCamera() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.setAttribute('capture', 'environment');
+    input.addEventListener('change', () => window.pcCameraBatchPhoto?.(input), { once: true });
+    input.click();
+}
+
+let _receiptCamera = null;
+function receiptCamera() {
+    if (_receiptCamera) return _receiptCamera;
+    _receiptCamera = createReceiptCamera({
+        capture: async (file) => {
+            const period = currentPeriod();
+            if (!period || period.status === 'cerrada') throw new Error('no hay un periodo abierto');
+            const { movement, capture } = await enqueueReceiptFile(file, period);
+            await refreshReceiptQueueSummary();
+            processPendingReceiptJobs({ txIds: [movement.id] })
+                .catch((error) => console.warn('camera OCR queue', error));
+            return { id: movement.id, previewUrl: capture.previewDataUrl };
+        },
+        getItemsState: (ids) => cameraItemsState(ids),
+        onReview: (id) => window.pcOpenMovement?.(id),
+        onDelete: async (id) => {
+            const before = pc().movements.length;
+            await window.pcDeleteMovement?.(id);
+            return pc().movements.length < before;
+        },
+        onFinish: () => {
+            refreshReceiptQueueSummary();
+            processPendingReceiptJobs().catch((error) => console.warn('camera finish', error));
+            window.render?.();
+        },
+        notify: (message, type) => window.showNotification?.(message, type),
+        fallbackPick: pickWithSystemCamera,
+        periodLabel: () => {
+            const period = currentPeriod();
+            const project = pc().projects.find(p => p.id === period?.projectId);
+            return [project?.name, period?.label || period?.name].filter(Boolean).join(' · ');
+        }
+    });
+    return _receiptCamera;
+}
+
+/** Abre la cámara nueva (prueba en Configuración → Tests). */
+export function openReceiptCamera() {
+    if (!canCapturePettyCashReceipt()) {
+        window.showNotification?.('Abre o elige un periodo de caja chica para agregar facturas.', 'info');
+        return;
+    }
+    receiptCamera().open();
 }
 
 // ══ carga local (IndexedDB) — corre al arrancar, con o sin sesión ═════════
@@ -1073,10 +1154,14 @@ function _periodPanel(period) {
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" data-app-fn="pcOpenForm" data-arg="reposicion" style="background:#22c55e;color:#062;border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;">+ Reposición</button>
                 <button type="button" data-app-fn="pcOpenForm" data-arg="gasto" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;">− Gasto</button>
+                ${state.settings?.newReceiptCamera === true ? `
+                <button type="button" data-app-fn="pcOpenCamera" title="Tomar varias fotos seguidas" style="background:#8b5cf6;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                    ${icons.get('camera', { size: 16 })} Cámara
+                </button>` : `
                 <label style="background:#8b5cf6;color:#fff;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;" title="Tomar varias fotos consecutivas">
                     ${icons.get('camera', { size: 16 })} Cámara
                     <input type="file" accept="image/*" capture="environment" onchange="window.pcCameraBatchPhoto(this)" style="display:none;">
-                </label>
+                </label>`}
                 <button type="button" data-app-fn="pcOpenReceiptSourcePicker"
                     style="background:#263244;color:#fff;border:1px solid #475569;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">
                     ${icons.get('folder-open', { size: 16 })} Archivos
@@ -2128,6 +2213,8 @@ export function registerPettyCashGlobals() {
             });
         }
     };
+
+    window.pcOpenCamera = () => openReceiptCamera();
 
     window.pcFinishCameraBatch = () => {
         const d = pc();
