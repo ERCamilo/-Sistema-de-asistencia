@@ -12,14 +12,28 @@ const ROOT = path.resolve(__dirname, '..');
 const styles = [...fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="(css\/[^"]+)"/g)]
     .map(match => `<link rel="stylesheet" href="/${match[1]}">`).join('');
 const fixture = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">${styles}</head>
-<body class="has-sidebar"><main class="main-content"><div class="container"><div id="screen" style="max-width:900px;margin:auto"></div></div></main><nav class="bottom-nav" aria-label="Navegación de prueba">Navegación inferior</nav>
+<body class="has-sidebar"><main class="main-content"><div class="container"><div id="settings-screen" style="max-width:900px;margin:auto"><div class="stg-status-bar" id="diagnostics"></div><div id="screen"></div></div></div></main><nav class="bottom-nav" aria-label="Navegación de prueba">Navegación inferior</nav>
 <script type="module">
 import {SettingsGeneralTab} from '/js/modules/ui/settings/SettingsGeneralTab.js';
 import {SettingsTabCalendar} from '/js/modules/ui/settings/SettingsCalendarTab.js';
 import {refreshSettingsDraftBar,discardSettingsDraft} from '/js/modules/ui/settings/SettingsDraftBar.js';
 import {HolidayService} from '/js/modules/features/attendance/HolidayService.js';
+import {StorageCard,SyncCard,attachSettingsDiagnostics,refreshDeviceSettingsDiagnostics,getSettingsSyncStatus} from '/js/modules/ui/settings/SettingsDiagnostics.js';
+import {SyncStatus} from '/js/modules/services/SyncStatus.js';
 const state={settings:{companyName:'Empresa de prueba',regularHoursPerDay:8,overtimeFactor:1.5,holidayFactor:2,restDayFactor:1.5,defaultDeductionPercentage:0,holidays:[],payPeriod:{}},settingsCalendarMonth:new Date(2026,9,1)};
 const context={state,icons:{get:()=>'',getAvailableSets:()=>['unicode']},holidayService:new HolidayService(state)};
+// Synthetic device-local records. Genuine browser IndexedDB and Blob measurements.
+const seed=async(name,rows)=>{
+    const db=await new Promise((resolve,reject)=>{const request=indexedDB.open(name,1);request.onupgradeneeded=()=>Object.keys(rows).forEach(store=>request.result.createObjectStore(store,{autoIncrement:true}));request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    await new Promise((resolve,reject)=>{const tx=db.transaction(Object.keys(rows),'readwrite');for(const [store,records] of Object.entries(rows)) records.forEach(record=>tx.objectStore(store).add(record));tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();
+};
+await seed('attendance-app-db',{employeePhotos:[{optimizedBlob:new Blob([new Uint8Array(6*1024*1024)]),thumbnailBlob:new Blob([new Uint8Array(1024)])}],mainSyncOutbox:[{status:'pending'}],pettyCashOutbox:[{status:'pending'}],pettyCashMirrorOutbox:[{status:'dead'}]});
+await seed('sa-voice-mvp-v1',{recordings:[{uid:'test-a',audio:new Blob([new Uint8Array(1024*1024)])}]});
+document.getElementById('diagnostics').innerHTML=StorageCard()+SyncCard();
+attachSettingsDiagnostics(context);await refreshDeviceSettingsDiagnostics();
+window.fixtureSyncStatus=SyncStatus;
+window.fixtureSetUser=async(user)=>{context.currentUser=user;await refreshDeviceSettingsDiagnostics();};
+window.fixtureRefresh=refreshDeviceSettingsDiagnostics;
 window.draw=tab=>{discardSettingsDraft({});document.getElementById('screen').innerHTML=tab==='calendar'?SettingsTabCalendar(context):SettingsGeneralTab(context);};
 document.addEventListener('input',()=>refreshSettingsDraftBar(document));window.draw('general');window.ready=true;
 </script></body></html>`;
@@ -45,6 +59,20 @@ document.addEventListener('input',()=>refreshSettingsDraftBar(document));window.
         page.on('request',request=>new URL(request.url()).hostname==='127.0.0.1'?request.continue():request.abort());
         await page.goto(`http://127.0.0.1:${server.address().port}/settings-fixture`);
         await page.waitForFunction(()=>window.ready);
+        const deviceStats=await page.$eval('[data-settings-storage-card]',el=>el.textContent);
+        assert.ok(deviceStats.includes('6.00 MB (1)'),`Fotos reales: ${deviceStats}`);
+        assert.ok(deviceStats.includes('1.00 MB (1)'),`Audios reales: ${deviceStats}`);
+        assert.ok(!deviceStats.includes('5MB'),`Sin cuota inventada: ${deviceStats}`);
+        assert.equal(await page.$eval('[data-settings-sync-card] .stg-value',el=>el.textContent),'Sin sesión');
+        await page.evaluate(()=>window.fixtureSetUser({uid:'test-a',email:'ana@example.invalid'}));
+        assert.equal(await page.$eval('[data-settings-sync-card] .stg-value',el=>el.textContent),'Error de sincronización');
+        assert.ok((await page.$eval('[data-settings-sync-card]',el=>el.textContent)).includes('2 pendientes · 1 con error'));
+        await page.setOfflineMode(true);
+        await page.waitForFunction(()=>document.querySelector('[data-settings-sync-card] .stg-value').textContent==='Sin conexión');
+        await page.setOfflineMode(false);
+        await page.waitForFunction(()=>document.querySelector('[data-settings-sync-card] .stg-value').textContent==='Error de sincronización');
+        assert.equal(await page.evaluate(()=>window.fixtureSyncStatus.getLastSyncedAt()),null);
+        console.log('PASS almacenamiento real de fotos/audios, colas y cambios de red sin falsos éxitos');
         for(const width of [1440,820,390,320]) {
             await page.setViewport({width,height:844});
             for(const tab of ['general','calendar']) {

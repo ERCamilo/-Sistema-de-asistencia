@@ -30,4 +30,4 @@ En una comprobación adicional con el SDK real, la aplicación sin empaquetar y 
 
 No se inició sesión ni se modificaron cuentas, respaldos o datos reales. Las actualizaciones externas se simularon mediante el estado o el callback de sincronización, por lo que no sustituyen una comprobación del transporte real entre dispositivos. La persistencia local y los flujos de interfaz sí se ejecutaron en navegador.
 
-Las estadísticas globales de almacenamiento y la distinción entre cuenta iniciada y conectividad real, señaladas como mejoras adicionales en la revisión, quedan fuera de este cambio.
+Las estadísticas globales de almacenamiento y la distinción entre cuenta iniciada y conectividad real quedaron fuera de esta entrega. Se resuelven en la [entrega posterior de almacenamiento y conexión](settings-storage-connection-20261011.md).

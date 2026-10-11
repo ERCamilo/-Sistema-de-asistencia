@@ -28,11 +28,14 @@ import {
 import { getLocalOwnerUid } from '../services/LocalDataOwner.js';
 import { escapeAttr } from '../utils/Sanitize.js';
 import { DOMDiff } from '../utils/DOMDiff.js';
+import { StorageCard, SyncCard, getSettingsSyncStatus, attachSettingsDiagnostics, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
+export { SyncCard, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
 
 // ============================================
 // EVENT DELEGATION (data-settings-action)
 // ============================================
 const _SETTINGS_ACTION_MAP = {
+    'refresh-device-diagnostics': () => refreshDeviceSettingsDiagnostics(),
     'manage-voice-audio': () => window.openVoiceAudioStorage?.(),
     // Cambiar de sub-pestaña re-renderiza el formulario desde state y pisa el
     // draft: con draft sucio se pregunta antes (guardSettingsDraftOnLeave).
@@ -421,9 +424,12 @@ function _attachSettingsDelegation() {
 _attachSettingsDelegation();
 
 let context = {};
+let detachDiagnostics = null;
 
 export function initSettingsUI(dependencies) {
+    detachDiagnostics?.();
     context = dependencies;
+    detachDiagnostics = attachSettingsDiagnostics(context);
 }
 
 function getState() { return context.state; }
@@ -540,71 +546,13 @@ export function SettingsTab() {
 // ============================================
 
 function SettingsDashboard() {
-    const state = getState();
-    const storage = context.calculateStorageStats();
-    const syncStatus = {
-        connected: !!window.currentUser,
-        localEmployees: state.employees.length,
-        // Fase 1 (U2c): un tombstone no cuenta como asistencia local real.
-        localAttendance: Object.values(state.attendance).filter(a => a.deletedAt == null).length,
-        localDays: new Set(Object.values(state.attendance).filter(a => a.deletedAt == null).map(a => a.date || '')).size
-    };
-
-    const freeSpace = Math.round(100 - storage.percentage);
-    const syncText = syncStatus.connected ? 'Online' : 'Offline';
-    const syncColor = syncStatus.connected ? 'success' : '';
-
     return `
                 <div class="stg-panel" style="margin-bottom: 24px;">
                     <div class="stg-status-bar">
-                        ${StorageCard(storage)}
-                        ${SyncCard(syncStatus)}
+                        ${StorageCard()}
+                        ${SyncCard(getSettingsSyncStatus(context))}
                         ${DataSummaryCard()}
                     </div>
-                </div>
-            `;
-}
-
-function StorageCard(stats) {
-    const colorClass = stats.percentage > 80 ? 'danger' :
-        stats.percentage > 60 ? 'warning' : 'success';
-    const color = stats.percentage > 80 ? '#ef4444' :
-        stats.percentage > 60 ? '#f59e0b' : '#10b981';
-
-    return `
-                <div class="stg-status-cell">
-                    <span class="stg-label">Almacenamiento</span>
-                    <span class="stg-value ${colorClass}">${stats.usedMB} MB</span>
-                    <div class="stg-progress">
-                        <div class="stg-progress-bar" style="background: ${color}; width: ${stats.percentage}%;"></div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #94a3b8; margin-top: 2px;">
-                        <span>${stats.percentage}% uso</span>
-                        <span>${stats.available} libre</span>
-                    </div>
-                </div>
-            `;
-}
-
-export function SyncCard(status) {
-    const currentUser = window.currentUser;
-    const isConnected = !!currentUser;
-    const statusColor = isConnected ? 'success' : '';
-    const statusText = isConnected ? 'Conectado' : 'Sin conexión';
-
-    return `
-                <div class="stg-status-cell">
-                    <span class="stg-label">Sincronización</span>
-                    <span class="stg-value ${statusColor}">${statusText}</span>
-                    ${isConnected ? `
-                        <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                            ${currentUser.email}
-                        </div>
-                    ` : `
-                        <div style="font-size: 0.7rem; color: #64748b; margin-top: 6px;">
-                            Conecta tu cuenta de Google
-                        </div>
-                    `}
                 </div>
             `;
 }
