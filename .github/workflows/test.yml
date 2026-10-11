@@ -40,3 +40,10 @@ jobs:
       # fails to build must fail here, on the PR, not in the deploy.
       - name: Production build
         run: npm run build
+
+      # jsdom cannot detect clipped controls or mobile navigation overlap.
+      # ubuntu-latest provides Chrome; this fixture uses only local assets.
+      - name: Settings layout in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: npm run test:settings-layout

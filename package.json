@@ -18,6 +18,7 @@
     "prepare": "git config core.hooksPath .githooks || true",
     "install-hooks": "git config core.hooksPath .githooks && echo '✓ Git hooks instalados (.githooks/)'",
     "sw:precache": "node scripts/sw-precache.cjs",
-    "build": "node scripts/build.cjs"
+    "build": "node scripts/build.cjs",
+    "test:settings-layout": "node scripts/check-settings-layout.cjs"
   }
 }

@@ -6,6 +6,7 @@ import { state, renderOptimizer } from './AppState.js';
 import { DOMDiff } from '../utils/DOMDiff.js';
 import { perfMonitor } from './Performance.js';
 import { eventBus } from './Events.js';
+import { captureSettingsDraft, restoreSettingsDraft } from '../ui/settings/SettingsDraftBar.js';
 
 let rootComponent = null;
 
@@ -180,8 +181,10 @@ function renderFrame() {
     // Aplicar cambios al DOM
     const root = document.getElementById('root');
     if (root) {
+        const settingsDraft = captureSettingsDraft(document);
         const newHTML = rootComponent ? rootComponent() : '<div class="empty-state">⚠️ Error: Componente raíz no cargado</div>';
         DOMDiff.apply(root, newHTML);
+        restoreSettingsDraft(settingsDraft, document);
     }
 
     if (typeof window.clarifyDefaultHoursControl === 'function') {

@@ -2,6 +2,7 @@
  * SettingsDataTab.js - Componente de la pestaña Datos, Sincronización y Backups
  * Estilo visual: SyncCenter (stg-* classes)
  */
+import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { DateUtils } from '../../utils/DateUtils.js';
 import { getReasonInfo } from '../../services/SnapshotReasons.js';
 import { renderProjectReconciliationSettingsAction } from '../../features/projects/ProjectReconciliationUI.js';
@@ -10,6 +11,7 @@ export function SettingsDataTab(context) {
     const state = context.state;
     const icons = context.icons;
     const currentUser = context.currentUser;
+    const initials = (currentUser?.displayName || 'Usuario').trim().split(/\s+/).slice(0, 2).map(part => part[0] || '').join('').toUpperCase();
 
     return `
                     <!-- Sincronización con Firebase (Google) -->
@@ -28,10 +30,13 @@ export function SettingsDataTab(context) {
                             </button>
                         ` : `
                             <div class="stg-user-card">
-                                <img src="${currentUser.photoURL || ''}" onerror="this.src='https://ui-avatars.com/api/?name=${currentUser.displayName}'">
+                                <span class="stg-account-avatar" aria-hidden="true" data-memo-f="${escapeAttr(JSON.stringify(['account-avatar', currentUser.uid || currentUser.email, currentUser.displayName, currentUser.photoURL]))}">
+                                    <span>${escapeHTML(initials)}</span>
+                                    ${currentUser.photoURL ? `<img src="${escapeAttr(currentUser.photoURL)}" alt="" onerror="this.remove()">` : ''}
+                                </span>
                                 <div class="stg-user-card-info">
-                                    <div class="stg-user-card-name">${currentUser.displayName || 'Usuario'}</div>
-                                    <div class="stg-user-card-email">${currentUser.email}</div>
+                                    <div class="stg-user-card-name">${escapeHTML(currentUser.displayName || 'Usuario')}</div>
+                                    <div class="stg-user-card-email">${escapeHTML(currentUser.email)}</div>
                                 </div>
                                 <button type="button" data-settings-action="logout-firebase" style="padding: 6px 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">
                                     Salir

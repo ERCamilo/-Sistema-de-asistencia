@@ -2,40 +2,24 @@ import { initSettingsUI, SettingsTab } from '../modules/ui/SettingsUI.js';
 
 testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
 
-    "initSettingsUI: recibe el getter currentUser y lo evalúa correctamente"() {
-        // Simular window.currentUser
+    "initSettingsUI: Datos consume el getter vivo de currentUser al renderizar"() {
         const originalUser = window.currentUser;
-        window.currentUser = { email: 'test@construccion.com', name: 'Obrero Test' };
-
-        // Simular dependencias
         const dependencies = {
-            state: {},
+            state: { settingsActiveTab: 'data', settings: {}, employees: [], positions: [], attendance: {} },
             icons: { get: () => '' },
             holidayService: {},
             get currentUser() { return window.currentUser; },
             get autoSyncEnabled() { return true; },
-            calculateStorageStats: () => ({})
+            calculateStorageStats: () => ({ percentage: 0, usedMB: 0, available: '5MB' })
         };
-
-        // Inicializar
-        initSettingsUI(dependencies);
-
-        // En SettingsUI.js, las dependencias se guardan en la variable local `context`
-        // y se leen mediante getters como `context.currentUser`.
-        // Vamos a verificar que podemos llamar a las dependencias sin ReferenceError.
-        let err = null;
-        let userEmail = null;
         try {
-            userEmail = dependencies.currentUser?.email;
-        } catch (e) {
-            err = e;
-        }
-
-        testRunner.assert(err === null, `No debe lanzar ReferenceError al evaluar currentUser: ${err?.message}`);
-        testRunner.assertEquals(userEmail, 'test@construccion.com', "currentUser debe retornar el valor configurado en window.currentUser");
-
-        // Limpiar window
-        window.currentUser = originalUser;
+            window.currentUser = { email: 'primera@example.invalid', displayName: 'Primera cuenta' };
+            initSettingsUI(dependencies);
+            window.currentUser = { email: 'segunda@example.invalid', displayName: 'Segunda cuenta' };
+            const html = SettingsTab();
+            testRunner.assert(html.includes('segunda@example.invalid'), 'Datos debe consumir la cuenta actual al renderizar');
+            testRunner.assert(!html.includes('primera@example.invalid'), 'no debe capturar la cuenta anterior durante initSettingsUI');
+        } finally { window.currentUser = originalUser; }
     },
 
     "SettingsTab: asume general por defecto si state.settingsActiveTab es undefined"() {
@@ -123,7 +107,7 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
             'Debe aclarar el alcance seguro del borrado');
     },
 
-    "SettingsTab: permite activar o desactivar la marca del puesto trabajado"() {
+    "SettingsTab: renderiza el interruptor y las opciones de marca del puesto trabajado"() {
         const stateMock = {
             settingsActiveTab: 'general',
             settings: {
@@ -169,7 +153,7 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
             'icono del trabajo debe ser el valor inicial');
     },
 
-    "SettingsTab: permite elegir déficit en días u horas y usa días por defecto"() {
+    "SettingsTab: renderiza el selector de déficit y selecciona días por defecto"() {
         const stateMock = {
             settingsActiveTab: 'general',
             settings: {
