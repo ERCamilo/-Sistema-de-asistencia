@@ -43,6 +43,18 @@ function reviewItems(modal) {
 }
 
 describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA', () => {
+    // Las fechas de trabajo son fijas (septiembre 2026): fijar "hoy" para que
+    // el test no caduque cuando quedan fuera de la ventana de 31 días.
+    beforeAll(() => {
+        jest.useFakeTimers({
+            now: new Date('2026-09-15T12:00:00Z'),
+            doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate',
+                'nextTick', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback',
+                'cancelIdleCallback', 'performance', 'hrtime']
+        });
+    });
+    afterAll(() => jest.useRealTimers());
+
     let host;
     let employees;
     let positions;
