@@ -160,8 +160,8 @@ import { ProjectPayrollUIRuntime } from './modules/features/payroll/ProjectPayro
 import { getBalance, getPayrollDeductionOptions } from './modules/features/loans/LoansService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
-import { commitAutoSaveOption, commitAutoSaveSwitch, initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
-import { guardSettingsDraftOnLeave, isSettingsDraftDirty } from './modules/ui/settings/SettingsDraftBar.js';
+import { commitAutoSaveOption, commitAutoSaveSwitch, initSettingsUI, reconcileSettingsDraftBeforeSave, refreshDeviceSettingsDiagnostics, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
+import { guardSettingsDraftOnLeave, guardSettingsDraftBeforeSave, isSettingsDraftDirty } from './modules/ui/settings/SettingsDraftBar.js';
 import { createAppHistory, EXIT_HINT_MS } from './modules/core/AppHistory.js';
 import { TabComponent } from './modules/components/TabComponent.js';
 import './modules/ui/AttendanceHandlers.js';
@@ -194,7 +194,9 @@ import { BUILD } from './modules/config/BuildInfo.js';
 import { formatBuild } from './modules/utils/BuildVersion.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
-import { PettyCashTab, registerPettyCashGlobals } from './modules/features/pettycash/PettyCashUI.js';
+import { PettyCashTab, registerPettyCashGlobals, canCapturePettyCashReceipt } from './modules/features/pettycash/PettyCashUI.js';
+import { initBottomNav, watchMicPermission } from './modules/ui/navigation/BottomNav.js';
+import { chooseBottomNav } from './modules/ui/navigation/LegacyBottomNav.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
 import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
@@ -1157,8 +1159,7 @@ initSettingsUI({
     payrollRuntime: payrollUIRuntime,
     render,
     get currentUser() { return window.currentUser; },
-    get autoSyncEnabled() { return autoSyncEnabled; },
-    calculateStorageStats: () => calculateStorageStats()
+    get autoSyncEnabled() { return autoSyncEnabled; }
 });
 
 // ============================================
@@ -1274,6 +1275,20 @@ new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.end
 
 window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
 window.openVoiceAudioStorage = () => voiceMvp.run(() => voiceMvp.openStorage());
+
+// Barra inferior de 5 posiciones (prueba): su botón central dicta con la misma Voz
+// (mantener pulsado) y abre la captura rápida (foto de factura, buscar).
+// Solo con la barra nueva activa (prueba en Configuración → Tests) un cambio
+// de conexión o de permiso de micrófono cambia lo que se dibuja.
+const renderIfNewBottomNav = () => { if (state.settings?.newBottomNav === true) render(); };
+const isMicDenied = watchMicPermission({ onChange: renderIfNewBottomNav });
+initBottomNav({
+    getState: () => state,
+    voice: voiceMvp,
+    pettyCash: { canCapture: canCapturePettyCashReceipt },
+    notify: (message, type) => window.showNotification?.(message, type),
+    refresh: renderIfNewBottomNav
+});
 
 
 // Expose Modules to Window (for HTML onclick handlers)
@@ -4013,44 +4028,12 @@ function SyncIndicator() {
 
 
 function BottomNavigation() {
-    return `<nav class="bottom-nav glass-effect">
-                <button class="bottom-nav-tab ${state.activeTab === 'attendance' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="attendance"
-                        title="Registrar asistencia diaria">
-                    <span class="bottom-nav-icon">${icons.get('attendance')}</span>
-                    <span class="bottom-nav-text">Asistencia</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'employees' || state.activeTab === 'positions' ? 'active' : ''}" 
-                        type="button" data-app-fn="openEmpleadosPersonal"
-                        title="Gestionar empleados y posiciones">
-                    <span class="bottom-nav-icon">${icons.get('personnel')}</span>
-                    <span class="bottom-nav-text">Personal</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'employee-report' || state.activeTab === 'dashboard' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="employee-report"
-                        title="Ver reportes y estadísticas">
-                    <span class="bottom-nav-icon">${icons.get('reports')}</span>
-                    <span class="bottom-nav-text">Reportes</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'export' ? 'active' : ''}" 
-                        type="button" data-app-fn="openNomina"
-                        title="Nómina">
-                    <span class="bottom-nav-icon">${icons.get('payroll')}</span>
-                    <span class="bottom-nav-text">Nómina</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'pettycash' ? 'active' : ''}"
-                        type="button" data-app-fn="changeTab" data-arg="pettycash"
-                        title="Caja Chica">
-                    <span class="bottom-nav-icon">${icons.get('dollar')}</span>
-                    <span class="bottom-nav-text">Caja</span>
-                </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'settings' ? 'active' : ''}"
-                        type="button" data-app-fn="openAjustesGenerales"
-                        title="Configuración del sistema">
-                    <span class="bottom-nav-icon">${icons.get('settings')}</span>
-                    <span class="bottom-nav-text">Ajustes</span>
-                </button>
-            </nav>`;
+    return chooseBottomNav(state, {
+        icons,
+        voiceAvailable: voiceMvp.isAvailable(),
+        online: typeof navigator === 'undefined' || navigator.onLine !== false,
+        micDenied: isMicDenied()
+    });
 }
 
 /**
@@ -4128,13 +4111,8 @@ if (typeof window !== 'undefined') {
         compact:          true  // El header usa modo icono-solo
     });
     // Cuando cambia el estado de conexión, refrescar inmediatamente.
-    window.addEventListener('online',  () => SyncStatus.markSynced(SyncStatus.getLastSyncedAt() || Date.now()));
-    window.addEventListener('offline', () => {
-        // Forzar refresh visual sin tocar el ts real (lo dispara internalmente
-        // notificando con el mismo timestamp existente).
-        const ts = SyncStatus.getLastSyncedAt();
-        if (ts !== null) SyncStatus.markSynced(ts);
-    });
+    window.addEventListener('online', () => SyncStatus.refresh());
+    window.addEventListener('offline', () => SyncStatus.refresh());
 }
 window.openCalendarioAjustes = () => {
     if (state) state.settingsActiveTab = 'calendar';
@@ -5781,25 +5759,7 @@ window.handleStorageTypeChange = async function (storageType) {
 
 // Actualizar estadísticas de IndexedDB
 window.updateIndexedDBStats = async function () {
-    try {
-        const statsEl = document.getElementById('indexeddb-stats');
-        if (!statsEl) return;
-
-        const employeesCount = await indexedDBService.count('employees');
-        const positionsCount = await indexedDBService.count('positions');
-        const attendanceCount = await indexedDBService.count('attendance');
-        const leadersCount = await indexedDBService.count('leaders');
-
-        statsEl.innerHTML = `
-                    • Empleados: <strong style="color: #06b6d4;">${employeesCount}</strong><br>
-                    • Posiciones: <strong style="color: #06b6d4;">${positionsCount}</strong><br>
-                    • Líderes: <strong style="color: #06b6d4;">${leadersCount}</strong><br>
-                    • Registros de asistencia: <strong style="color: #06b6d4;">${attendanceCount}</strong><br>
-                    • Estado: <strong style="color: #10b981;">✅ Funcionando correctamente</strong>
-                `;
-    } catch (error) {
-        debug.error('Error obteniendo estadísticas:', error);
-    }
+    await refreshDeviceSettingsDiagnostics();
 };
 
 // ============================================
@@ -5950,36 +5910,6 @@ window.toggleAutoBackup = function (enabled) {
 // ============================================
 
 /**
- * Calcula estadísticas de uso de localStorage
- */
-function calculateStorageStats() {
-    let totalSize = 0;
-
-    // Calcular tamaño total del localStorage
-    for (let key in localStorage) {
-        if (localStorage.hasOwnProperty(key)) {
-            const value = localStorage[key];
-            totalSize += (key.length + value.length) * 2; // UTF-16 = 2 bytes por carácter
-        }
-    }
-
-    const usedBytes = totalSize;
-    const usedKB = (totalSize / 1024).toFixed(2);
-    const usedMB = (totalSize / 1024 / 1024).toFixed(2);
-    const limitMB = 5; // Límite aproximado de localStorage
-    const percentage = Math.min(100, ((usedMB / limitMB) * 100).toFixed(0));
-
-    return {
-        usedBytes,
-        usedKB,
-        usedMB,
-        limitMB,
-        percentage: parseInt(percentage),
-        available: (limitMB - usedMB).toFixed(2)
-    };
-}
-
-/**
  * Obtiene el estado de sincronización con Supabase
  */
 async function getSupabaseSyncStatus() {
@@ -6019,6 +5949,7 @@ window.commitIconSet = function (value) {
     saveApplicationData();
 };
 window.saveSettings = function () {
+    reconcileSettingsDraftBeforeSave();
     const projectsEnabled = isProjectsEnabled();
     const projectView = projectsEnabled ? payrollUIRuntime.getCurrentView() : null;
     const projectSettings = projectsEnabled
@@ -6028,6 +5959,13 @@ window.saveSettings = function () {
         showNotification(`❌ Payroll config unavailable for project "${projectView.projectId}"`, 'error');
         return;
     }
+    if (guardSettingsDraftBeforeSave({
+        onProceed: () => window.saveSettings(),
+        getRevision: () => JSON.stringify([
+            state.settings.localUpdatedAt, state.settings.updatedAt,
+            projectsEnabled ? payrollUIRuntime.getCurrentView().config?.updatedAt : null
+        ])
+    }).blocked) return;
     // Leer valores del formulario
     const companyNameElement = document.getElementById('companyName');
     const companyName = companyNameElement ? companyNameElement.value.trim() : state.settings.companyName;
@@ -6041,11 +5979,11 @@ window.saveSettings = function () {
     const holidayFactorElement = document.getElementById('holidayFactor');
     const holidayFactor = holidayFactorElement ? parseFloat(holidayFactorElement.value) : projectSettings.holidayFactor;
     const restDayFactorElement = document.getElementById('restDayFactor');
-    const restDayFactor = restDayFactorElement ? parseFloat(restDayFactorElement.value) : (state.settings.restDayFactor || 1.5);
+    const restDayFactor = restDayFactorElement ? parseFloat(restDayFactorElement.value) : (state.settings.restDayFactor ?? 1.5);
 
     // ⚡ Leer configuración de nómina
     const defaultDeductionPercentageElement = document.getElementById('defaultDeductionPercentage');
-    const defaultDeductionPercentage = defaultDeductionPercentageElement ? (parseFloat(defaultDeductionPercentageElement.value) || 2) : (projectSettings.defaultDeductionPercentage || 2);
+    const defaultDeductionPercentage = defaultDeductionPercentageElement ? parseFloat(defaultDeductionPercentageElement.value) : (projectSettings.defaultDeductionPercentage ?? 2);
     // iconSet NO se lee del DOM: es un control auto-commit (window.commitIconSet).
 
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
@@ -6075,27 +6013,27 @@ window.saveSettings = function () {
         return;
     }
 
-    if (regularHoursPerDay < 1 || regularHoursPerDay > 24) {
+    if (!Number.isFinite(regularHoursPerDay) || regularHoursPerDay < 1 || regularHoursPerDay > 24) {
         showNotification('❌ Las horas regulares deben estar entre 1 y 24', 'error');
         return;
     }
 
-    if (overtimeFactor < 1 || overtimeFactor > 5) {
+    if (!Number.isFinite(overtimeFactor) || overtimeFactor < 1 || overtimeFactor > 5) {
         showNotification('❌ El factor de horas extras debe estar entre 1 y 5', 'error');
         return;
     }
 
-    if (holidayFactor < 1 || holidayFactor > 5) {
+    if (!Number.isFinite(holidayFactor) || holidayFactor < 1 || holidayFactor > 5) {
         showNotification('❌ El factor festivo debe estar entre 1 y 5', 'error');
         return;
     }
 
-    if (restDayFactor < 1 || restDayFactor > 5) {
+    if (!Number.isFinite(restDayFactor) || restDayFactor < 1 || restDayFactor > 5) {
         showNotification('❌ El factor de día no laborable debe estar entre 1 y 5', 'error');
         return;
     }
 
-    if (defaultDeductionPercentage < 0 || defaultDeductionPercentage > 100) {
+    if (!Number.isFinite(defaultDeductionPercentage) || defaultDeductionPercentage < 0 || defaultDeductionPercentage > 100) {
         showNotification('❌ El porcentaje de deducción debe estar entre 0 y 100', 'error');
         return;
     }
@@ -6122,6 +6060,16 @@ window.saveSettings = function () {
     }
 
     // Guardar configuración
+    // Keep the draft's live values in the same canonical form we commit.
+    // Otherwise trimming text or normalizing "9.00" to 9 looks like a remote conflict.
+    for (const [element, value] of [
+        [companyNameElement, companyName], [regularHoursPerDayElement, regularHoursPerDay],
+        [overtimeFactorElement, overtimeFactor], [holidayFactorElement, holidayFactor],
+        [restDayFactorElement, restDayFactor], [defaultDeductionPercentageElement, defaultDeductionPercentage],
+        [weatherApiKeyElement, weatherApiKey], [weatherLocationInputElement, weatherLocationRaw]
+    ]) {
+        if (element) element.value = String(value);
+    }
     const scopedConfigSave = projectsEnabled
         ? payrollUIRuntime.updateConfig(config => ({
             ...config,

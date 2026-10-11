@@ -112,11 +112,39 @@ export function collectLoanEvents(loan = {}) {
         || a.at - b.at);
 }
 
+// Caché de reproducciones válido SOLO durante un cálculo síncrono (un render):
+// en uno de Préstamos el mismo préstamo se reproducía 8–10 veces (riesgo por
+// periodo, saldo por cuenta, línea de tiempo). Fuera de withReplayCache no hay
+// caché, así que nunca se devuelve una reproducción vieja.
+let replayMemo = null;
+
+/** Ejecuta `fn` compartiendo las reproducciones de cada préstamo; las descarta al terminar. */
+export function withReplayCache(fn) {
+    if (replayMemo) return fn();
+    replayMemo = new WeakMap();
+    try {
+        return fn();
+    } finally {
+        replayMemo = null;
+    }
+}
+
 /**
  * Reproduce un préstamo. Devuelve los pasos con el saldo capital/interés
- * después de cada uno, más el saldo final.
+ * después de cada uno, más el saldo final. Dentro de withReplayCache el
+ * resultado es compartido: tratarlo como solo lectura.
  */
 export function replayLoan(loan = {}) {
+    if (!replayMemo || !loan || typeof loan !== 'object') return computeReplay(loan);
+    let replay = replayMemo.get(loan);
+    if (!replay) {
+        replay = computeReplay(loan);
+        replayMemo.set(loan, replay);
+    }
+    return replay;
+}
+
+function computeReplay(loan = {}) {
     let capital = 0;
     let interest = 0;
     let credit = 0;

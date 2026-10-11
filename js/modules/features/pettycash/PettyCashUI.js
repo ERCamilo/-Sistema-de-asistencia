@@ -475,6 +475,12 @@ function currentPeriod() {
     return d.periods.find(p => p.id === d.selectedPeriodId) || null;
 }
 
+/** Hay un periodo abierto donde una foto de factura se puede guardar (pcCameraBatchPhoto). */
+export function canCapturePettyCashReceipt() {
+    const period = currentPeriod();
+    return !!period && period.status !== 'cerrada';
+}
+
 // ══ carga local (IndexedDB) — corre al arrancar, con o sin sesión ═════════
 let _pcLocalLoadPromise = null;
 let _liveMovementPeriodIds = [];

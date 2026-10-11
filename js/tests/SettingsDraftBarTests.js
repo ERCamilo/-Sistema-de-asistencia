@@ -156,7 +156,7 @@ testRunner.addSuite("SettingsDraftBar — barra pegajosa (crear/mostrar/ocultar)
         refreshSettingsDraftBar(document);
         const bar = document.getElementById(SETTINGS_DRAFT_BAR_ID);
         testRunner.assert(!!bar.querySelector('[data-settings-action="save-settings"]'),
-            'Guardar reusa la acción save-settings existente (validación incluida)');
+            'Guardar debe declarar la acción save-settings existente');
         testRunner.assert(!!bar.querySelector('[data-settings-action="discard-settings-draft"]'),
             'Descartar debe tener su acción propia');
     },

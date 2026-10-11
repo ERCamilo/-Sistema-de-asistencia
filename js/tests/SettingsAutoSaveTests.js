@@ -55,7 +55,7 @@ function makeHarness(settingsOverrides = {}) {
 testRunner.addSuite("SettingsUI — commitAutoSaveSwitch (auto-save de switches)", {
 
     "cada switch conocido comete su valor en state.settings y dispara el save"() {
-        for (const id of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks', 'voiceMvpEnabled', 'voiceUsePreviousInterest', 'voiceKeepLoanAudio']) {
+        for (const id of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks', 'voiceMvpEnabled', 'voiceUsePreviousInterest', 'voiceKeepLoanAudio', 'newBottomNav', 'voiceFeedback']) {
             const { st, calls, deps } = makeHarness();
             const result = commitAutoSaveSwitch({ id, checked: true, deps });
 
@@ -121,7 +121,10 @@ testRunner.addSuite("SettingsUI — commitAutoSaveOption (opciones cerradas)", {
             ['loansCapacityStyle', 'gauge'],
             ['loansCapacityStyle', 'stacked'],
             ['loansKpiDensity', 'full'],
-            ['loansKpiDensity', 'compact']
+            ['loansKpiDensity', 'compact'],
+            ['navCenterMode', 'auto'],
+            ['navCenterMode', 'plus'],
+            ['navCenterMode', 'mic']
         ];
 
         for (const [name, value] of cases) {

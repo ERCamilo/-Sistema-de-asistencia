@@ -1604,9 +1604,12 @@ body.has-sidebar {
 
 @media (max-width: 380px) {
     .bottom-nav {
-        height: 58px;
         padding-right: 2px;
         padding-left: 2px;
+    }
+
+    .bottom-nav:not(.bnav) {
+        height: 58px;
     }
 
     .bottom-nav-tab {
@@ -1614,7 +1617,9 @@ body.has-sidebar {
         padding: 6px 0;
     }
 
-    .bottom-nav-text {
+    /* Con 6 pestañas (~60 px) los nombres no caben: solo iconos. La barra de
+       5 posiciones (.bnav, ~72 px cada una) los mantiene visibles. */
+    .bottom-nav:not(.bnav) .bottom-nav-text {
         display: none;
     }
 }

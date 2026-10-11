@@ -318,3 +318,39 @@ describe('Simplified voice workflow', () => {
         expect(constructed).toBe(0); expect(stop).toHaveBeenCalled(); expect(ui.recording).toBe(false);
     });
 });
+
+describe('Voice entry points outside the launcher (bottom-nav centre button)', () => {
+    test('isAvailable mirrors the launcher rules live: enabled, signed in, not wiped', () => {
+        const { ui, setUser } = setup(); let enabled = true;
+        ui.adapter.isEnabled = () => enabled;
+        expect(ui.isAvailable()).toBe(true);
+        enabled = false; expect(ui.isAvailable()).toBe(false);
+        enabled = true; setUser(null); expect(ui.isAvailable()).toBe(false);
+        setUser({ uid: 'one' }); ui.wiped = true; expect(ui.isAvailable()).toBe(false);
+    });
+    test('startHold records like pressing the launcher; endHold stops it; a second start is ignored', async () => {
+        const { ui } = setup();
+        ui.beginHold = jest.fn(async () => { ui.recording = true; });
+        ui.finishHold = jest.fn(() => { ui.held = false; ui.recording = false; });
+        await expect(ui.startHold()).resolves.toBe(true);
+        expect(ui.held).toBe(true); expect(ui.beginHold).toHaveBeenCalledTimes(1);
+        await expect(ui.startHold()).resolves.toBe(true);
+        expect(ui.beginHold).toHaveBeenCalledTimes(1);
+        ui.endHold();
+        expect(ui.finishHold).toHaveBeenCalledTimes(1);
+        ui.endHold();
+        expect(ui.finishHold).toHaveBeenCalledTimes(1);
+    });
+    test('startHold surfaces errors through notify instead of throwing', async () => {
+        const { ui } = setup(); const notify = jest.fn();
+        ui.adapter.notify = notify; ui.adapter.isEnabled = () => false;
+        await expect(ui.startHold()).resolves.toBe(false);
+        expect(notify).toHaveBeenCalledWith(expect.stringContaining('Configuración'), 'warning');
+        // The failed hold is released: once enabled, the next attempt runs.
+        expect(ui.held).toBe(false);
+        ui.adapter.isEnabled = () => true;
+        ui.beginHold = jest.fn(async () => { ui.recording = true; });
+        await expect(ui.startHold()).resolves.toBe(true);
+        expect(ui.beginHold).toHaveBeenCalledTimes(1);
+    });
+});

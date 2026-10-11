@@ -196,7 +196,7 @@ export class HolidayService {
                     </div>
                     
                     <!-- Grid del calendario -->
-                    <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;">
+                    <div class="stg-calendar-grid" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px;">
                         <!-- Nombres de días -->
                         ${dayNames.map(name => `
                             <div style="text-align: center; padding: 8px; font-size: 0.75rem; font-weight: 600; color: #64748b;">

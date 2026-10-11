@@ -14,7 +14,8 @@
 import { state } from '../../core/AppState.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { formatDateShort, getDateKey } from '../../utils/DateUtils.js';
-import { loanDataKey } from './LoanDataKey.js';
+import { loanDataKey, rawOf } from './LoanDataKey.js';
+import { withReplayCache } from './LoanTimeline.js';
 import { formatTimeSince } from '../../utils/RelativeTime.js';
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
@@ -92,8 +93,16 @@ function getScopedLoanEmployees() {
     return (state.employees || []).filter(employee => entityInScope(employee, projectScope));
 }
 
-function getScopedLoansState() {
-    return { ...state, employees: getScopedLoanEmployees() };
+/**
+ * Estado para los cálculos de la pantalla: los empleados de la obra como
+ * objetos crudos, sin el proxy reactivo. Leer a través del proxy costaba un
+ * `get` por cada propiedad de cada préstamo y abono; el render solo lee
+ * (LoansScreenReadOnly.test.js), así que no necesita el proxy.
+ */
+export function readOnlyLoansState() {
+    const projectScope = peekEntityScope();
+    const employees = (rawOf(state.employees) || []).filter(employee => entityInScope(employee, projectScope));
+    return { ...state, employees };
 }
 
 function findScopedLoanEmployee(employeeId) {
@@ -152,9 +161,15 @@ function ledgerData(scopedState) {
     return value;
 }
 
+// Todo el resumen se calcula en un solo paso síncrono: cada préstamo se
+// reproduce una vez y el resultado se comparte (riesgo, saldos, historial).
 function LedgerOverview() {
+    return withReplayCache(renderLedgerOverview);
+}
+
+function renderLedgerOverview() {
     const ledger = state.loansLedger || {};
-    const scopedState = getScopedLoansState();
+    const scopedState = readOnlyLoansState();
     const search = (ledger.search || '').toLowerCase().trim();
     const filterView = ledger.filterView || 'active';
     const displayMode = ledger.displayMode || 'grouped';

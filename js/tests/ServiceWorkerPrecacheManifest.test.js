@@ -59,6 +59,20 @@ describe('Service Worker — manifiesto de precache del grafo de arranque', () =
         expect(sw.store.has('https://app.test/manifest.json')).toBe(true);
     });
 
+    test('los módulos JS salen solo del manifiesto (el paquete en producción, no la lista fija)', async () => {
+        // En dist/ el manifiesto lista js/app.js empaquetado: precachear además
+        // los ~130 módulos que nombra APP_SHELL sería descargar MB que no se usan.
+        const sw = loadServiceWorker({ manifest: ['./js/app.js', './js/boot-loader.js'] });
+        await sw.install();
+        expect(sw.store.has('https://app.test/js/app.js')).toBe(true);
+        expect(sw.store.has('https://app.test/js/modules/core/AppState.js')).toBe(false);
+        expect(sw.store.has('https://app.test/js/modules/features/payroll/PayrollUI.js')).toBe(false);
+        // Lo que no es JS en APP_SHELL (estilos, íconos, manifest) se sigue precacheando.
+        expect(sw.store.has('https://app.test/css/styles.css')).toBe(true);
+        expect(sw.store.has('https://app.test/icon-192.png')).toBe(true);
+        expect(sw.store.has('https://app.test/manifest.json')).toBe(true);
+    });
+
     test('un recurso caído no impide precachear el resto', async () => {
         const sw = loadServiceWorker({
             manifest: ['./js/a.js', './js/broken.js', './js/b.js'],

@@ -2,9 +2,14 @@
  * SettingsGeneralTab.js - Componente de la pestaña General
  * Estilo visual: SyncCenter (stg-* classes)
  */
+import { normalizeHelpMode } from '../../components/HelpController.js';
+import { escapeAttr } from '../../utils/Sanitize.js';
+
+
 export function SettingsGeneralTab(context) {
     const state = context.state;
     const icons = context.icons;
+    const helpMode = normalizeHelpMode(state.settings.helpMode);
     const iconSetOptions = icons.getAvailableSets()
         .map(set => `<option value="${set}" ${state.settings.iconSet === set ? 'selected' : ''}>${set}</option>`)
         .join('');
@@ -18,10 +23,10 @@ export function SettingsGeneralTab(context) {
                         </div>
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
-                        <label class="form-label">Nombre de la Empresa</label>
+                        <label class="form-label" for="companyName">Nombre de la Empresa</label>
                         <input type="text" 
                                id="companyName" 
-                               value="${state.settings.companyName}" 
+                               value="${escapeAttr(state.settings.companyName)}"
                                class="form-input"
                                placeholder="Ej: Constructora El Progreso">
                     </div>
@@ -172,13 +177,13 @@ export function SettingsGeneralTab(context) {
                     <div id="weatherConfigPanel" class="stg-card" style="margin-top: 4px; margin-left: 0; display: ${state.settings.weatherEnabled === true ? 'block' : 'none'};">
                         <div class="stg-card-title">Configuración del Clima</div>
                         <div class="form-group" style="margin-bottom: 16px;">
-                            <label class="form-label" style="font-size: 0.85rem; color: #94a3b8;">
+                            <label class="form-label" for="weatherApiKey" style="font-size: 0.85rem; color: #94a3b8;">
                                 API Key de WeatherAPI.com
                             </label>
                             <div style="display: flex; gap: 8px; align-items: center;">
                                 <input type="password"
                                        id="weatherApiKey"
-                                       value="${state.settings.weatherApiKey || ''}"
+                                       value="${escapeAttr(state.settings.weatherApiKey || '')}"
                                        placeholder="Pega tu API key aqui"
                                        class="form-input"
                                        style="flex: 1; font-family: monospace; font-size: 0.85rem;"
@@ -199,12 +204,12 @@ export function SettingsGeneralTab(context) {
                         <hr class="stg-divider">
 
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label" style="font-size: 0.85rem; color: #94a3b8;">
+                            <label class="form-label" for="weatherLocationInput" style="font-size: 0.85rem; color: #94a3b8;">
                                 Ubicación de Referencia (Coordenadas de Google Maps)
                             </label>
                             <input type="text"
                                    id="weatherLocationInput"
-                                   value="${state.settings.weatherLocationRaw || ''}"
+                                   value="${escapeAttr(state.settings.weatherLocationRaw || '')}"
                                    placeholder="Ej: 18.4716, -69.8927 o @18.4716,-69.8927"
                                    class="form-input"
                                    style="width: 100%; font-size: 0.85rem; box-sizing: border-box;"
@@ -223,7 +228,7 @@ export function SettingsGeneralTab(context) {
                     <hr class="stg-divider">
 
                     <div class="form-group" style="margin-bottom: 0;">
-                        <label class="form-label" style="margin-bottom: 8px; display: block;">Visibilidad del Mini-mapa (Barra Lateral)</label>
+                        <label class="form-label" for="scrollbarMode" style="margin-bottom: 8px; display: block;">Visibilidad del Mini-mapa (Barra Lateral)</label>
                         <select id="scrollbarMode" class="form-input">
                             <option value="always" ${state.settings.scrollbarMode === 'always' ? 'selected' : ''}>Siempre Visible</option>
                             <option value="on-scroll" ${state.settings.scrollbarMode === 'on-scroll' ? 'selected' : ''}>Solo al hacer scroll (Interactivo)</option>
@@ -320,7 +325,7 @@ export function SettingsGeneralTab(context) {
                         </div>
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
-                        <label class="form-label">Estilo de iconos</label>
+                        <label class="form-label" for="iconSet">Estilo de iconos</label>
                         <select id="iconSet" class="form-input" onchange="commitIconSet(this.value)">
                             ${iconSetOptions}
                         </select>
@@ -338,11 +343,11 @@ export function SettingsGeneralTab(context) {
                         </div>
                     </div>
                     <div class="form-group" style="margin-bottom: 16px;">
-                        <label class="form-label">Modo de Visualización de Ayuda</label>
+                        <label class="form-label" for="helpModeSelect">Modo de Visualización de Ayuda</label>
                         <select id="helpModeSelect" class="form-input" data-settings-action="set-help-mode">
-                            <option value="always" ${state.settings.helpMode === 'always' ? 'selected' : ''}>Mostrar Siempre</option>
-                            <option value="once" ${state.settings.helpMode === 'once' ? 'selected' : ''}>Ocultar tras ver una vez</option>
-                            <option value="hidden" ${state.settings.helpMode === 'hidden' ? 'selected' : ''}>Desactivar todos</option>
+                            <option value="always" ${helpMode === 'always' ? 'selected' : ''}>Mostrar Siempre</option>
+                            <option value="first-time" ${helpMode === 'first-time' ? 'selected' : ''}>Ocultar tras ver una vez</option>
+                            <option value="off" ${helpMode === 'off' ? 'selected' : ''}>Desactivar ayuda automática</option>
                         </select>
                         <div style="font-size: 0.73rem; color: #94a3b8; margin-top: 8px; line-height: 1.5;">
                             Controla si aparecen globos informativos de ayuda al pasar el cursor o hacer clic sobre etiquetas con el icono.

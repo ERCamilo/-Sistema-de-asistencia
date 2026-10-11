@@ -52,6 +52,10 @@ function record(marker, version = 1) {
     };
 }
 
+function finishImage(viewer, event = 'load') {
+    viewer.active?.pendingPhoto?.image.dispatchEvent(new Event(event));
+}
+
 describe('EmployeeAvatar viewer eligibility', () => {
     afterEach(() => {
         document.body.innerHTML = '';
@@ -101,8 +105,15 @@ describe('EmployeePhotoViewerController', () => {
         jest.clearAllMocks();
     });
 
-    function controller(options = {}) {
+    function controller({ autoLoad = true, ...options } = {}) {
         const instance = new EmployeePhotoViewerController(options);
+        // jsdom does not decode Blob URLs. Simulate the browser's successful load.
+        if (autoLoad) for (const method of ['open', 'retry']) {
+            const action = instance[method].bind(instance);
+            instance[method] = async (...args) => {
+                const result = await action(...args); finishImage(instance); return result;
+            };
+        }
         controllers.push(instance);
         return instance;
     }
@@ -157,7 +168,8 @@ describe('EmployeePhotoViewerController', () => {
         await viewer.open(avatar);
 
         expect(urls.createObjectURL).not.toHaveBeenCalled();
-        expect(document.querySelector('[data-employee-photo-viewer]')).toBeNull();
+        expect(viewer.isOpen()).toBe(true);
+        expect(document.querySelector('[data-employee-photo-viewer-status]').textContent).toMatch(/original.*reintentar/i);
         if (!outcome) expect(avatar.getAttribute('role')).toBe('button');
     });
 
@@ -179,24 +191,129 @@ describe('EmployeePhotoViewerController', () => {
         expect(image.src).toBe(source);
         expect(image.hidden).toBe(false);
         expect(avatar.hasAttribute('data-employee-photo-viewer-trigger')).toBe(true);
-        expect(await viewer.open(avatar)).toBe(true);
+        const dialog = document.querySelector('[data-employee-photo-viewer]');
+        expect(await viewer.retry()).toBe(true);
+        expect(document.querySelector('[data-employee-photo-viewer]')).toBe(dialog);
     });
 
-    test('image decode error closes the viewer and revokes the created URL', async () => {
+    test('image decode error keeps an explanatory viewer and revokes the failed URL', async () => {
         const avatar = mountAvatar();
         markInteractive(avatar, 1);
         const urls = urlApi();
         const viewer = controller({
+            autoLoad: false,
             photoStore: { getEmployeePhoto: jest.fn().mockResolvedValue(record('broken')) },
             urlApi: urls
         });
         await viewer.open(avatar);
 
-        document.querySelector('[data-employee-photo-viewer-image]')
-            .dispatchEvent(new Event('error'));
+        finishImage(viewer, 'error');
 
-        expect(document.querySelector('[data-employee-photo-viewer]')).toBeNull();
+        expect(viewer.isOpen()).toBe(true);
+        expect(document.querySelector('[data-employee-photo-viewer-retry]').hidden).toBe(false);
         expect(urls.revokeObjectURL).toHaveBeenCalledWith('blob:full-1');
+    });
+
+    test('a single explicit retry keeps the same dialog and prevents repeated clicks during its read', async () => {
+        const avatar = mountAvatar(); markInteractive(avatar);
+        let complete;
+        const photoStore = { getEmployeeOriginal: jest.fn().mockResolvedValueOnce(null)
+            .mockImplementationOnce(() => new Promise(resolve => { complete = resolve; })) };
+        const viewer = controller({ photoStore, urlApi: urlApi(), autoLoad: false });
+        const cleanup = registerEmployeePhotoViewerEvents(document, viewer);
+        await viewer.open(avatar);
+        const dialog = document.querySelector('[data-employee-photo-viewer]');
+        const retry = dialog.querySelector('[data-employee-photo-viewer-retry]');
+        retry.focus(); retry.click(); retry.click();
+        expect(photoStore.getEmployeeOriginal).toHaveBeenCalledTimes(2);
+        expect(retry.disabled).toBe(true);
+        complete(record('recovered')); await Promise.resolve(); await Promise.resolve();
+        finishImage(viewer);
+        expect(document.querySelector('[data-employee-photo-viewer]')).toBe(dialog);
+        expect(retry.hidden).toBe(true);
+        expect(document.activeElement.dataset.employeePhotoAction).toBe('update');
+        expect(dialog.querySelector('img').hidden).toBe(false);
+        cleanup();
+    });
+
+    test('a failed refresh decode preserves the visible image and permits an explicit retry', async () => {
+        const avatar = mountAvatar(); markInteractive(avatar);
+        const urls = urlApi();
+        const viewer = controller({ photoStore: {
+            getEmployeeOriginal: jest.fn().mockResolvedValue(record('good')),
+            getEmployeePhoto: jest.fn().mockResolvedValue(record('bad', 2)),
+            refreshEmployeePhoto: jest.fn().mockResolvedValue({ status: 'updated', record: record('bad', 2) })
+        }, urlApi: urls });
+        await viewer.open(avatar);
+        const previous = document.querySelector('[data-employee-photo-viewer-image]');
+        await viewer.refresh();
+        expect(document.querySelector('[data-employee-photo-viewer-image]')).toBe(previous);
+        expect(urls.revokeObjectURL).not.toHaveBeenCalledWith('blob:full-1');
+        const pendingUrl = viewer.active.pendingPhoto.url;
+        finishImage(viewer, 'error');
+        expect(document.querySelector('[data-employee-photo-viewer-image]')).toBe(previous);
+        expect(previous.src).toContain('blob:full-1');
+        expect(urls.revokeObjectURL).toHaveBeenCalledWith(pendingUrl);
+        expect(document.querySelector('[data-employee-photo-viewer-status]').textContent).toMatch(/no se pudo mostrar/i);
+        expect(document.querySelector('[data-employee-photo-viewer-retry]').hidden).toBe(false);
+    });
+
+    test('Actualizar can display a current original after an earlier missing-original error', async () => {
+        const avatar = mountAvatar(); markInteractive(avatar);
+        const viewer = controller({ photoStore: {
+            getEmployeeOriginal: jest.fn().mockResolvedValue(null),
+            getEmployeePhoto: jest.fn().mockResolvedValue(record('current')),
+            refreshEmployeePhoto: jest.fn().mockResolvedValue({ status: 'current', record: record('current') })
+        }, urlApi: urlApi() });
+        await viewer.open(avatar); expect(await viewer.refresh()).toBe(true); finishImage(viewer);
+        expect(document.querySelector('[data-employee-photo-viewer-image]').hidden).toBe(false);
+        expect(document.querySelector('[data-employee-photo-viewer-retry]').hidden).toBe(true);
+        expect(document.querySelector('[data-employee-photo-viewer-status]').textContent).toMatch(/ya está actualizada/i);
+    });
+
+    test('closing while an image decodes revokes its URL and ignores later load/error events', async () => {
+        const avatar = mountAvatar(); markInteractive(avatar);
+        const urls = urlApi();
+        const viewer = controller({ photoStore: { getEmployeeOriginal: jest.fn().mockResolvedValue(record('late')) }, urlApi: urls, autoLoad: false });
+        await viewer.open(avatar); const image = viewer.active.pendingPhoto.image;
+        viewer.close(); image.dispatchEvent(new Event('load')); image.dispatchEvent(new Event('error'));
+        expect(urls.revokeObjectURL).toHaveBeenCalledTimes(1);
+        expect(viewer.isOpen()).toBe(false); expect(document.activeElement).toBe(avatar);
+    });
+
+    test('original version changing during decode explains the conflict instead of showing stale bytes', async () => {
+        const avatar = mountAvatar(); markInteractive(avatar);
+        const urls = urlApi();
+        const viewer = controller({ photoStore: { getEmployeeOriginal: jest.fn().mockResolvedValue(record('old')) }, urlApi: urls, autoLoad: false });
+        await viewer.open(avatar); avatar.dataset.employeePhotoVersion = '2'; finishImage(viewer);
+        expect(viewer.isOpen()).toBe(true);
+        expect(document.querySelector('[data-employee-photo-viewer-status]').textContent).toMatch(/cambió/i);
+        expect(document.querySelector('[data-employee-photo-viewer-image]').hidden).toBe(true);
+        expect(urls.revokeObjectURL).toHaveBeenCalledWith('blob:full-1');
+    });
+
+    test('an unavailable original while offline leaves thumbnail and announces how to recover', async () => {
+        const avatar = mountAvatar(); markInteractive(avatar);
+        const online = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+        const photoStore = { getEmployeeOriginal: jest.fn().mockResolvedValue({ thumbnailBlob: new Blob(['thumb']), version: 1 }) };
+        const viewer = controller({ photoStore, urlApi: urlApi() });
+        try {
+            await viewer.open(avatar);
+            expect(document.querySelector('[data-employee-photo-viewer-status]').textContent).toMatch(/Sin conexión.*vuelva la conexión/);
+            await Promise.resolve(); await Promise.resolve();
+            expect(photoStore.getEmployeeOriginal).toHaveBeenCalledTimes(1);
+            expect(avatar.hasAttribute('data-employee-photo-viewer-trigger')).toBe(true);
+        } finally { online.mockRestore(); }
+    });
+
+    test('URL creation failure stays readable and retry can recover', async () => {
+        const avatar = mountAvatar(); markInteractive(avatar);
+        const urls = urlApi(); urls.createObjectURL.mockImplementationOnce(() => { throw Error('Unavailable'); });
+        const viewer = controller({ photoStore: { getEmployeeOriginal: jest.fn().mockResolvedValue(record('ok')) }, urlApi: urls });
+        expect(await viewer.open(avatar)).toBe(false);
+        expect(viewer.isOpen()).toBe(true);
+        expect(await viewer.retry()).toBe(true);
+        expect(document.querySelector('[data-employee-photo-viewer-image]').hidden).toBe(false);
     });
 
     test('Actualizar revalidates the cloud photo in place and reports updated, current, and error states', async () => {
@@ -221,9 +338,10 @@ describe('EmployeePhotoViewerController', () => {
 
         update.click();
         await new Promise(resolve => setTimeout(resolve, 0));
+        finishImage(viewer);
         expect(photoStore.refreshEmployeePhoto).toHaveBeenCalledWith('emp-1');
         expect(status.textContent).toMatch(/actualizada/i);
-        expect(document.querySelector('[data-employee-photo-viewer-image]').src).toContain('blob:full-2');
+        expect(document.querySelector('[data-employee-photo-viewer-image]').src).toContain('blob:full-3');
         expect(urls.revokeObjectURL).toHaveBeenCalledWith('blob:full-1');
         expect(avatar.dataset.employeePhotoVersion).toBe('2');
 

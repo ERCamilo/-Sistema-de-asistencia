@@ -6,6 +6,8 @@ import { APP_CONFIG } from '../config/Config.js';
 import { SettingsGeneralTab } from './settings/SettingsGeneralTab.js';
 import {
     SETTINGS_DRAFT_FIELD_IDS,
+    captureSettingsDraft,
+    restoreSettingsDraft,
     refreshSettingsDraftBar,
     discardSettingsDraft,
     guardSettingsDraftOnLeave
@@ -24,11 +26,16 @@ import {
     miniAttendanceAliasStore
 } from '../services/MiniAttendanceAliasStore.js';
 import { getLocalOwnerUid } from '../services/LocalDataOwner.js';
+import { escapeAttr } from '../utils/Sanitize.js';
+import { DOMDiff } from '../utils/DOMDiff.js';
+import { StorageCard, SyncCard, getSettingsSyncStatus, attachSettingsDiagnostics, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
+export { SyncCard, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
 
 // ============================================
 // EVENT DELEGATION (data-settings-action)
 // ============================================
 const _SETTINGS_ACTION_MAP = {
+    'refresh-device-diagnostics': () => refreshDeviceSettingsDiagnostics(),
     'manage-voice-audio': () => window.openVoiceAudioStorage?.(),
     // Cambiar de sub-pestaña re-renderiza el formulario desde state y pisa el
     // draft: con draft sucio se pregunta antes (guardSettingsDraftOnLeave).
@@ -68,7 +75,8 @@ const _SETTINGS_ACTION_MAP = {
         const newMode = el.value;
         if (window.helpController) {
             window.helpController.setMode(newMode);
-            window.showNotification?.(`Modo de ayuda: ${newMode}`, 'info');
+            const labels = { always: 'Mostrar siempre', 'first-time': 'Mostrar una vez', off: 'Ayuda automática desactivada' };
+            window.showNotification?.(`Ayuda: ${labels[newMode] || 'Configuración actualizada'}`, 'info');
         }
     },
     'reset-help-seen': () => {
@@ -239,6 +247,7 @@ const _SETTINGS_ACTION_MAP = {
 function _handleSettingsClick(e) {
     const target = e.target.closest('[data-settings-action]');
     if (!target) return;
+    if (target.tagName === 'SELECT') return;
     const action = target.dataset.settingsAction;
     const handler = _SETTINGS_ACTION_MAP[action];
     if (!handler) return;
@@ -290,6 +299,8 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'voiceMvpEnabled',
     'voiceUsePreviousInterest',
     'voiceKeepLoanAudio',
+    'newBottomNav',
+    'voiceFeedback',
     'attendancePositionWatermarks'
 ]);
 const AUTO_SAVE_OPTION_VALUES = new Map([
@@ -298,7 +309,8 @@ const AUTO_SAVE_OPTION_VALUES = new Map([
     ['attendanceWatermarkContent', new Set(['number', 'position'])],
     ['loansCapacityStyle', new Set(['gauge', 'stacked'])],
     ['loansKpiDensity', new Set(['full', 'compact'])],
-    ['miniConnectedReviewMode', new Set(['daily', 'compare'])]
+    ['miniConnectedReviewMode', new Set(['daily', 'compare'])],
+    ['navCenterMode', new Set(['auto', 'plus', 'mic'])]
 ]);
 
 function commitAutoSaveSetting({ key, value, deps = {} } = {}) {
@@ -387,6 +399,9 @@ function _handleSettingsOption(target) {
 
 function _handleSettingsChange(e) {
     const target = e.target;
+    if (target?.matches('select[data-settings-action]')) {
+        _SETTINGS_ACTION_MAP[target.dataset.settingsAction]?.(null, target, e);
+    }
     if (target?.type === 'checkbox') _handleSettingsSwitch(target);
     if (target?.type === 'radio') _handleSettingsOption(target);
     // Selects del formulario disparan 'change' (no siempre 'input'): refrescar
@@ -412,13 +427,26 @@ function _attachSettingsDelegation() {
 _attachSettingsDelegation();
 
 let context = {};
+let detachDiagnostics = null;
 
 export function initSettingsUI(dependencies) {
+    detachDiagnostics?.();
     context = dependencies;
+    detachDiagnostics = attachSettingsDiagnostics(context);
 }
 
 function getState() { return context.state; }
 function getIcons() { return context.icons; }
+
+/** Apply pending state updates before reading the form, preserving edited fields. */
+export function reconcileSettingsDraftBeforeSave(doc = document) {
+    const screen = doc.getElementById('settings-screen');
+    if (!screen) return;
+    const snapshot = captureSettingsDraft(doc);
+    DOMDiff.patchSelf(screen, SettingsTab());
+    restoreSettingsDraft(snapshot, doc);
+    refreshSettingsDraftBar(doc);
+}
 
 // ============================================
 // SETTINGS TAB (entry point)
@@ -449,7 +477,7 @@ export function SettingsTab() {
     }
 
     return `
-                <div style="max-width: 900px; margin: 0 auto;">
+                <div id="settings-screen" data-settings-draft-tab="${activeTab}" data-settings-draft-scope="${escapeAttr(JSON.stringify([activeTab, activeTab === 'calendar' ? calendarContext.payrollProjectId || 'global' : 'global']))}" style="max-width: 900px; margin: 0 auto;">
                     <div class="stg-header" style="margin-bottom: 20px;">
                         <div>
                             <h3>
@@ -467,22 +495,22 @@ export function SettingsTab() {
                     <div class="nav-tabs" style="margin-bottom: 32px;">
 
                         <button class="nav-tab ${activeTab === 'data' ? 'active' : ''}" 
-                                type="button" data-settings-action="change-settings-tab" data-value="data">
+                                type="button" aria-label="Datos" data-settings-action="change-settings-tab" data-value="data">
                             <span>${icons.get('save')}</span><span class="tab-text"> Datos</span>
                         </button>
 
                         <button class="nav-tab ${activeTab === 'general' ? 'active' : ''}" 
-                                type="button" data-settings-action="change-settings-tab" data-value="general">
+                                type="button" aria-label="General" data-settings-action="change-settings-tab" data-value="general">
                             <span>${icons.get('settings')}</span><span class="tab-text"> General</span>
                         </button>
 
                         <button class="nav-tab ${activeTab === 'calendar' ? 'active' : ''}"
-                                type="button" data-settings-action="change-settings-tab" data-value="calendar">
+                                type="button" aria-label="Calendario" data-settings-action="change-settings-tab" data-value="calendar">
                             <span>${icons.get('calendar')}</span><span class="tab-text"> Calendario</span>
                         </button>
 
                         <button class="nav-tab ${activeTab === 'tests' ? 'active' : ''}"
-                                type="button" data-settings-action="change-settings-tab" data-value="tests">
+                                type="button" aria-label="Tests" data-settings-action="change-settings-tab" data-value="tests">
                             <span>${icons.get('info')}</span><span class="tab-text"> Tests</span>
                         </button>
                     </div>
@@ -521,71 +549,13 @@ export function SettingsTab() {
 // ============================================
 
 function SettingsDashboard() {
-    const state = getState();
-    const storage = context.calculateStorageStats();
-    const syncStatus = {
-        connected: !!window.currentUser,
-        localEmployees: state.employees.length,
-        // Fase 1 (U2c): un tombstone no cuenta como asistencia local real.
-        localAttendance: Object.values(state.attendance).filter(a => a.deletedAt == null).length,
-        localDays: new Set(Object.values(state.attendance).filter(a => a.deletedAt == null).map(a => a.date || '')).size
-    };
-
-    const freeSpace = Math.round(100 - storage.percentage);
-    const syncText = syncStatus.connected ? 'Online' : 'Offline';
-    const syncColor = syncStatus.connected ? 'success' : '';
-
     return `
                 <div class="stg-panel" style="margin-bottom: 24px;">
                     <div class="stg-status-bar">
-                        ${StorageCard(storage)}
-                        ${SyncCard(syncStatus)}
+                        ${StorageCard()}
+                        ${SyncCard(getSettingsSyncStatus(context))}
                         ${DataSummaryCard()}
                     </div>
-                </div>
-            `;
-}
-
-function StorageCard(stats) {
-    const colorClass = stats.percentage > 80 ? 'danger' :
-        stats.percentage > 60 ? 'warning' : 'success';
-    const color = stats.percentage > 80 ? '#ef4444' :
-        stats.percentage > 60 ? '#f59e0b' : '#10b981';
-
-    return `
-                <div class="stg-status-cell">
-                    <span class="stg-label">Almacenamiento</span>
-                    <span class="stg-value ${colorClass}">${stats.usedMB} MB</span>
-                    <div class="stg-progress">
-                        <div class="stg-progress-bar" style="background: ${color}; width: ${stats.percentage}%;"></div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #94a3b8; margin-top: 2px;">
-                        <span>${stats.percentage}% uso</span>
-                        <span>${stats.available} libre</span>
-                    </div>
-                </div>
-            `;
-}
-
-export function SyncCard(status) {
-    const currentUser = window.currentUser;
-    const isConnected = !!currentUser;
-    const statusColor = isConnected ? 'success' : '';
-    const statusText = isConnected ? 'Conectado' : 'Sin conexión';
-
-    return `
-                <div class="stg-status-cell">
-                    <span class="stg-label">Sincronización</span>
-                    <span class="stg-value ${statusColor}">${statusText}</span>
-                    ${isConnected ? `
-                        <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                            ${currentUser.email}
-                        </div>
-                    ` : `
-                        <div style="font-size: 0.7rem; color: #64748b; margin-top: 6px;">
-                            Conecta tu cuenta de Google
-                        </div>
-                    `}
                 </div>
             `;
 }

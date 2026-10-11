@@ -7,12 +7,50 @@
 
 import icons from '../IconSystem.js';
 
+const NAV_CENTER_MODES = [
+    ['auto', 'Automático', 'Micrófono con conexión; "+" sin conexión o sin permiso de micrófono.'],
+    ['plus', 'Siempre +', 'Foto de factura y buscar empleado; dictar queda en el menú.'],
+    ['mic', 'Siempre micrófono', 'Mantén pulsado para dictar, aunque no haya conexión.']
+];
+
+// Prueba de la barra inferior de 5 posiciones (js/modules/ui/navigation/BottomNav.js).
+function newBottomNavCard(settings = {}) {
+    const on = settings.newBottomNav === true;
+    const current = NAV_CENTER_MODES.some(([value]) => value === settings.navCenterMode) ? settings.navCenterMode : 'auto';
+    const centerChoice = !on ? '' : `
+                <strong style="display:block;font-size:.88rem;color:#e2e8f0;margin:14px 0 8px;">Botón central de la barra</strong>
+                ${settings.voiceMvpEnabled === true ? '' : '<small style="display:block;color:#94a3b8;margin:-4px 0 10px;">El micrófono aparece cuando la prueba de voz está activa. Mientras tanto se muestra "+".</small>'}
+                <div class="stg-choice-group">
+                    ${NAV_CENTER_MODES.map(([value, label, hint]) => `
+                    <label class="stg-choice-option ${current === value ? 'is-selected' : ''}">
+                        <input type="radio" name="navCenterMode" value="${value}" ${current === value ? 'checked' : ''}>
+                        <span class="stg-choice-copy">
+                            <strong>${label}</strong>
+                            <small>${hint}</small>
+                        </span>
+                    </label>`).join('')}
+                </div>`;
+    return `
+            <section class="stg-card" aria-labelledby="new-bottom-nav-test-title" style="margin-bottom:20px;">
+                <h3 id="new-bottom-nav-test-title">Barra inferior nueva</h3>
+                <label class="stg-switch-row ${on ? 'is-active' : ''}" role="switch" aria-checked="${on}">
+                    <input type="checkbox" id="newBottomNav" ${on ? 'checked' : ''}>
+                    <span class="stg-switch-copy">
+                        <strong>Usar la barra de 5 posiciones</strong>
+                        <small>Asistencia · Personal · botón de captura · Finanzas · Más, con menús por sección. Solo en el teléfono.</small>
+                    </span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>${centerChoice}
+            </section>`;
+}
+
 export function SettingsTestsTab(context) {
     const state = context?.state || {};
     const splitxActiveUrl = state.settings?.splitxUrl || 'https://splitx.erlin.do';
 
     return `
         <div class="stg-panel">
+            ${newBottomNavCard(state.settings)}
             <section class="stg-card" aria-labelledby="voice-mvp-test-title" style="margin-bottom:20px;">
                 <h3 id="voice-mvp-test-title">Prueba de voz</h3>
                 <label class="stg-switch-row ${state.settings?.voiceMvpEnabled === true ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceMvpEnabled === true}">
@@ -29,6 +67,11 @@ export function SettingsTestsTab(context) {
                 <label class="stg-switch-row ${state.settings?.voiceKeepLoanAudio !== false ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceKeepLoanAudio !== false}">
                     <input type="checkbox" id="voiceKeepLoanAudio" ${state.settings?.voiceKeepLoanAudio !== false ? 'checked' : ''}>
                     <span class="stg-switch-copy"><strong>Conservar audio de préstamos</strong><small>Solo en este navegador. Desactivarlo elimina los audios de préstamos guardados y no conserva los nuevos.</small></span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
+                <label class="stg-switch-row ${state.settings?.voiceFeedback !== false ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceFeedback !== false}">
+                    <input type="checkbox" id="voiceFeedback" ${state.settings?.voiceFeedback !== false ? 'checked' : ''}>
+                    <span class="stg-switch-copy"><strong>Sonido y vibración al grabar</strong><small>Un tic y una vibración corta al empezar a escuchar, y otro al terminar. En iPhone solo suena: el navegador no permite vibrar.</small></span>
                     <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
                 </label>
                 <h4>Tiempo de conservación desde el registro</h4>

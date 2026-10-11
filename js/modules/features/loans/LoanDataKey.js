@@ -13,7 +13,8 @@
  *   reactivo de AppState, cuyo `get` era el mayor costo de la pantalla.
  */
 
-const rawOf = value => (value && value._isProxy ? value._rawTarget : value);
+/** El objeto crudo detrás de un proxy de AppState (o el mismo valor si no lo es). */
+export const rawOf = value => (value && value._isProxy ? value._rawTarget : value);
 
 /** @param {Array<object>} employees empleados (proxies de state o copias planas) */
 export function loanDataKey(employees = []) {
