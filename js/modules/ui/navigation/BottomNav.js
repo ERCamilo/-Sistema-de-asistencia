@@ -156,6 +156,7 @@ const ui = {
     openMenu: null,          // id de sección | 'center' | null
     centerMode: 'plus',
     listening: false,
+    saved: false,            // ✓ breve tras guardar un audio (evento sa:voice-state)
     lastItems: null
 };
 
@@ -190,7 +191,7 @@ export function lastNavItem(sectionId, { win = window } = {}) {
 
 /** Solo para tests. */
 export function _resetBottomNavState() {
-    ui.openMenu = null; ui.centerMode = 'plus'; ui.listening = false; ui.lastItems = null;
+    ui.openMenu = null; ui.centerMode = 'plus'; ui.listening = false; ui.saved = false; ui.lastItems = null;
 }
 
 export function bottomNavOpenMenu() {
@@ -271,11 +272,12 @@ export function renderBottomNav(state = {}, { voiceAvailable = false, online = t
             ${tab(asistencia)}
             ${tab(personal)}
             <div class="bnav-center-slot">
-                <button type="button" class="bnav-center${ui.listening ? ' is-listening' : ''}" data-bnav-center data-mode="${mode}"
+                <button type="button" class="bnav-center${ui.listening ? ' is-listening' : ''}${ui.saved ? ' is-saved' : ''}" data-bnav-center data-mode="${mode}"
                         aria-haspopup="menu" aria-expanded="${ui.openMenu === 'center'}" aria-controls="bnav-menu-center"
                         aria-pressed="${ui.listening}" aria-label="${centerLabel(mode, ui.listening)}">
                     <span class="bnav-center-icon bnav-center-icon--mic">${svg(ICONS.mic, ' stroke-width="2"')}</span>
                     <span class="bnav-center-icon bnav-center-icon--plus">${svg(ICONS.plus, ' stroke-width="2.4"')}</span>
+                    <span class="bnav-center-icon bnav-center-icon--check">${svg(ICONS.check, ' stroke-width="2.8"')}</span>
                 </button>
             </div>
             ${tab(finanzas)}
@@ -302,6 +304,7 @@ function syncCenter(doc) {
     if (!center) return;
     center.dataset.mode = ui.centerMode;
     center.classList.toggle('is-listening', ui.listening);
+    center.classList.toggle('is-saved', ui.saved);
     center.setAttribute('aria-pressed', String(ui.listening));
     center.setAttribute('aria-label', centerLabel(ui.centerMode, ui.listening));
 }
@@ -383,11 +386,11 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
         focus();
     };
 
-    const startVoice = () => {
+    const startVoice = (options) => {
         if (!voice?.isAvailable?.()) return false;
         close();
         setListening(true);
-        Promise.resolve(voice.startHold()).catch(() => false).then((recording) => {
+        Promise.resolve(voice.startHold(options)).catch(() => false).then((recording) => {
             if (recording !== false) return;
             // Voz ya avisó el motivo; soltar después no debe abrir el menú.
             holding = false; toggleRecording = false; pressing = false;
@@ -404,7 +407,7 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
         close();
         if (id === 'photo') capturePhoto();
         else if (id === 'search') searchEmployee();
-        else if (id === 'dictate' && startVoice()) {
+        else if (id === 'dictate' && startVoice({ toggle: true })) {
             toggleRecording = true;
             notify('Grabando. Toca el botón central para terminar.', 'info');
         }
@@ -474,6 +477,19 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     };
     const onConnectivity = () => refresh();
     const onResize = () => close();
+    // Estado real de la grabación (VoiceMvpUI.setCaptureState).
+    const onVoiceState = (event) => {
+        const state = event?.detail?.state;
+        ui.saved = state === 'saved';
+        if (state === 'listening') ui.listening = true;
+        else {
+            // Terminó o falló mientras se mantenía pulsado: soltar no debe abrir el menú.
+            if (holding || toggleRecording) pressing = false;
+            ui.listening = false; holding = false; toggleRecording = false;
+        }
+        syncCenter(doc);
+    };
+    const view = doc.defaultView || win;
 
     doc.addEventListener('click', onClick);
     doc.addEventListener('pointerdown', onPointerDown);
@@ -484,6 +500,7 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     win.addEventListener?.('online', onConnectivity);
     win.addEventListener?.('offline', onConnectivity);
     win.addEventListener?.('resize', onResize);
+    view.addEventListener?.('sa:voice-state', onVoiceState);
 
     return {
         destroy() {
@@ -497,6 +514,7 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
             win.removeEventListener?.('online', onConnectivity);
             win.removeEventListener?.('offline', onConnectivity);
             win.removeEventListener?.('resize', onResize);
+            view.removeEventListener?.('sa:voice-state', onVoiceState);
             photoInput?.remove();
         }
     };

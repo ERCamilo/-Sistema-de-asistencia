@@ -9,8 +9,12 @@ import { LOAN_FIELDS, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceN
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { completeVoiceLoanDraft, voiceLoanNote } from './VoiceLoanDraft.js';
 import { getDateKey } from '../../utils/DateUtils.js';
+import { createVoiceFeedback } from './VoiceFeedback.js';
 
 const micIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></svg>';
+// Per-bar height factors so the live bars read as a waveform, not a block.
+const WAVE_BAR_FACTORS = [0.35, 0.55, 0.8, 0.5, 0.95, 0.65, 0.4, 0.85, 1, 0.6, 0.9, 0.6, 1, 0.85, 0.4, 0.65, 0.95, 0.5, 0.8, 0.55, 0.35];
+const SAVED_STATE_MS = 1200;
 const projectKey = scope => scope?.enabled ? String(scope.projectId || 'pending') : 'legacy';
 
 // Patch in place so editing and playback retain their live DOM nodes.
@@ -33,8 +37,10 @@ function patchVoiceNode(current, next) {
 }
 
 export class VoiceMvpUI {
-    constructor(adapter, { store = new VoiceStore(), recorderFactory = options => new VoiceRecorder(options) } = {}) {
+    constructor(adapter, { store = new VoiceStore(), recorderFactory = options => new VoiceRecorder(options), feedback = null } = {}) {
         this.adapter = adapter; this.store = store; this.recorderFactory = recorderFactory;
+        // Sound + vibration cues (settings.voiceFeedback, on by default).
+        this.feedback = feedback || createVoiceFeedback({ isEnabled: () => this.adapter.getSettings?.()?.voiceFeedback !== false });
         this.message = ''; this.busy = false; this.history = []; this.matches = []; this.allEmployees = false;
     }
     mount() {
@@ -44,11 +50,12 @@ export class VoiceMvpUI {
         this.dialog = document.createElement('dialog'); this.dialog.className = 'voice-dialog'; this.dialog.setAttribute('aria-label', 'Borrador de voz');
         document.body.append(this.launcher, this.dialog);
         this.wave = document.createElement('div'); this.wave.className = 'voice-wave'; this.wave.hidden = true;
-        this.wave.innerHTML = `<span class="voice-live-mic">${micIcon}</span><div aria-hidden="true">${'<i></i>'.repeat(21)}</div><span role="status">Grabando</span>`;
+        this.wave.innerHTML = `<div class="voice-wave-head"><span class="voice-rec-dot" aria-hidden="true"></span><span role="status">Activando micrófono…</span><span class="voice-wave-hint"></span></div><div class="voice-wave-bars" aria-hidden="true">${WAVE_BAR_FACTORS.map(k => `<i style="--k:${k}"></i>`).join('')}</div>`;
+        this.launcher.dataset.voiceState = 'idle';
         document.body.append(this.wave);
         this.launcher.addEventListener('pointerdown', event => {
             if (event.button !== 0 || this.held) return;
-            event.preventDefault(); this.held = true; this.pointerId = event.pointerId;
+            event.preventDefault(); this.feedback.prime(); this.toggleMode = false; this.held = true; this.pointerId = event.pointerId;
             this.launcher.setPointerCapture?.(event.pointerId);
             this.run(() => this.beginHold());
         });
@@ -56,7 +63,7 @@ export class VoiceMvpUI {
         this.launcher.addEventListener('pointercancel', () => this.cancelHold());
         this.launcher.addEventListener('lostpointercapture', () => { if (this.held) this.cancelHold(); });
         this.launcher.addEventListener('contextmenu', event => event.preventDefault());
-        this.launcher.addEventListener('click', event => { if (event.detail === 0) this.run(() => this.recording ? this.finishHold() : this.beginHold()); });
+        this.launcher.addEventListener('click', event => { if (event.detail !== 0) return; this.feedback.prime(); if (!this.recording) this.toggleMode = true; this.run(() => this.recording ? this.finishHold() : this.beginHold()); });
         this.onBlur = () => { if (this.recording) this.cancelHold(); };
         this.onKey = event => { if (event.key === 'Escape' && this.recording) this.cancelHold(); };
         window.addEventListener('blur', this.onBlur); window.addEventListener('keydown', this.onKey);
@@ -94,8 +101,11 @@ export class VoiceMvpUI {
     // Hold-to-talk for entry points other than the launcher. Resolves true
     // while recording; on failure (already notified) the hold is released so
     // the next attempt is not ignored.
-    startHold() {
+    // `toggle`: started from a tap (menu "Dictar"); a second tap ends it.
+    startHold({ toggle = false } = {}) {
         if (this.held) return Promise.resolve(!!this.recording);
+        this.feedback.prime();
+        this.toggleMode = toggle;
         this.held = true;
         return this.run(() => this.beginHold()).then(() => {
             if (!this.recording) this.held = false;
@@ -103,6 +113,25 @@ export class VoiceMvpUI {
         });
     }
     endHold() { if (this.held || this.recording) this.finishHold(); }
+    // idle → listening → saved (✓, brief) → idle. Mirrored on the launcher
+    // (data-voice-state) and broadcast for other entry points (bottom nav).
+    setCaptureState(state) {
+        clearTimeout(this.savedTimer); clearInterval(this.clockTimer);
+        if (this.launcher) this.launcher.dataset.voiceState = state;
+        window.dispatchEvent(new CustomEvent('sa:voice-state', { detail: { state } }));
+        if (state === 'listening') { this.listenStartedAt = Date.now(); this.renderClock(); this.clockTimer = setInterval(() => this.renderClock(), 1000); }
+        if (state === 'saved') this.savedTimer = setTimeout(() => this.setCaptureState('idle'), SAVED_STATE_MS);
+    }
+    renderClock() {
+        const status = this.wave?.querySelector('[role=status]'); if (!status) return;
+        const seconds = Math.max(0, Math.floor((Date.now() - this.listenStartedAt) / 1000));
+        status.textContent = `Escuchando · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+        this.updateWaveHint();
+    }
+    updateWaveHint() {
+        const hint = this.wave?.querySelector('.voice-wave-hint');
+        if (hint) hint.textContent = this.held && !this.toggleMode ? 'Suelta para terminar' : 'Toca de nuevo para terminar';
+    }
     refreshVisibility() {
         this.launcher.hidden = this.wiped || this.adapter.isEnabled?.() === false || !this.adapter.getUser();
         if (this.launcher.hidden && ((this.dialog.open && this.view !== 'playback' && this.view !== 'storage') || this.recording)) this.close({ discard: true });
@@ -140,6 +169,7 @@ export class VoiceMvpUI {
     close({ discard = false } = {}) {
         if (discard && this.record && !this.record.completedLoanId) { const record = this.record; record.discarded = true; if (this.processingRecord === record) this.processingController?.abort(); this.store.remove?.(record.uid, record.requestId).catch(() => this.adapter.notify?.('No se pudo eliminar el audio descartado.', 'warning')); }
         this.finishConfirmation?.(false);
+        if (this.recording) { this.feedback.play('cancel'); this.setCaptureState('idle'); }
         this.recorder?.cancel(); this.recording = false; this.held = false; this.showWave(false);
         this.dialog.querySelector?.('audio')?.pause?.();
         if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.audioURL = null; this.audioBlob = null;
@@ -166,11 +196,12 @@ export class VoiceMvpUI {
     finishHold() {
         this.held = false;
         if (this.recorder?.recorder?.state === 'recording') this.recorder.stop();
-        else { this.recorder?.cancel(); this.recording = false; this.showWave(false); this.adapter.notify?.('No se grabó audio. Mantén pulsado de nuevo cuando el micrófono esté disponible.', 'info'); }
+        else { this.recorder?.cancel(); this.recording = false; this.showWave(false); this.feedback.play('cancel'); this.setCaptureState('idle'); this.adapter.notify?.('No se grabó audio. Mantén pulsado de nuevo cuando el micrófono esté disponible.', 'info'); }
     }
     cancelHold() {
         if (!this.recording) return;
         this.held = false; this.recorder?.cancel(); this.recording = false; this.showWave(false);
+        this.feedback.play('cancel'); this.setCaptureState('idle');
     }
     async maintenance() {
         const user = this.adapter.getUser(); if (!user || this.wiped || this.maintaining) return;
@@ -305,8 +336,8 @@ export class VoiceMvpUI {
             this.record = null; if (this.dialog.open) this.dialog.close();
             const identity = this.identity(); this.message = ''; this.recordingUid = identity.uid; this.recording = true; this.showWave(true);
             this.recordLevels = [];
-            this.recorder = this.recorderFactory({ onLevel: level => { this.wave?.style.setProperty('--voice-level', String(level)); if (this.recording) this.recordLevels.push(level); }, onError: error => { this.recording = false; this.held = false; this.showWave(false); this.message = error.message; this.view = 'audio'; this.render(); if (!this.dialog.open) this.dialog.showModal(); }, onComplete: captured => this.run(async () => {
-                this.recording = false; this.held = false; this.showWave(false); this.view = 'audio'; this.allEmployees = false;
+            this.recorder = this.recorderFactory({ onLevel: level => { this.wave?.style.setProperty('--voice-level', String(level)); if (this.recording) this.recordLevels.push(level); }, onError: error => { this.recording = false; this.held = false; this.showWave(false); this.feedback.play('error'); this.setCaptureState('idle'); this.message = error.message; this.view = 'audio'; this.render(); if (!this.dialog.open) this.dialog.showModal(); }, onComplete: captured => this.run(async () => {
+                this.recording = false; this.held = false; this.showWave(false); this.feedback.play('stop'); this.setCaptureState('saved'); this.view = 'audio'; this.allEmployees = false;
                 if (this.identity().uid !== identity.uid || this.identity().projectKey !== identity.projectKey) throw Error('Cambió la cuenta o proyecto. Graba nuevamente.');
                 const extension = captured.mimeType.includes('mp4') ? 'm4a' : captured.mimeType.includes('ogg') ? 'ogg' : 'webm';
                 this.record = { ...identity, ...captured, levels: this.recordLevels.slice(0,800), requestId: crypto.randomUUID(), createdAt: Date.now(), fileName: `voice.${extension}`, context: createVoiceContext(), result: null, draft: null, mention: {}, dirty: false };
@@ -315,7 +346,7 @@ export class VoiceMvpUI {
                 catch (error) { capturedRecord.unsaved = true; throw error; }
                 finally { if (!capturedRecord.discarded && this.record === capturedRecord && this.adapter.getUser()?.uid === identity.uid && projectKey(this.adapter.getScope()) === identity.projectKey) { await this.refreshMatches(); this.render(); if (!this.dialog.open) this.dialog.showModal(); } }
             }) });
-            try { await this.recorder.start(); if (this.recording && this.wave && this.recorder.recorder?.state === 'recording') this.wave.querySelector('[role=status]').textContent = 'Grabando'; } catch (error) { if (!this.recording) return; this.recording = false; this.held = false; this.showWave(false); this.view = 'audio'; this.render(); if (!this.dialog.open) this.dialog.showModal(); throw error; }
+            try { await this.recorder.start(); if (this.recording && this.wave && this.recorder.recorder?.state === 'recording') { this.feedback.play('start'); this.setCaptureState('listening'); } } catch (error) { if (!this.recording) return; this.recording = false; this.held = false; this.showWave(false); this.feedback.play('error'); this.setCaptureState('idle'); this.view = 'audio'; this.render(); if (!this.dialog.open) this.dialog.showModal(); throw error; }
             return;
         }
         if (action === 'load') {
@@ -556,5 +587,5 @@ export class VoiceMvpUI {
         if (!audio.voiceBound) { for (const event of ['play','pause','ended','timeupdate','loadedmetadata']) audio.addEventListener(event,update); audio.voiceBound = true; }
         update();
     }
-    destroy() { this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
+    destroy() { clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
 }
