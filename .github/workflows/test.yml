@@ -35,3 +35,8 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      # Same command Cloudflare Pages runs to publish dist/: a bundle that
+      # fails to build must fail here, on the PR, not in the deploy.
+      - name: Production build
+        run: npm run build

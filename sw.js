@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.1010.215826'
+const CACHE_VERSION = '2026.1011.010029'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // Grafo completo de módulos de arranque, generado por scripts/sw-precache.cjs
@@ -222,10 +222,16 @@ const APP_SHELL = [
     './screenshots/screenshot_5_weekly.png'
 ];
 
-// APP_SHELL (íconos, manifest, capturas y el núcleo histórico) + todo el grafo
-// de módulos que index.html alcanza al arrancar. Sin el grafo completo, tras
-// cada deploy la app no podía arrancar offline hasta una segunda visita online.
-const PRECACHE_URLS = [...new Set([...APP_SHELL, ...(self.SW_PRECACHE_MANIFEST || [])])];
+// APP_SHELL aporta íconos, estilos, páginas y capturas; el JavaScript sale SOLO
+// del manifiesto generado, que es el grafo exacto que carga este despliegue:
+// los módulos sueltos en desarrollo, o el paquete js/app.js en producción
+// (npm run build). Sin el grafo completo, tras cada deploy la app no podía
+// arrancar offline hasta una segunda visita; con la lista fija de módulos, el
+// paquete obligaría a descargar ~130 archivos que ya no se usan.
+const PRECACHE_URLS = [...new Set([
+    ...APP_SHELL.filter((url) => !url.endsWith('.js')),
+    ...(self.SW_PRECACHE_MANIFEST || [])
+])];
 
 // CDNs externos (se cachean en runtime, no en precache)
 const CDN_HOSTS = [
