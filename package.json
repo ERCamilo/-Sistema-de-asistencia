@@ -4,6 +4,7 @@
     "@babel/core": "^7.29.0",
     "@babel/preset-env": "^7.29.5",
     "babel-jest": "^29.7.0",
+    "esbuild": "^0.24.2",
     "fake-indexeddb": "^6.2.5",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
@@ -16,6 +17,7 @@
     "lint:state": "node scripts/check-state-writes.mjs",
     "prepare": "git config core.hooksPath .githooks || true",
     "install-hooks": "git config core.hooksPath .githooks && echo '✓ Git hooks instalados (.githooks/)'",
-    "sw:precache": "node scripts/sw-precache.cjs"
+    "sw:precache": "node scripts/sw-precache.cjs",
+    "build": "node scripts/build.cjs"
   }
 }

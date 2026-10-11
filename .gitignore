@@ -39,3 +39,5 @@ screenshots/screenshot_pruebas/
 # Previews
 _desktop_preview.html
 _mobile_preview.html
+# Build de producción (npm run build) — lo genera Cloudflare Pages
+dist/
