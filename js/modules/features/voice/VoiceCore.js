@@ -4,6 +4,7 @@ export const VOICE_LIMITS = Object.freeze({ maxBytes: 10 * 1024 * 1024, maxDurat
 export const VOICE_ENDPOINT_PREFIX = 'sa-voice-endpoint:';
 export const VOICE_DEV_ENDPOINT = 'http://100.91.16.14:5678/webhook/sa-voice-v1-dev';
 export const VOICE_ENDPOINT = 'https://n8n.erlin.do/webhook/sa-voice-v1-dev';
+export const VOICE_TEST_ENDPOINT = 'https://n8n.erlin.do/webhook-test/sa-voice-v1-dev';
 export const VOICE_DEV_ORIGIN = 'http://127.0.0.1:8080';
 
 export function isVoiceEndpointAllowed(value, origin = globalThis.location?.origin) {
@@ -91,13 +92,23 @@ export async function sendVoiceRecording({ url, record, getToken, fetchImpl = gl
             if (!idToken) throw Object.assign(Error('Inicia sesión para procesar el audio.'), { status: 401 });
             const response = await fetchImpl(url, { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1, requestId: record.requestId, fileBase64, mimeType: record.mimeType, fileName: record.fileName, idToken, context: record.context }) });
             if (response.status === 401 && attempt === 0) continue;
-            const data = await response.json().catch(() => null);
-            if (!response.ok) {
+            let raw = '', data = null;
+            if (typeof response.text === 'function') {
+                raw = await response.text();
+                try { data = JSON.parse(raw); } catch (_) { /* Some proxies return plain text. */ }
+            } else data = await response.json().catch(() => null);
+            if (!response.ok || data?.ok === false) {
                 const retryHeader = response.headers?.get('Retry-After');
                 const delay = retryHeader ? (Number.isFinite(Number(retryHeader)) ? Number(retryHeader) * 1000 : Date.parse(retryHeader) - Date.now()) : 0;
-                const code = data?.error?.code || `HTTP_${response.status}`;
+                const code = String(data?.error?.code || data?.code || `HTTP_${response.status}`).slice(0, 100);
                 const messages = { 401: 'La sesión no pudo renovarse. Vuelve a iniciar sesión.', 403: 'Acceso denegado. Revisa los permisos del workflow o Cloudflare Access.', 429: 'Límite de solicitudes. Espera antes de reintentar.', 413: 'El audio supera los límites del servicio.', 415: 'El servicio no admite este formato de audio.' };
-                throw Object.assign(Error(messages[response.status] || 'No se pudo procesar el audio. Conservamos el borrador.'), { code, status: response.status, retryAfterMs: Math.max(0, delay || (response.status === 429 ? 30000 : 0)), retryable: response.status === 429 || response.status >= 500 || code === 'REQUEST_IN_PROGRESS' });
+                let detail = data?.error?.message || data?.message || (typeof data?.error === 'string' ? data.error : '') || (!/<(?:!doctype|html|head|body|script)\b/i.test(raw) ? raw : '');
+                detail = typeof detail === 'string' ? detail : '';
+                // Show the provider's message, without retaining echoed authentication/audio.
+                for (const secret of [idToken, fileBase64]) if (secret?.length >= 20) detail = detail.split(secret).join('[omitido]');
+                detail = detail.trim().slice(0, 1200);
+                const diagnosis = `HTTP ${response.status} · ${code}${detail ? ': ' + detail : ''}`;
+                throw Object.assign(Error(`${messages[response.status] || 'No se pudo procesar el audio. Conservamos el borrador.'}\n${diagnosis}`), { code, status: response.status, retryAfterMs: Math.max(0, delay || (response.status === 429 ? 30000 : 0)), retryable: response.status === 429 || response.status >= 500 || code === 'REQUEST_IN_PROGRESS' || data?.error?.retryable === true });
             }
             return readVoiceResponse(data, record.requestId);
         }
