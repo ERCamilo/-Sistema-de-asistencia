@@ -27,7 +27,7 @@
  *
  * Probado en js/tests/PettyCashCamera.test.js.
  */
-import { parseReceiptDate } from './PettyCashReceiptChecks.js';
+import { parseReceiptDate, fixesFor, validateFixInput } from './PettyCashReceiptChecks.js';
 import { stitchParts, bottomBand, liveAlignment, OVERLAP_FRACTION } from './PettyCashStitch.js';
 import { takeShot, renderShot, encodeImage, extensionFor } from './PettyCashCapture.js';
 
@@ -35,7 +35,9 @@ export const CAMERA_POLL_MS = 1500;
 /** Cuánto dura "Recibido" antes de mostrar el resultado. */
 export const RECEIVED_MS = 450;
 /** Cada cuánto se revisa en vivo si la franja de la parte anterior ya coincide. */
-export const ALIGN_POLL_MS = 300;
+export const ALIGN_POLL_MS = 500;
+/** En "pendientes", cuánto se deja ver el ✓ antes de pasar a la siguiente. */
+export const RESOLVED_ADVANCE_MS = 1700;
 const FLASH_MS = 350;
 const TIP_MS = 5000;
 const MAX_PARTS = 4;
@@ -142,6 +144,21 @@ function issueBody(issue) {
 /** Ancho máximo de cada parte de una factura larga en memoria (la unión sale a 1600 px). */
 const PART_MAX_WIDTH = 1600;
 
+/** Texto de cada botón para resolver un aviso (ver fixesFor). */
+function fixLabel(issue, fix) {
+    if (fix.kind === 'accept') {
+        return {
+            'total-mismatch': 'El total está bien',
+            'itbis-rate': 'Lo leído está bien',
+            'date-outside-period': 'La fecha está bien',
+            'ncf-duplicate': 'Es otra factura'
+        }[issue.code] || 'Dejar así';
+    }
+    if (fix.kind === 'apply') return issue.code === 'date-outside-period' ? `Cambiar a ${shortDate(fix.value)}` : `Usar ${money(fix.value)}`;
+    return 'Guardar';
+}
+const FIX_PLACEHOLDER = { ncf: 'B0100000000', rnc: 'RNC o cédula', amount: '0.00', date: 'dd/mm/aaaa' };
+
 async function defaultToBitmap(blob, doc) {
     if (typeof globalThis.createImageBitmap === 'function') {
         // Las partes se guardan en memoria hasta unirlas: se reducen para no gastar de más.
@@ -214,6 +231,7 @@ export function createReceiptCamera({
     getItemsState = async () => new Map(),
     onReview = () => {},
     onDelete = async () => true,
+    onFix = async () => false,
     onFinish = () => {},
     notify = () => {},
     vibrate = (p) => { try { globalThis.navigator?.vibrate?.(p); } catch (_) { /* opcional */ } },
@@ -233,6 +251,8 @@ export function createReceiptCamera({
     let torchOn = false;
     let items = [];          // { id, preview, state, reason, issues, data }
     let busy = false;       // uniendo una factura larga
+    let pending = false;    // recorriendo solo las facturas pendientes (al tocar "Listo")
+    let advanceTimer = null;
     let grabbing = false;   // tomando la foto (paso rápido)
     let saving = 0;         // fotos tomadas que aún se están guardando
     let saveChain = Promise.resolve();
@@ -254,7 +274,7 @@ export function createReceiptCamera({
     let lastTap = 0;
     let lastTouchToggle = 0;
     // Factura larga.
-    let long = { on: false, parts: [], band: null, aligned: false };
+    let long = { on: false, parts: [], band: null, aligned: false, status: null, yFrac: null };
     let alignTimer = null;
 
     const q = (sel) => root?.querySelector(sel);
@@ -265,6 +285,7 @@ export function createReceiptCamera({
                 <video data-pcam-video class="pcam-video" autoplay playsinline muted></video>
                 <canvas class="pcam-ghost" data-pcam-ghost hidden aria-hidden="true"></canvas>
                 <span class="pcam-ghost-edge" data-pcam-ghost-edge hidden aria-hidden="true"></span>
+                <span class="pcam-match" data-pcam-match hidden aria-hidden="true"><i>aquí termina la parte anterior</i></span>
                 <div class="pcam-flash" data-pcam-flash hidden></div>
             </div>
         </div>
@@ -360,11 +381,24 @@ export function createReceiptCamera({
             : '';
     };
 
+    /** Botones para resolver el aviso aquí mismo (usar lo calculado, escribir el dato, darlo por bueno). */
+    const fixRow = (issue, i) => {
+        const fixes = fixesFor(issue);
+        if (!fixes.length) return '';
+        return `<div class="pcam-fixes">${fixes.map((fix, j) => {
+            const key = `${i}:${j}`;
+            if (fix.kind === 'input') {
+                return `<span class="pcam-fixinput"><input data-pcam-fix-input="${key}" data-validate="${fix.validate}" value="${esc(fix.value)}" placeholder="${FIX_PLACEHOLDER[fix.validate] || ''}" ${fix.validate === 'amount' ? 'inputmode="decimal"' : 'autocapitalize="characters"'} aria-label="Corregir ${esc(issue.message)}"><button type="button" class="pcam-fix is-primary" data-pcam-fix="${key}" disabled>${fixLabel(issue, fix)}</button></span>`;
+            }
+            return `<button type="button" class="pcam-fix${fix.kind === 'apply' ? ' is-primary' : ''}" data-pcam-fix="${key}">${esc(fixLabel(issue, fix))}</button>`;
+        }).join('')}</div>`;
+    };
+
     const issueList = (issues) => issues.map((issue, i) => {
         const body = `<b>${esc(issue.message)}</b>${issueBody(issue)}`;
-        return issue.box
-            ? `<button type="button" class="pcam-issue pcam-in" data-pcam-issue="${i}" aria-pressed="${view.focus === i}">${body}<span class="pcam-loc">⌖ Ver en la foto</span></button>`
-            : `<div class="pcam-issue pcam-in">${body}</div>`;
+        const locate = issue.box
+            ? `<button type="button" class="pcam-loc" data-pcam-issue="${i}" aria-pressed="${view.focus === i}">⌖ Ver en la foto</button>` : '';
+        return `<div class="pcam-issue pcam-in" data-pcam-issue-card="${i}">${body}${locate}${fixRow(issue, i)}</div>`;
     }).join('');
 
     const sheetHtml = (item) => {
@@ -424,7 +458,7 @@ export function createReceiptCamera({
     /** Contenido de la vista previa para el estado actual de la foto. */
     const paintResult = (item, { animate }) => {
         const phase = phaseOf(item);
-        shown = { id: item.id, sig: itemSig(item), phase };
+        shown = { id: item.id, sig: itemSig(item), phase, state: item.state };
         q('[data-pcam-photo]').dataset.phase = phase;
         paintChip(item, phase);
         paintSeal(item.state, animate);
@@ -454,14 +488,17 @@ export function createReceiptCamera({
     const updatePreview = () => {
         const item = items[previewIndex];
         if (!item || !q('[data-pcam-preview]')) return;
-        q('[data-pcam-counter]').textContent = `${previewIndex + 1} de ${items.length}`;
+        q('[data-pcam-counter]').textContent = counterText();
         paintDots();
         if (shown.phase === 'received') return; // el resultado ya viene en camino
         const sig = itemSig(item);
         if (sig === shown.sig) return;
         const arrived = (shown.phase === 'reading' || shown.phase === 'waiting') && DONE.has(item.state);
+        // Se resolvió lo que faltaba desde aquí: el sello pasa a ✓ con su animación.
+        const resolved = shown.state === 'review' && item.state === 'ok';
         if (arrived) playReceived(item);
-        else paintResult(item, { animate: false });
+        else paintResult(item, { animate: resolved });
+        if (resolved && pending) scheduleNextPending(item.id);
     };
 
     // Zoom y desplazamiento de la foto.
@@ -608,8 +645,8 @@ export function createReceiptCamera({
         host.innerHTML = `<div class="pcam-preview" data-pcam-preview role="dialog" aria-modal="true" aria-label="Vista previa de la factura ${previewIndex + 1}">
             <header class="pcam-top">
                 <button type="button" class="pcam-icon" data-pcam-action="back" aria-label="Volver a la cámara">${ico(ICON.back)}</button>
-                <span class="pcam-counter" data-pcam-counter>${previewIndex + 1} de ${items.length}</span>
-                <span class="pcam-top-spacer"></span>
+                <span class="pcam-counter" data-pcam-counter>${counterText()}</span>
+                ${pending ? '<button type="button" class="pcam-finish" data-pcam-action="finish">Terminar</button>' : '<span class="pcam-top-spacer"></span>'}
             </header>
             <div class="pcam-photo" data-pcam-photo data-phase="reading">
                 <div class="pcam-zoom" data-pcam-zoom data-zoom="1">
@@ -619,8 +656,8 @@ export function createReceiptCamera({
                     <span class="pcam-hl" data-pcam-hl hidden aria-hidden="true"></span>
                 </div>
                 <div class="pcam-seal-host" data-pcam-seal-host></div>
-                <button type="button" class="pcam-nav is-prev" data-pcam-prev aria-label="Foto anterior"${previewIndex === 0 ? ' disabled' : ''}>${ico(ICON.back)}</button>
-                <button type="button" class="pcam-nav is-next" data-pcam-next aria-label="Foto siguiente"${previewIndex === items.length - 1 ? ' disabled' : ''}>${ico(ICON.next)}</button>
+                <button type="button" class="pcam-nav is-prev" data-pcam-prev aria-label="Foto anterior"${stepIndex(-1) < 0 ? ' disabled' : ''}>${ico(ICON.back)}</button>
+                <button type="button" class="pcam-nav is-next" data-pcam-next aria-label="Foto siguiente"${stepIndex(1) < 0 || stepIndex(1) >= items.length ? ' disabled' : ''}>${ico(ICON.next)}</button>
                 <span class="pcam-zoomhint" data-pcam-zoomhint>Toca dos veces para acercar</span>
                 <div class="pcam-zoombar" role="group" aria-label="Zoom de la foto">
                     <button type="button" class="pcam-zb" data-pcam-zoom-in aria-label="Acercar">+</button>
@@ -712,13 +749,23 @@ export function createReceiptCamera({
         edge.hidden = !showGhost;
         context.hidden = !showGhost;
         q('[data-pcam-period]').hidden = showGhost;
-        [ghost, tagEl, edge].forEach(el => el.classList.toggle('is-aligned', showGhost && long.aligned));
+        const match = q('[data-pcam-match]');
+        // Línea verde donde se ve en vivo el final de la parte anterior (lo nuevo empieza ahí).
+        const seen = showGhost && (long.status === 'ok' || long.status === 'below') && Number.isFinite(long.yFrac);
+        match.hidden = !seen;
+        if (seen) match.style.top = `${Math.round((long.yFrac + OVERLAP_FRACTION) * 100)}%`;
+        [ghost, tagEl, edge, match].forEach(el => el.classList.toggle('is-aligned', showGhost && long.aligned));
         q('[data-pcam-shutter]').classList.toggle('is-ready', showGhost && long.aligned);
         q('[data-pcam-shutter]').setAttribute('aria-label', long.on ? `Tomar parte ${long.parts.length + 1}` : 'Tomar foto');
         if (showGhost) {
-            tagEl.textContent = long.aligned
-                ? `Alineado ✓ · parte ${long.parts.length + 1}`
-                : `Ya tomada la parte ${long.parts.length} · alinea`;
+            const n = long.parts.length;
+            tagEl.textContent = {
+                ok: `✓ Listo · toma la parte ${n + 1}`,
+                below: 'Sigue bajando ↓',
+                lost: `No encuentro el final de la parte ${n} · misma distancia`,
+                unsure: 'Baja despacio…',
+                flat: 'Sin texto para guiar · deja un poco repetido'
+            }[long.status] || `Ya tomada la parte ${n} · baja el teléfono`;
         }
         paintBar();
     };
@@ -766,11 +813,14 @@ export function createReceiptCamera({
         stopAlign();
         alignTimer = setInterval(() => {
             if (!long.on || !long.band || long.parts.length >= MAX_PARTS) return;
-            let aligned = false;
-            try { aligned = !!checkAlignment(q('[data-pcam-video]'), long.band)?.aligned; } catch (_) { aligned = false; }
-            if (aligned === long.aligned) return;
-            long.aligned = aligned;
-            if (aligned) vibrate(10);
+            let r = null;
+            try { r = checkAlignment(q('[data-pcam-video]'), long.band); } catch (_) { r = null; }
+            const aligned = !!r?.aligned;
+            const status = r?.status || (aligned ? 'ok' : 'lost');
+            const yFrac = Number.isFinite(r?.yFrac) ? r.yFrac : null;
+            if (aligned === long.aligned && status === long.status && yFrac === long.yFrac) return;
+            if (aligned && !long.aligned) vibrate(10);
+            Object.assign(long, { aligned, status, yFrac });
             paintLong();
         }, ALIGN_POLL_MS);
     };
@@ -783,7 +833,7 @@ export function createReceiptCamera({
             notify(`Se ${n === 1 ? 'descartó 1 parte' : `descartaron ${n} partes`} de la factura larga.`, 'info');
         }
         releaseParts();
-        long = { on, parts: [], band: null, aligned: false };
+        long = { on, parts: [], band: null, aligned: false, status: null, yFrac: null };
         stopAlign();
         if (on) showTip(TIP.long);
         paintLong();
@@ -793,7 +843,7 @@ export function createReceiptCamera({
         if (long.parts.length >= MAX_PARTS) { notify(TIP.full, 'info'); return; }
         const bitmap = await toBitmap(shot);
         long.parts.push({ bitmap });
-        long.aligned = false;
+        Object.assign(long, { aligned: false, status: null, yFrac: null });
         long.band = videoBand;
         try { drawGhost(q('[data-pcam-ghost]'), bitmap); } catch (_) { /* sin franja guía */ }
         layoutGhostContext();
@@ -813,7 +863,7 @@ export function createReceiptCamera({
             const file = new File([blob], `factura-larga-${Date.now()}.${extensionFor(type)}`, { type });
             const saved = await capture(file);
             releaseParts();
-            long = { on: false, parts: [], band: null, aligned: false };
+            long = { on: false, parts: [], band: null, aligned: false, status: null, yFrac: null };
             stopAlign();
             vibrate([12, 50, 12]);
             paintLong();
@@ -894,6 +944,84 @@ export function createReceiptCamera({
 
     // ── Navegación ────────────────────────────────────────────────────────
 
+    // ── Corregir desde la vista previa ────────────────────────────────────
+
+    const isPending = (item) => item.state === 'review' || item.state === 'failed';
+    const pendingIndexes = () => items.map((it, i) => (isPending(it) ? i : -1)).filter(i => i >= 0);
+    // Orden y total con que empezó "pendientes": la cuenta no cambia al ir resolviendo.
+    let pendingOrder = [];
+    function counterText() {
+        if (!pending) return `${previewIndex + 1} de ${items.length}`;
+        const pos = pendingOrder.indexOf(items[previewIndex]?.id);
+        return `Pendiente ${pos + 1} de ${pendingOrder.length}`;
+    }
+
+    const finish = (message) => {
+        const ids = items.map(i => i.id);
+        close();
+        onFinish(ids);
+        if (message) notify(message, 'success');
+    };
+
+    /** "Listo": si hay facturas por revisar o sin datos, se recorren solo esas. */
+    const startPending = () => {
+        const list = pendingIndexes();
+        if (!list.length) { finish(); return; }
+        pending = true;
+        pendingOrder = list.map(i => items[i].id);
+        shown = { id: null, sig: '', phase: '' };
+        openPreview(list[0]);
+    };
+
+    function scheduleNextPending(resolvedId) {
+        clearTimeout(advanceTimer);
+        advanceTimer = setTimeout(() => {
+            advanceTimer = null;
+            if (!pending || items[previewIndex]?.id !== resolvedId) return;
+            const next = pendingIndexes();
+            if (!next.length) { finish('Todo listo ✓ Las facturas quedaron revisadas.'); return; }
+            openPreview(next.find(i => i > previewIndex) ?? next[0]);
+        }, RESOLVED_ADVANCE_MS);
+    }
+
+    const applyFix = async (button) => {
+        const item = items[previewIndex];
+        const [i, j] = button.dataset.pcamFix.split(':').map(Number);
+        const issue = item?.issues?.[i];
+        const fix = issue && fixesFor(issue)[j];
+        if (!fix) return;
+        let change = null;
+        if (fix.kind === 'apply') change = { patch: fix.patch };
+        else if (fix.kind === 'accept') change = { accept: fix.code };
+        else {
+            const result = validateFixInput(fix.validate, q(`[data-pcam-fix-input="${i}:${j}"]`)?.value);
+            if (!result.ok) return;
+            change = { patch: result.patch };
+        }
+        const card = button.closest('[data-pcam-issue-card]');
+        card?.classList.add('is-resolving');
+        button.disabled = true;
+        let ok = false;
+        try { ok = await onFix(item.id, change); } catch (_) { ok = false; }
+        if (!ok) {
+            card?.classList.remove('is-resolving');
+            button.disabled = false;
+            notify('No se pudo guardar la corrección. Inténtalo de nuevo.', 'warning');
+            return;
+        }
+        vibrate(8);
+        await refresh();
+    };
+
+    const onInput = (event) => {
+        const input = event.target;
+        if (!input?.matches?.('[data-pcam-fix-input]')) return;
+        const { ok } = validateFixInput(input.dataset.validate, input.value);
+        input.classList.toggle('is-valid', ok);
+        const save = q(`[data-pcam-fix="${input.dataset.pcamFixInput}"]`);
+        if (save) save.disabled = !ok;
+    };
+
     const openPreview = (index) => {
         if (!items[index]) return;
         previewIndex = index;
@@ -901,7 +1029,7 @@ export function createReceiptCamera({
         paint();
         q('[data-pcam-preview] [data-pcam-action="back"]')?.focus?.();
     };
-    const closePreview = () => { previewIndex = -1; paint(); };
+    const closePreview = () => { previewIndex = -1; pending = false; clearTimeout(advanceTimer); paint(); };
 
     const removeItem = async (index) => {
         const item = items[index];
@@ -926,22 +1054,32 @@ export function createReceiptCamera({
         if (t.matches('[data-pcam-long]')) { setLong(!long.on); return; }
         if (t.matches('[data-pcam-done]')) {
             if (long.on) { mergeParts(); return; }
-            const ids = items.map(i => i.id); close(); onFinish(ids); return;
+            startPending(); return;
         }
+        if (t.matches('[data-pcam-fix]')) { applyFix(t); return; }
         if (t.matches('[data-pcam-stack]')) { if (items.length) { trayOpen = !trayOpen; paint(); } return; }
         if (t.matches('[data-pcam-thumb]')) { openPreview(Number(t.dataset.pcamThumb)); return; }
-        if (t.matches('[data-pcam-prev]')) { openPreview(previewIndex - 1); return; }
-        if (t.matches('[data-pcam-next]')) { openPreview(previewIndex + 1); return; }
+        if (t.matches('[data-pcam-prev]')) { openPreview(stepIndex(-1)); return; }
+        if (t.matches('[data-pcam-next]')) { openPreview(stepIndex(1)); return; }
         if (t.matches('[data-pcam-zoom-in]')) { setZoom(Math.floor(view.s) + 1); return; }
         if (t.matches('[data-pcam-zoom-out]')) { setZoom(Math.ceil(view.s) - 1); return; }
         if (t.matches('[data-pcam-zoom-fit]')) { fitWidth(); return; }
         if (t.matches('[data-pcam-issue]')) { focusIssue(Number(t.dataset.pcamIssue)); return; }
         const action = t.dataset.pcamAction;
         if (action === 'back') closePreview();
+        else if (action === 'finish') finish();
         else if (action === 'delete') removeItem(previewIndex);
         else if (action === 'retake') removeItem(previewIndex).then((ok) => { if (ok) closePreview(); });
         else if (action === 'review') { const id = items[previewIndex]?.id; close(); if (id) onReview(id); }
     };
+
+    /** Anterior/siguiente: en "pendientes", solo entre las que faltan. */
+    function stepIndex(step) {
+        if (!pending) return previewIndex + step;
+        const list = pendingIndexes();
+        const pos = list.indexOf(previewIndex);
+        return list[(pos < 0 ? 0 : pos) + step] ?? -1;
+    }
 
     const onKey = (event) => {
         if (event.key !== 'Escape' || !root) return;
@@ -990,6 +1128,7 @@ export function createReceiptCamera({
         layoutFrame();
         setupTorch();
         root.addEventListener('click', onClick);
+        root.addEventListener('input', onInput);
         doc.addEventListener('keydown', onKey);
         pollTimer = setInterval(refresh, CAMERA_POLL_MS);
         paint();
@@ -1001,15 +1140,18 @@ export function createReceiptCamera({
         clearInterval(pollTimer); pollTimer = null;
         clearTimeout(receivedTimer); receivedTimer = null;
         clearTimeout(tipTimer); tipTimer = null;
+        clearTimeout(advanceTimer); advanceTimer = null;
+        pending = false;
         stopAlign();
         releaseParts();
         resizeObserver?.disconnect(); resizeObserver = null;
         viewObserver?.disconnect(); viewObserver = null;
-        long = { on: false, parts: [], band: null, aligned: false };
+        long = { on: false, parts: [], band: null, aligned: false, status: null, yFrac: null };
         stream?.getTracks?.().forEach(t => { try { t.stop(); } catch (_) { /* ya detenida */ } });
         stream = null; track = null; torchOn = false;
         if (root) {
             root.removeEventListener('click', onClick);
+            root.removeEventListener('input', onInput);
             root.remove();
             root = null;
         }
