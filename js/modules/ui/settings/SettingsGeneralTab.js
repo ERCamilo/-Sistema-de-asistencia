@@ -92,6 +92,18 @@ export function SettingsGeneralTab(context) {
                         </span>
                     </label>
 
+                    <label class="stg-switch-row ${state.settings.scrollTopButton === true ? 'is-active' : ''}"
+                           role="switch" aria-checked="${state.settings.scrollTopButton === true}">
+                        <input type="checkbox" id="scrollTopButton" ${state.settings.scrollTopButton === true ? 'checked' : ''}>
+                        <span class="stg-switch-copy">
+                            <strong>Botón para subir rápido</strong>
+                            <small>Muestra un botón flotante para volver al inicio de la pantalla. Oculto por defecto porque tapa parte de la pantalla.</small>
+                        </span>
+                        <span class="stg-switch-track" aria-hidden="true">
+                            <span class="stg-switch-handle"></span>
+                        </span>
+                    </label>
+
                     <label class="stg-switch-row ${state.settings.attendancePositionWatermarks !== false ? 'is-active' : ''}"
                            role="switch" aria-checked="${state.settings.attendancePositionWatermarks !== false}">
                         <input type="checkbox"

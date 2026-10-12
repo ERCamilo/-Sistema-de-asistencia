@@ -7,6 +7,10 @@ import { DOMDiff } from '../utils/DOMDiff.js';
 import { perfMonitor } from './Performance.js';
 import { eventBus } from './Events.js';
 import { captureSettingsDraft, restoreSettingsDraft } from '../ui/settings/SettingsDraftBar.js';
+import { createScreenTracker } from './ScreenScroll.js';
+
+// Pantalla visible en el render anterior: al cambiar, se empieza desde arriba.
+const screenTracker = createScreenTracker();
 
 let rootComponent = null;
 
@@ -164,6 +168,7 @@ function renderFrame() {
     const searchValue = isSearchActive ? activeEl.value : null;
 
     saveScrollPosition();
+    const screenChanged = screenTracker.changed(state);
 
     // Actualizar clases del body según el estado
     document.body.classList.toggle('sidebar-collapsed', !!state.settings.sidebarCollapsed);
@@ -210,7 +215,8 @@ function renderFrame() {
         });
     }
 
-    restoreScrollPosition();
+    if (screenChanged) resetScrollForNewScreen();
+    else restoreScrollPosition();
 
     // 🛰️ Inicializar mini-mapa (ScrollService)
     requestAnimationFrame(() => {
@@ -449,6 +455,15 @@ export function restoreScrollPosition() {
             }
         }
     });
+}
+
+/**
+ * Otra pantalla: se descarta la restauración pendiente (la altura era de la
+ * pantalla anterior) y se empieza desde arriba. Ver ScreenScroll.js.
+ */
+export function resetScrollForNewScreen() {
+    _currentSnapshot = null;
+    if (typeof window !== 'undefined') window.scrollTo(0, 0);
 }
 
 // Inyectar en window para compatibilidad temporal legacy

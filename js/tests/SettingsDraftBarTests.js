@@ -109,6 +109,7 @@ testRunner.addSuite("SettingsDraftBar — isSettingsDraftDirty (value vs default
             'legacyNavigation',
             'hideDuplicateAlerts',
             'weatherEnabled',
+            'scrollTopButton',
             'attendancePositionWatermarks',
             'attendanceWatermarkVisibility',
             'attendanceWatermarkContent'
