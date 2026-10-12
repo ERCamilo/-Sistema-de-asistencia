@@ -1,0 +1,205 @@
+{
+  "name": "Caja Chica - OCR",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "caja-chica-ocr",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "24308a08-2f3d-4221-8900-ab0237fede4c",
+      "name": "Recibir Foto",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "d7709376-575d-43be-ad9b-618792b9d336"
+    },
+    {
+      "parameters": {
+        "jsCode": "function clean(t){return String(t||'').replace(/```json/gi,'').replace(/```/g,'').trim();}\nfunction num(v){ if(v===null||v===undefined||v==='') return null; const n=parseFloat(String(v).replace(/,/g,'')); return Number.isFinite(n)?n:null; }\n// Recuadro [y0, x0, y1, x1] (0-1000) de cada dato en la foto. La app los usa\n// para \"Ver en la foto\"; se descartan los mal formados.\nconst BOX_KEYS = { total: 'total', subtotal: 'subtotal', itbis: 'itbis', ncf: 'ncf', rnc_emisor: 'rncEmisor', rncEmisor: 'rncEmisor', fecha: 'fecha' };\nfunction boxes(src){\n  if(!src || typeof src !== 'object') return null;\n  const out = {};\n  Object.keys(BOX_KEYS).forEach(function(k){\n    const b = src[k];\n    if(!Array.isArray(b) || b.length !== 4) return;\n    const v = b.map(function(n){ return Math.round(Number(n)); });\n    if(!v.every(function(n){ return Number.isFinite(n) && n >= 0 && n <= 1000; })) return;\n    if(v[0] >= v[2] || v[1] >= v[3]) return;\n    out[BOX_KEYS[k]] = v;\n  });\n  return Object.keys(out).length ? out : null;\n}\nlet raw='';\ntry {\n  const item = $input.first().json;\n  raw = (item && item.candidates && item.candidates[0] && item.candidates[0].content && item.candidates[0].content.parts && item.candidates[0].content.parts[0] && item.candidates[0].content.parts[0].text)\n     || (item && item.content && item.content.parts && item.content.parts[0] && item.content.parts[0].text)\n     || item.text || item.response || JSON.stringify(item);\n  const data = JSON.parse(clean(raw));\n  const items = Array.isArray(data.items) ? data.items.map(function(it){ return { descripcion: (it && (it.descripcion || it.nombre)) || null, cantidad: num(it && it.cantidad), precio: num(it && it.precio) }; }) : [];\n  return [{ json: { ok:true, emisor: data.emisor ?? null, rncEmisor: data.rnc_emisor ?? null, cliente: data.cliente ?? null, rncCliente: data.rnc_cliente ?? null, ncf: data.ncf ?? null, fecha: data.fecha ?? null, subtotal: num(data.subtotal), itbis: num(data.itbis), total: num(data.total), concepto: data.concepto ?? null, categoria: data.categoria ?? null, notas: data.notas ?? null, items: items, boxes: boxes(data.boxes) } }];\n} catch (e) {\n  return [{ json: { ok:false, error: e.message, raw: raw } }];\n}"
+      },
+      "id": "07d9c6a2-24eb-43cc-94a3-1eb637c85bbe",
+      "name": "Parsear JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "8a6e9ee8-58f9-407d-8438-ece55f0c742c",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1008,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst body = (item && item.body) || {};\nconst headers = (item && item.headers) || {};\n// Solo la app (producción y vistas previas de Cloudflare) y pruebas locales.\n// Si la app se publica en otro dominio, agrégalo aquí.\nconst ALLOWED_ORIGINS = [/^https:\\/\\/([a-z0-9-]+\\.)?sistema-de-asistencia\\.pages\\.dev$/, /^http:\\/\\/(localhost|127\\.0\\.0\\.1)(:\\d+)?$/];\nconst origin = String(headers.origin || '');\nif (origin && !ALLOWED_ORIGINS.some(function(re){ return re.test(origin); })) throw new Error('Origen no permitido');\nlet file = String(body.fileBase64 || body.imageBase64 || '').trim();\nconst mimeType = String(body.mimeType || 'image/jpeg').toLowerCase();\nconst allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];\nif (!file) throw new Error('Falta fileBase64');\nif (!allowed.includes(mimeType)) throw new Error('Tipo de comprobante no compatible');\nif (file.length > 14000000) throw new Error('Comprobante demasiado grande (max 10 MB)');\nconst token = body.idToken;\nif (!token) throw new Error('Falta idToken');\n// Clave web de Firebase (pública, la misma de la app). Si n8n permite leer\n// variables de entorno, FIREBASE_WEB_API_KEY la reemplaza.\nlet apiKey = 'AIzaSyDF8sJaHAMx4mRqMWo_J6Cpd6_ZjIc4jYA';\ntry { if ($env && $env.FIREBASE_WEB_API_KEY) apiKey = $env.FIREBASE_WEB_API_KEY; } catch (e) { /* variables de entorno bloqueadas */ }\nconst resp = await this.helpers.httpRequest({ method: 'POST', url: 'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + apiKey, body: { idToken: token }, json: true });\nconst uid = resp && resp.users && resp.users[0] && resp.users[0].localId;\nif (!uid) throw new Error('idToken invalido');\nreturn [{ json: Object.assign({}, item, { _uid: uid, _receiptMimeType: mimeType }) }];"
+      },
+      "id": "810a9b51-e56e-4573-aa7e-4eafcdd764a3",
+      "name": "Verificar idToken",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst body = (item && item.body) || {};\nlet data = String(body.fileBase64 || body.imageBase64 || '').trim();\nlet mimeType = String(body.mimeType || item._receiptMimeType || 'image/jpeg').toLowerCase();\nconst dataUrl = data.match(/^data:(image\\/(?:jpeg|png|webp)|application\\/pdf);base64,(.+)$/s);\nif (dataUrl) { mimeType = dataUrl[1].toLowerCase(); data = dataUrl[2]; }\nconst prompt = 'Eres experto en extraer datos de facturas o recibos de compra. Analiza todas las paginas del comprobante y devuelve UNICAMENTE un JSON valido, sin texto adicional ni bloques de codigo. Si un dato no aparece, usa null. Campos: {\"emisor\": nombre de la tienda o proveedor, \"rnc_emisor\": RNC o identificacion fiscal del emisor, \"cliente\": nombre del cliente o comprador si aparece, \"rnc_cliente\": RNC del cliente si aparece, \"ncf\": numero de comprobante fiscal, \"fecha\": fecha en formato YYYY-MM-DD, \"subtotal\": numero sin simbolos, \"itbis\": numero del impuesto sin simbolos, \"total\": numero sin simbolos, \"concepto\": descripcion breve general de la compra, \"categoria\": una de Materiales/Transporte/Comida/Herramientas/Mano de obra/Combustible/Otros, \"notas\": notas u observaciones escritas en el documento si las hay, \"items\": lista de articulos comprados (maximo 30) donde cada uno es {\"descripcion\": nombre corto del articulo, \"cantidad\": numero, \"precio\": precio total del articulo sin simbolos}, \"boxes\": {\"total\", \"subtotal\", \"itbis\", \"ncf\", \"rnc_emisor\", \"fecha\"} donde cada uno es el recuadro del valor en la imagen como [y_min, x_min, y_max, x_max] con enteros normalizados de 0 a 1000; el recuadro cubre solo el valor (no su etiqueta); usa null para el dato que no veas, y \"boxes\": null si el comprobante es PDF o tiene varias paginas}';\nreturn [{ json: { geminiBody: { contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType, data } }] }], generationConfig: { maxOutputTokens: 4096, responseMimeType: 'application/json' } } } }];"
+      },
+      "id": "91e27bc3-cd6d-48f4-96f7-e814b69f75f8",
+      "name": "Preparar solicitud Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.geminiBody) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "b340cd18-5cd5-415c-9886-25d0c5ed4d53",
+      "name": "Analizar comprobante con Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        560,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GTbIlbJYohMhRJZd",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Parsear JSON": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recibir Foto": {
+      "main": [
+        [
+          {
+            "node": "Verificar idToken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar idToken": {
+      "main": [
+        [
+          {
+            "node": "Preparar solicitud Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar solicitud Gemini": {
+      "main": [
+        [
+          {
+            "node": "Analizar comprobante con Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar comprobante con Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parsear JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "b9dd531f-63e2-4be4-9f01-6eed4474e995",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "45abd0224853aa68ee3184a549d44835cb84a28be38a2e8afbfe518a911f347c"
+  },
+  "nodeGroups": [],
+  "id": "RJVP8gSo4mFtSJmw",
+  "tags": []
+}

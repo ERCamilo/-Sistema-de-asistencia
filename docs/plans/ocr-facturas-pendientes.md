@@ -1,6 +1,8 @@
 # Lector de facturas (OCR): mejoras pendientes
 
-Anotado el 11 oct 2026 al diseñar la cámara de facturas nueva. **Aún no se cambia el flujo de n8n**; la cámara nueva funciona con lo que el lector devuelve hoy.
+Anotado el 11 oct 2026 al diseñar la cámara de facturas nueva.
+
+**12 oct 2026:** el flujo vive ahora en el repositorio, en `infra/n8n/caja-chica-ocr.json` (se importa en n8n). Sus nodos de código tienen pruebas en `js/tests/N8nReceiptOcrWorkflow.test.js`. Esta versión ya pide y devuelve `boxes` (ver Pendiente 1).
 
 ## Hoy
 
@@ -32,9 +34,15 @@ Por eso lo que se marca "por revisar" sale de revisiones locales y exactas (`Pet
 "boxes": { "total": [880, 100, 910, 900], "fecha": [120, 600, 140, 900], "ncf": [...], "rncEmisor": [...], "itbis": [...], "subtotal": [...] }
 ```
 
-Cada aviso de la vista previa con posición muestra "⌖ Ver en la foto". Al tocarlo, la foto se acerca a ese dato y lo marca. Sin `boxes`, el aviso funciona como hoy. Solo falta que el flujo de n8n agregue ese campo.
+Cada aviso de la vista previa con posición muestra "⌖ Ver en la foto". Al tocarlo, la foto se acerca a ese dato y lo marca. Sin `boxes`, el aviso funciona como hoy.
 
-Antes de cambiar el flujo, probarlo con 5–10 fotos reales de facturas.
+**Hecho en `infra/n8n/caja-chica-ocr.json` (paso 1, sin certeza todavía):**
+- el prompt pide `boxes` con `total`, `subtotal`, `itbis`, `ncf`, `rnc_emisor` y `fecha`, solo sobre el valor, y `null` en PDF o varias páginas;
+- "Parsear JSON" los pasa como `boxes` (con `rncEmisor`) y descarta los mal formados: fuera de 0–1000, invertidos o de otro largo;
+- `maxOutputTokens` sube de 2048 a 4096 para que quepan;
+- el "thinking" no se toca: `gemini-3.1-flash-lite-preview` lo trae bajo, y un parámetro que el modelo no acepte rompería la llamada. Si las cajas salen corridas, probarlo aparte.
+
+**Siguiente:** probarlo con 10–20 fotos reales y ver con "⌖ Ver en la foto" si los recuadros caen bien. Si no bastan, el plan B es un servicio RapidOCR (los modelos de PaddleOCR en ONNX): Gemini dice de qué línea del OCR sacó cada dato, el recuadro sale exacto del OCR, y cuando el texto del OCR y el de Gemini no coinciden, el dato se marca como dudoso.
 
 ## Pendiente 2: verificar el RNC de la compañía
 
