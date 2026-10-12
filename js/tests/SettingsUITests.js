@@ -65,7 +65,7 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
         const html = SettingsTab();
 
         testRunner.assert(typeof html === 'string', 'SettingsTab debe retornar un string de HTML');
-        testRunner.assert(html.includes('Configuración del Sistema'), 'Debe incluir el título de configuración');
+        testRunner.assert(html.includes('<span>Ajustes</span>'), 'Debe incluir el título de configuración');
         
         // Comprobar que incluye elementos del formulario general (como companyName) si asumió 'general'
         testRunner.assert(html.includes('companyName') || html.includes('Nombre de la Empresa'), 'Debe renderizar la pestaña General por defecto');

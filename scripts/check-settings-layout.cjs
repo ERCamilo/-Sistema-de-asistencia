@@ -29,7 +29,7 @@ import {refreshSettingsDraftBar,discardSettingsDraft,captureSettingsDraft,restor
 import {HolidayService} from '/js/modules/features/attendance/HolidayService.js';
 import {StorageCard,SyncCard,attachSettingsDiagnostics,refreshDeviceSettingsDiagnostics,getSettingsSyncStatus} from '/js/modules/ui/settings/SettingsDiagnostics.js';
 import {SyncStatus} from '/js/modules/services/SyncStatus.js';
-stateManager.batchSetState(raw=>{raw.activeTab='settings';Object.assign(raw.settings,{companyName:'Empresa de prueba',regularHoursPerDay:8,overtimeFactor:1.5,holidayFactor:2,restDayFactor:1.5,defaultDeductionPercentage:0,holidays:[],payPeriod:{}});raw.settingsCalendarMonth=new Date(2026,9,1);});
+stateManager.batchSetState(raw=>{raw.activeTab='settings';Object.assign(raw.settings,{companyName:'Empresa de prueba',regularHoursPerDay:8,overtimeFactor:1.5,holidayFactor:2,restDayFactor:1.5,defaultDeductionPercentage:0,holidays:[],payPeriod:{payDay:'2026-10-14'},holidays:['2026-10-13']});raw.snapshots=[{id:'manual',type:'manual',createdAt:Date.now(),employeeCount:1,attendanceCount:2,userNote:'Copia de prueba'},{id:'protected',type:'pre-restore',createdAt:Date.now(),employeeCount:1,attendanceCount:2}];raw.settingsCalendarMonth=new Date(2026,9,1);});
 const context={state,icons:{get:()=>'',getAvailableSets:()=>['unicode']},holidayService:new HolidayService(state)};
 // Synthetic device-local records. Genuine browser IndexedDB and Blob measurements.
 const seed=async(name,rows)=>{
@@ -43,6 +43,7 @@ initSettingsUI(context);
 window.fixtureSyncStatus=SyncStatus;
 window.fixtureSetUser=async(user)=>{context.currentUser=user;await refreshDeviceSettingsDiagnostics();};
 window.fixtureRefresh=refreshDeviceSettingsDiagnostics;
+window.enableExperiments=()=>stateManager.batchSetState(raw=>{raw.settings.newReceiptCamera=true;raw.settings.newBottomNav=true;raw.settings.voiceMvpEnabled=true;raw.settings.weatherEnabled=true;});
 window.draw=tab=>{clearSettingsFormErrors();discardSettingsDraft({});state.settingsActiveTab=tab;document.getElementById('screen').innerHTML=SettingsTab();refreshSettingsDraftBar();};
 window.fixtureRender=()=>{const draft=captureSettingsDraft();DOMDiff.patchSelf(document.getElementById('settings-screen'),SettingsTab());restoreSettingsDraft(draft);refreshSettingsFormErrors();refreshSettingsDraftBar();};
 window.saveCalls=0;
@@ -73,6 +74,7 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
         page.on('request',request=>new URL(request.url()).hostname==='127.0.0.1'?request.continue():request.abort());
         await page.goto(`http://127.0.0.1:${server.address().port}/settings-fixture`);
         await page.waitForFunction(()=>window.ready);
+        await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});
         const deviceStats=await page.$eval('[data-settings-storage-card]',el=>el.textContent);
         assert.ok(deviceStats.includes('6.00 MB (1)'),`Fotos reales: ${deviceStats}`);
         assert.ok(deviceStats.includes('1.00 MB (1)'),`Audios reales: ${deviceStats}`);
@@ -94,7 +96,9 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
                 const layout=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,unlabelled:[...document.querySelectorAll('#screen input,#screen select')].filter(el=>getComputedStyle(el).display!=='none'&&!el.labels.length&&!el.getAttribute('aria-label')&&!el.getAttribute('aria-labelledby')).map(el=>el.id)}));
                 assert.ok(layout.scroll<=layout.width,`${tab} desborda a ${width}px: ${JSON.stringify(layout)}`);
                 assert.deepEqual(layout.unlabelled,[],`${tab}: etiquetas accesibles`);
+                assert.equal(await page.$$eval('#screen input,#screen button,#screen select',els=>els.filter(el=>!el.closest('#settings-screen')).length),0,`${tab}: controles dentro del panel`);
                 assert.equal(await page.$$eval('#settings-screen [data-settings-action="save-settings"]',els=>els.length),0);
+                assert.ok(await page.$$eval('#settings-screen [hidden]',els=>els.every(el=>el.getBoundingClientRect().height===0)));
                 if(tab==='tests') assert.ok(await page.$('[data-developer-mode]'),'Tests visible en modo desarrollador');
                 if(tab==='general') assert.ok(await page.$('[data-settings-voice] #voiceMvpEnabled'),'Voz en General');
                 if(tab==='calendar') {
@@ -115,6 +119,38 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
                 console.log(`PASS Ajustes ${tab}: ${width}px, etiquetas, sin desbordamiento${tab==='general'?', barra y navegación':''}`);
             }
         }
+        await page.evaluate(()=>window.enableExperiments());
+        for(const textScale of [100,200]) {
+            await page.setViewport({width:320,height:844});
+            await page.evaluate(scale=>document.documentElement.style.fontSize=scale===200?'200%':'',textScale);
+            for(const tab of ['general','calendar','data','tests']) {
+                await page.evaluate(tab=>{window.draw(tab);document.querySelectorAll('.settings-tool-group').forEach(el=>el.open=true);},tab);
+                const report=await page.evaluate(async()=>{
+                    const originalWidth=innerWidth, originalScroll=document.documentElement.scrollWidth;
+                    const result=await axe.run('#settings-screen',{runOnly:{type:'rule',values:['color-contrast']}});
+                    return {width:originalWidth,scroll:originalScroll,violations:result.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,reason:n.failureSummary}))})),incomplete:result.incomplete.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}))};
+                });
+                assert.ok(report.scroll<=report.width,`${tab} texto ${textScale}%: ${JSON.stringify(report)}`);
+                assert.deepEqual(report.violations,[],`${tab} contraste: ${JSON.stringify(report)}`);
+                const visible=await page.$$eval('#settings-screen button,#settings-screen summary',els=>els.filter(el=>el.getBoundingClientRect().height>0).map(el=>({text:el.textContent.trim().slice(0,60),width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})));
+                assert.ok(visible.every(el=>el.width>=44&&el.height>=44),`${tab}: acciones táctiles pequeñas ${JSON.stringify(visible.filter(el=>el.width<44||el.height<44))}`);
+                assert.ok((await page.$$eval('#settings-screen .nav-tab .tab-text',els=>els.map(el=>getComputedStyle(el).display))).every(display=>display!=='none'));
+                console.log(`PASS Ajustes ${tab}: texto ${textScale}%, herramientas abiertas, sin desbordamiento, contraste y acciones táctiles`);
+                if(process.env.SETTINGS_SCREENSHOT_DIR&&tab==='tests'){await page.screenshot({path:path.join(process.env.SETTINGS_SCREENSHOT_DIR,`settings-tests-expanded-${textScale}.png`),fullPage:true});}
+                if(report.incomplete.length)console.log(`REVIEW ${tab}: ${JSON.stringify(report.incomplete)}`);
+            }
+        }
+        for (const textScale of [100,200]) {
+            await page.evaluate(scale=>{localStorage.removeItem('sa.devMode.v1');document.documentElement.style.fontSize=scale===200?'200%':'';},textScale);
+            for (const tab of ['general','calendar','data']) {
+                await page.evaluate(tab=>window.draw(tab),tab);
+                const normal=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,tabs:[...document.querySelectorAll('[data-settings-action="change-settings-tab"]')].map(el=>el.dataset.value),hiddenNames:[...document.querySelectorAll('.tab-text')].some(el=>getComputedStyle(el).display==='none')}));
+                assert.deepEqual(normal.tabs,['data','general','calendar']);
+                assert.ok(normal.scroll<=normal.width&&!normal.hiddenNames,`${tab}: modo normal ${textScale}% ${JSON.stringify(normal)}`);
+            }
+            console.log(`PASS modo normal: tres pestañas, nombres visibles y reflujo con texto ${textScale}%`);
+        }
+        await page.evaluate(()=>document.documentElement.style.fontSize='');
         await page.evaluate(()=>window.draw('calendar'));
         await page.$eval('#overtimeFactor',el=>{el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));});
         await page.click('#settings-draft-bar [data-settings-action="save-settings"]');
@@ -128,7 +164,8 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
         assert.equal(await page.$('#settings-error-overtimeFactor'),null);
         await page.click('#settings-draft-bar [data-settings-action="save-settings"]');
         assert.equal(await page.evaluate(()=>window.saveCalls),1);
-        assert.equal(await page.$eval('#settings-draft-bar',el=>el.hidden),true);
+        const dirtyFields=await page.evaluate(()=>[...document.querySelectorAll('#settings-screen input,#settings-screen select')].filter(el=>['companyName','weatherApiKey','weatherLocationInput','scrollbarMode','showAttendanceCardDeficit','attendanceDeficitUnit','regularHoursPerDay','overtimeFactor','holidayFactor','restDayFactor','defaultDeductionPercentage'].includes(el.id)).map(el=>({id:el.id,value:el.value,defaultValue:el.defaultValue,checked:el.checked,defaultChecked:el.defaultChecked,options:el.options?[...el.options].map(o=>({value:o.value,defaultSelected:o.defaultSelected})):null})));
+        assert.equal(await page.$eval('#settings-draft-bar',el=>el.hidden),true,JSON.stringify(dirtyFields));
         console.log('PASS handler real: error inline, borrador preservado, corrección y guardado contextual único');
         assert.deepEqual(errors,[]);console.log('PASS sin errores JavaScript ni llamadas a cuentas reales');
     } finally {if(browser) await browser.close();await new Promise(resolve=>server.close(resolve));}

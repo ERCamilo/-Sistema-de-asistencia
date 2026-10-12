@@ -88,20 +88,35 @@ function newReceiptCameraCard(settings = {}) {
             </section>`;
 }
 
+function toolGroup(id, title, hint, content) {
+    // Read the live disclosure state so a reactive patch does not close it.
+    const current = document.getElementById(id);
+    const open = current?.open ? 'open' : '';
+    // These are temporary simulation values, not persisted settings.
+    if (current && id === 'settings-diagnostics-tools') {
+        const template = document.createElement('template');
+        template.innerHTML = content;
+        for (const fieldId of ['bootLoaderTestDelaySeconds', 'bootLoaderTestErrorSeconds', 'bootLoaderTestReloadEnabled']) {
+            const live = current.querySelector(`#${fieldId}`);
+            const next = template.content.querySelector(`#${fieldId}`);
+            if (!live || !next) continue;
+            if (live.type === 'checkbox') next.toggleAttribute('checked', live.checked);
+            else next.setAttribute('value', live.value);
+        }
+        content = template.innerHTML;
+    }
+    return `<details id="${id}" class="settings-tool-group" ${open}>
+        <summary><span><strong>${title}</strong><small>${hint}</small></span></summary>
+        <div class="settings-tool-content">${content}</div>
+    </details>`;
+}
+
 export function SettingsTestsTab(context) {
     const state = context?.state || {};
     const splitxActiveUrl = state.settings?.splitxUrl || 'https://splitx.erlin.do';
 
-    return `
-        <div class="stg-panel">
-            <section class="stg-card" aria-labelledby="developer-mode-title" style="margin-bottom:20px;" data-developer-mode>
-                <h3 id="developer-mode-title">Modo desarrollador</h3>
-                <p>Esta pestaña solo se ve en este teléfono. Para ocultarla, toca aquí o toca 7 veces la versión al pie.</p>
-                <button type="button" class="btn btn-secondary" data-settings-action="exit-developer-mode">Ocultar pestaña Tests</button>
-            </section>
-            ${newBottomNavCard(state.settings)}
-            ${newReceiptCameraCard(state.settings)}
-            <div class="stg-header" style="margin-bottom: 20px;">
+    const experiments = `${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}`;
+    const diagnostics = `            <div class="stg-header" style="margin-bottom: 20px;">
                 <div>
                     <h3>Pruebas del Sistema</h3>
                     <p>
@@ -119,7 +134,7 @@ export function SettingsTestsTab(context) {
             </div>
 
             <div id="browser-test-results" style="font-family: monospace;">
-                <div class="stg-card" style="color: #475569; font-size: 0.8rem; text-align: center;">
+                <div class="stg-card" style="color: var(--stg-text-secondary); font-size: 0.8rem; text-align: center;">
                     Presiona "Ejecutar Pruebas" para iniciar la verificación del sistema.
                 </div>
             </div>
@@ -147,35 +162,19 @@ export function SettingsTestsTab(context) {
                     <button type="button" class="btn btn-primary" data-settings-action="start-boot-loader-test">
                         Mostrar loader detenido
                     </button>
-                    <span style="color:#64748b;font-size:.78rem;">Podrás cerrarlo desde la propia pantalla de carga.</span>
+                    <span style="color:var(--stg-text-secondary);font-size:.78rem;">Podrás cerrarlo desde la propia pantalla de carga.</span>
                 </div>
             </section>
 
-            <!-- Onboarding v2 — guía de inicio real -->
-            <section class="stg-card" aria-labelledby="onboarding-preview-title" style="margin-top:20px;">
-                <h4 id="onboarding-preview-title" style="margin-top:0;">Guía de inicio (Onboarding v2)</h4>
-                <p style="color:#94a3b8;font-size:.84rem;line-height:1.5;">
-                    Abre la misma guía real que se muestra en el primer arranque, con acciones sobre datos reales.
-                    Úsala para repasarla o relanzarla; reiniciar borra el progreso guardado en este navegador.
-                </p>
-                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;">
-                    <button type="button" class="btn btn-primary" data-settings-action="open-onboarding-preview">
-                        Abrir la guía de inicio
-                    </button>
-                    <button type="button" class="btn btn-secondary" data-settings-action="reset-onboarding-preview" style="font-size:.8rem;padding:6px 12px;">
-                        Reiniciar progreso guardado
-                    </button>
-                    <span style="color:#64748b;font-size:.78rem;">Ciérrala con Esc o con la × de la esquina superior.</span>
-                </div>
-            </section>
-            <!-- Integración SplitX en Pruebas / Desarrollo -->
+`;
+    const development = `            <!-- Integración SplitX en Pruebas / Desarrollo -->
             <section class="stg-card" aria-labelledby="splitx-integration-title" style="margin-top:20px;">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
                     ${icons.get('splitx', { size: 22 })}
-                    <h4 id="splitx-integration-title" style="margin:0;">Entorno de SplitX (Desarrollo / Pruebas)</h4>
+                    <h4 id="splitx-integration-title" style="margin:0;">Conexión de prueba con SplitX</h4>
                 </div>
                 <p style="color:#94a3b8;font-size:.84rem;line-height:1.5;">
-                    Configura una dirección local personalizada (ej: <code>http://127.0.0.1:8081</code> o <code>http://localhost:5500</code>) para probar la integración con SplitX antes del despliegue. Si se deja en blanco o se restablece, se usará la URL de producción.
+                    Usa una dirección local para probar SplitX. En blanco, se usa <code>https://splitx.erlin.do</code>.
                 </p>
                 <div style="display:flex;flex-direction:column;gap:8px;max-width:520px;margin-top:12px;">
                     <label for="splitxCustomUrl" style="font-size:0.8rem;color:#cbd5e1;font-weight:600;">URL de destino para SplitX:</label>
@@ -183,7 +182,7 @@ export function SettingsTestsTab(context) {
                         <input type="url" 
                                id="splitxCustomUrl" 
                                class="form-input" 
-                               style="flex:1;min-width:240px;font-size:0.85rem;"
+                               style="flex:1;min-width:0;font-size:0.85rem;"
                                placeholder="https://splitx.erlin.do (o ej. http://127.0.0.1:8081)" 
                                value="${state.settings?.splitxUrl || ''}">
                         <button type="button" 
@@ -200,7 +199,7 @@ export function SettingsTestsTab(context) {
                             Por defecto
                         </button>
                     </div>
-                    <div style="margin-top:4px;font-size:0.78rem;color:#64748b;">
+                    <div style="margin-top:4px;font-size:0.78rem;color:var(--stg-text-secondary);">
                         URL activa: <strong style="color:#38bdf8;">${splitxActiveUrl}</strong>
                     </div>
                 </div>
@@ -217,18 +216,50 @@ export function SettingsTestsTab(context) {
             </section>
 
             <section class="stg-card" aria-labelledby="notification-preview-title" style="margin-top:20px;">
-                <h4 id="notification-preview-title" style="margin-top:0;">Vista previa de notificaciones (Toasts)</h4>
+                <h4 id="notification-preview-title" style="margin-top:0;">Muestras de notificaciones</h4>
                 <p style="color:#94a3b8;font-size:.84rem;line-height:1.5;">Prueba los diferentes estados visuales, botones de acción interactivos, animación de reintento y apilamiento.</p>
                 <div style="display:flex;flex-wrap:wrap;gap:8px;">
                     <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="success">Éxito</button>
-                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="warning-retry">Warning con Reintentar</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="warning-retry">Aviso con reintento</button>
                     <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="error">Error</button>
                     <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="info">Info</button>
                     <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="loading">Carga y transición</button>
                     <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="update">Actualización PWA</button>
-                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="stack">Ráfaga (Stacking)</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="stack">Varios avisos</button>
                 </div>
             </section>
-        </div>
+`;
+    return `
+        <section class="stg-card" aria-labelledby="developer-mode-title" data-developer-mode>
+            <h3 id="developer-mode-title">Modo desarrollador</h3>
+            <p>Esta pestaña solo se ve en este dispositivo. Puedes ocultarla aquí o tocar 7 veces la versión al pie.</p>
+            <button type="button" class="btn btn-secondary" data-settings-action="exit-developer-mode">Ocultar pestaña Pruebas</button>
+        </section>
+        <section class="stg-panel" aria-labelledby="settings-experiments-title">
+            <div class="stg-header"><div><h3 id="settings-experiments-title">Funciones en prueba</h3><p>Activa las funciones que quieras probar.</p></div></div>
+            ${experiments}
+        </section>
+        <section class="stg-panel" aria-labelledby="settings-help-title">
+            <div class="stg-header"><div><h3 id="settings-help-title">Ayuda y diagnóstico</h3><p>Repasa la guía o comprueba la aplicación.</p></div></div>
+                        <!-- Onboarding v2 — guía de inicio real -->
+            <section class="stg-card" aria-labelledby="onboarding-preview-title" style="margin-top:20px;">
+                <h4 id="onboarding-preview-title" style="margin-top:0;">Guía de inicio</h4>
+                <p style="color:#94a3b8;font-size:.84rem;line-height:1.5;">
+                    Repasa la guía de inicio. Sus acciones usan tus datos reales; reiniciar borra el progreso de la guía en este navegador.
+                </p>
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;">
+                    <button type="button" class="btn btn-primary" data-settings-action="open-onboarding-preview">
+                        Abrir la guía de inicio
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="reset-onboarding-preview" style="font-size:.8rem;padding:6px 12px;">
+                        Reiniciar progreso guardado
+                    </button>
+                    <span style="color:var(--stg-text-secondary);font-size:.78rem;">Ciérrala con Esc o con la × de la esquina superior.</span>
+                </div>
+            </section>
+
+            ${toolGroup('settings-diagnostics-tools', 'Comprobar la aplicación', 'Pruebas automáticas y simulación de carga', diagnostics)}
+            ${toolGroup('settings-development-tools', 'Herramientas de desarrollo', 'SplitX y muestras de ventanas y avisos', development)}
+        </section>
     `;
 }
