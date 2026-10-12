@@ -35,10 +35,22 @@ export function StorageCard(stats = storageSnapshot) {
     </div>`;
 }
 
+export function StorageSummary(stats = storageSnapshot) {
+    const measured = stats?.usage != null;
+    const ratio = measured && stats.quota > 0 ? stats.usage / stats.quota * 100 : null;
+    const tone = ratio > 80 ? 'danger' : ratio > 60 ? 'warning' : measured ? 'success' : '';
+    return `<div class="stg-status-cell stg-storage-summary" data-settings-storage-card data-settings-storage-summary>
+        <span class="stg-label">Almacenamiento</span>
+        <span class="stg-value ${tone}">${stats ? measured ? `${formatStorageBytes(stats.usage)} usados` : 'Total no disponible' : 'Calculando…'}</span>
+        ${ratio !== null ? `<div class="stg-diagnostic-detail">${formatStorageBytes(Math.max(0, stats.quota - stats.usage))} disponibles · ${Math.min(100, Math.round(ratio))} % usado</div>` : ''}
+        <button type="button" class="btn btn-secondary" data-settings-action="change-settings-tab" data-value="data">Ver detalle en Datos</button>
+    </div>`;
+}
+
 export function StorageRecords(useIndexedDB, stats = storageSnapshot) {
     const records = stats?.records;
     return `<div id="indexeddb-stats" class="stg-diagnostic-detail">
-        Datos principales en ${useIndexedDB ? 'IndexedDB' : 'LocalStorage'}. Las fotos y los audios se conservan en IndexedDB; su espacio aparece en el resumen superior.
+        Datos principales en ${useIndexedDB ? 'IndexedDB' : 'LocalStorage'}. Las fotos y los audios se conservan en IndexedDB; su espacio aparece en el detalle de almacenamiento.
         ${useIndexedDB ? records?.available ? `<div>En IndexedDB: ${records.employees} empleados · ${records.positions} puestos · ${records.leaders} líderes · ${records.attendance} registros de asistencia</div>` : `<div>${stats ? 'Conteos de IndexedDB no disponibles.' : 'Calculando conteos de IndexedDB…'}</div>` : ''}
     </div>`;
 }
@@ -94,10 +106,10 @@ export function attachSettingsDiagnostics(context, {
     const mounted = () => !!doc.querySelector('#settings-screen');
     const paint = () => {
         if (disposed || !mounted()) return;
-        const storageCell = doc.querySelector('[data-settings-storage-card]');
+        const storageCells = doc.querySelectorAll('[data-settings-storage-card]');
         const syncCell = doc.querySelector('[data-settings-sync-card]');
         const recordsCell = doc.getElementById('indexeddb-stats');
-        if (storageCell) DOMDiff.patchSelf(storageCell, StorageCard());
+        storageCells.forEach(cell => DOMDiff.patchSelf(cell, cell.hasAttribute('data-settings-storage-summary') ? StorageSummary() : StorageCard()));
         if (syncCell) DOMDiff.patchSelf(syncCell, SyncCard(getSettingsSyncStatus(context)));
         if (recordsCell) DOMDiff.patchSelf(recordsCell, StorageRecords(context.state?.useIndexedDB));
     };
