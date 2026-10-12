@@ -120,3 +120,9 @@ Un nombre corregido también puede orientar una intención desconocida según la
 preferencia configurada. La negación continúa bloqueando las operaciones. El
 aprendizaje de alias sigue siendo optativo mediante la confirmación existente.
 No requiere modificaciones adicionales del contrato de n8n ni envío del catálogo.
+
+La búsqueda también compara el nombre completo y los alias sin espacios, en ambos
+lados: «Juan Carlos Rodríguez» equivale a «juancarlosrodriguez». Conserva la
+normalización de acentos y mayúsculas, la comparación aproximada y los niveles
+60/50/40 %. Si varias personas comparten la variante compacta, se mantienen todos
+los candidatos exactos; el número de empleado conserva su prioridad habitual.

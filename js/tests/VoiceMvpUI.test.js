@@ -147,7 +147,7 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
             search.value = '不存在'; search.dispatchEvent(new Event('input'));
             expect(ui.dialog.querySelector('[data-voice-empty]').hidden).toBe(false);
             await ui.change({ dataset: { voiceMention: 'spokenName' }, value: 'Yanpié' });
-            expect(ui.matches[0]).toMatchObject({ employee: { id: 'jean' }, reason: 'Nombre parecido', threshold: .4 });
+            expect(ui.matches[0]).toMatchObject({ employee: { id: 'jean' }, reason: 'Nombre parecido', threshold: .5 });
             await ui.action('select', 'jean');
             expect(ui.dialog.querySelector('[data-voice-alias]').value).toBe('Yanpié');
             await ui.action('learn');
