@@ -85,6 +85,32 @@ body.pcam-open { overflow: hidden; }
     transition: border-color 0.2s;
 }
 
+/* En vivo: dónde se ve el final de la parte anterior (lo nuevo empieza aquí). */
+.pcam-match {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 3px solid #fbbf24;
+    pointer-events: none;
+    transition: top 0.25s ease-out, border-color 0.2s;
+}
+
+.pcam-match i {
+    position: absolute;
+    left: 8px;
+    top: 3px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.85);
+    color: #fde68a;
+    font: 700 10.5px 'Inter', system-ui, sans-serif;
+    font-style: normal;
+}
+
+.pcam-match.is-aligned { border-top-color: #22c55e; }
+.pcam-match.is-aligned i { color: #86efac; }
+.pcam-match[hidden] { display: none; }
+
 .pcam-ghost-edge.is-aligned { border-top-style: solid; border-top-color: #22c55e; }
 
 /* Marca pequeña en la barra de arriba (en lugar del nombre de la caja), para
@@ -755,6 +781,7 @@ body.pcam-open { overflow: hidden; }
     flex-direction: column;
     gap: 5px;
     width: 100%;
+    box-sizing: border-box;
     padding: 9px 11px;
     border-radius: 12px;
     border: 1px solid #7c2d12;
@@ -768,9 +795,74 @@ body.pcam-open { overflow: hidden; }
 button.pcam-issue { cursor: pointer; transition: border-color 0.2s, background 0.2s; }
 button.pcam-issue[aria-pressed="true"] { border-color: #fb923c; background: #2a1708; }
 
+/* Resolver el aviso aquí mismo. */
+.pcam-fixes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+
+.pcam-fix {
+    min-height: 38px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid #475569;
+    background: #263244;
+    color: #f8fafc;
+    font: 700 12.5px 'Inter', system-ui, sans-serif;
+    cursor: pointer;
+}
+
+.pcam-fix.is-primary { border-color: #0ea5e9; background: #0c4a6e; color: #e0f2fe; }
+.pcam-fix:disabled { opacity: 0.45; cursor: default; }
+
+.pcam-fixinput { display: flex; gap: 8px; flex: 1 1 100%; }
+
+.pcam-fixinput input {
+    flex: 1;
+    min-width: 0;
+    min-height: 38px;
+    padding: 0 10px;
+    border-radius: 10px;
+    border: 1px solid #7c2d12;
+    background: #0b1120;
+    color: #f8fafc;
+    font: 700 14px ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.pcam-fixinput input.is-valid { border-color: #22c55e; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25); }
+
+.pcam-loc {
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+}
+
+.pcam-loc[aria-pressed="true"] { text-decoration: underline; }
+
+/* El aviso resuelto se recoge antes de que se actualice la lista. */
+.pcam-issue.is-resolving { animation: pcam-resolve 0.3s ease-in forwards; pointer-events: none; }
+
+@keyframes pcam-resolve {
+    0% { border-color: #22c55e; background: #052e1a; }
+    100% { opacity: 0.35; transform: scale(0.98); }
+}
+
+/* "Pendientes": terminar y dejar lo demás para después. */
+.pcam-finish {
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid #475569;
+    background: rgba(15, 23, 42, 0.85);
+    color: #e2e8f0;
+    font: 700 13px 'Inter', system-ui, sans-serif;
+    cursor: pointer;
+}
+
 .pcam-cmp { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
 .pcam-note { color: #94a3b8; font-size: 11.5px; }
-.pcam-loc { color: #fb923c; font-size: 11px; font-weight: 700; }
+.pcam-loc { color: #fb923c; font-size: 11px; font-weight: 700; font-family: inherit; }
 
 .pcam-tag {
     padding: 2px 7px;

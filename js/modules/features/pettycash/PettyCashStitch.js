@@ -1,14 +1,15 @@
 /**
  * Factura larga por partes (cámara de facturas).
  *
- * Cada parte nueva debe empezar con el final de la anterior: el visor muestra
- * esa franja ("fantasma") arriba del todo para alinear. Aquí se busca dónde
- * quedó la franja en la foto nueva, tanto en vivo (¿ya está alineada?) como al
- * unir (para recortar lo repetido), y se unen las partes en una sola imagen
- * alta que entra a la cola como cualquier otra foto.
+ * Cada parte nueva debe incluir el final de la anterior: el visor muestra esa
+ * franja ("fantasma") arriba como guía. Aquí se busca dónde se ve la franja en
+ * la imagen nueva, en vivo (¿hay traslape? ¿falta bajar? ¿se pasó?) y al unir
+ * (para recortar lo repetido), y se unen las partes en una sola imagen alta
+ * que entra a la cola como cualquier otra foto.
  *
- * Las comparaciones usan versiones pequeñas en gris; a cada fila se le resta
- * su promedio para que un cambio de brillo entre fotos no afecte.
+ * Las comparaciones usan versiones pequeñas en gris y correlación normalizada
+ * (no les afecta el brillo ni el contraste) con un pequeño corrimiento de lado,
+ * porque con la mano el teléfono nunca baja en línea recta.
  *
  * Probado en js/tests/PettyCashStitch.test.js.
  */
@@ -17,56 +18,25 @@ import { encodeImage } from './PettyCashCapture.js';
 
 /** Fracción de la altura de la foto que se usa como franja de traslape. */
 export const OVERLAP_FRACTION = 0.12;
-/** Diferencia media (0–255) por debajo de la cual dos franjas coinciden. */
-export const MATCH_MAX_SCORE = 18;
 /** Contraste mínimo (desviación, 0–255) para que una franja sirva de guía: el papel en blanco no. */
 export const MIN_BAND_CONTRAST = 16;
 /** Variación mínima entre renglones (ver rowTexture). */
 export const MIN_ROW_TEXTURE = 8;
-/** La mejor altura debe destacar sobre las demás por este margen; si no, la franja es ambigua. */
-export const DISTINCT_MARGIN = 6;
-/** En vivo el video llega algo borroso y la mano se mueve: umbral algo más estricto tras suavizar. */
-const LIVE_MAX_SCORE = 14;
-const LIVE_DISTINCT_MARGIN = 2;
 /** Ancho de las versiones pequeñas en gris. */
 export const SAMPLE_WIDTH = 72;
+/**
+ * Más filas que columnas en las muestras: con una fila por cada 15 px, un
+ * renglón de texto ocupa 2 filas y la comparación dependía de cómo cayera
+ * entre ellas. Con 3 veces más filas eso deja de importar.
+ */
+export const V_SCALE = 3;
+/** Pasadas de suavizado vertical (toleran inclinación y movimiento de la mano). */
+export const SMOOTH_PASSES = 2;
 // El lector recibe hasta 1600 px de ancho: más no ayuda y pesa más.
 const MAX_STITCH_WIDTH = 1600;
 const MAX_STITCH_PIXELS = 12_000_000;
-
-const rowMean = (px, row, w) => {
-    let sum = 0;
-    for (let x = 0; x < w; x++) sum += px[row * w + x];
-    return sum / w;
-};
-
-/**
- * Busca `band` (bandRows filas) dentro de `target` desde la fila 0 hasta maxY.
- * @returns {{y: number, score: number, runnerUp: number}} la fila donde empieza, su
- *   diferencia media y la mejor diferencia lejos de ahí (para saber si es ambigua).
- */
-export function matchBand(band, bandRows, target, targetRows, w, maxY) {
-    const bandMeans = Array.from({ length: bandRows }, (_, r) => rowMean(band, r, w));
-    const targetMeans = Array.from({ length: targetRows }, (_, r) => rowMean(target, r, w));
-    const last = Math.min(maxY, targetRows - bandRows);
-    const scores = [];
-    for (let y = 0; y <= last; y++) {
-        let diff = 0;
-        for (let r = 0; r < bandRows; r++) {
-            const bm = bandMeans[r];
-            const tm = targetMeans[y + r];
-            const bi = r * w;
-            const ti = (y + r) * w;
-            for (let x = 0; x < w; x++) diff += Math.abs((band[bi + x] - bm) - (target[ti + x] - tm));
-        }
-        scores.push(diff / (bandRows * w));
-    }
-    let y = 0;
-    scores.forEach((score, i) => { if (score < scores[y]) y = i; });
-    const near = Math.max(2, Math.round(bandRows / 4));
-    const runnerUp = scores.reduce((min, score, i) => (Math.abs(i - y) > near && score < min ? score : min), Infinity);
-    return { y, score: scores.length ? scores[y] : Infinity, runnerUp };
-}
+/** Al unir, el final de la parte anterior se busca en esta fracción de arriba de la siguiente. */
+const NEXT_SEARCH = 0.6;
 
 /**
  * Cuánto cambia la franja de un renglón a otro (diferencia media con el
@@ -108,19 +78,172 @@ function smoothRows(gray, rows, w) {
     return out;
 }
 
+/** Correlación mínima (−1…1) para dar la franja por encontrada. */
+export const MIN_NCC = 0.5;
+/** La mejor altura debe superar a cualquier otra lejana por este margen; si no, es ambigua. */
+export const NCC_DISTINCT = 0.08;
+/** Corrimiento de lado que se tolera (fracción del ancho). */
+const MAX_SHIFT_FRACTION = 0.1;
+/** Mitad de arriba: si el final de la parte anterior se ve ahí, la unión queda bien. */
+export const OK_ZONE = 0.5;
+
 /**
- * ¿La franja de la parte anterior (`band`) ya está arriba del todo en `live`?
- * Una franja sin texto no permite saberlo: nunca se da por alineada.
+ * Inclinaciones que se prueban en la pasada fina (filas de diferencia entre
+ * el centro y cada borde). Distintas distancias (más cerca / más lejos) no se
+ * prueban: costaba 5 veces más y daba alturas equivocadas; la guía en pantalla
+ * (el texto de la franja del mismo tamaño) ayuda a mantener la distancia.
+ */
+const SHEARS = [-3, -1.5, 0, 1.5, 3]; // filas de diferencia entre el centro y cada borde
+const COARSE = 3; // la pasada rápida junta de a 3 filas
+
+/** La franja menos el promedio de cada columna: solo cuenta lo que cambia de renglón a renglón. */
+function columnResidual(gray, rows, w) {
+    const out = new Float32Array(gray.length);
+    for (let x = 0; x < w; x++) {
+        let sum = 0;
+        for (let r = 0; r < rows; r++) sum += gray[r * w + x];
+        const mean = sum / rows;
+        for (let r = 0; r < rows; r++) out[r * w + x] = gray[r * w + x] - mean;
+    }
+    return out;
+}
+
+/** Sumas acumuladas por columna: promedio de cualquier ventana en O(1). */
+function columnPrefix(gray, rows, w) {
+    const out = new Float64Array((rows + 1) * w);
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < w; x++) out[(y + 1) * w + x] = out[y * w + x] + gray[y * w + x];
+    }
+    return out;
+}
+
+/** Junta de a `k` filas (promedio). */
+function shrinkRows(gray, rows, w, k) {
+    const outRows = Math.floor(rows / k);
+    const out = new Float32Array(outRows * w);
+    for (let y = 0; y < outRows; y++) {
+        for (let x = 0; x < w; x++) {
+            let sum = 0;
+            for (let i = 0; i < k; i++) sum += gray[(y * k + i) * w + x];
+            out[y * w + x] = sum / k;
+        }
+    }
+    return { gray: out, rows: outRows };
+}
+
+/**
+ * Correlación normalizada entre la franja (ya sin el promedio de cada columna)
+ * y `target` con la franja empezando en la fila `y`, corrida `dx` columnas e
+ * inclinada `shear` filas hacia cada borde. A cada columna de `target` se le
+ * resta su promedio en la ventana (bordes del papel, sombras y fondo no
+ * cuentan). No le afectan el brillo ni el contraste.
+ */
+function ncc(band, target, sums, liveRows, w, y, dx, shear) {
+    const { gray: a, rows, width: bw } = band;
+    const xOff = Math.round((w - bw) / 2) + dx;
+    const half = bw / 2;
+    let ab = 0; let aa = 0; let bb = 0; let used = 0;
+    for (let xb = 0; xb < bw; xb++) {
+        const tx = xb + xOff;
+        if (tx < 0 || tx >= w) continue;
+        const ty = y + Math.round(shear * (xb - half) / half);
+        if (ty < 0 || ty + rows > liveRows) continue;
+        const mean = (sums[(ty + rows) * w + tx] - sums[ty * w + tx]) / rows;
+        for (let r = 0; r < rows; r++) {
+            const av = a[r * bw + xb];
+            const bv = target[(ty + r) * w + tx] - mean;
+            ab += av * bv; aa += av * av; bb += bv * bv;
+        }
+        used += 1;
+    }
+    if (used < bw * 0.6 || !aa || !bb) return -1;
+    return ab / Math.sqrt(aa * bb);
+}
+
+const prepared = (gray, rows, w) => ({ gray: columnResidual(gray, rows, w), rows, width: w });
+
+/**
+ * Busca `band` en `target` a cualquier altura, tolerando corrimiento de
+ * lado, algo de inclinación, desenfoque y cambios de luz.
+ * Dos pasadas: una rápida (filas juntadas, sin escala ni inclinación) para
+ * hallar alturas candidatas y otra fina solo alrededor de ellas.
+ */
+export function findBand(band, live, liveRows, { maxShift = Math.max(1, Math.round(band.width * MAX_SHIFT_FRACTION)), smoothPasses = SMOOTH_PASSES } = {}) {
+    const w = band.width;
+    const smooth = (g, rows) => { let out = g; for (let i = 0; i < smoothPasses; i++) out = smoothRows(out, rows, w); return out; };
+    const bandS = smooth(band.gray, band.rows);
+    const liveS = smooth(live, liveRows);
+    const none = { found: false, ambiguous: false, y: null, dx: 0, ncc: -1, runnerUp: -1 };
+    if (liveRows < band.rows) return none;
+
+    // Pasada rápida.
+    const k = band.rows >= COARSE * 4 ? COARSE : 1;
+    const cb = shrinkRows(bandS, band.rows, w, k);
+    const cl = shrinkRows(liveS, liveRows, w, k);
+    const cBand = prepared(cb.gray, cb.rows, w);
+    const cSums = columnPrefix(cl.gray, cl.rows, w);
+    const coarse = [];
+    for (let y = 0; y <= cl.rows - cb.rows; y++) {
+        let best = { v: -1, dx: 0 };
+        for (let dx = -maxShift; dx <= maxShift; dx++) {
+            const v = ncc(cBand, cl.gray, cSums, cl.rows, w, y, dx, 0);
+            if (v > best.v) best = { v, dx };
+        }
+        coarse.push({ y, ...best });
+    }
+    if (!coarse.length) return none;
+    const ranked = coarse.slice().sort((p, q) => q.v - p.v);
+    const candidates = [];
+    for (const c of ranked) {
+        if (candidates.length >= 5) break;
+        if (candidates.every(o => Math.abs(o.y - c.y) > 2)) candidates.push(c);
+    }
+
+    // Pasada fina alrededor de las candidatas.
+    const sums = columnPrefix(liveS, liveRows, w);
+    const fine = prepared(bandS, band.rows, w);
+    let best = { v: -1, y: 0, dx: 0 };
+    for (const c of candidates) {
+        for (let y = Math.max(0, c.y * k - k - 2); y <= Math.min(liveRows - 2, c.y * k + k + 2); y++) {
+            if (y + band.rows > liveRows) continue;
+            for (let dx = c.dx - 2; dx <= c.dx + 2; dx++) {
+                for (const shear of SHEARS) {
+                    const v = ncc(fine, liveS, sums, liveRows, w, y, dx, shear);
+                    if (v > best.v) best = { v, y, dx };
+                }
+            }
+        }
+    }
+    // ¿Ambigua? La mejor altura debe superar a las lejanas de la pasada rápida.
+    const near = Math.max(2, Math.round(band.rows / 3));
+    const runnerUp = coarse.reduce((m, p) => (Math.abs(p.y * k - best.y) > near && p.v > m ? p.v : m), -1);
+    const value = best.v;
+    return {
+        found: value >= MIN_NCC && value - runnerUp >= NCC_DISTINCT,
+        ambiguous: value >= MIN_NCC && value - runnerUp < NCC_DISTINCT,
+        y: best.y, dx: best.dx, ncc: value, runnerUp
+    };
+}
+
+/**
+ * Qué decirle a quien toma la factura larga, según dónde se ve en vivo el
+ * final de la parte anterior (`band`):
+ *   ok    → en la mitad de arriba: hay traslape, la unión queda bien;
+ *   below → todavía más abajo: sigue bajando;
+ *   lost  → ya no se ve: te pasaste (quedaría un hueco);
+ *   flat  → la franja no tiene texto: no se puede saber;
+ *   unsure→ coincide igual en varias alturas.
  */
 export function judgeAlignment(band, live, liveRows) {
     if (!band || bandContrast(band.gray) < MIN_BAND_CONTRAST || rowTexture(band.gray, band.rows, band.width) < MIN_ROW_TEXTURE) {
-        return { aligned: false, flat: true, y: null, score: Infinity };
+        return { aligned: false, flat: true, status: 'flat', y: null, yFrac: null };
     }
-    const w = band.width;
-    const r = matchBand(smoothRows(band.gray, band.rows, w), band.rows, smoothRows(live, liveRows, w), liveRows, w, liveRows - band.rows);
-    const tolerance = Math.max(2, Math.round(band.rows * 0.35));
-    const ambiguous = r.runnerUp - r.score < LIVE_DISTINCT_MARGIN;
-    return { aligned: !ambiguous && r.score < LIVE_MAX_SCORE && r.y <= tolerance, flat: false, ambiguous, y: r.y, score: r.score };
+    const r = findBand(band, live, liveRows);
+    if (r.ambiguous) return { aligned: false, flat: false, status: 'unsure', y: r.y, yFrac: r.y / liveRows, ncc: r.ncc };
+    if (!r.found) return { aligned: false, flat: false, status: 'lost', y: null, yFrac: null, ncc: r.ncc };
+    const yFrac = r.y / liveRows;
+    const status = yFrac <= OK_ZONE ? 'ok' : 'below';
+    return { aligned: status === 'ok', flat: false, status, y: r.y, yFrac, dx: r.dx, ncc: r.ncc };
 }
 
 /**
@@ -148,10 +271,14 @@ const makeCanvas = (doc, w, h) => {
 };
 
 /** Versión pequeña en gris de una región de `source` (video, imagen o bitmap). */
-export function sampleGray(doc, source, sx, sy, sw, sh, width = SAMPLE_WIDTH) {
-    const rows = Math.max(1, Math.round(sh * (width / sw)));
+export function sampleGray(doc, source, sx, sy, sw, sh, width = SAMPLE_WIDTH, vScale = V_SCALE) {
+    const rows = Math.max(1, Math.round(sh * (width / sw) * vScale));
     const canvas = makeCanvas(doc, width, rows);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    // Reducción de calidad alta (promedia cada zona): con la normal, cada
+    // columna tomaba un punto suelto y cambiaba mucho con un corrimiento mínimo.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(source, sx, sy, sw, sh, 0, 0, width, rows);
     const { data } = ctx.getImageData(0, 0, width, rows);
     const gray = new Uint8Array(width * rows);
@@ -171,9 +298,9 @@ export function bottomBand(doc, bitmap) {
 /** ¿El final de la parte anterior está ya arriba del todo en el visor? */
 export function liveAlignment(doc, video, band) {
     const { w, h } = sizeOf(video);
-    if (!w || !h || !band) return { aligned: false, score: Infinity };
-    const searchH = Math.round(h * OVERLAP_FRACTION * 2.5);
-    const live = sampleGray(doc, video, 0, 0, w, searchH, band.width);
+    if (!w || !h || !band) return { aligned: false, status: 'lost', yFrac: null };
+    // Toda la imagen: así se sabe si todavía está abajo o si ya no se ve.
+    const live = sampleGray(doc, video, 0, 0, w, h, band.width);
     return judgeAlignment(band, live.gray, live.rows);
 }
 
@@ -184,13 +311,12 @@ export async function stitchParts(doc, bitmaps, { quality = 0.9 } = {}) {
     const overlaps = [];
     for (let i = 1; i < bitmaps.length; i++) {
         const band = bottomBand(doc, bitmaps[i - 1]);
-        const next = sampleGray(doc, bitmaps[i], 0, 0, sizes[i].w, sizes[i].h * 0.45, band.width);
-        const r = matchBand(band.gray, band.rows, next.gray, next.rows, band.width, next.rows - band.rows);
-        // Pasar de filas de la muestra a filas de la foto. Sin texto en la franja, no se confía.
-        const k = sizes[i].w / band.width;
-        const reliable = r.score < MATCH_MAX_SCORE && r.runnerUp - r.score >= DISTINCT_MARGIN
-            && bandContrast(band.gray) >= MIN_BAND_CONTRAST && rowTexture(band.gray, band.rows, band.width) >= MIN_ROW_TEXTURE;
-        overlaps.push(reliable ? { y: Math.round(r.y * k), band: Math.round(band.rows * k) } : null);
+        const next = sampleGray(doc, bitmaps[i], 0, 0, sizes[i].w, sizes[i].h * NEXT_SEARCH, band.width);
+        const r = judgeAlignment(band, next.gray, next.rows);
+        // Filas de la muestra → filas de la foto (con el alto real: las muestras
+        // tienen más filas que columnas). Sin coincidencia confiable, se asume arriba.
+        const k = (sizes[i].h * NEXT_SEARCH) / next.rows;
+        overlaps.push(r.status === 'ok' || r.status === 'below' ? { y: Math.round(r.y * k), band: Math.round(band.rows * k) } : null);
     }
     const plan = planStitch(sizes.map(s => s.h), overlaps, { band: Math.round(sizes[1]?.h * OVERLAP_FRACTION || 0) });
     // Todas las partes vienen de la misma cámara; se limita el ancho y el área total.

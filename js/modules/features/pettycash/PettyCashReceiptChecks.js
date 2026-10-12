@@ -166,7 +166,61 @@ export function checkReceipt(movement, { period = null, movements = [], today = 
                 { detail: { read: String(rawDate), suggestion: swapped && inside(swapped) ? swapped : null } });
         }
     }
-    return issues;
+    // Lo que la persona ya dio por bueno desde la vista previa no vuelve a salir.
+    const accepted = new Set(Array.isArray(movement.reviewAccepted) ? movement.reviewAccepted : []);
+    return issues.filter(i => !accepted.has(i.code));
+}
+
+/**
+ * Cómo se puede resolver cada aviso desde la vista previa de la cámara:
+ *   apply  → un cambio listo para guardar (`patch`), p. ej. usar lo calculado;
+ *   input  → escribir el dato (empieza con lo detectado), validado con `validate`;
+ *   accept → dar por bueno lo leído (el aviso no vuelve a salir).
+ */
+export function fixesFor(issue) {
+    const d = issue?.detail || {};
+    const accept = { kind: 'accept', code: issue?.code };
+    switch (issue?.code) {
+        case 'total-mismatch':
+            return [{ kind: 'apply', patch: { total: d.calc, amount: d.calc }, value: d.calc }, accept];
+        case 'itbis-rate':
+            return [{ kind: 'apply', patch: { itbis: d.calc }, value: d.calc }, accept];
+        case 'date-outside-period':
+            return d.suggestion
+                ? [{ kind: 'apply', patch: { date: d.suggestion, fechaEmision: d.suggestion }, value: d.suggestion }, accept]
+                : [{ kind: 'input', field: 'date', validate: 'date', value: d.read || '' }, accept];
+        case 'ncf-format':
+            return [{ kind: 'input', field: 'ncf', validate: 'ncf', value: d.read || '' }, accept];
+        case 'rnc-invalid':
+            return [{ kind: 'input', field: 'rncEmisor', validate: 'rnc', value: d.read || '' }, accept];
+        case 'ncf-duplicate':
+            return [accept];
+        case 'missing-total':
+            return [{ kind: 'input', field: 'total', validate: 'amount', value: '' }];
+        default:
+            return [];
+    }
+}
+
+/** Valida lo que se escribió para resolver un aviso y devuelve el cambio a guardar. */
+export function validateFixInput(validate, raw) {
+    const text = String(raw ?? '').trim();
+    if (validate === 'ncf') {
+        const ncf = text.replace(/[\s-]/g, '').toUpperCase();
+        return isValidNcf(ncf) ? { ok: true, patch: { ncf } } : { ok: false };
+    }
+    if (validate === 'rnc') {
+        return isValidRnc(text) ? { ok: true, patch: { rncEmisor: digits(text) } } : { ok: false };
+    }
+    if (validate === 'amount') {
+        const n = Number(text.replace(/[^\d.]/g, ''));
+        return Number.isFinite(n) && n > 0 ? { ok: true, patch: { total: n, amount: n } } : { ok: false };
+    }
+    if (validate === 'date') {
+        const iso = parseReceiptDate(text);
+        return iso ? { ok: true, patch: { date: iso, fechaEmision: iso } } : { ok: false };
+    }
+    return { ok: false };
 }
 
 /**

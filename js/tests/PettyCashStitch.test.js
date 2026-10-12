@@ -2,7 +2,7 @@
  * Factura larga por partes: buscar dónde se repite la franja de la parte
  * anterior en la siguiente (para alinear en vivo y para unir sin duplicar).
  */
-import { matchBand, planStitch, judgeAlignment, MATCH_MAX_SCORE } from '../modules/features/pettycash/PettyCashStitch.js';
+import { planStitch, judgeAlignment, findBand } from '../modules/features/pettycash/PettyCashStitch.js';
 
 // "Factura" sintética: cada fila tiene un patrón distinto y no se repite (renglones de texto).
 const W = 24;
@@ -18,33 +18,6 @@ const receipt = (rows) => {
     return px;
 };
 const slice = (px, from, rows) => px.slice(from * W, (from + rows) * W);
-const brighter = (px, d) => px.map(v => Math.min(255, v + d));
-
-describe('matchBand', () => {
-    const doc = receipt(200);
-
-    test('encuentra la franja exactamente donde está', () => {
-        const band = slice(doc, 90, 12);
-        const next = slice(doc, 70, 80);
-        const r = matchBand(band, 12, next, 80, W, 60);
-        expect(r.y).toBe(20);
-        expect(r.score).toBeLessThan(1);
-    });
-
-    test('tolera un cambio de brillo entre una foto y otra', () => {
-        const band = slice(doc, 90, 12);
-        const next = brighter(slice(doc, 85, 80), 18);
-        const r = matchBand(band, 12, next, 80, W, 60);
-        expect(r.y).toBe(5);
-        expect(r.score).toBeLessThan(MATCH_MAX_SCORE);
-    });
-
-    test('si la franja no está, el puntaje lo dice', () => {
-        const band = slice(doc, 10, 12);
-        const other = new Uint8Array(W * 80).map((_, i) => (i * 37) % 251);
-        expect(matchBand(band, 12, other, 80, W, 60).score).toBeGreaterThan(MATCH_MAX_SCORE);
-    });
-});
 
 describe('planStitch', () => {
     test('recorta de cada parte la franja repetida', () => {
@@ -64,38 +37,73 @@ describe('planStitch', () => {
     });
 });
 
-describe('judgeAlignment (en vivo)', () => {
+describe('findBand: dónde se ve el final de la parte anterior (correlación, tolera luz y corrimiento)', () => {
     const doc = receipt(200);
+    const band = { gray: slice(doc, 100, 12), rows: 12, width: W };
 
-    test('alineado cuando la franja está arriba del todo', () => {
-        const band = slice(doc, 100, 12);
-        expect(judgeAlignment({ gray: band, rows: 12, width: W }, slice(doc, 100, 40), 40).aligned).toBe(true);
+    test('la encuentra donde está', () => {
+        const r = findBand(band, slice(doc, 90, 60), 60);
+        expect(r.found).toBe(true);
+        expect(r.y).toBe(10);
+        expect(r.ncc).toBeGreaterThan(0.95);
     });
 
-    test('no alineado si la franja quedó más abajo', () => {
-        const band = slice(doc, 100, 12);
-        const r = judgeAlignment({ gray: band, rows: 12, width: W }, slice(doc, 80, 40), 40);
-        expect(r.aligned).toBe(false);
-        expect(r.y).toBe(20);
+    test('con otro contraste y brillo (la cámara ajustó la exposición)', () => {
+        const live = slice(doc, 90, 60).map(v => Math.round(128 + (v - 128) * 0.6 + 15));
+        const r = findBand(band, live, 60);
+        expect(r.found).toBe(true);
+        expect(r.y).toBe(10);
     });
 
-    test('una franja sin texto (papel en blanco) nunca se da por alineada', () => {
+    test('con el teléfono corrido un poco de lado', () => {
+        const base = slice(doc, 90, 60);
+        const shifted = new Uint8Array(base.length).fill(230);
+        for (let y = 0; y < 60; y++) for (let x = 0; x < W - 2; x++) shifted[y * W + x + 2] = base[y * W + x];
+        const r = findBand(band, shifted, 60);
+        expect(r.found).toBe(true);
+        expect(r.y).toBe(10);
+        expect(r.dx).toBe(2);
+    });
+
+    test('si no está, no la encuentra', () => {
+        expect(findBand(band, slice(doc, 130, 60), 60).found).toBe(false);
+    });
+});
+
+describe('judgeAlignment (en vivo): qué decirle a quien toma la foto', () => {
+    const doc = receipt(200);
+    const band = { gray: slice(doc, 100, 12), rows: 12, width: W };
+
+    test('en la mitad de arriba: hay traslape, se puede tomar (no hace falta exactitud)', () => {
+        const r = judgeAlignment(band, slice(doc, 90, 60), 60);
+        expect(r).toMatchObject({ status: 'ok', aligned: true });
+        expect(r.yFrac).toBeCloseTo(10 / 60, 2);
+    });
+
+    test('todavía abajo: sigue bajando', () => {
+        const r = judgeAlignment(band, slice(doc, 60, 60), 60);
+        expect(r).toMatchObject({ status: 'below', aligned: false });
+    });
+
+    test('ya no se ve: te pasaste (quedaría un hueco)', () => {
+        expect(judgeAlignment(band, slice(doc, 130, 60), 60)).toMatchObject({ status: 'lost', aligned: false });
+    });
+
+    test('una franja sin texto (papel en blanco) nunca se da por buena', () => {
         const flat = new Uint8Array(W * 12).fill(230);
         const r = judgeAlignment({ gray: flat, rows: 12, width: W }, new Uint8Array(W * 40).fill(228), 40);
-        expect(r.aligned).toBe(false);
-        expect(r.flat).toBe(true);
+        expect(r).toMatchObject({ aligned: false, flat: true, status: 'flat' });
     });
 
-    test('dibujos que no cambian de renglón a renglón (solo columnas) tampoco sirven para alinear', () => {
+    test('dibujos que no cambian de renglón a renglón (solo columnas) tampoco sirven', () => {
         const columns = (rows) => new Uint8Array(W * rows).map((_, i) => ((i % W) < 6 ? 40 : 230));
         const r = judgeAlignment({ gray: columns(12), rows: 12, width: W }, columns(40), 40);
-        expect(r.aligned).toBe(false);
-        expect(r.flat).toBe(true);
+        expect(r).toMatchObject({ aligned: false, flat: true });
     });
 });
 
 describe('franjas ambiguas', () => {
-    test('una franja que coincide igual en varias alturas (patrón repetido) no se da por alineada', () => {
+    test('una franja que coincide igual en varias alturas (patrón repetido) no se da por buena', () => {
         const stripes = (rows) => {
             const px = new Uint8Array(W * rows);
             for (let y = 0; y < rows; y++) for (let x = 0; x < W; x++) px[y * W + x] = (y % 4 < 2) ? 40 : 230;
@@ -103,6 +111,6 @@ describe('franjas ambiguas', () => {
         };
         const r = judgeAlignment({ gray: stripes(12), rows: 12, width: W }, stripes(40), 40);
         expect(r.aligned).toBe(false);
-        expect(r.ambiguous).toBe(true);
+        expect(r.status).toBe('unsure');
     });
 });
