@@ -3,6 +3,7 @@ import { VOICE_TEST_ENDPOINT, voiceBlocked } from './VoiceCore.js';
 import { voicePlayer, voiceIcon } from './VoiceVisuals.js';
 export function VoiceAudioView(ui, button) {
     const r = ui.record;
+    if (ui.busy && r?.audio && ui.adapter?.getSettings && ui.adapter.getSettings()?.voiceReviewBeforeSend !== true) return `<section class="voice-processing" role="status">${voiceIcon('mic')}<strong>Interpretando audio…</strong><p>Puedes cancelar mientras llega la respuesta.</p></section>`;
     const seconds = Math.max(0, Math.round((r?.durationMs || 0) / 1000));
     const duration = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
     const result = r?.result;
