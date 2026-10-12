@@ -1,6 +1,6 @@
 # Ajustes: legibilidad, uso táctil y organización
 
-Base: `1dfa461b` de main, v1.7.66, con PR #250 integrado. Segunda entrega del plan de Ajustes: legibilidad/uso táctil y organización. Referencia visual: `design.md` (comunicación breve, tokens, selecciones sólidas y controles táctiles).
+Base inicial: `1dfa461b` de main, v1.7.66, con PR #250 integrado. Integrado posteriormente con `c4b87ae8` de main, v1.7.68; se conservan los nuevos diagnósticos de cámara y voz. Segunda entrega del plan de Ajustes: legibilidad/uso táctil y organización. Referencia visual: `design.md` (comunicación breve, tokens, selecciones sólidas y controles táctiles).
 
 ## Cambios
 
@@ -15,11 +15,13 @@ Base: `1dfa461b` de main, v1.7.66, con PR #250 integrado. Segunda entrega del pl
 
 ## Validación
 
-- Node 20, dos workers dentro del límite de cuatro CPU del entorno: **5.800 pruebas / 606 suites aprobadas**.
+- Node 20, dos workers dentro del límite de cuatro CPU del entorno: **5.821 pruebas / 608 suites aprobadas**.
 - Cinco casos nuevos comprueban organización sin duplicación, estado de secciones ante parcheo real del DOM, ejecución de acciones existentes, claves/nombres de pestañas y conservación de valores temporales de diagnóstico.
 - Chromium: General, Calendario, Datos y Pruebas a 1440/820/390/320 px. Se verifican campos etiquetados, controles dentro del panel, barra de borrador, navegación inferior y ausencia de botón genérico de guardado.
-- Chromium adicional a 320 px con texto 100/200 % y todas las herramientas abiertas: la página no desborda, las acciones mantienen sus dimensiones y los nombres de pestañas siguen visibles. Datos incluye versiones manuales/protegidas; Calendario incluye festivo y fecha de pago.
+- Chromium adicional a 320 px con texto 100/200 % y todas las herramientas abiertas y clima, cámara, voz y nueva navegación activados: la página no desborda, las acciones mantienen sus dimensiones y los nombres de pestañas siguen visibles. Datos incluye versiones manuales/protegidas; Calendario incluye festivo y fecha de pago.
 - `axe-core` 4.14.0 queda fijado como dependencia de desarrollo. La comprobación de contraste se ejecuta en el smoke test obligatorio de Settings; ninguno de los ocho escenarios de contraste arroja una infracción automática. El paquete solo se usa en el fixture y no forma parte del bundle publicado.
+- La variante con funciones activadas detectó contraste insuficiente en «Ver/Ocultar» del clima (4,03:1); el botón ahora usa tokens de superficie y texto y supera la comprobación.
+- Los lockfiles de npm y pnpm incluyen la herramienta de contraste, para evitar discrepancias de instalación entre CI y el proveedor.
 - El fixture sigue ejecutando el handler real de guardado: error inline, render conservando el borrador, corrección y guardado. Build de producción, precache, guard de estado y diff aprobados.
 
 ## Límites

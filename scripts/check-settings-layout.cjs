@@ -42,6 +42,7 @@ initSettingsUI(context);
 window.fixtureSyncStatus=SyncStatus;
 window.fixtureSetUser=async(user)=>{context.currentUser=user;await refreshDeviceSettingsDiagnostics();};
 window.fixtureRefresh=refreshDeviceSettingsDiagnostics;
+window.enableExperiments=()=>stateManager.batchSetState(raw=>{raw.settings.newReceiptCamera=true;raw.settings.newBottomNav=true;raw.settings.voiceMvpEnabled=true;raw.settings.weatherEnabled=true;});
 window.draw=tab=>{clearSettingsFormErrors();discardSettingsDraft({});state.settingsActiveTab=tab;document.getElementById('screen').innerHTML=SettingsTab();refreshSettingsDraftBar();};
 window.fixtureRender=()=>{const draft=captureSettingsDraft();DOMDiff.patchSelf(document.getElementById('settings-screen'),SettingsTab());restoreSettingsDraft(draft);refreshSettingsFormErrors();refreshSettingsDraftBar();};
 window.saveCalls=0;
@@ -115,6 +116,7 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
                 console.log(`PASS Ajustes ${tab}: ${width}px, etiquetas, sin desbordamiento${tab==='general'?', barra y navegación':''}`);
             }
         }
+        await page.evaluate(()=>window.enableExperiments());
         for(const textScale of [100,200]) {
             await page.setViewport({width:320,height:844});
             await page.evaluate(scale=>document.documentElement.style.fontSize=scale===200?'200%':'',textScale);

@@ -190,7 +190,7 @@ export function SettingsGeneralTab(context) {
                                        autocomplete="off">
                                 <button type="button"
                                         onclick="const inp = document.getElementById('weatherApiKey'); inp.type = inp.type === 'password' ? 'text' : 'password';"
-                                        style="background: #334155; border: none; color: #94a3b8; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;">
+                                        style="background: var(--stg-card-bg); border: 1px solid var(--stg-border-card); color: var(--stg-text-primary); padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;">
                                     Ver/Ocultar
                                 </button>
                             </div>
