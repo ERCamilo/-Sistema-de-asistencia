@@ -155,11 +155,19 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
          * @param {{label?:string}} p
          */
         recordSaveStarted({ label = null } = {}) {
+            // A cloud response from an earlier save cannot confirm this local write.
+            pending = false;
             pendingLabel = (typeof label === 'string') ? label : null;
             // Timer de seguridad desde el inicio: si NADA responde (ni el
             // local), el spinner no se queda colgado para siempre.
             _clearTimer();
-            timerHandle = setTimer(() => { _resolveCloud(false); }, cloudTimeoutMs);
+            timerHandle = setTimer(() => {
+                // No local result arrived: do not claim the data is safe here.
+                _clearTimer();
+                pending = false;
+                pendingLabel = null;
+                notify({ level: 'warning', kind: 'final', message: 'No se pudo confirmar el guardado. Revisa el almacenamiento antes de cerrar la aplicación.' });
+            }, cloudTimeoutMs);
             const L = pendingLabel;
             notify({
                 level: 'info',

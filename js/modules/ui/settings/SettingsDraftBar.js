@@ -200,7 +200,7 @@ function _ensureBar(doc) {
         </span>
         <button type="button" class="btn btn-primary" data-settings-action="save-settings"
                 style="padding: 6px 16px; font-size: 0.85rem;">
-            Guardar
+            Guardar cambios
         </button>
         <button type="button" class="btn" data-settings-action="discard-settings-draft"
                 style="padding: 6px 16px; font-size: 0.85rem;">
@@ -228,7 +228,7 @@ export function refreshSettingsDraftBar(doc = document) {
     if (message) message.textContent = scopeConflict
         ? 'Cambió el proyecto. Descarta el borrador para editar el proyecto actual.'
         : conflicts.size ? 'Estos ajustes cambiaron en otro dispositivo. Tu borrador se conserva.'
-        : 'Hay cambios sin guardar';
+        : 'Hay cambios sin guardar · Descartar solo revierte lo que aún no guardaste';
     return dirty;
 }
 

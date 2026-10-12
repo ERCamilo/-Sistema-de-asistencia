@@ -394,6 +394,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/ui/settings/SettingsDataTab.js",
     "./js/modules/ui/settings/SettingsDiagnostics.js",
     "./js/modules/ui/settings/SettingsDraftBar.js",
+    "./js/modules/ui/settings/SettingsFormFeedback.js",
     "./js/modules/ui/settings/SettingsGeneralTab.js",
     "./js/modules/ui/settings/SettingsTestsTab.js",
     "./js/modules/utils/AttendanceHours.js",

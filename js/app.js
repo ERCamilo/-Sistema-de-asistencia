@@ -161,6 +161,7 @@ import { getBalance, getPayrollDeductionOptions } from './modules/features/loans
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
 import { commitAutoSaveOption, commitAutoSaveSwitch, initSettingsUI, reconcileSettingsDraftBeforeSave, refreshDeviceSettingsDiagnostics, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
+import { clearSettingsFormErrors, showSettingsFieldError, showSettingsFormError } from './modules/ui/settings/SettingsFormFeedback.js';
 import { guardSettingsDraftOnLeave, guardSettingsDraftBeforeSave, isSettingsDraftDirty } from './modules/ui/settings/SettingsDraftBar.js';
 import { createAppHistory, EXIT_HINT_MS } from './modules/core/AppHistory.js';
 import { TabComponent } from './modules/components/TabComponent.js';
@@ -5975,13 +5976,15 @@ window.commitIconSet = function (value) {
 };
 window.saveSettings = function () {
     reconcileSettingsDraftBeforeSave();
+    clearSettingsFormErrors();
+    const settingsSaveScope = document.getElementById('settings-screen')?.dataset.settingsDraftScope ?? null;
     const projectsEnabled = isProjectsEnabled();
     const projectView = projectsEnabled ? payrollUIRuntime.getCurrentView() : null;
     const projectSettings = projectsEnabled
         ? projectView.config
         : state.settings;
     if (projectsEnabled && !projectSettings) {
-        showNotification(`❌ Payroll config unavailable for project "${projectView.projectId}"`, 'error');
+        showSettingsFormError('No se pudo cargar la configuración del proyecto. Espera a que termine la carga o vuelve a abrir Calendario.');
         return;
     }
     if (guardSettingsDraftBeforeSave({
@@ -6034,32 +6037,32 @@ window.saveSettings = function () {
 
     // Validaciones
     if (!companyName) {
-        showNotification('❌ El nombre de la empresa es requerido', 'error');
+        showSettingsFieldError('companyName', 'El nombre de la empresa es requerido');
         return;
     }
 
     if (!Number.isFinite(regularHoursPerDay) || regularHoursPerDay < 1 || regularHoursPerDay > 24) {
-        showNotification('❌ Las horas regulares deben estar entre 1 y 24', 'error');
+        showSettingsFieldError('regularHoursPerDay', 'Las horas regulares deben estar entre 1 y 24');
         return;
     }
 
     if (!Number.isFinite(overtimeFactor) || overtimeFactor < 1 || overtimeFactor > 5) {
-        showNotification('❌ El factor de horas extras debe estar entre 1 y 5', 'error');
+        showSettingsFieldError('overtimeFactor', 'El factor de horas extras debe estar entre 1 y 5');
         return;
     }
 
     if (!Number.isFinite(holidayFactor) || holidayFactor < 1 || holidayFactor > 5) {
-        showNotification('❌ El factor festivo debe estar entre 1 y 5', 'error');
+        showSettingsFieldError('holidayFactor', 'El factor festivo debe estar entre 1 y 5');
         return;
     }
 
     if (!Number.isFinite(restDayFactor) || restDayFactor < 1 || restDayFactor > 5) {
-        showNotification('❌ El factor de día no laborable debe estar entre 1 y 5', 'error');
+        showSettingsFieldError('restDayFactor', 'El factor de día no laborable debe estar entre 1 y 5');
         return;
     }
 
     if (!Number.isFinite(defaultDeductionPercentage) || defaultDeductionPercentage < 0 || defaultDeductionPercentage > 100) {
-        showNotification('❌ El porcentaje de deducción debe estar entre 0 y 100', 'error');
+        showSettingsFieldError('defaultDeductionPercentage', 'El porcentaje de deducción debe estar entre 0 y 100');
         return;
     }
 
@@ -6072,14 +6075,14 @@ window.saveSettings = function () {
             const lon = parseFloat(match[2]);
             if (Number.isFinite(lat) && Number.isFinite(lon)) {
                 if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-                    showNotification('❌ Coordenadas fuera de rango (Latitud: -90 a 90, Longitud: -180 a 180)', 'error');
+                    showSettingsFieldError('weatherLocationInput', 'Coordenadas fuera de rango (Latitud: -90 a 90, Longitud: -180 a 180)');
                     return;
                 }
                 weatherLocation = { lat, lon, name: 'Ubicación Personalizada' };
             }
         }
         if (!weatherLocation) {
-            showNotification('❌ Formato de coordenadas inválido. Debe ser: Latitud, Longitud (ej: 18.47, -69.89)', 'error');
+            showSettingsFieldError('weatherLocationInput', 'Formato de coordenadas inválido. Debe ser: Latitud, Longitud (ej: 18.47, -69.89)');
             return;
         }
     }
@@ -6147,7 +6150,10 @@ window.saveSettings = function () {
         return scopedConfigSave.then(() => {
             saveApplicationData({ announce: 'Configuración guardada' });
             render();
-        }).catch(error => showNotification(`❌ ${error.message}`, 'error'));
+        }).catch(error => {
+            logError(error, 'guardar configuración del proyecto');
+            showSettingsFormError('No se pudieron guardar los ajustes del proyecto. Revisa los campos pendientes y vuelve a guardar.', document, settingsSaveScope);
+        });
     }
     // Toast honesto: verde solo si de verdad se guardó (local + nube).
     saveApplicationData({ announce: 'Configuración guardada' });

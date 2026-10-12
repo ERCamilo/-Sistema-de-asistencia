@@ -1,5 +1,7 @@
 // Executes the shipped save handler; the implementation is never copied into tests.
 import fs from 'fs';
+import { logError } from '../../modules/services/ErrorLog.js';
+import { clearSettingsFormErrors, showSettingsFieldError, showSettingsFormError } from '../../modules/ui/settings/SettingsFormFeedback.js';
 import path from 'path';
 import * as drafts from '../../modules/ui/settings/SettingsDraftBar.js';
 import { reconcileSettingsDraftBeforeSave } from '../../modules/ui/SettingsUI.js';
@@ -20,6 +22,7 @@ export function createSettingsSaveHarness(overrides = {}) {
         updateWeatherApiKeyProvider: jest.fn(),
         guardSettingsDraftBeforeSave: drafts.guardSettingsDraftBeforeSave,
         reconcileSettingsDraftBeforeSave,
+        clearSettingsFormErrors, showSettingsFieldError, showSettingsFormError, logError,
         ...overrides
     };
     const save = new Function(...Object.keys(dependencies), `return (${expression});`)(...Object.values(dependencies));

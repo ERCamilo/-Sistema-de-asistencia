@@ -81,16 +81,20 @@ export class VoiceMvpUI {
         this.onWipe = () => { this.wiped = true; this.close({ discard: true }); this.record = null; this.history = []; this.launcher.hidden = true; };
         window.addEventListener('sa:voice-wipe', this.onWipe);
         this.unsubscribeScope = this.adapter.subscribeScope?.(() => { this.close({ discard: true }); this.record = null; this.history = []; });
-        this.unsubscribeEnabled = this.adapter.subscribeEnabled?.(() => { this.refreshVisibility(); this.run(() => this.maintenance()); });
+        this.onStorageRetry = event => {
+            if (event.target.closest?.('[data-voice-storage-retry]')) this.refreshStorageStatus({ force: true });
+        };
+        document.addEventListener('click', this.onStorageRetry);
+        this.unsubscribeEnabled = this.adapter.subscribeEnabled?.(() => { this.refreshVisibility(); this.refreshStorageStatus(); });
         this.unsubscribe = this.adapter.subscribeSession?.(() => {
             this.refreshVisibility();
-            this.run(() => this.maintenance());
+            this.refreshStorageStatus();
             const uid = this.adapter.getUser()?.uid;
             if (!uid || (this.record && uid !== this.record.uid) || (this.recording && uid !== this.recordingUid)) { this.close({ discard: true }); this.record = null; }
         });
         this.refreshVisibility();
-        this.run(() => this.maintenance());
-        this.maintenanceTimer = setInterval(() => this.run(() => this.maintenance()), 5 * 60 * 1000);
+        this.refreshStorageStatus();
+        this.maintenanceTimer = setInterval(() => this.refreshStorageStatus({ force: true }), 5 * 60 * 1000);
         return this;
     }
     // Same conditions that show the launcher, computed live so other entry
@@ -204,27 +208,105 @@ export class VoiceMvpUI {
         this.held = false; this.recorder?.cancel(); this.recording = false; this.showWave(false);
         this.feedback.play('cancel'); this.setCaptureState('idle');
     }
-    async maintenance() {
-        const user = this.adapter.getUser(); if (!user || this.wiped || this.maintaining) return;
-        this.maintaining = true;
-        try {
+    paintStorageStatus(state, storage = null) {
+        this.storageReadState = state;
+        const status = document.querySelector('[data-voice-storage-status]');
+        const messages = {
+            anonymous: 'Inicia sesión para gestionar tus audios.',
+            wiped: 'Los datos locales se borraron. Recarga la aplicación para consultar los audios.',
+            loading: 'Consultando el espacio de audios…',
+            error: 'No se pudo consultar el espacio de audios. Puedes reintentar.'
+        };
+        if (status) status.textContent = state === 'ready'
+            ? `${(storage.bytes / 1048576).toFixed(1)} MiB / 50 MiB · ${storage.count} audios en este dispositivo`
+            : messages[state];
+        const retry = document.querySelector('[data-voice-storage-retry]');
+        if (retry) { retry.hidden = state !== 'error'; retry.disabled = state === 'loading'; }
+        const manage = document.querySelector('[data-settings-action="manage-voice-audio"]');
+        if (manage) manage.disabled = ['anonymous', 'wiped', 'loading'].includes(state);
+        const warning = document.querySelector('[data-voice-storage-warning]');
+        if (warning) {
+            warning.hidden = state !== 'ready' || !storage?.low;
+            warning.textContent = 'Queda poco espacio. Elimina audios o desactiva su conservación.';
+        }
+    }
+    // Background refresh reports inline; explicit voice actions still use run().
+    storageContext() {
+        return JSON.stringify([this.adapter.getUser()?.uid, voiceRetentionPolicy(this.adapter.getSettings?.()), !!this.wiped]);
+    }
+    async refreshStorageStatus({ force = false } = {}) {
+        if (this.destroyed) return;
+        if (!force && this.storageContextKey === this.storageContext()
+            && ['ready', 'error', 'anonymous', 'wiped'].includes(this.storageReadState)) {
+            this.paintStorageStatus(this.storageReadState, this.storage);
+            await this.refreshLoanAudioButtons();
+            return;
+        }
+        try { await this.maintenance(); } catch (_) { /* maintenance painted the recoverable error */ }
+    }
+    maintenance() {
+        const user = this.adapter.getUser();
+        if (!user || this.wiped) {
+            this.storage = null;
+            this.storageContextKey = this.storageContext();
+            this.paintStorageStatus(this.wiped ? 'wiped' : 'anonymous');
+            return this.refreshLoanAudioButtons();
+        }
+        if (this.maintenanceFlight) return this.maintenanceFlight;
+        const readContext = this.storageContext();
+        this.storageContextKey = readContext;
+        this.paintStorageStatus('loading');
+        let timer;
+        const read = async () => {
             await this.store.maintain?.(user.uid, voiceRetentionPolicy(this.adapter.getSettings?.()));
-            this.storage = await this.store.storageStatus?.();
-            if (this.view === 'playback' && this.record && voiceAudioExpiry(this.record, voiceRetentionPolicy(this.adapter.getSettings?.())) <= Date.now()) { this.close(); this.adapter.notify?.('El audio venció y fue eliminado.', 'info'); }
-            if (this.adapter.getUser()?.uid !== user.uid) return;
-            const status = document.querySelector('[data-voice-storage-status]');
-            if (status && this.storage) status.textContent = `${(this.storage.bytes / 1048576).toFixed(1)} MiB / 50 MiB · ${this.storage.count} audios`;
-            const warning = document.querySelector('[data-voice-storage-warning]');
-            if (warning) { warning.hidden = !this.storage?.low; warning.textContent = 'Queda poco espacio. Elimina audios o desactiva su conservación.'; }
-            const uid = user.uid; const scope = projectKey(this.adapter.getScope());
-            for (const button of document.querySelectorAll('[data-voice-loan-audio]')) {
-                const r = await this.store.get?.(uid, button.dataset.voiceLoanAudio);
-                if (this.adapter.getUser()?.uid !== uid || projectKey(this.adapter.getScope()) !== scope) return;
-                const available = r?.audio && r.projectKey === scope && String(r.selectedEmployeeId) === button.dataset.arg && String(r.completedLoanId) === button.dataset.loanId && voiceAudioExpiry(r, voiceRetentionPolicy(this.adapter.getSettings?.())) > Date.now();
-                button.disabled = !available; button.textContent = available ? 'Escuchar audio' : 'Audio no disponible';
-                button.title = available ? 'Grabación local de la instrucción' : 'El audio venció, se eliminó o no está en este navegador';
+            return this.store.storageStatus?.();
+        };
+        const timeout = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(Error('No se pudo consultar el almacenamiento de audios.')), 8000);
+        });
+        this.maintenanceFlight = (async () => {
+            try {
+                const storage = await Promise.race([read(), timeout]);
+                if (this.destroyed || this.wiped || this.adapter.getUser()?.uid !== user.uid) return;
+                this.storage = storage;
+                const available = Number.isFinite(storage?.bytes) && storage.bytes >= 0
+                    && Number.isInteger(storage?.count) && storage.count >= 0;
+                this.paintStorageStatus(available ? 'ready' : 'error', storage);
+                if (this.view === 'playback' && this.record && voiceAudioExpiry(this.record, voiceRetentionPolicy(this.adapter.getSettings?.())) <= Date.now()) { this.close(); this.adapter.notify?.('El audio venció y fue eliminado.', 'info'); }
+                await this.refreshLoanAudioButtons();
+            } catch (error) {
+                if (this.destroyed || this.wiped || this.adapter.getUser()?.uid !== user.uid) return;
+                this.storage = null;
+                this.paintStorageStatus('error');
+                throw error;
+            } finally {
+                clearTimeout(timer);
+                this.maintenanceFlight = null;
+                // A session change during a read needs its own result.
+                if (!this.destroyed && readContext !== this.storageContext()) this.refreshStorageStatus({ force: true });
             }
-        } finally { this.maintaining = false; }
+        })();
+        return this.maintenanceFlight;
+    }
+    async refreshLoanAudioButtons() {
+        const user = this.adapter.getUser();
+        const scope = projectKey(this.adapter.getScope?.());
+        const epoch = this.loanAudioReadEpoch = (this.loanAudioReadEpoch || 0) + 1;
+        for (const button of document.querySelectorAll('[data-voice-loan-audio]')) {
+            let record = null;
+            let failed = false;
+            try { if (user && !this.wiped) record = await this.store.get?.(user.uid, button.dataset.voiceLoanAudio); }
+            catch (_) { failed = true; }
+            if (this.destroyed || epoch !== this.loanAudioReadEpoch || this.adapter.getUser()?.uid !== user?.uid || projectKey(this.adapter.getScope?.()) !== scope) return;
+            if (!button.isConnected) continue;
+            const available = !this.wiped && record?.audio && record.projectKey === scope
+                && String(record.selectedEmployeeId) === button.dataset.arg && String(record.completedLoanId) === button.dataset.loanId
+                && voiceAudioExpiry(record, voiceRetentionPolicy(this.adapter.getSettings?.())) > Date.now();
+            button.disabled = !available;
+            button.textContent = available ? 'Escuchar audio' : failed ? 'No se pudo consultar el audio' : 'Audio no disponible';
+            button.title = available ? 'Grabación local de la instrucción' : failed
+                ? 'Vuelve a abrir la cuenta para reintentar.' : 'El audio venció, se eliminó o no está en este navegador';
+        }
     }
     async playLoanAudio(employeeId, requestId) {
         const identity = this.identity(true); await this.maintenance();
@@ -604,5 +686,5 @@ export class VoiceMvpUI {
         if (!audio.voiceBound) { for (const event of ['play','pause','ended','timeupdate','loadedmetadata']) audio.addEventListener(event,update); audio.voiceBound = true; }
         update();
     }
-    destroy() { clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
+    destroy() { this.destroyed = true; document.removeEventListener('click', this.onStorageRetry); clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
 }
