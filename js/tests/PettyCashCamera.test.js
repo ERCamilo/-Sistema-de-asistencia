@@ -4,7 +4,7 @@
  * Visor en vivo, disparador, pila de fotos con su estado, bandeja compacta y
  * vista previa por foto. Las fotos entran a la misma cola de caja chica.
  */
-import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, RESOLVED_ADVANCE_MS, summarizeCameraItems } from '../modules/features/pettycash/PettyCashCamera.js';
+import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, RESOLVED_ADVANCE_MS, summarizeCameraItems, highlightBox } from '../modules/features/pettycash/PettyCashCamera.js';
 
 function setup(overrides = {}) {
     const stop = jest.fn();
@@ -388,6 +388,14 @@ describe('Cámara de facturas', () => {
         camera.close();
     });
 
+    test('el recuadro del dato lleva margen para no tapar el valor si llega algo corrido', () => {
+        expect(highlightBox([880, 100, 910, 900])).toEqual([865, 92, 925, 908]);
+        // Recuadro muy delgado (una línea): al menos 8 de alto por lado.
+        expect(highlightBox([500, 400, 504, 600])).toEqual([492, 392, 512, 608]);
+        // No se sale de la foto.
+        expect(highlightBox([2, 0, 20, 1000])).toEqual([0, 0, 29, 1000]);
+    });
+
     test('con la posición del dato, tocar el aviso enfoca la foto en él', async () => {
         const { camera, states } = setup();
         await camera.open();
@@ -405,7 +413,9 @@ describe('Cámara de facturas', () => {
         expect(Number($('[data-pcam-zoom]').dataset.zoom)).toBeGreaterThan(1);
         const hl = $('[data-pcam-hl]');
         expect(hl.hidden).toBe(false);
-        expect(hl.style.top).toBe('88%');
+        // Con margen: [880, 100, 910, 900] → [865, 92, 925, 908].
+        expect(hl.style.top).toBe('86.5%');
+        expect(hl.style.height).toBe('6%');
         expect(buttons[0].getAttribute('aria-pressed')).toBe('true');
         $('[data-pcam-zoom-out]').click();
         expect(hl.hidden).toBe(true);

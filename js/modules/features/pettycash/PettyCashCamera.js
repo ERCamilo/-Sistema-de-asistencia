@@ -77,6 +77,19 @@ const SEAL_GLYPH = {
 };
 
 /** Texto y color por estado de lectura. */
+/**
+ * Recuadro [y0, x0, y1, x1] (0–1000) con margen alrededor del dato: medio
+ * alto del dato arriba y abajo (mínimo 8) y 1 % del ancho a los lados
+ * (mínimo 8). Así, si el lector lo manda algo corrido, el marco rodea el
+ * valor en vez de taparlo.
+ */
+export function highlightBox([y0, x0, y1, x1]) {
+    const py = Math.max(8, (y1 - y0) * 0.5);
+    const px = Math.max(8, (x1 - x0) * 0.01);
+    const clamp = n => Math.round(Math.max(0, Math.min(1000, n)));
+    return [clamp(y0 - py), clamp(x0 - px), clamp(y1 + py), clamp(x1 + px)];
+}
+
 export const STATE_UI = Object.freeze({
     reading: { label: 'Leyendo', chip: 'Leyendo…', tone: 'reading' },
     waiting: { label: 'En cola', chip: 'En cola', tone: 'reading' },
@@ -561,7 +574,7 @@ export function createReceiptCamera({
     const focusIssue = (index) => {
         const issue = items[previewIndex]?.issues?.[index];
         if (!issue?.box) return;
-        const [y0, x0, y1, x1] = issue.box;
+        const [y0, x0, y1, x1] = highlightBox(issue.box);
         const { pw, ph, w, h } = photoBox();
         const bw = ((x1 - x0) / 1000) * w;
         const bh = ((y1 - y0) / 1000) * h;
