@@ -190,3 +190,24 @@
 .voice-cash-review, .voice-cash-proposal { background:#281336; border:1px solid #bd97ef; border-radius:10px; padding:10px; display:grid; gap:8px; font-size:12px; }
 .voice-cash-review p { margin:0; }
 .voice-cash-review label, .voice-cash-proposal label { display:flex; align-items:center; gap:7px; }
+
+/* Audio confirmation follows the microphone/central-navigation cyan palette. */
+.voice-dialog[data-voice-view=audio] { --panel:#111827; --panel-2:#172334; --hover:#1e293b; --border:#2b3a52; --accent:#22d3ee; --on-accent:#06202a; --text:#e6fbff; --text-dim:#a6b8cb; --text-faint:#849bb2; border-color:#2b3a52; }
+.voice-audio-summary { display:flex; align-items:center; gap:12px; padding:10px 0 4px; }
+.voice-audio-mic { display:grid; place-items:center; width:42px; height:42px; border-radius:50%; color:#22d3ee; background:#123342; box-shadow:0 0 0 4px #22d3ee10; }
+.voice-audio-summary strong { font-size:15px; flex:1; }
+.voice-audio-duration { font:500 13px 'IBM Plex Mono',monospace; color:#a6b8cb; }
+.voice-dialog[data-voice-view=audio] .voice-player { margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:16px; background:linear-gradient(135deg,#172334,#101b2b); }
+.voice-dialog[data-voice-view=audio] .voice-waveform { height:58px; }
+.voice-dialog[data-voice-view=audio] .voice-player-controls { margin-top:8px; }
+.voice-dialog[data-voice-view=audio] button.voice-primary { background:#06b6d4; border-color:#06b6d4; color:#06202a; }
+.voice-dialog[data-voice-view=audio] button.voice-primary:hover:not(:disabled) { background:#22d3ee; }
+.voice-endpoint-presets { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.voice-endpoint-presets > button { flex:1; }
+.voice-status { white-space:pre-wrap; overflow-wrap:anywhere; }
+/* The loan palette has dark text on yellow; transcript surfaces need their own contrast. */
+.voice-dialog[data-voice-view=loan] .voice-transcript { background:#171c25; border:1px solid #343e50; border-radius:12px; padding:10px; margin:10px 0; }
+.voice-dialog[data-voice-view=loan] .voice-transcript label { color:#e6edf6; margin:0; }
+.voice-dialog[data-voice-view=loan] .voice-transcript textarea { background:#101720; color:#f6f7f8; -webkit-text-fill-color:#f6f7f8; border-color:#3c4b5e; line-height:1.5; }
+.voice-dialog[data-voice-view=loan] .voice-transcript textarea:disabled { opacity:.8; }
+.voice-dialog[data-voice-view=loan] [data-voice-alias] { color:#f6f7f8; background:#171c25; -webkit-text-fill-color:#f6f7f8; }
