@@ -42,6 +42,7 @@ import {
 } from './PettyCashReceiptOCR.js';
 import { createReceiptQueueProcessor } from './PettyCashReceiptProcessor.js';
 import { createReceiptCamera } from './PettyCashCamera.js';
+import { createCameraDiagnostics } from './PettyCashCameraDiagnostics.js';
 import { receiptReviewState } from './PettyCashReceiptChecks.js';
 import {
     isReceiptReadyForBackup,
@@ -560,6 +561,27 @@ function pickWithSystemCamera() {
 }
 
 let _receiptCamera = null;
+let _cameraDiagnostics = null;
+const cameraDiagnostics = () => (_cameraDiagnostics ||= createCameraDiagnostics());
+
+/** Configuración → Tests → "Copiar": el diagnóstico de la cámara (solo números) al portapapeles. */
+export async function copyCameraDiagnostics({ clipboard = globalThis.navigator?.clipboard } = {}) {
+    const text = createCameraDiagnostics().exportText();
+    try {
+        await clipboard.writeText(text);
+        return true;
+    } catch (_) {
+        // Sin portapapeles (permiso o navegador): se descarga como archivo.
+        try {
+            const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+            const a = Object.assign(document.createElement('a'), { href: url, download: 'diagnostico-camara.json' });
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (_) { /* nada más que hacer */ }
+        return false;
+    }
+}
+
 function receiptCamera() {
     if (_receiptCamera) return _receiptCamera;
     _receiptCamera = createReceiptCamera({
@@ -574,6 +596,7 @@ function receiptCamera() {
         },
         getItemsState: (ids) => cameraItemsState(ids),
         onFix: (id, fix) => applyReceiptFix(id, fix),
+        diag: cameraDiagnostics(),
         onReview: (id) => window.pcOpenMovement?.(id),
         onDelete: async (id) => {
             const before = pc().movements.length;
@@ -2237,6 +2260,15 @@ export function registerPettyCashGlobals() {
     };
 
     window.pcOpenCamera = () => openReceiptCamera();
+    window.pcCameraDiagCopy = async () => {
+        const copied = await copyCameraDiagnostics();
+        window.showNotification?.(copied ? 'Diagnóstico copiado. Pégalo en el chat.' : 'Se descargó el diagnóstico como archivo.', 'success');
+    };
+    window.pcCameraDiagClear = () => {
+        cameraDiagnostics().clear();
+        window.showNotification?.('Diagnóstico borrado.', 'info');
+        window.render?.();
+    };
 
     window.pcFinishCameraBatch = () => {
         const d = pc();

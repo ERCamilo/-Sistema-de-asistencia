@@ -232,6 +232,8 @@ export function createReceiptCamera({
     onReview = () => {},
     onDelete = async () => true,
     onFix = async () => false,
+    diag = { record() {} },
+    clock = () => (globalThis.performance?.now?.() ?? Date.now()),
     onFinish = () => {},
     notify = () => {},
     vibrate = (p) => { try { globalThis.navigator?.vibrate?.(p); } catch (_) { /* opcional */ } },
@@ -239,7 +241,7 @@ export function createReceiptCamera({
     periodLabel = () => '',
     toBitmap = (shot) => (shot instanceof Blob ? defaultToBitmap(shot, doc) : renderShot(shot, { doc, maxWidth: PART_MAX_WIDTH })),
     toPhoto = (shot) => (shot instanceof Blob ? shot : encodeImage(renderShot(shot, { doc }))),
-    stitch = (bitmaps) => stitchParts(doc, bitmaps),
+    stitch = (bitmaps, options) => stitchParts(doc, bitmaps, options),
     makeBand = (bitmap) => bottomBand(doc, bitmap),
     checkAlignment = (video, band) => liveAlignment(doc, video, band),
     drawGhost = defaultDrawGhost,
@@ -278,6 +280,7 @@ export function createReceiptCamera({
     let alignTimer = null;
 
     const q = (sel) => root?.querySelector(sel);
+    const note = (type, data) => { try { diag.record(type, data); } catch (_) { /* el diagnóstico nunca rompe la cámara */ } };
 
     const shell = () => `
         <div class="pcam-view" data-pcam-view>
@@ -709,6 +712,10 @@ export function createReceiptCamera({
             for (const item of items) {
                 const next = states?.get?.(item.id);
                 if (next) Object.assign(item, { state: next.state || item.state, reason: next.reason || null, issues: next.issues || [], data: next.data || {} });
+                if (DONE.has(item.state) && !item.noted) {
+                    item.noted = true;
+                    note('result', { state: item.state, codes: (item.issues || []).map(i => i.code) });
+                }
             }
         } catch (_) { /* se reintenta en el siguiente ciclo */ }
         paint();
@@ -809,12 +816,39 @@ export function createReceiptCamera({
     };
 
     const stopAlign = () => { clearInterval(alignTimer); alignTimer = null; };
+    // Estadística de la guía para la parte que se está buscando (diagnóstico).
+    let partStats = null;
+    const resetPartStats = () => { partStats = { start: clock(), checks: 0, totalMs: 0, counts: {}, bestNcc: null, msToOk: null }; };
+    /** Al tomar una parte con la guía activa: qué decía en ese momento. */
+    function notePart() {
+        if (!long.parts.length || !partStats) return;
+        note('part', {
+            status: long.status || null,
+            ncc: Number.isFinite(long.ncc) ? Math.round(long.ncc * 100) / 100 : null,
+            yFrac: Number.isFinite(long.yFrac) ? Math.round(long.yFrac * 100) / 100 : null,
+            checks: partStats.checks,
+            checkMs: partStats.checks ? Math.round(partStats.totalMs / partStats.checks) : 0,
+            bestNcc: partStats.bestNcc,
+            msToOk: partStats.msToOk,
+            counts: partStats.counts
+        });
+    }
     const startAlign = () => {
         stopAlign();
         alignTimer = setInterval(() => {
             if (!long.on || !long.band || long.parts.length >= MAX_PARTS) return;
             let r = null;
+            const checkStart = clock();
             try { r = checkAlignment(q('[data-pcam-video]'), long.band); } catch (_) { r = null; }
+            if (partStats) {
+                partStats.checks += 1;
+                partStats.totalMs += clock() - checkStart;
+                const key = r?.status || (r?.aligned ? 'ok' : 'lost');
+                partStats.counts[key] = (partStats.counts[key] || 0) + 1;
+                if (Number.isFinite(r?.ncc)) partStats.bestNcc = Math.max(partStats.bestNcc ?? -1, Math.round(r.ncc * 100) / 100);
+                if (r?.aligned && partStats.msToOk === null) partStats.msToOk = Math.round(clock() - partStats.start);
+            }
+            long.ncc = Number.isFinite(r?.ncc) ? r.ncc : null;
             const aligned = !!r?.aligned;
             const status = r?.status || (aligned ? 'ok' : 'lost');
             const yFrac = Number.isFinite(r?.yFrac) ? r.yFrac : null;
@@ -847,6 +881,7 @@ export function createReceiptCamera({
         long.band = videoBand;
         try { drawGhost(q('[data-pcam-ghost]'), bitmap); } catch (_) { /* sin franja guía */ }
         layoutGhostContext();
+        resetPartStats();
         showTip(long.parts.length >= MAX_PARTS ? TIP.full : TIP.next(long.parts.length));
         paintLong();
         startAlign();
@@ -858,7 +893,11 @@ export function createReceiptCamera({
         q('[data-pcam-done]').setAttribute('aria-busy', 'true');
         try {
             await saveChain; // la última parte puede estar procesándose todavía
-            const blob = await stitch(long.parts.map(p => p.bitmap));
+            const stitchStart = clock();
+            let info = {};
+            const parts = long.parts.length;
+            const blob = await stitch(long.parts.map(p => p.bitmap), { onInfo: (i) => { info = i || {}; } });
+            note('stitch', { parts, found: info.found ?? null, total: info.total ?? null, ms: Math.round(clock() - stitchStart) });
             const type = blob.type || 'image/jpeg';
             const file = new File([blob], `factura-larga-${Date.now()}.${extensionFor(type)}`, { type });
             const saved = await capture(file);
@@ -902,8 +941,11 @@ export function createReceiptCamera({
         let videoBand = null;
         if (long.on) { try { videoBand = makeBand(q('[data-pcam-video]')); } catch (_) { videoBand = null; } }
         let shot;
+        const grabStart = clock();
+        let grabMs = 0;
         try {
             shot = await grabFrame(q('[data-pcam-video]'), track);
+            grabMs = Math.round(clock() - grabStart);
         } catch (error) {
             notify(`No se pudo tomar la foto (${error?.message || 'error'}). Inténtalo de nuevo.`, 'warning');
             return;
@@ -911,15 +953,20 @@ export function createReceiptCamera({
             grabbing = false;
             q('[data-pcam-shutter]')?.removeAttribute('aria-busy');
         }
+        const origin = shot?.origin || 'other';
         if (long.on) {
+            notePart();
             runSaving(async (session) => { if (session === sessionId) await shootPart(shot, videoBand); });
+            note('shot', { origin, grabMs, saveMs: 0, kb: 0, mime: null, long: true });
             return;
         }
         runSaving(async (session) => {
+            const saveStart = clock();
             const blob = await toPhoto(shot);
             const type = blob.type || 'image/jpeg';
             const file = new File([blob], `factura-${Date.now()}.${extensionFor(type)}`, { type });
             const saved = await capture(file); // entra a la cola aunque ya se haya cerrado la cámara
+            note('shot', { origin, grabMs, saveMs: Math.round(clock() - saveStart), kb: Math.round(blob.size / 1024), mime: type, long: false });
             if (session === sessionId) addItem(saved, file);
         });
     };
@@ -1010,6 +1057,7 @@ export function createReceiptCamera({
             return;
         }
         vibrate(8);
+        note('fix', { code: issue.code, kind: fix.kind });
         await refresh();
     };
 
