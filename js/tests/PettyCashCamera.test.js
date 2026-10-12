@@ -32,6 +32,7 @@ function setup(overrides = {}) {
         checkAlignment: jest.fn(() => ({ aligned: false })),
         stitch: jest.fn(async () => new Blob(['larga'], { type: 'image/jpeg' })),
         onFix: jest.fn().mockResolvedValue(true),
+        diag: { record: jest.fn() },
         ...overrides
     };
     delete deps.track;
@@ -553,7 +554,7 @@ describe('Cámara de facturas', () => {
         expect($('[data-pcam-done]').textContent).toContain('Unir (2)');
         expect($('[data-pcam-done]').disabled).toBe(false);
         $('[data-pcam-done]').click(); await flush(); await flush();
-        expect(deps.stitch).toHaveBeenCalledWith([expect.objectContaining({ width: 1080 }), expect.objectContaining({ width: 1080 })]);
+        expect(deps.stitch).toHaveBeenCalledWith([expect.objectContaining({ width: 1080 }), expect.objectContaining({ width: 1080 })], expect.objectContaining({ onInfo: expect.any(Function) }));
         expect(deps.capture).toHaveBeenCalledTimes(1);
         expect(deps.capture.mock.calls[0][0].name).toMatch(/larga/);
         expect($('[data-pcam-long]').getAttribute('aria-pressed')).toBe('false');
@@ -720,6 +721,57 @@ describe('Cámara de facturas: corregir desde la vista previa', () => {
         $('[data-pcam-action="finish"]').click();
         expect(ctx.camera.isOpen()).toBe(false);
         expect(ctx.deps.onFinish).toHaveBeenCalledWith(['m1']);
+    });
+});
+
+describe('Cámara de facturas: diagnóstico (solo números)', () => {
+    const recorded = (deps, type) => deps.diag.record.mock.calls.filter(c => c[0] === type).map(c => c[1]);
+
+    test('cada foto: de dónde salió, cuánto tardó y cuánto pesa', async () => {
+        const shot = { origin: 'sensor' };
+        const { camera, deps } = setup({ grabFrame: jest.fn().mockResolvedValue(shot), toPhoto: jest.fn().mockResolvedValue(new Blob(['x'.repeat(2048)], { type: 'image/webp' })) });
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush(); await flush();
+        const [entry] = recorded(deps, 'shot');
+        expect(entry).toMatchObject({ origin: 'sensor', kb: 2, mime: 'image/webp', long: false });
+        expect(entry.grabMs).toBeGreaterThanOrEqual(0);
+        expect(entry.saveMs).toBeGreaterThanOrEqual(0);
+        camera.close();
+    });
+
+    test('factura larga: qué decía la guía al tomar cada parte, y la unión', async () => {
+        jest.useFakeTimers();
+        const stitch = jest.fn(async (bitmaps, opts) => { opts?.onInfo?.({ found: 1, total: 1, height: 3000 }); return new Blob(['l'], { type: 'image/webp' }); });
+        const { camera, deps } = setup({ stitch });
+        await camera.open();
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click(); await flush();
+        deps.checkAlignment.mockReturnValue({ aligned: false, status: 'below', yFrac: 0.7, ncc: 0.9 });
+        jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
+        deps.checkAlignment.mockReturnValue({ aligned: true, status: 'ok', yFrac: 0.2, ncc: 0.95 });
+        jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
+        $('[data-pcam-shutter]').click(); await flush();
+        const [part] = recorded(deps, 'part');
+        expect(part).toMatchObject({ status: 'ok', ncc: 0.95, checks: 2, bestNcc: 0.95, counts: { below: 1, ok: 1 } });
+        expect(part.msToOk).toBeGreaterThanOrEqual(0);
+        $('[data-pcam-done]').click(); await flush(); await flush();
+        expect(recorded(deps, 'stitch')[0]).toMatchObject({ parts: 2, found: 1, total: 1 });
+        camera.close();
+    });
+
+    test('el resultado de cada lectura se registra una sola vez, y cada corrección', async () => {
+        const { camera, deps, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        const issue = { code: 'itbis-rate', field: 'itbis', message: 'El ITBIS no es el 18% del subtotal.', detail: { read: 120, calc: 180, base: 1000 } };
+        states.set('m1', { state: 'review', issues: [issue], data: {} });
+        await camera.refresh();
+        await camera.refresh();
+        expect(recorded(deps, 'result')).toEqual([{ state: 'review', codes: ['itbis-rate'] }]);
+        camera.openPreview(0);
+        $('[data-pcam-fix="0:0"]').click(); await flush();
+        expect(recorded(deps, 'fix')).toEqual([{ code: 'itbis-rate', kind: 'apply' }]);
+        camera.close();
     });
 });
 

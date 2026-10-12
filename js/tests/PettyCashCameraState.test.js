@@ -2,7 +2,7 @@
  * Caja chica → cámara nueva: estado de cada foto a partir de la cola de
  * lectura y del gasto, y el botón "Cámara" según el interruptor de Tests.
  */
-import { cameraItemsState, applyReceiptFix, PettyCashTab } from '../modules/features/pettycash/PettyCashUI.js';
+import { cameraItemsState, applyReceiptFix, copyCameraDiagnostics, PettyCashTab } from '../modules/features/pettycash/PettyCashUI.js';
 import { state } from '../modules/core/AppState.js';
 import { SettingsTestsTab } from '../modules/ui/settings/SettingsTestsTab.js';
 
@@ -101,5 +101,43 @@ describe('Configuración → Tests: cámara de facturas nueva', () => {
         expect(document.getElementById('newReceiptCamera').checked).toBe(false);
         document.body.innerHTML = SettingsTestsTab({ state: { settings: { newReceiptCamera: true } } });
         expect(document.getElementById('newReceiptCamera').checked).toBe(true);
+    });
+});
+
+describe('Configuración → Tests: diagnóstico de la cámara', () => {
+    const KEY = 'sa.pcam.diag.v1';
+    afterEach(() => { localStorage.removeItem(KEY); });
+
+    test('con la cámara activa muestra el resumen y los botones Copiar / Borrar', () => {
+        localStorage.setItem(KEY, JSON.stringify([
+            { t: 1, type: 'shot', origin: 'sensor', grabMs: 150, saveMs: 800, kb: 400, mime: 'image/webp' },
+            { t: 2, type: 'shot', origin: 'video', grabMs: 30, saveMs: 300, kb: 200, mime: 'image/webp' },
+            { t: 3, type: 'part', status: 'ok', checks: 4, checkMs: 45, bestNcc: 0.9, msToOk: 2000, counts: { ok: 2, below: 2 } }
+        ]));
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: { newReceiptCamera: true } } });
+        const card = document.querySelector('[data-pcam-diag]');
+        expect(card).not.toBeNull();
+        expect(card.textContent).toContain('2 fotos');
+        expect(card.textContent).toContain('1 del sensor');
+        expect(card.textContent).toContain('300 KB');
+        expect(card.textContent).toContain('1 de 1 partes con ✓');
+        expect(card.querySelector('[data-app-fn="pcCameraDiagCopy"]')).not.toBeNull();
+        expect(card.querySelector('[data-app-fn="pcCameraDiagClear"]')).not.toBeNull();
+    });
+
+    test('sin datos lo dice; con la cámara apagada no aparece', () => {
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: { newReceiptCamera: true } } });
+        expect(document.querySelector('[data-pcam-diag]').textContent).toContain('Aún no hay datos');
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: {} } });
+        expect(document.querySelector('[data-pcam-diag]')).toBeNull();
+    });
+
+    test('Copiar pone el diagnóstico en el portapapeles (solo números)', async () => {
+        localStorage.setItem(KEY, JSON.stringify([{ t: 1, type: 'fix', code: 'itbis-rate', kind: 'apply' }]));
+        const writeText = jest.fn().mockResolvedValue();
+        const ok = await copyCameraDiagnostics({ clipboard: { writeText } });
+        expect(ok).toBe(true);
+        const text = writeText.mock.calls[0][0];
+        expect(JSON.parse(text)).toMatchObject({ diag: 'camara-facturas', summary: { fixes: { count: 1 } } });
     });
 });

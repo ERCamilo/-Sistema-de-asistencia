@@ -75,7 +75,7 @@ export async function takeShot({
             const raw = await withTimeout(new ImageCaptureImpl(track).takePhoto(), timeoutMs);
             bitmap = await toBitmap(raw);
             const crop = photoCrop(bitmap.width, bitmap.height, video.videoWidth, video.videoHeight);
-            if (crop) return { source: bitmap, crop };
+            if (crop) return { source: bitmap, crop, origin: 'sensor' };
         } catch (_) { /* se usa el video */ }
         try { bitmap?.close?.(); } catch (_) { /* ya liberada */ }
     }
@@ -86,7 +86,7 @@ export async function takeShot({
     frame.width = w;
     frame.height = h;
     frame.getContext('2d').drawImage(video, 0, 0, w, h);
-    return { source: frame, crop: { sx: 0, sy: 0, sw: w, sh: h } };
+    return { source: frame, crop: { sx: 0, sy: 0, sw: w, sh: h }, origin: 'video' };
 }
 
 /** Recorta y reduce la toma (sin codificar): un lienzo listo para guardar o unir. */
