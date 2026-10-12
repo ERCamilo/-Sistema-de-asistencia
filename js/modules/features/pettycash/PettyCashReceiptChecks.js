@@ -2,10 +2,14 @@
  * Revisiones locales de una factura leída por el OCR.
  *
  * Deciden qué se marca "por revisar" en la cámara de facturas, sin
- * servicios externos: el total cuadra, el RNC/cédula tiene dígito
- * verificador válido, el NCF tiene un formato conocido y no se repite con
- * el mismo emisor, y la fecha cae dentro del periodo. Solo se revisa lo que
- * el OCR leyó: un campo vacío no es un error.
+ * servicios externos: el total cuadra, el ITBIS es el 18% (o 16%) del
+ * subtotal, el RNC/cédula tiene dígito verificador válido, el NCF tiene un
+ * formato conocido y no se repite con el mismo emisor, y la fecha cae dentro
+ * del periodo. Solo se revisa lo que el OCR leyó: un campo vacío no es un error.
+ *
+ * Cada aviso trae `detail` (lo leído frente a lo calculado, los dígitos que
+ * faltan o la fecha con día y mes invertidos) y `box`, la posición del dato en
+ * la foto cuando el lector la envía.
  *
  * Probado en js/tests/PettyCashReceiptChecks.test.js.
  */
@@ -46,54 +50,135 @@ export function isValidNcf(value) {
     return /^B(0[1-4]|1[1-7])\d{8}$/.test(ncf) || /^E(3[1-4]|4[1-7])\d{10}$/.test(ncf);
 }
 
-const issue = (code, field, message) => ({ code, field, message });
+const ITBIS_RATE = 0.18;
+const ITBIS_REDUCED_RATE = 0.16;
+const round2 = (n) => Math.round(n * 100) / 100;
+const NCF_LENGTH = { B: 11, E: 13 };
 
-export function checkReceipt(movement, { period = null, movements = [] } = {}) {
+/** Recuadro [y0, x0, y1, x1] (0–1000) del campo en la foto, si el lector lo envió. */
+function boxFor(movement, field) {
+    const box = field ? movement?.ocrBoxes?.[field] : null;
+    return Array.isArray(box) && box.length === 4 && box.every(n => Number.isFinite(n) && n >= 0 && n <= 1000)
+        ? box.slice() : null;
+}
+
+const issue = (code, field, message, extra = {}) => ({ code, field, message, ...extra });
+
+const pad = (n) => String(n).padStart(2, '0');
+function isoDate(y, m, d) {
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d
+        ? `${y}-${pad(m)}-${pad(d)}` : null;
+}
+
+/** Fecha de la factura en ISO: acepta AAAA-MM-DD y día/mes/año (formato dominicano). */
+export function parseReceiptDate(value) {
+    const raw = String(value ?? '').trim();
+    let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return isoDate(Number(m[1]), Number(m[2]), Number(m[3]));
+    m = raw.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/);
+    if (m) {
+        const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+        return isoDate(year, Number(m[2]), Number(m[1]));
+    }
+    return null;
+}
+
+const swapDayMonth = (iso) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return d !== m ? isoDate(y, d, m) : null;
+};
+const shiftDays = (iso, days) => {
+    const date = new Date(`${iso}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+};
+const localToday = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
+
+/** Faltan dígitos: cuántos, si lo leído es un prefijo corto de un formato conocido. */
+function missingNcfDigits(ncf) {
+    const expected = NCF_LENGTH[ncf[0]];
+    return expected && /^[BE]\d+$/.test(ncf) && ncf.length < expected ? expected - ncf.length : 0;
+}
+function missingRncDigits(d) {
+    if (d.length < 9) return 9 - d.length;
+    if (d.length === 10) return 1;
+    return 0;
+}
+
+export function checkReceipt(movement, { period = null, movements = [], today = localToday() } = {}) {
     if (!movement) return [];
     const issues = [];
+    const add = (code, field, message, extra) => issues.push(issue(code, field, message, { box: boxFor(movement, field), ...extra }));
     const total = num(movement.total) ?? num(movement.amount);
     const subtotal = num(movement.subtotal);
     const itbis = num(movement.itbis);
 
     if (!total) {
-        issues.push(issue('missing-total', 'total', 'No se pudo leer el total.'));
+        add('missing-total', 'total', 'No se pudo leer el total.');
     } else if (subtotal !== null && itbis !== null && Math.abs(subtotal + itbis - total) > TOTAL_TOLERANCE) {
-        issues.push(issue('total-mismatch', 'total', 'Subtotal + ITBIS no da el total leído.'));
+        add('total-mismatch', 'total', 'Subtotal + ITBIS no da el total leído.', { detail: { read: total, calc: round2(subtotal + itbis) } });
     }
 
-    if (digits(movement.rncEmisor) && !isValidRnc(movement.rncEmisor)) {
-        issues.push(issue('rnc-invalid', 'rncEmisor', 'El RNC no es válido (dígito verificador).'));
+    if (subtotal && itbis) {
+        const full = round2(subtotal * ITBIS_RATE);
+        const reduced = round2(subtotal * ITBIS_REDUCED_RATE);
+        const near = (x) => Math.abs(itbis - x) <= TOTAL_TOLERANCE;
+        if (!near(full) && !near(reduced)) {
+            const detail = { read: itbis, calc: full, base: subtotal };
+            if (itbis > full) add('itbis-rate', 'itbis', 'El ITBIS es mayor que el 18% del subtotal.', { detail });
+            else add('itbis-rate', 'itbis', 'El ITBIS no es el 18% del subtotal.', { detail, hint: 'Puede ser correcto si hay artículos exentos o al 16%.' });
+        }
+    }
+
+    const rnc = digits(movement.rncEmisor);
+    if (rnc && !isValidRnc(movement.rncEmisor)) {
+        const missing = missingRncDigits(rnc);
+        add('rnc-invalid', 'rncEmisor', missing ? 'RNC incompleto.' : 'El RNC no es válido (dígito verificador).',
+            { detail: { read: String(movement.rncEmisor), missing } });
     }
 
     const ncf = String(movement.ncf ?? '').replace(/[\s-]/g, '').toUpperCase();
     if (ncf && !isValidNcf(ncf)) {
-        issues.push(issue('ncf-format', 'ncf', 'El NCF no tiene un formato conocido.'));
+        const missing = missingNcfDigits(ncf);
+        add('ncf-format', 'ncf', missing ? 'NCF incompleto.' : 'El NCF no tiene un formato conocido.', { detail: { read: ncf, missing } });
     } else if (ncf) {
         const issuer = digits(movement.rncEmisor);
         const repeated = movements.some((other) => other && other.id !== movement.id
             && String(other.ncf ?? '').replace(/[\s-]/g, '').toUpperCase() === ncf
             && (!issuer || !digits(other.rncEmisor) || digits(other.rncEmisor) === issuer));
-        if (repeated) issues.push(issue('ncf-duplicate', 'ncf', 'Este NCF ya está registrado en otro gasto.'));
+        if (repeated) add('ncf-duplicate', 'ncf', 'Este NCF ya está registrado en otro gasto.');
     }
 
-    const date = movement.fechaEmision || movement.date;
-    if (period && /^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
-        const outside = (period.openingDate && date < period.openingDate)
-            || (period.closingDate && date > period.closingDate);
-        if (outside) issues.push(issue('date-outside-period', 'date', 'La fecha está fuera del periodo de la caja.'));
+    // Periodo cerrado: sus fechas. Periodo abierto: desde su apertura hasta 30 días después de hoy.
+    const rawDate = movement.fechaEmision || movement.date;
+    const date = parseReceiptDate(rawDate);
+    if (period && date) {
+        const from = period.openingDate || shiftDays(today, -30);
+        const to = period.closingDate || shiftDays(today, 30);
+        const inside = (d) => d >= from && d <= to;
+        if (!inside(date)) {
+            const swapped = swapDayMonth(date);
+            add('date-outside-period', 'date', 'La fecha está fuera del periodo de la caja.',
+                { detail: { read: String(rawDate), suggestion: swapped && inside(swapped) ? swapped : null } });
+        }
     }
     return issues;
 }
 
 /**
  * Estado que muestra la cámara para una foto: reading | waiting | failed | review | ok.
+ * failed = no se obtuvo ningún dato (✕); review = se leyó pero algo puede estar mal (!).
  * @param {object} job       registro de la cola (ocrStatus, queueStatus)
  * @param {object} movement  gasto con los datos leídos
  */
 export function receiptReviewState(job = {}, movement = null, context = {}) {
     const ocr = job?.ocrStatus;
     if (ocr === 'failed') return { state: 'failed', issues: [] };
-    if (ocr === 'needs-review') return { state: 'review', issues: [issue('not-read', null, 'No se pudieron leer los datos de esta foto.')] };
+    if (ocr === 'needs-review') return { state: 'failed', issues: [issue('not-read', null, 'No se obtuvo ningún dato de esta foto.')] };
     if (ocr === 'extracted') {
         const issues = checkReceipt(movement, context);
         return { state: issues.length ? 'review' : 'ok', issues };

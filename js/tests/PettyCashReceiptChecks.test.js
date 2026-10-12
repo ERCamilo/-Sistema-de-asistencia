@@ -2,7 +2,7 @@
  * Revisiones locales de una factura leída (sin servicios externos).
  * Deciden qué se marca "por revisar" en la vista previa de la cámara.
  */
-import { isValidRnc, isValidNcf, checkReceipt, receiptReviewState } from '../modules/features/pettycash/PettyCashReceiptChecks.js';
+import { isValidRnc, isValidNcf, checkReceipt, receiptReviewState, parseReceiptDate } from '../modules/features/pettycash/PettyCashReceiptChecks.js';
 
 // Dígito verificador de cédula (módulo 10, pesos 1-2) para armar casos válidos.
 const cedula = (ten) => {
@@ -97,7 +97,7 @@ describe('receiptReviewState', () => {
         [{ ocrStatus: 'processing', queueStatus: 'processing' }, 'reading'],
         [{ ocrStatus: 'pending', queueStatus: 'waiting-network' }, 'waiting'],
         [{ ocrStatus: 'failed', queueStatus: 'retry-wait' }, 'failed'],
-        [{ ocrStatus: 'needs-review', queueStatus: 'awaiting-review' }, 'review'],
+        [{ ocrStatus: 'needs-review', queueStatus: 'awaiting-review' }, 'failed'],
         [{ ocrStatus: 'extracted', queueStatus: 'awaiting-review' }, 'ok']
     ])('%j → %s', (job, state) => {
         expect(receiptReviewState(job, mov, { period }).state).toBe(state);
@@ -113,5 +113,98 @@ describe('receiptReviewState', () => {
         expect(receiptReviewState({ ocrStatus: 'pending', queueStatus: 'waiting-session' }, mov).reason).toBe('session');
         expect(receiptReviewState({ ocrStatus: 'pending', queueStatus: 'waiting-network' }, mov).reason).toBe('network');
         expect(receiptReviewState({ ocrStatus: 'pending', queueStatus: 'paused' }, mov).reason).toBe('paused');
+    });
+});
+
+describe('detalles para mostrar lo leído frente a lo calculado', () => {
+    const period = { openingDate: '2026-10-01', closingDate: '2026-10-15' };
+    const good = { id: 'm1', amount: 1180, subtotal: 1000, itbis: 180, total: 1180, rncEmisor: '101010632', ncf: 'B0100000123', date: '2026-10-05' };
+    const byCode = (issues, code) => issues.find(i => i.code === code);
+
+    test('total que no cuadra: total leído y subtotal + ITBIS', () => {
+        const issue = byCode(checkReceipt({ ...good, total: 1280, amount: 1280 }, { period }), 'total-mismatch');
+        expect(issue.detail).toEqual({ read: 1280, calc: 1180 });
+    });
+
+    test('ITBIS mayor que el 18% del subtotal: siempre es un error', () => {
+        const issue = byCode(checkReceipt({ ...good, itbis: 200, total: 1200, amount: 1200 }, { period }), 'itbis-rate');
+        expect(issue).toMatchObject({ field: 'itbis', detail: { read: 200, calc: 180, base: 1000 } });
+        expect(issue.message).toMatch(/ITBIS/);
+    });
+
+    test('ITBIS menor que el 18%: se avisa, pero puede ser correcto (exentos o 16%)', () => {
+        const issue = byCode(checkReceipt({ ...good, itbis: 120, total: 1120, amount: 1120 }, { period }), 'itbis-rate');
+        expect(issue.detail).toMatchObject({ read: 120, calc: 180 });
+        expect(issue.hint).toMatch(/exent|16%/);
+    });
+
+    test('ITBIS al 16% o en cero no se marca', () => {
+        expect(byCode(checkReceipt({ ...good, itbis: 160, total: 1160, amount: 1160 }, { period }), 'itbis-rate')).toBeUndefined();
+        expect(byCode(checkReceipt({ ...good, itbis: 0, total: 1000, amount: 1000 }, { period }), 'itbis-rate')).toBeUndefined();
+    });
+
+    test('NCF incompleto: muestra lo detectado y cuántos dígitos faltan', () => {
+        const issue = byCode(checkReceipt({ ...good, ncf: 'B01000012' }, { period }), 'ncf-format');
+        expect(issue.message).toMatch(/incompleto/i);
+        expect(issue.detail).toEqual({ read: 'B01000012', missing: 2 });
+        const e = byCode(checkReceipt({ ...good, ncf: 'E3100000001' }, { period }), 'ncf-format');
+        expect(e.detail.missing).toBe(2);
+    });
+
+    test('RNC con dígitos de menos', () => {
+        const issue = byCode(checkReceipt({ ...good, rncEmisor: '10101063' }, { period }), 'rnc-invalid');
+        expect(issue.detail).toEqual({ read: '10101063', missing: 1 });
+    });
+
+    test('fecha con día y mes invertidos: propone la que cae dentro del periodo', () => {
+        const issue = byCode(checkReceipt({ ...good, date: '2026-11-10' }, { period }), 'date-outside-period');
+        expect(issue.detail).toEqual({ read: '2026-11-10', suggestion: '2026-10-11' });
+    });
+
+    test('fecha en formato día/mes/año también se revisa', () => {
+        expect(checkReceipt({ ...good, date: '05/10/2026' }, { period })).toEqual([]);
+        const issue = byCode(checkReceipt({ ...good, date: '10/11/2026' }, { period }), 'date-outside-period');
+        expect(issue.detail).toEqual({ read: '10/11/2026', suggestion: '2026-10-11' });
+    });
+
+    test('sin sugerencia si al invertirla tampoco cae dentro', () => {
+        const issue = byCode(checkReceipt({ ...good, date: '2026-09-20' }, { period }), 'date-outside-period');
+        expect(issue.detail).toEqual({ read: '2026-09-20', suggestion: null });
+    });
+
+    test('periodo abierto: usa ±30 días de hoy como referencia', () => {
+        const open = { openingDate: '2026-09-01', closingDate: null };
+        const today = '2026-10-12';
+        expect(checkReceipt({ ...good, date: '2026-10-08' }, { period: open, today })).toEqual([]);
+        const issue = byCode(checkReceipt({ ...good, date: '2026-12-10' }, { period: open, today }), 'date-outside-period');
+        expect(issue.detail.suggestion).toBe('2026-10-12');
+    });
+
+    test('parseReceiptDate entiende ISO y día/mes/año', () => {
+        expect(parseReceiptDate('2026-10-05')).toBe('2026-10-05');
+        expect(parseReceiptDate('5/10/2026')).toBe('2026-10-05');
+        expect(parseReceiptDate('05-10-26')).toBe('2026-10-05');
+        expect(parseReceiptDate('31/02/2026')).toBeNull();
+        expect(parseReceiptDate('ayer')).toBeNull();
+    });
+});
+
+describe('posición del dato en la foto (cuando el lector la envíe)', () => {
+    const period = { openingDate: '2026-10-01', closingDate: '2026-10-15' };
+    test('cada aviso lleva el recuadro de su campo si existe', () => {
+        const mov = { id: 'm1', amount: 1280, subtotal: 1000, itbis: 180, total: 1280, date: '2026-10-05',
+            ocrBoxes: { total: [880, 100, 910, 900], ncf: 'basura' } };
+        const issues = checkReceipt(mov, { period });
+        expect(issues.find(i => i.code === 'total-mismatch').box).toEqual([880, 100, 910, 900]);
+        const ncfIssue = checkReceipt({ ...mov, total: 1180, amount: 1180, ncf: 'X1' }, { period }).find(i => i.code === 'ncf-format');
+        expect(ncfIssue.box).toBeNull();
+    });
+});
+
+describe('sin datos leídos', () => {
+    test('needs-review (el lector no encontró nada) se muestra como no leída', () => {
+        const r = receiptReviewState({ ocrStatus: 'needs-review' }, { id: 'm1' });
+        expect(r.state).toBe('failed');
+        expect(r.issues[0].code).toBe('not-read');
     });
 });

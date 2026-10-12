@@ -26,6 +26,14 @@ Por eso lo que se marca "por revisar" sale de revisiones locales y exactas (`Pet
 3. Contrato sugerido por campo: `{ value, box: [y0, x0, y1, x1] | null, certainty: 'high' | 'low' }`.
    - La app dibuja solo los recuadros con certeza `low`.
 
+**La app ya está lista para recibir las posiciones.** Si la respuesta del lector trae `boxes`, se guardan en el gasto (`ocrBoxes`):
+
+```json
+"boxes": { "total": [880, 100, 910, 900], "fecha": [120, 600, 140, 900], "ncf": [...], "rncEmisor": [...], "itbis": [...], "subtotal": [...] }
+```
+
+Cada aviso de la vista previa con posición muestra "⌖ Ver en la foto". Al tocarlo, la foto se acerca a ese dato y lo marca. Sin `boxes`, el aviso funciona como hoy. Solo falta que el flujo de n8n agregue ese campo.
+
 Antes de cambiar el flujo, probarlo con 5–10 fotos reales de facturas.
 
 ## Pendiente 2: verificar el RNC de la compañía
