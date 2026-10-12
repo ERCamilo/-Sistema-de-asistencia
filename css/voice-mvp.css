@@ -102,9 +102,12 @@
 .voice-dialog[data-voice-view=loan] .voice-confirm .voice-primary { color:#111315; background:#f5c542; }
 .voice-launcher { position:fixed; right:18px; bottom:calc(82px + env(safe-area-inset-bottom)); z-index:1100; display:flex; align-items:center; justify-content:center; gap:8px; border:0; border-radius:999px; min-height:48px; padding:12px 18px; background:var(--accent); color:#111315; font-weight:600; cursor:pointer; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
 .voice-launcher[hidden] { display:none; }
-.voice-launcher svg { width:22px; height:22px; }
+.voice-launcher svg { width:22px; height:22px; pointer-events:none; }
+.voice-launcher, .voice-launcher * { -webkit-user-drag:none; touch-action:none; }
 /* Botón flotante: celeste de la app; escuchando = crece, brilla y emite ondas; guardado = ✓ verde breve. */
 .voice-launcher { background:#06b6d4; color:#06202a; box-shadow:0 10px 26px rgba(6,182,212,.35); transition:transform .22s cubic-bezier(.3,1.6,.5,1), background .25s, box-shadow .25s; }
+/* Abriendo el micrófono (ya puede estar grabando): solo hundido, sin ondas, para que no se hable antes de "Escuchando". */
+.voice-launcher[data-voice-state=arming] { transform:scale(.94); box-shadow:0 6px 16px rgba(6,182,212,.25); }
 .voice-launcher[data-voice-state=listening] { background:#22d3ee; transform:scale(1.08); box-shadow:0 0 0 8px rgba(34,211,238,.18), 0 12px 30px rgba(34,211,238,.45); }
 .voice-launcher[data-voice-state=listening]::before,
 .voice-launcher[data-voice-state=listening]::after { content:''; position:absolute; inset:-3px; border-radius:inherit; border:2px solid #22d3ee; animation:voice-ripple 1.6s ease-out infinite; pointer-events:none; }

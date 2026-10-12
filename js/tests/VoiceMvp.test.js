@@ -149,6 +149,19 @@ describe('Voice recorder lifecycle', () => {
         await capture.start(); expect(recorder.mimeType).toBe('audio/mp4'); timer();
         expect(onComplete.mock.calls[0][0].mimeType).toBe('audio/mp4'); expect(stopTrack).toHaveBeenCalled();
     });
+    test('start({ stream }) usa el micrófono ya pedido y no llama a getUserMedia', async () => {
+        const stopTrack = jest.fn(); const getUserMedia = jest.fn();
+        class FakeRecorder {
+            static isTypeSupported() { return true; }
+            constructor(stream) { this.stream = stream; this.mimeType = 'audio/webm'; this.state = 'inactive'; }
+            start() { this.state = 'recording'; }
+            stop() { this.state = 'inactive'; }
+        }
+        const fakeStream = { getTracks: () => [{ stop: stopTrack }] };
+        const capture = new VoiceRecorder({ Recorder: FakeRecorder, mediaDevices: { getUserMedia }, onComplete: jest.fn() });
+        await capture.start({ stream: Promise.resolve(fakeStream) });
+        expect(getUserMedia).not.toHaveBeenCalled(); expect(capture.stream).toBe(fakeStream); expect(capture.recorder.state).toBe('recording');
+    });
     test('cancel while permission dialog is open never starts a recorder', async () => {
         let grant; const stopTrack = jest.fn(); const Recorder = jest.fn(); Recorder.isTypeSupported = () => true;
         const capture = new VoiceRecorder({ mediaDevices: { getUserMedia: () => new Promise(resolve => { grant = resolve; }) }, Recorder, onComplete: jest.fn() });

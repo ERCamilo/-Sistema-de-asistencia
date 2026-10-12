@@ -7,6 +7,7 @@ import { VoiceAudioView } from './VoiceAudioView.js';
 import { voiceRetentionPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET } from './VoiceRetention.js';
 import { VoiceStore } from './VoiceStore.js';
 import { VoiceRecorder } from './VoiceRecorder.js';
+import { createHoldGuard } from '../../ui/HoldGuard.js';
 import { LOAN_FIELDS, VOICE_TEST_ENDPOINT, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceName, isVoiceEndpointAllowed, createVoiceContext, sendVoiceRecording, resolveVoiceEmployees, voiceBlocked, voiceHardBlocked, voiceDraftReady } from './VoiceCore.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { completeVoiceLoanDraft, voiceLoanNote } from './VoiceLoanDraft.js';
@@ -17,6 +18,11 @@ const micIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 // Per-bar height factors so the live bars read as a waveform, not a block.
 const WAVE_BAR_FACTORS = [0.35, 0.55, 0.8, 0.5, 0.95, 0.65, 0.4, 0.85, 1, 0.6, 0.9, 0.6, 1, 0.85, 0.4, 0.65, 0.95, 0.5, 0.8, 0.55, 0.35];
 const SAVED_STATE_MS = 1200;
+// La grabación arranca antes que el panel "Escuchando" y el tic: quien empieza
+// a hablar al verlo ya está grabado desde el inicio.
+export const VOICE_LISTEN_LEAD_MS = 250;
+// Micrófono pedido al tocar el botón (warmUp); si no se usa, se suelta.
+export const VOICE_WARM_MS = 3000;
 const projectKey = scope => scope?.enabled ? String(scope.projectId || 'pending') : 'legacy';
 
 // Patch in place so editing and playback retain their live DOM nodes.
@@ -39,8 +45,8 @@ function patchVoiceNode(current, next) {
 }
 
 export class VoiceMvpUI {
-    constructor(adapter, { store = new VoiceStore(), recorderFactory = options => new VoiceRecorder(options), feedback = null } = {}) {
-        this.adapter = adapter; this.store = store; this.recorderFactory = recorderFactory;
+    constructor(adapter, { store = new VoiceStore(), recorderFactory = options => new VoiceRecorder(options), feedback = null, mediaDevices = globalThis.navigator?.mediaDevices } = {}) {
+        this.adapter = adapter; this.store = store; this.recorderFactory = recorderFactory; this.mediaDevices = mediaDevices;
         // Sound + vibration cues (settings.voiceFeedback, on by default).
         this.feedback = feedback || createVoiceFeedback({ isEnabled: () => this.adapter.getSettings?.()?.voiceFeedback !== false });
         this.message = ''; this.busy = false; this.history = []; this.matches = []; this.allEmployees = false;
@@ -55,15 +61,19 @@ export class VoiceMvpUI {
         this.wave.innerHTML = `<div class="voice-wave-head"><span class="voice-rec-dot" aria-hidden="true"></span><span role="status">Activando micrófono…</span><span class="voice-wave-hint"></span></div><div class="voice-wave-bars" aria-hidden="true">${WAVE_BAR_FACTORS.map(k => `<i style="--k:${k}"></i>`).join('')}</div>`;
         this.launcher.dataset.voiceState = 'idle';
         document.body.append(this.wave);
+        // Mantener pulsado sin los gestos del sistema (selección, menú, arrastre "fantasma").
+        this.holdGuard = createHoldGuard({ doc: document });
+        this.launcher.addEventListener('touchstart', event => event.preventDefault(), { passive: false });
         this.launcher.addEventListener('pointerdown', event => {
             if (event.button !== 0 || this.held) return;
-            event.preventDefault(); this.feedback.prime(); this.toggleMode = false; this.held = true; this.pointerId = event.pointerId;
+            this.holdGuard.start();
+            event.preventDefault(); this.warmUp(); this.feedback.prime(); this.toggleMode = false; this.held = true; this.pointerId = event.pointerId;
             this.launcher.setPointerCapture?.(event.pointerId);
             this.run(() => this.beginHold());
         });
-        this.launcher.addEventListener('pointerup', event => { if (event.pointerId === this.pointerId) this.finishHold(); });
-        this.launcher.addEventListener('pointercancel', () => this.cancelHold());
-        this.launcher.addEventListener('lostpointercapture', () => { if (this.held) this.cancelHold(); });
+        this.launcher.addEventListener('pointerup', event => { this.holdGuard.end(); if (event.pointerId === this.pointerId) this.finishHold(); });
+        this.launcher.addEventListener('pointercancel', () => { this.holdGuard.end(); this.cancelHold(); });
+        this.launcher.addEventListener('lostpointercapture', () => { this.holdGuard.end(); if (this.held) this.cancelHold(); });
         this.launcher.addEventListener('contextmenu', event => event.preventDefault());
         this.launcher.addEventListener('click', event => { if (event.detail !== 0) return; this.feedback.prime(); if (!this.recording) this.toggleMode = true; this.run(() => this.recording ? this.finishHold() : this.beginHold()); });
         this.onBlur = () => { if (this.recording) this.cancelHold(); };
@@ -110,7 +120,7 @@ export class VoiceMvpUI {
     // `toggle`: started from a tap (menu "Dictar"); a second tap ends it.
     startHold({ toggle = false } = {}) {
         if (this.held) return Promise.resolve(!!this.recording);
-        this.feedback.prime();
+        this.warmUp(); this.feedback.prime();
         this.toggleMode = toggle;
         this.held = true;
         return this.run(() => this.beginHold()).then(() => {
@@ -119,10 +129,21 @@ export class VoiceMvpUI {
         });
     }
     endHold() { if (this.held || this.recording) this.finishHold(); }
+    // Pide el micrófono en cuanto el dedo toca el botón, mientras aún no se
+    // sabe si es toque o pulsación: al empezar a grabar ya está abierto.
+    warmUp() {
+        if (this.warmStream || this.recording || !this.mediaDevices?.getUserMedia || !this.isAvailable()) return;
+        try { this.warmStream = Promise.resolve(this.mediaDevices.getUserMedia({ audio: true })); } catch (error) { this.warmStream = Promise.reject(error); }
+        this.warmStream.catch(() => {});
+        clearTimeout(this.warmTimer); this.warmTimer = setTimeout(() => this.releaseWarm(), VOICE_WARM_MS);
+    }
+    takeWarm() { const stream = this.warmStream; this.warmStream = null; clearTimeout(this.warmTimer); return stream; }
+    // Fue un toque (abre el menú) o no se usó: suelta el micrófono.
+    releaseWarm() { this.takeWarm()?.then(stream => stream.getTracks().forEach(track => track.stop()), () => {}); }
     // idle → listening → saved (✓, brief) → idle. Mirrored on the launcher
     // (data-voice-state) and broadcast for other entry points (bottom nav).
     setCaptureState(state) {
-        clearTimeout(this.savedTimer); clearInterval(this.clockTimer);
+        clearTimeout(this.savedTimer); clearInterval(this.clockTimer); clearTimeout(this.revealTimer);
         if (this.launcher) this.launcher.dataset.voiceState = state;
         window.dispatchEvent(new CustomEvent('sa:voice-state', { detail: { state } }));
         if (state === 'listening') { this.listenStartedAt = Date.now(); this.renderClock(); this.clockTimer = setInterval(() => this.renderClock(), 1000); }
@@ -179,11 +200,16 @@ export class VoiceMvpUI {
         if (discard && this.record && !this.record.completedLoanId) { const record = this.record; record.discarded = true; if (this.processingRecord === record) this.processingController?.abort(); this.store.remove?.(record.uid, record.requestId).catch(() => this.adapter.notify?.('No se pudo eliminar el audio descartado.', 'warning')); }
         this.finishConfirmation?.(false);
         if (this.recording) { this.feedback.play('cancel'); this.setCaptureState('idle'); }
-        this.recorder?.cancel(); this.recording = false; this.held = false; this.showWave(false);
+        this.recorder?.cancel(); this.releaseWarm(); this.recording = false; this.held = false; this.showWave(false);
         this.dialog.querySelector?.('audio')?.pause?.();
         if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.audioURL = null; this.audioBlob = null;
         if (this.record?.completedLoanId) { delete this.record.audio; delete this.record.fileBase64; }
         this.dialog.close(); this.launcher.focus();
+    }
+    // Ya se está grabando: ahora sí el panel, el tic y el estado "Escuchando".
+    revealListening() {
+        if (!this.recording || this.recorder?.recorder?.state !== 'recording') return;
+        this.showWave(true); this.feedback.play('start'); this.setCaptureState('listening');
     }
     showWave(on) {
         if (this.wave) { this.wave.hidden = !on; if (on) this.wave.querySelector('[role=status]').textContent = 'Activando micrófono…'; }
@@ -192,19 +218,18 @@ export class VoiceMvpUI {
     async beginHold() {
         this.testEndpointUid = null;
         this.held = true;
-        if (this.busy || this.recording) { this.held = false; return; }
+        if (this.busy || this.recording) { this.held = false; if (!this.recording) this.releaseWarm(); return; }
         this.identity();
-        if (this.record && !this.record.completedLoanId) {
-            this.record.discarded = true; await this.store.remove?.(this.record.uid, this.record.requestId);
-        }
-        this.record = null;
-        if (!this.held) return;
+        // Borrar la toma anterior sin esperar: el micrófono no espera a IndexedDB.
+        const previous = this.record; this.record = null;
+        if (previous && !previous.completedLoanId) { previous.discarded = true; this.store.remove?.(previous.uid, previous.requestId)?.catch?.(() => {}); }
+        if (!this.held) { this.releaseWarm(); return; }
         this.view = 'audio';
         if (this.dialog.open) this.dialog.close();
         await this.action('record');
     }
     finishHold() {
-        this.held = false;
+        this.held = false; this.releaseWarm();
         if (this.recorder?.recorder?.state === 'recording') this.recorder.stop();
         else { this.recorder?.cancel(); this.recording = false; this.showWave(false); this.feedback.play('cancel'); this.setCaptureState('idle'); this.adapter.notify?.('No se grabó audio. Mantén pulsado de nuevo cuando el micrófono esté disponible.', 'info'); }
     }
@@ -467,7 +492,7 @@ export class VoiceMvpUI {
         if (action === 'record') {
             if (this.record && !this.record.completedLoanId) { this.record.discarded = true; await this.store.remove?.(this.record.uid, this.record.requestId); }
             this.record = null; if (this.dialog.open) this.dialog.close();
-            const identity = this.identity(); this.message = ''; this.recordingUid = identity.uid; this.recording = true; this.showWave(true);
+            const identity = this.identity(); this.message = ''; this.recordingUid = identity.uid; this.recording = true; this.setCaptureState('arming');
             this.recordLevels = [];
             this.recorder = this.recorderFactory({ onLevel: level => { this.wave?.style.setProperty('--voice-level', String(level)); if (this.recording) this.recordLevels.push(level); }, onError: error => { this.recording = false; this.held = false; this.showWave(false); this.feedback.play('error'); this.setCaptureState('idle'); this.message = error.message; this.view = 'audio'; this.render(); if (!this.dialog.open) this.dialog.showModal(); }, onComplete: captured => this.run(async () => {
                 this.recording = false; this.held = false; this.showWave(false); this.feedback.play('stop'); this.setCaptureState('saved'); this.view = 'audio'; this.allEmployees = false;
@@ -480,7 +505,7 @@ export class VoiceMvpUI {
                 finally { if (!capturedRecord.discarded && this.record === capturedRecord && this.adapter.getUser()?.uid === identity.uid && projectKey(this.adapter.getScope()) === identity.projectKey) { await this.refreshMatches(); this.render(); if (!this.dialog.open) this.dialog.showModal(); } }
                 if (!capturedRecord.unsaved && !capturedRecord.discarded && this.record === capturedRecord && this.adapter.getSettings && this.adapter.getSettings()?.voiceReviewBeforeSend !== true) await this.process();
             }) });
-            try { await this.recorder.start(); if (this.recording && this.wave && this.recorder.recorder?.state === 'recording') { this.feedback.play('start'); this.setCaptureState('listening'); } } catch (error) { if (!this.recording) return; this.recording = false; this.held = false; this.showWave(false); this.feedback.play('error'); this.setCaptureState('idle'); this.view = 'audio'; this.render(); if (!this.dialog.open) this.dialog.showModal(); throw error; }
+            try { await this.recorder.start({ stream: this.takeWarm() }); if (this.recording && this.wave && this.recorder.recorder?.state === 'recording') this.revealTimer = setTimeout(() => this.revealListening(), VOICE_LISTEN_LEAD_MS); } catch (error) { if (!this.recording) return; this.recording = false; this.held = false; this.showWave(false); this.feedback.play('error'); this.setCaptureState('idle'); this.view = 'audio'; this.render(); if (!this.dialog.open) this.dialog.showModal(); throw error; }
             return;
         }
         if (action === 'load') {
@@ -753,5 +778,5 @@ export class VoiceMvpUI {
         if (!audio.voiceBound) { for (const event of ['play','pause','ended','timeupdate','loadedmetadata']) audio.addEventListener(event,update); audio.voiceBound = true; }
         update();
     }
-    destroy() { this.destroyed = true; document.removeEventListener('click', this.onStorageRetry); clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
+    destroy() { this.destroyed = true; this.holdGuard?.end(); this.releaseWarm(); clearTimeout(this.revealTimer); document.removeEventListener('click', this.onStorageRetry); clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
 }

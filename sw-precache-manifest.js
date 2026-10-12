@@ -358,6 +358,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/ui/DuplicatesScreen.js",
     "./js/modules/ui/DuplicatesScreenBoot.js",
     "./js/modules/ui/Header.js",
+    "./js/modules/ui/HoldGuard.js",
     "./js/modules/ui/IconSystem.js",
     "./js/modules/ui/IncomingChangeModal.js",
     "./js/modules/ui/MaintenanceUI.js",

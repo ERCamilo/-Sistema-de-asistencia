@@ -175,7 +175,9 @@ describe('BottomNav — interacción', () => {
             isAvailable: () => voiceAvailable,
             startHold: jest.fn(() => Promise.resolve()),
             endHold: jest.fn(),
-            cancelHold: jest.fn()
+            cancelHold: jest.fn(),
+            warmUp: jest.fn(),
+            releaseWarm: jest.fn()
         };
         const notify = jest.fn();
         const draw = () => { document.body.innerHTML = renderBottomNav(state, { voiceAvailable, win: env.win }); };
@@ -184,6 +186,7 @@ describe('BottomNav — interacción', () => {
         return { voice, notify, draw };
     };
     const $ = sel => document.querySelector(sel);
+    const voiceState = state => window.dispatchEvent(new CustomEvent('sa:voice-state', { detail: { state } }));
     const isOpen = id => $(`[data-bnav-menu="${id}"]`).dataset.open === 'true';
 
     afterEach(() => { nav?.destroy(); jest.useRealTimers(); document.body.innerHTML = ''; });
@@ -256,12 +259,87 @@ describe('BottomNav — interacción', () => {
         pointer('pointerdown', center);
         jest.advanceTimersByTime(HOLD_TO_TALK_MS + 10);
         expect(voice.startHold).toHaveBeenCalledTimes(1);
+        expect(center.classList.contains('is-arming')).toBe(true);
+        expect(center.classList.contains('is-listening')).toBe(false);
+        voiceState('listening');
         expect(center.classList.contains('is-listening')).toBe(true);
+        expect(center.classList.contains('is-arming')).toBe(false);
         expect(center.getAttribute('aria-pressed')).toBe('true');
         pointer('pointerup', center);
         expect(voice.endHold).toHaveBeenCalledTimes(1);
         expect(center.classList.contains('is-listening')).toBe(false);
         expect(isOpen('center')).toBe(false);
+    });
+
+    test('micrófono: al tocar se pide el micrófono (warmUp)', () => {
+        jest.useFakeTimers();
+        const { voice } = mount();
+        pointer('pointerdown', $('[data-bnav-center]'));
+        expect(voice.warmUp).toHaveBeenCalledTimes(1);
+        pointer('pointerup', $('[data-bnav-center]'));
+    });
+
+    test('micrófono: un toque corto suelta el micrófono y abre el menú', () => {
+        jest.useFakeTimers();
+        const { voice } = mount();
+        const center = $('[data-bnav-center]');
+        pointer('pointerdown', center);
+        jest.advanceTimersByTime(HOLD_TO_TALK_MS - 50);
+        pointer('pointerup', center);
+        expect(voice.releaseWarm).toHaveBeenCalledTimes(1);
+        expect(isOpen('center')).toBe(true);
+    });
+
+    test('micrófono: cancelar el gesto sin mantener suelta el micrófono', () => {
+        jest.useFakeTimers();
+        const { voice } = mount();
+        const center = $('[data-bnav-center]');
+        pointer('pointerdown', center);
+        pointer('pointercancel', center);
+        expect(voice.releaseWarm).toHaveBeenCalledTimes(1);
+        expect(voice.cancelHold).not.toHaveBeenCalled();
+    });
+
+    test('micrófono: el estado arming conserva is-arming y la pulsación; listening pone is-listening', () => {
+        jest.useFakeTimers();
+        const { voice } = mount();
+        const center = $('[data-bnav-center]');
+        pointer('pointerdown', center);
+        jest.advanceTimersByTime(HOLD_TO_TALK_MS + 10);
+        voiceState('arming');
+        expect(center.classList.contains('is-arming')).toBe(true);
+        expect(center.classList.contains('is-listening')).toBe(false);
+        voiceState('listening');
+        expect(center.classList.contains('is-listening')).toBe(true);
+        expect(center.classList.contains('is-arming')).toBe(false);
+        pointer('pointerup', center);
+        expect(voice.endHold).toHaveBeenCalledTimes(1);
+        expect(isOpen('center')).toBe(false);
+    });
+
+    test('mantener pulsado no selecciona ni arrastra otras partes de la barra', () => {
+        jest.useFakeTimers();
+        mount();
+        const center = $('[data-bnav-center]');
+        const label = document.querySelector('.bottom-nav-text');
+        expect(pointer('touchstart', center).defaultPrevented).toBe(true);
+        expect(pointer('touchstart', label).defaultPrevented).toBe(false);
+        pointer('pointerdown', center);
+        expect(document.documentElement.classList.contains('is-holding')).toBe(true);
+        expect(pointer('selectstart', label).defaultPrevented).toBe(true);
+        expect(pointer('dragstart', label).defaultPrevented).toBe(true);
+        jest.advanceTimersByTime(HOLD_TO_TALK_MS + 10);
+        pointer('pointerup', center);
+        expect(document.documentElement.classList.contains('is-holding')).toBe(false);
+        expect(pointer('selectstart', label).defaultPrevented).toBe(false);
+    });
+
+    test('al cancelarse el gesto también se libera la página', () => {
+        mount();
+        const center = $('[data-bnav-center]');
+        pointer('pointerdown', center);
+        pointer('pointercancel', center);
+        expect(document.documentElement.classList.contains('is-holding')).toBe(false);
     });
 
     test('si el gesto se cancela (scroll del sistema) la grabación se descarta', () => {

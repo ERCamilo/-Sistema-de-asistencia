@@ -23,6 +23,8 @@
  * Probado en js/tests/BottomNav.test.js.
  */
 
+import { createHoldGuard, preventTouchDefaults } from '../HoldGuard.js';
+
 const svg = (d, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}><path d="${d}"/></svg>`;
 
 const ICONS = {
@@ -156,6 +158,7 @@ const ui = {
     openMenu: null,          // id de sección | 'center' | null
     centerMode: 'plus',
     listening: false,
+    arming: false,           // micrófono abriéndose: aún sin "Escuchando" (no hablar todavía)
     saved: false,            // ✓ breve tras guardar un audio (evento sa:voice-state)
     lastItems: null
 };
@@ -191,7 +194,7 @@ export function lastNavItem(sectionId, { win = window } = {}) {
 
 /** Solo para tests. */
 export function _resetBottomNavState() {
-    ui.openMenu = null; ui.centerMode = 'plus'; ui.listening = false; ui.saved = false; ui.lastItems = null;
+    ui.openMenu = null; ui.centerMode = 'plus'; ui.listening = false; ui.arming = false; ui.saved = false; ui.lastItems = null;
 }
 
 export function bottomNavOpenMenu() {
@@ -304,6 +307,7 @@ function syncCenter(doc) {
     if (!center) return;
     center.dataset.mode = ui.centerMode;
     center.classList.toggle('is-listening', ui.listening);
+    center.classList.toggle('is-arming', ui.arming && !ui.listening);
     center.classList.toggle('is-saved', ui.saved);
     center.setAttribute('aria-pressed', String(ui.listening));
     center.setAttribute('aria-label', centerLabel(ui.centerMode, ui.listening));
@@ -316,7 +320,7 @@ function syncCenter(doc) {
  * @param {Document} [deps.doc]
  * @param {Window}   [deps.win]
  * @param {() => object} deps.getState
- * @param {object}   [deps.voice]  { isAvailable(), startHold(), endHold(), cancelHold() }
+ * @param {object}   [deps.voice]  { isAvailable(), startHold(), endHold(), cancelHold(), warmUp?(), releaseWarm?() }
  * @param {object}   [deps.pettyCash] { canCapture() }
  * @param {(msg: string, type?: string) => void} [deps.notify]
  * @param {() => void} [deps.refresh] vuelve a dibujar (cambio de conexión/permiso)
@@ -325,6 +329,9 @@ function syncCenter(doc) {
 export function initBottomNav({ doc = document, win = window, getState, voice = null, pettyCash = null, notify = () => {}, refresh = () => {} } = {}) {
     let holdTimer = null;
     let pressing = false;
+    // Mientras se mantiene el botón central: sin selección, menú ni arrastre del sistema.
+    const holdGuard = createHoldGuard({ doc });
+    const releaseTouch = preventTouchDefaults(doc, '[data-bnav-center]');
     let holding = false;
     let toggleRecording = false;
     let photoInput = null;
@@ -333,7 +340,8 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     const state = () => getState?.() || {};
     const setOpen = (menu) => { ui.openMenu = menu; syncMenus(doc); };
     const close = () => { if (ui.openMenu) setOpen(null); };
-    const setListening = (on) => { ui.listening = on; syncCenter(doc); };
+    const setListening = (on) => { ui.listening = on; if (!on) ui.arming = false; syncCenter(doc); };
+    const setArming = (on) => { ui.arming = on; syncCenter(doc); };
 
     const onSection = (sectionId) => {
         const current = sectionOfItem(activeNavItem(state()));
@@ -395,7 +403,8 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     const startVoice = (options) => {
         if (!voice?.isAvailable?.()) return false;
         close();
-        setListening(true);
+        // "Escuchando" llega con el evento sa:voice-state cuando ya se graba.
+        setArming(true);
         Promise.resolve(voice.startHold(options)).catch(() => false).then((recording) => {
             if (recording !== false) return;
             // Voz ya avisó el motivo; soltar después no debe abrir el menú.
@@ -448,9 +457,12 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
         if (event.button !== undefined && event.button !== 0) return;
         event.preventDefault();
         pressing = true; holding = false;
+        holdGuard.start();
         center.setPointerCapture?.(event.pointerId);
         clearTimeout(holdTimer);
         if (!toggleRecording && ui.centerMode === 'mic' && voice?.isAvailable?.()) {
+            // Abre el micrófono ya; si resulta ser un toque se suelta.
+            voice.warmUp?.();
             holdTimer = setTimeout(() => {
                 if (!pressing) return;
                 holding = startVoice();
@@ -459,20 +471,25 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     };
 
     const onPointerUp = (event) => {
+        if (pressing) holdGuard.end(); // aunque el dedo termine fuera del botón
         if (!pressing || !event.target?.closest?.('[data-bnav-center]')) return;
         pressing = false;
+        holdGuard.end();
         lastPointerUp = Date.now();
         clearTimeout(holdTimer);
         if (holding) { holding = false; stopVoice(); return; }
         if (toggleRecording) { toggleRecording = false; stopVoice(); return; }
+        voice?.releaseWarm?.();
         setOpen(ui.openMenu === 'center' ? null : 'center');
     };
 
     const onPointerCancel = () => {
+        holdGuard.end();
         if (!pressing) return;
         pressing = false;
         clearTimeout(holdTimer);
         if (holding) { holding = false; setListening(false); voice?.cancelHold?.(); }
+        else voice?.releaseWarm?.();
     };
 
     const onKey = (event) => {
@@ -486,7 +503,9 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     // Estado real de la grabación (VoiceMvpUI.setCaptureState).
     const onVoiceState = (event) => {
         const state = event?.detail?.state;
+        if (state === 'arming') { ui.arming = true; syncCenter(doc); return; }
         ui.saved = state === 'saved';
+        ui.arming = false;
         if (state === 'listening') ui.listening = true;
         else {
             // Terminó o falló mientras se mantenía pulsado: soltar no debe abrir el menú.
@@ -511,6 +530,8 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     return {
         destroy() {
             clearTimeout(holdTimer);
+            holdGuard.end();
+            releaseTouch();
             doc.removeEventListener('click', onClick);
             doc.removeEventListener('pointerdown', onPointerDown);
             doc.removeEventListener('pointerup', onPointerUp);
