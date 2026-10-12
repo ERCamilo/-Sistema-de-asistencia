@@ -4,7 +4,7 @@
  * Visor en vivo, disparador, pila de fotos con su estado, bandeja compacta y
  * vista previa por foto. Las fotos entran a la misma cola de caja chica.
  */
-import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, summarizeCameraItems } from '../modules/features/pettycash/PettyCashCamera.js';
+import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, RESOLVED_ADVANCE_MS, summarizeCameraItems } from '../modules/features/pettycash/PettyCashCamera.js';
 
 function setup(overrides = {}) {
     const stop = jest.fn();
@@ -31,6 +31,7 @@ function setup(overrides = {}) {
         drawGhost: jest.fn(),
         checkAlignment: jest.fn(() => ({ aligned: false })),
         stitch: jest.fn(async () => new Blob(['larga'], { type: 'image/jpeg' })),
+        onFix: jest.fn().mockResolvedValue(true),
         ...overrides
     };
     delete deps.track;
@@ -562,21 +563,39 @@ describe('Cámara de facturas', () => {
         camera.close();
     });
 
-    test('factura larga: avisa en vivo cuando la franja queda alineada', async () => {
+    test('factura larga: en vivo dice dónde está el final de la parte anterior y lo marca con una línea', async () => {
         jest.useFakeTimers();
         const { camera, deps } = setup();
         await camera.open();
         $('[data-pcam-long]').click();
         $('[data-pcam-shutter]').click(); await flush();
+        const tag = () => $('[data-pcam-ghost-tag]').textContent;
+        const marker = $('[data-pcam-match]');
+        expect(marker.hidden).toBe(true);
+
+        deps.checkAlignment.mockReturnValue({ aligned: false, status: 'below', yFrac: 0.6 });
+        jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
+        expect(tag()).toContain('Sigue bajando');
+        expect(marker.hidden).toBe(false);
+        expect(marker.style.top).toBe('72%');
+
         deps.vibrate.mockClear();
-        deps.checkAlignment.mockReturnValue({ aligned: true });
+        deps.checkAlignment.mockReturnValue({ aligned: true, status: 'ok', yFrac: 0.2 });
         jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
+        expect(tag()).toContain('Listo');
+        expect(marker.style.top).toBe('32%');
+        expect(marker.classList.contains('is-aligned')).toBe(true);
         expect($('[data-pcam-ghost]').classList.contains('is-aligned')).toBe(true);
-        expect($('[data-pcam-ghost-tag]').textContent).toContain('Alineado');
         expect($('[data-pcam-ghost-edge]').classList.contains('is-aligned')).toBe(true);
+        expect($('[data-pcam-shutter]').classList.contains('is-ready')).toBe(true);
         expect(deps.vibrate).toHaveBeenCalledTimes(1);
         jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
         expect(deps.vibrate).toHaveBeenCalledTimes(1);
+
+        deps.checkAlignment.mockReturnValue({ aligned: false, status: 'lost', yFrac: null });
+        jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
+        expect(tag()).toContain('No encuentro');
+        expect(marker.hidden).toBe(true);
         camera.close();
     });
 
@@ -590,6 +609,117 @@ describe('Cámara de facturas', () => {
         expect($('[data-pcam-ghost]').hidden).toBe(true);
         expect($('[data-pcam-done]').textContent).toBe('Listo');
         camera.close();
+    });
+});
+
+describe('Cámara de facturas: corregir desde la vista previa', () => {
+    const itbis = { code: 'itbis-rate', field: 'itbis', message: 'El ITBIS no es el 18% del subtotal.', detail: { read: 120, calc: 180, base: 1000 } };
+    const ncf = { code: 'ncf-format', field: 'ncf', message: 'NCF incompleto.', detail: { read: 'B01000012', missing: 2 } };
+    const reviewWith = async (issues, extra = {}) => {
+        const ctx = setup(extra);
+        await ctx.camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        ctx.states.set('m1', { state: 'review', issues, data: {} });
+        await ctx.camera.refresh();
+        return ctx;
+    };
+
+    test('usar lo calculado guarda el cambio y, si no queda nada, pasa a ✓ con su animación', async () => {
+        const ctx = await reviewWith([itbis]);
+        ctx.deps.onFix.mockImplementation(async () => { ctx.states.set('m1', { state: 'ok', issues: [], data: {} }); return true; });
+        ctx.camera.openPreview(0);
+        const use = $('[data-pcam-fix="0:0"]');
+        expect(use.textContent).toContain('Usar 180.00');
+        ctx.deps.vibrate.mockClear();
+        use.click(); await flush(); await flush();
+        expect(ctx.deps.onFix).toHaveBeenCalledWith('m1', { patch: { itbis: 180 } });
+        expect($('[data-pcam-seal]').dataset.pcamSeal).toBe('ok');
+        expect($('[data-pcam-seal]').classList.contains('is-static')).toBe(false);
+        expect(ctx.deps.vibrate).toHaveBeenCalledWith(20);
+        ctx.camera.close();
+    });
+
+    test('dar por bueno lo leído', async () => {
+        const ctx = await reviewWith([itbis]);
+        ctx.camera.openPreview(0);
+        expect($('[data-pcam-fix="0:1"]').textContent).toContain('Lo leído está bien');
+        $('[data-pcam-fix="0:1"]').click(); await flush();
+        expect(ctx.deps.onFix).toHaveBeenCalledWith('m1', { accept: 'itbis-rate' });
+        ctx.camera.close();
+    });
+
+    test('completar el NCF escribiendo: solo se puede guardar cuando es válido', async () => {
+        const ctx = await reviewWith([ncf]);
+        ctx.camera.openPreview(0);
+        const input = $('[data-pcam-fix-input="0:0"]');
+        const save = $('[data-pcam-fix="0:0"]');
+        expect(input.value).toBe('B01000012');
+        expect(save.disabled).toBe(true);
+        input.value = 'B0100000123';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(save.disabled).toBe(false);
+        expect(input.classList.contains('is-valid')).toBe(true);
+        save.click(); await flush();
+        expect(ctx.deps.onFix).toHaveBeenCalledWith('m1', { patch: { ncf: 'B0100000123' } });
+        ctx.camera.close();
+    });
+
+    test('lo escrito no se borra mientras la cámara consulta la cola', async () => {
+        const ctx = await reviewWith([ncf]);
+        ctx.camera.openPreview(0);
+        const input = $('[data-pcam-fix-input="0:0"]');
+        input.value = 'B01000012 3';
+        await ctx.camera.refresh();
+        expect($('[data-pcam-fix-input="0:0"]')).toBe(input);
+        expect(input.value).toBe('B01000012 3');
+        ctx.camera.close();
+    });
+
+    test('con dos avisos, resolver uno deja el otro (sigue por revisar)', async () => {
+        const ctx = await reviewWith([itbis, ncf]);
+        ctx.deps.onFix.mockImplementation(async () => { ctx.states.set('m1', { state: 'review', issues: [ncf], data: {} }); return true; });
+        ctx.camera.openPreview(0);
+        $('[data-pcam-fix="0:0"]').click(); await flush(); await flush();
+        expect(document.querySelectorAll('.pcam-issue')).toHaveLength(1);
+        expect($('[data-pcam-sheet]').textContent).toContain('NCF incompleto');
+        expect($('[data-pcam-seal]').dataset.pcamSeal).toBe('review');
+        ctx.camera.close();
+    });
+
+    test('"Listo" con pendientes: recorre solo las que faltan y al resolverlas termina', async () => {
+        jest.useFakeTimers();
+        const ctx = setup();
+        await ctx.camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        $('[data-pcam-shutter]').click(); await flush();
+        ctx.states.set('m1', { state: 'ok', issues: [], data: {} });
+        ctx.states.set('m2', { state: 'review', issues: [itbis], data: {} });
+        await ctx.camera.refresh();
+        $('[data-pcam-done]').click(); await flush();
+        expect(ctx.camera.isOpen()).toBe(true);
+        expect(ctx.deps.onFinish).not.toHaveBeenCalled();
+        expect($('[data-pcam-counter]').textContent).toContain('Pendiente 1 de 1');
+        expect($('[data-pcam-preview] img').getAttribute('src')).toContain('2');
+        ctx.deps.onFix.mockImplementation(async () => { ctx.states.set('m2', { state: 'ok', issues: [], data: {} }); return true; });
+        $('[data-pcam-fix="0:0"]').click(); await flush(); await flush();
+        expect($('[data-pcam-counter]').textContent).toContain('Pendiente 1 de 1');
+        jest.advanceTimersByTime(RESOLVED_ADVANCE_MS + 10);
+        await flush();
+        expect(ctx.camera.isOpen()).toBe(false);
+        expect(ctx.deps.onFinish).toHaveBeenCalledWith(['m1', 'm2']);
+        expect(ctx.deps.notify).toHaveBeenCalledWith(expect.stringContaining('Todo listo'), 'success');
+    });
+
+    test('en pendientes, "Terminar" cierra y deja lo pendiente para después', async () => {
+        const ctx = setup();
+        await ctx.camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        ctx.states.set('m1', { state: 'failed', issues: [], data: {} });
+        await ctx.camera.refresh();
+        $('[data-pcam-done]').click(); await flush();
+        $('[data-pcam-action="finish"]').click();
+        expect(ctx.camera.isOpen()).toBe(false);
+        expect(ctx.deps.onFinish).toHaveBeenCalledWith(['m1']);
     });
 });
 

@@ -509,6 +509,27 @@ export async function discardPettyCashVoiceDraft(form) {
  * cola + revisiones locales del gasto leído (PettyCashReceiptChecks).
  * @returns {Promise<Map<string, {state, issues, data}>>}
  */
+/**
+ * Corrige un gasto desde la vista previa de la cámara: aplica `patch` (p. ej.
+ * usar el ITBIS calculado) o guarda `accept` (el código del aviso que se dio
+ * por bueno, para que no vuelva a salir). Un borrador de la cola se guarda solo
+ * local, igual que al leerlo; uno ya confirmado se guarda normal.
+ */
+export async function applyReceiptFix(id, { patch = null, accept = null } = {}, {
+    save = (mov, { local }) => (local ? saveMovementLocal(mov, 'receipt-fix') : saveMovement(mov, null, 'receipt-fix'))
+} = {}) {
+    const mov = pc().movements.find(m => m.id === id);
+    if (!mov) return false;
+    if (patch) Object.assign(mov, patch);
+    if (accept) {
+        const accepted = Array.isArray(mov.reviewAccepted) ? mov.reviewAccepted : [];
+        if (!accepted.includes(accept)) mov.reviewAccepted = [...accepted, accept];
+    }
+    mov.updatedAt = Date.now();
+    await save(mov, { local: !!mov.localDraft });
+    return true;
+}
+
 export async function cameraItemsState(ids = [], { listJobs = () => indexedDBService.listReceiptJobs() } = {}) {
     const jobs = await listJobs();
     const byId = new Map((jobs || []).map(job => [job.txId, job]));
@@ -552,6 +573,7 @@ function receiptCamera() {
             return { id: movement.id, previewUrl: capture.previewDataUrl };
         },
         getItemsState: (ids) => cameraItemsState(ids),
+        onFix: (id, fix) => applyReceiptFix(id, fix),
         onReview: (id) => window.pcOpenMovement?.(id),
         onDelete: async (id) => {
             const before = pc().movements.length;

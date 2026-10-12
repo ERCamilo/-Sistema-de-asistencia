@@ -208,3 +208,56 @@ describe('sin datos leídos', () => {
         expect(r.issues[0].code).toBe('not-read');
     });
 });
+
+describe('corregir desde la vista previa', () => {
+    // eslint-disable-next-line global-require
+    const { fixesFor, validateFixInput } = require('../modules/features/pettycash/PettyCashReceiptChecks.js');
+    const period = { openingDate: '2026-10-01', closingDate: '2026-10-15' };
+
+    test('total que no cuadra: usar subtotal + ITBIS, o dar por bueno el leído', () => {
+        const fixes = fixesFor({ code: 'total-mismatch', detail: { read: 1280, calc: 1180 } });
+        expect(fixes).toEqual([
+            { kind: 'apply', patch: { total: 1180, amount: 1180 }, value: 1180 },
+            { kind: 'accept', code: 'total-mismatch' }
+        ]);
+    });
+
+    test('ITBIS: usar el calculado o dejar el leído', () => {
+        expect(fixesFor({ code: 'itbis-rate', detail: { read: 120, calc: 180, base: 1000 } })[0]).toEqual({ kind: 'apply', patch: { itbis: 180 }, value: 180 });
+    });
+
+    test('fecha: cambiar a la propuesta; sin propuesta, escribirla', () => {
+        expect(fixesFor({ code: 'date-outside-period', detail: { read: '10/11/2026', suggestion: '2026-10-11' } })[0])
+            .toEqual({ kind: 'apply', patch: { date: '2026-10-11', fechaEmision: '2026-10-11' }, value: '2026-10-11' });
+        expect(fixesFor({ code: 'date-outside-period', detail: { read: '2026-09-20', suggestion: null } })[0])
+            .toMatchObject({ kind: 'input', field: 'date', validate: 'date' });
+    });
+
+    test('NCF y RNC incompletos: completar escribiendo, empezando por lo detectado', () => {
+        expect(fixesFor({ code: 'ncf-format', detail: { read: 'B01000012', missing: 2 } })[0])
+            .toEqual({ kind: 'input', field: 'ncf', validate: 'ncf', value: 'B01000012' });
+        expect(fixesFor({ code: 'rnc-invalid', detail: { read: '10101063', missing: 1 } })[0])
+            .toEqual({ kind: 'input', field: 'rncEmisor', validate: 'rnc', value: '10101063' });
+    });
+
+    test('NCF repetido: solo confirmar que es otra factura; sin datos: nada aquí', () => {
+        expect(fixesFor({ code: 'ncf-duplicate' })).toEqual([{ kind: 'accept', code: 'ncf-duplicate' }]);
+        expect(fixesFor({ code: 'not-read' })).toEqual([]);
+    });
+
+    test('valida lo que se escribe y devuelve el cambio a guardar', () => {
+        expect(validateFixInput('ncf', 'b01 000 0012')).toEqual({ ok: false });
+        expect(validateFixInput('ncf', 'b01 0000 0123')).toEqual({ ok: true, patch: { ncf: 'B0100000123' } });
+        expect(validateFixInput('rnc', '1-01-01063-2')).toEqual({ ok: true, patch: { rncEmisor: '101010632' } });
+        expect(validateFixInput('rnc', '101010633')).toEqual({ ok: false });
+        expect(validateFixInput('amount', '1,180.50')).toEqual({ ok: true, patch: { total: 1180.5, amount: 1180.5 } });
+        expect(validateFixInput('amount', '0')).toEqual({ ok: false });
+        expect(validateFixInput('date', '11/10/2026')).toEqual({ ok: true, patch: { date: '2026-10-11', fechaEmision: '2026-10-11' } });
+    });
+
+    test('un aviso dado por bueno no vuelve a salir', () => {
+        const mov = { id: 'm1', amount: 1120, subtotal: 1000, itbis: 120, total: 1120, date: '2026-10-05', reviewAccepted: ['itbis-rate'] };
+        expect(checkReceipt(mov, { period })).toEqual([]);
+        expect(receiptReviewState({ ocrStatus: 'extracted' }, mov, { period }).state).toBe('ok');
+    });
+});

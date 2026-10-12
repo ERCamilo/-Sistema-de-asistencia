@@ -2,7 +2,7 @@
  * Caja chica → cámara nueva: estado de cada foto a partir de la cola de
  * lectura y del gasto, y el botón "Cámara" según el interruptor de Tests.
  */
-import { cameraItemsState, PettyCashTab } from '../modules/features/pettycash/PettyCashUI.js';
+import { cameraItemsState, applyReceiptFix, PettyCashTab } from '../modules/features/pettycash/PettyCashUI.js';
 import { state } from '../modules/core/AppState.js';
 import { SettingsTestsTab } from '../modules/ui/settings/SettingsTestsTab.js';
 
@@ -43,6 +43,39 @@ describe('cameraItemsState', () => {
         const map = await cameraItemsState(['m1', 'perdido'], { listJobs: async () => [] });
         expect(map.get('m1').state).toBe('ok');
         expect(map.get('perdido').state).toBe('reading');
+    });
+});
+
+describe('applyReceiptFix (corregir desde la vista previa)', () => {
+    afterEach(() => { state.pettyCash = null; });
+
+    test('aplica el cambio al gasto, lo marca como cambiado y lo guarda (borrador: solo local)', async () => {
+        seed([{ id: 'm1', periodId: 'p1', type: 'gasto', amount: 1080, subtotal: 900, itbis: 180, total: 1080, localDraft: true }]);
+        const save = jest.fn().mockResolvedValue();
+        const ok = await applyReceiptFix('m1', { patch: { itbis: 162 } }, { save });
+        expect(ok).toBe(true);
+        const mov = state.pettyCash.movements[0];
+        expect(mov.itbis).toBe(162);
+        expect(mov.updatedAt).toBeGreaterThan(0);
+        expect(save).toHaveBeenCalledWith(mov, { local: true });
+    });
+
+    test('dar por bueno lo leído guarda el aviso aceptado (sin repetir) y pasa a leída', async () => {
+        seed([{ id: 'm1', periodId: 'p1', type: 'gasto', amount: 1120, subtotal: 1000, itbis: 120, total: 1120, date: '2026-10-05', reviewAccepted: ['ncf-duplicate'] }]);
+        const save = jest.fn().mockResolvedValue();
+        await applyReceiptFix('m1', { accept: 'itbis-rate' }, { save });
+        await applyReceiptFix('m1', { accept: 'itbis-rate' }, { save });
+        expect(state.pettyCash.movements[0].reviewAccepted).toEqual(['ncf-duplicate', 'itbis-rate']);
+        expect(save).toHaveBeenLastCalledWith(state.pettyCash.movements[0], { local: false });
+        const map = await cameraItemsState(['m1'], { listJobs: async () => [{ txId: 'm1', ocrStatus: 'extracted' }] });
+        expect(map.get('m1').state).toBe('ok');
+    });
+
+    test('gasto que ya no existe: no hace nada', async () => {
+        seed([]);
+        const save = jest.fn();
+        expect(await applyReceiptFix('nope', { patch: { itbis: 1 } }, { save })).toBe(false);
+        expect(save).not.toHaveBeenCalled();
     });
 });
 
