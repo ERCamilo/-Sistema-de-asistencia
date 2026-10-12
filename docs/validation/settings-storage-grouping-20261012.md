@@ -12,6 +12,8 @@ Las cifras corresponden al almacenamiento del sitio estimado por el navegador, n
 
 El acceso reutiliza la navegación con protección de borradores. El resumen y el desglose reciben la misma medición almacenada en caché; los dos nodos se actualizan localmente sin reconstruir el formulario ni multiplicar las lecturas de IndexedDB. Se conservan los intervalos y la deduplicación existentes.
 
+La revisión visual detectó botones de Mantenimiento comprimidos en móvil, con texto casi vertical. Sus filas ahora usan el patrón de acciones que permite reflujo y un ancho mínimo limitado por el contenedor; la prueba de Chromium comprueba que no vuelven a adoptar esa forma a 100/200 %.
+
 ## Revisión de agrupaciones
 
 | Orden | Opciones relacionadas y situación actual | Agrupación recomendada | Coste / beneficio |

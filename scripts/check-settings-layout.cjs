@@ -140,6 +140,10 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
                 assert.deepEqual(report.violations,[],`${tab} contraste: ${JSON.stringify(report)}`);
                 const visible=await page.$$eval('#settings-screen button,#settings-screen summary',els=>els.filter(el=>el.getBoundingClientRect().height>0).map(el=>({text:el.textContent.trim().slice(0,60),width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})));
                 assert.ok(visible.every(el=>el.width>=44&&el.height>=44),`${tab}: acciones táctiles pequeñas ${JSON.stringify(visible.filter(el=>el.width<44||el.height<44))}`);
+                if(tab==='general') {
+                    const maintenance=await page.$$eval('.settings-inline-action button',els=>els.map(el=>({text:el.textContent.trim(),width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})));
+                    assert.ok(maintenance.every(el=>el.height<=el.width),`Mantenimiento comprimido: ${JSON.stringify(maintenance)}`);
+                }
                 assert.ok((await page.$$eval('#settings-screen .nav-tab .tab-text',els=>els.map(el=>getComputedStyle(el).display))).every(display=>display!=='none'));
                 console.log(`PASS Ajustes ${tab}: texto ${textScale}%, herramientas abiertas, sin desbordamiento, contraste y acciones táctiles`);
                 if(process.env.SETTINGS_SCREENSHOT_DIR&&tab==='tests'){await page.screenshot({path:path.join(process.env.SETTINGS_SCREENSHOT_DIR,`settings-tests-expanded-${textScale}.png`),fullPage:true});}
