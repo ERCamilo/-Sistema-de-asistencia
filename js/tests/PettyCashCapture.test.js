@@ -119,6 +119,9 @@ describe('capturePhoto', () => {
         const shot = await takeShot(deps);
         expect(canvases.some(c => c.calls.some(x => x[0] === 'toBlob'))).toBe(false);
         expect(shot.crop).toEqual({ sx: 375, sy: 0, sw: 2250, sh: 4000 });
+        expect(shot.origin).toBe('sensor');
+        const fallback = await takeShot({ ...deps, ImageCaptureImpl: undefined });
+        expect(fallback.origin).toBe('video');
         const canvas = renderShot(shot, { makeCanvas: deps.makeCanvas, maxWidth: 1600 });
         expect(canvas.width).toBe(1600);
         expect(shot.source.close).toHaveBeenCalled();
