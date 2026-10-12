@@ -53,6 +53,19 @@ testRunner.addSuite('Caja chica — contrato OCR compartido', {
         testRunner.assertEquals(form.ocr.itbis, 80);
     },
 
+    'guarda la posición de cada dato en la foto si el lector la envía (boxes)'() {
+        const normalized = normalizeReceiptOcr({
+            total: 590,
+            fecha: '2026-10-05',
+            boxes: { total: [880, 100, 910, 900], fecha: [120, 600, 140, 900], ncf: [1, 2, 3], emisor: 'x' }
+        });
+        testRunner.assertEquals(JSON.stringify(normalized.fiscal.boxes), JSON.stringify({ total: [880, 100, 910, 900], date: [120, 600, 140, 900] }));
+        const movement = applyReceiptOcrToMovement({ amount: 0 }, normalized);
+        testRunner.assertEquals(JSON.stringify(movement.ocrBoxes.date), JSON.stringify([120, 600, 140, 900]));
+        const plain = applyReceiptOcrToMovement({ amount: 0 }, normalizeReceiptOcr({ total: 10 }));
+        testRunner.assertEquals(plain.ocrBoxes, undefined);
+    },
+
     async 'envía el contrato esperado al webhook'() {
         let request = null;
         const fetchImpl = async (url, options) => {

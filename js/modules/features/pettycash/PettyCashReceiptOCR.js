@@ -4,6 +4,20 @@ export const RECEIPT_MAX_AUTO_ATTEMPTS = RECEIPT_RETRY_DELAYS_MS.length;
 function hasValue(value) {
     return value !== null && value !== undefined && value !== '';
 }
+
+// Nombre del campo en la respuesta del lector → campo del gasto.
+const BOX_FIELDS = { total: 'total', subtotal: 'subtotal', itbis: 'itbis', ncf: 'ncf', rncEmisor: 'rncEmisor', fecha: 'date' };
+
+/** Recuadros [y0, x0, y1, x1] (0–1000) de cada dato en la foto, si el lector los envía. */
+function normalizeBoxes(boxes) {
+    if (!boxes || typeof boxes !== 'object') return null;
+    const out = {};
+    Object.entries(BOX_FIELDS).forEach(([from, to]) => {
+        const box = boxes[from];
+        if (Array.isArray(box) && box.length === 4 && box.every(n => Number.isFinite(n) && n >= 0 && n <= 1000)) out[to] = box.slice();
+    });
+    return Object.keys(out).length ? out : null;
+}
 export function normalizeReceiptOcr(data, allowedCategories = []) {
     const source = data && typeof data === 'object' ? data : {};
     const allowed = new Set(Array.isArray(allowedCategories) ? allowedCategories : []);
@@ -31,7 +45,8 @@ export function normalizeReceiptOcr(data, allowedCategories = []) {
             total: source.total ?? null,
             fechaEmision: source.fecha ?? null,
             notas: source.notas ?? null,
-            items: Array.isArray(source.items) ? source.items : []
+            items: Array.isArray(source.items) ? source.items : [],
+            boxes: normalizeBoxes(source.boxes)
         }
     };
 }
@@ -52,6 +67,7 @@ export function applyReceiptOcrToMovement(movement, normalized) {
         if (hasValue(fiscal[key])) movement[key] = fiscal[key];
     });
     if (Array.isArray(fiscal.items) && fiscal.items.length) movement.items = fiscal.items;
+    if (fiscal.boxes) movement.ocrBoxes = fiscal.boxes;
     return movement;
 }
 

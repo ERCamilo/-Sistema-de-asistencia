@@ -4,11 +4,13 @@
  * Visor en vivo, disparador, pila de fotos con su estado, bandeja compacta y
  * vista previa por foto. Las fotos entran a la misma cola de caja chica.
  */
-import { createReceiptCamera, CAMERA_POLL_MS } from '../modules/features/pettycash/PettyCashCamera.js';
+import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, summarizeCameraItems } from '../modules/features/pettycash/PettyCashCamera.js';
 
 function setup(overrides = {}) {
     const stop = jest.fn();
-    const stream = { getTracks: () => [{ stop }] };
+    const track = overrides.track || { stop };
+    if (!track.stop) track.stop = stop;
+    const stream = { getTracks: () => [track], getVideoTracks: () => [track] };
     const states = new Map();
     let n = 0;
     const deps = {
@@ -24,8 +26,14 @@ function setup(overrides = {}) {
         vibrate: jest.fn(),
         fallbackPick: jest.fn(),
         periodLabel: () => 'Obra Norte · Caja',
+        toBitmap: jest.fn(async (blob) => ({ width: 1080, height: 1920, blob })),
+        makeBand: jest.fn(() => ({ gray: new Uint8Array(4), rows: 1, width: 4 })),
+        drawGhost: jest.fn(),
+        checkAlignment: jest.fn(() => ({ aligned: false })),
+        stitch: jest.fn(async () => new Blob(['larga'], { type: 'image/jpeg' })),
         ...overrides
     };
+    delete deps.track;
     const camera = createReceiptCamera(deps);
     return { camera, deps, stop, states };
 }
@@ -196,5 +204,266 @@ describe('Cámara de facturas', () => {
         expect($('[data-pcam-preview]').textContent).toContain('inicies sesión');
         expect($('[data-pcam-preview]').textContent).not.toContain('sin conexión');
         camera.close();
+    });
+
+    test('refrescar sin cambios no vuelve a dibujar la vista previa (no reinicia animaciones)', async () => {
+        const { camera } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        camera.openPreview(0);
+        const img = $('[data-pcam-preview] img');
+        const sheet = $('[data-pcam-sheet]');
+        const scan = $('.pcam-scan');
+        await camera.refresh();
+        await camera.refresh();
+        expect($('[data-pcam-preview] img')).toBe(img);
+        expect($('[data-pcam-sheet]')).toBe(sheet);
+        expect($('.pcam-scan')).toBe(scan);
+        expect($('[data-pcam-photo]').dataset.phase).toBe('reading');
+        camera.close();
+    });
+
+    test('al llegar el resultado: "Recibido" y luego el sello ✓ con los datos y una vibración', async () => {
+        jest.useFakeTimers();
+        const { camera, deps, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        camera.openPreview(0);
+        deps.vibrate.mockClear();
+        states.set('m1', { state: 'ok', issues: [], data: { paidTo: 'Ferretería Sol', total: 'RD$ 590.00' } });
+        await camera.refresh();
+        expect($('[data-pcam-photo]').dataset.phase).toBe('received');
+        expect($('[data-pcam-chip]').textContent).toContain('Recibido');
+        expect($('[data-pcam-seal]')).toBeNull();
+        jest.advanceTimersByTime(RECEIVED_MS + 10);
+        expect($('[data-pcam-photo]').dataset.phase).toBe('done');
+        expect($('[data-pcam-seal]').dataset.pcamSeal).toBe('ok');
+        expect($('[data-pcam-seal]').classList.contains('is-static')).toBe(false);
+        expect($('[data-pcam-sheet]').textContent).toContain('Ferretería Sol');
+        expect($('[data-pcam-chip]').textContent).toContain('Leída');
+        expect(deps.vibrate).toHaveBeenCalledWith(20);
+        camera.close();
+    });
+
+    test('por revisar (!): muestra lo leído frente a lo calculado, los dígitos que faltan y la fecha propuesta', async () => {
+        jest.useFakeTimers();
+        const { camera, deps, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        camera.openPreview(0);
+        states.set('m1', { state: 'review', data: {}, issues: [
+            { code: 'itbis-rate', field: 'itbis', message: 'El ITBIS no es el 18% del subtotal.', hint: 'Puede ser correcto si hay artículos exentos o al 16%.', detail: { read: 120, calc: 180, base: 1000 } },
+            { code: 'ncf-format', field: 'ncf', message: 'NCF incompleto.', detail: { read: 'B01000012', missing: 2 } },
+            { code: 'date-outside-period', field: 'date', message: 'La fecha está fuera del periodo de la caja.', detail: { read: '10/11/2026', suggestion: '2026-10-11' } }
+        ] });
+        await camera.refresh();
+        jest.advanceTimersByTime(RECEIVED_MS + 10);
+        expect($('[data-pcam-seal]').dataset.pcamSeal).toBe('review');
+        const sheet = $('[data-pcam-sheet]').textContent;
+        expect(sheet).toMatch(/Leído\s*120\.00/);
+        expect(sheet).toMatch(/Calculado\s*180\.00/);
+        expect(sheet).toContain('18% de 1,000.00');
+        expect(sheet).toContain('exentos');
+        expect(sheet).toContain('B01000012');
+        expect(sheet).toContain('faltan 2 dígitos');
+        expect(document.querySelectorAll('.pcam-slot')).toHaveLength(2);
+        expect(sheet).toContain('10 nov');
+        expect(sheet).toContain('11 oct');
+        expect(deps.vibrate).toHaveBeenCalledWith([15, 60, 15]);
+        camera.close();
+    });
+
+    test('sin datos (✕): sello rojo y consejos para retomar la foto', async () => {
+        jest.useFakeTimers();
+        const { camera, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        camera.openPreview(0);
+        states.set('m1', { state: 'failed', issues: [{ code: 'not-read', field: null, message: 'No se obtuvo ningún dato de esta foto.' }], data: {} });
+        await camera.refresh();
+        jest.advanceTimersByTime(RECEIVED_MS + 10);
+        expect($('[data-pcam-seal]').dataset.pcamSeal).toBe('failed');
+        expect($('[data-pcam-sheet]').textContent).toContain('No se obtuvo ningún dato');
+        expect($('[data-pcam-action="retake"]')).not.toBeNull();
+        camera.close();
+    });
+
+    test('abrir una foto ya leída muestra su sello quieto en la esquina, sin vibrar', async () => {
+        const { camera, deps, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        states.set('m1', { state: 'ok', issues: [], data: {} });
+        await camera.refresh();
+        deps.vibrate.mockClear();
+        camera.openPreview(0);
+        expect($('[data-pcam-seal]').classList.contains('is-static')).toBe(true);
+        expect($('[data-pcam-photo]').dataset.phase).toBe('done');
+        expect(deps.vibrate).not.toHaveBeenCalled();
+        camera.close();
+    });
+
+    test('zoom: botones + y −, doble toque, y ↕ para facturas largas', async () => {
+        const { camera } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        camera.openPreview(0);
+        const zoom = () => $('[data-pcam-zoom]').dataset.zoom;
+        expect(zoom()).toBe('1');
+        $('[data-pcam-zoom-in]').click();
+        expect(zoom()).toBe('2');
+        $('[data-pcam-zoom-out]').click();
+        expect(zoom()).toBe('1');
+        $('[data-pcam-photo]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        expect(Number(zoom())).toBeGreaterThan(1);
+        $('[data-pcam-photo]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        expect(zoom()).toBe('1');
+        expect($('[data-pcam-zoom-fit]').hidden).toBe(true);
+        const img = $('[data-pcam-preview] img');
+        Object.defineProperty(img, 'naturalWidth', { value: 400 });
+        Object.defineProperty(img, 'naturalHeight', { value: 1600 });
+        img.dispatchEvent(new Event('load'));
+        expect($('[data-pcam-zoom-fit]').hidden).toBe(false);
+        camera.close();
+    });
+
+    test('↕ ajusta al ancho aunque ya haya zoom, y al tocarlo otra vez vuelve a la foto completa', async () => {
+        const { camera } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        camera.openPreview(0);
+        $('[data-pcam-zoom-in]').click();
+        $('[data-pcam-zoom-fit]').click();
+        expect($('[data-pcam-zoom-fit]').getAttribute('aria-pressed')).toBe('true');
+        expect(Number($('[data-pcam-zoom]').dataset.zoom)).toBeGreaterThan(1);
+        $('[data-pcam-zoom-fit]').click();
+        expect($('[data-pcam-zoom-fit]').getAttribute('aria-pressed')).toBe('false');
+        expect($('[data-pcam-zoom]').dataset.zoom).toBe('1');
+        camera.close();
+    });
+
+    test('con la parte tomada, el aviso baja para no tapar la franja', async () => {
+        const { camera } = setup();
+        await camera.open();
+        $('[data-pcam-long]').click();
+        expect($('[data-pcam-tip]').classList.contains('is-low')).toBe(false);
+        $('[data-pcam-shutter]').click(); await flush();
+        expect($('[data-pcam-tip]').classList.contains('is-low')).toBe(true);
+        camera.close();
+    });
+
+    test('con la posición del dato, tocar el aviso enfoca la foto en él', async () => {
+        const { camera, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        states.set('m1', { state: 'review', data: {}, issues: [
+            { code: 'total-mismatch', field: 'total', message: 'Subtotal + ITBIS no da el total leído.', detail: { read: 1280, calc: 1180 }, box: [880, 100, 910, 900] },
+            { code: 'rnc-invalid', field: 'rncEmisor', message: 'El RNC no es válido (dígito verificador).', detail: { read: '101010633', missing: 0 }, box: null }
+        ] });
+        await camera.refresh();
+        camera.openPreview(0);
+        const buttons = document.querySelectorAll('[data-pcam-issue]');
+        expect(buttons).toHaveLength(1);
+        expect(buttons[0].textContent).toContain('Ver en la foto');
+        buttons[0].click();
+        expect(Number($('[data-pcam-zoom]').dataset.zoom)).toBeGreaterThan(1);
+        const hl = $('[data-pcam-hl]');
+        expect(hl.hidden).toBe(false);
+        expect(hl.style.top).toBe('88%');
+        expect(buttons[0].getAttribute('aria-pressed')).toBe('true');
+        $('[data-pcam-zoom-out]').click();
+        expect(hl.hidden).toBe(true);
+        camera.close();
+    });
+
+    test('flash: aparece si la cámara tiene linterna y la enciende/apaga', async () => {
+        const applyConstraints = jest.fn().mockResolvedValue();
+        const { camera } = setup({ track: { getCapabilities: () => ({ torch: true }), applyConstraints } });
+        await camera.open();
+        const torch = $('[data-pcam-torch]');
+        expect(torch.hidden).toBe(false);
+        torch.click(); await flush();
+        expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ torch: true }] });
+        expect(torch.getAttribute('aria-pressed')).toBe('true');
+        torch.click(); await flush();
+        expect(applyConstraints).toHaveBeenLastCalledWith({ advanced: [{ torch: false }] });
+        expect(torch.getAttribute('aria-pressed')).toBe('false');
+        camera.close();
+    });
+
+    test('flash: sin linterna, el botón no aparece', async () => {
+        const { camera } = setup({ track: { getCapabilities: () => ({}) } });
+        await camera.open();
+        expect($('[data-pcam-torch]').hidden).toBe(true);
+        camera.close();
+    });
+
+    test('el marco solo marca esquinas y aclara que se guarda toda la foto', async () => {
+        const { camera } = setup();
+        await camera.open();
+        expect(document.querySelectorAll('[data-pcam-guide] i')).toHaveLength(4);
+        expect($('[data-pcam-tip]').textContent).toContain('Se guarda toda la foto');
+        camera.close();
+    });
+
+    test('factura larga: las partes no entran a la cola hasta "Unir"; luego entra una sola foto', async () => {
+        const { camera, deps } = setup();
+        await camera.open();
+        $('[data-pcam-long]').click();
+        expect($('[data-pcam-long]').getAttribute('aria-pressed')).toBe('true');
+        expect($('[data-pcam-done]').textContent).toContain('Unir (0)');
+        expect($('[data-pcam-done]').disabled).toBe(true);
+        $('[data-pcam-shutter]').click(); await flush();
+        expect(deps.capture).not.toHaveBeenCalled();
+        expect(deps.drawGhost).toHaveBeenCalled();
+        expect($('[data-pcam-ghost]').hidden).toBe(false);
+        expect($('[data-pcam-tip]').textContent).toContain('parte 1');
+        $('[data-pcam-shutter]').click(); await flush();
+        expect($('[data-pcam-done]').textContent).toContain('Unir (2)');
+        expect($('[data-pcam-done]').disabled).toBe(false);
+        $('[data-pcam-done]').click(); await flush(); await flush();
+        expect(deps.stitch).toHaveBeenCalledWith([expect.objectContaining({ width: 1080 }), expect.objectContaining({ width: 1080 })]);
+        expect(deps.capture).toHaveBeenCalledTimes(1);
+        expect(deps.capture.mock.calls[0][0].name).toMatch(/larga/);
+        expect($('[data-pcam-long]').getAttribute('aria-pressed')).toBe('false');
+        expect($('[data-pcam-ghost]').hidden).toBe(true);
+        expect($('[data-pcam-count]').textContent).toBe('1');
+        expect(camera.isOpen()).toBe(true);
+        camera.close();
+    });
+
+    test('factura larga: avisa en vivo cuando la franja queda alineada', async () => {
+        jest.useFakeTimers();
+        const { camera, deps } = setup();
+        await camera.open();
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click(); await flush();
+        deps.vibrate.mockClear();
+        deps.checkAlignment.mockReturnValue({ aligned: true });
+        jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
+        expect($('[data-pcam-ghost]').classList.contains('is-aligned')).toBe(true);
+        expect($('[data-pcam-ghost-tag]').textContent).toContain('Alineado');
+        expect(deps.vibrate).toHaveBeenCalledTimes(1);
+        jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
+        expect(deps.vibrate).toHaveBeenCalledTimes(1);
+        camera.close();
+    });
+
+    test('factura larga: apagar el modo descarta las partes y lo avisa', async () => {
+        const { camera, deps } = setup();
+        await camera.open();
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click(); await flush();
+        $('[data-pcam-long]').click();
+        expect(deps.notify).toHaveBeenCalledWith(expect.stringContaining('1 parte'), 'info');
+        expect($('[data-pcam-ghost]').hidden).toBe(true);
+        expect($('[data-pcam-done]').textContent).toBe('Listo');
+        camera.close();
+    });
+});
+
+describe('summarizeCameraItems', () => {
+    test('separa las que no se pudieron leer de las que hay que revisar', () => {
+        expect(summarizeCameraItems([{ state: 'ok' }, { state: 'review' }, { state: 'failed' }, { state: 'reading' }]))
+            .toBe('1 leída · 1 por revisar · 1 sin datos · 1 leyendo');
     });
 });
