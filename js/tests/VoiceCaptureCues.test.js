@@ -6,14 +6,15 @@
  * - Al terminar: tic que baja ('stop') y estado 'saved' un momento (✓).
  * - Al cancelar o fallar: solo vibración ('cancel' / 'error') y vuelta a 'idle'.
  */
-import { VoiceMvpUI } from '../modules/features/voice/VoiceUI.js';
+import { VoiceMvpUI, VOICE_LISTEN_LEAD_MS, VOICE_WARM_MS } from '../modules/features/voice/VoiceUI.js';
 import { SettingsVoiceCard } from '../modules/ui/settings/SettingsVoiceCard.js';
 
-function setup({ startFails = false } = {}) {
+function setup({ startFails = false, mediaDevices, storeRemove } = {}) {
     let opts = null;
     const recorder = {
         recorder: null,
-        async start() {
+        async start(options) {
+            this.startOptions = options;
             if (startFails) throw new Error('Permiso denegado');
             this.recorder = { state: 'recording' };
         },
@@ -21,11 +22,11 @@ function setup({ startFails = false } = {}) {
         cancel: jest.fn(function () { if (this.recorder) this.recorder.state = 'inactive'; })
     };
     const feedback = { prime: jest.fn(), play: jest.fn(), close: jest.fn() };
-    const store = { put: jest.fn().mockResolvedValue(), list: jest.fn().mockResolvedValue([]), remove: jest.fn().mockResolvedValue(), aliases: async () => [], close: jest.fn(), maintain: jest.fn().mockResolvedValue(), storageStatus: jest.fn().mockResolvedValue(null) };
+    const store = { put: jest.fn().mockResolvedValue(), list: jest.fn().mockResolvedValue([]), remove: storeRemove || jest.fn().mockResolvedValue(), aliases: async () => [], close: jest.fn(), maintain: jest.fn().mockResolvedValue(), storageStatus: jest.fn().mockResolvedValue(null) };
     const ui = new VoiceMvpUI({
         getUser: () => ({ uid: 'u1' }), isEnabled: () => true, getScope: () => ({ enabled: false }),
         getEmployees: () => [], getEndpoint: () => 'https://n8n.example/voice', notify: jest.fn()
-    }, { store, feedback, recorderFactory: (o) => { opts = o; return recorder; } });
+    }, { store, feedback, recorderFactory: (o) => { opts = o; return recorder; }, ...(mediaDevices ? { mediaDevices } : {}) });
     ui.mount();
     ui.render = jest.fn();
     ui.refreshMatches = jest.fn().mockResolvedValue();
@@ -34,7 +35,7 @@ function setup({ startFails = false } = {}) {
     const states = [];
     const onState = (e) => states.push(e.detail.state);
     window.addEventListener('sa:voice-state', onState);
-    return { ui, recorder, feedback, states, opts: () => opts, cleanup: () => { window.removeEventListener('sa:voice-state', onState); ui.destroy(); } };
+    return { ui, recorder, feedback, states, store, opts: () => opts, cleanup: () => { window.removeEventListener('sa:voice-state', onState); ui.destroy(); } };
 }
 
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
@@ -46,6 +47,7 @@ describe('Voz — señales al grabar', () => {
         jest.useFakeTimers();
         const t = setup();
         await t.ui.startHold();
+        jest.advanceTimersByTime(VOICE_LISTEN_LEAD_MS);
         expect(t.feedback.prime).toHaveBeenCalled();
         expect(t.feedback.play).toHaveBeenCalledWith('start');
         expect(t.ui.wave.hidden).toBe(false);
@@ -62,6 +64,7 @@ describe('Voz — señales al grabar', () => {
         jest.useFakeTimers();
         const t = setup();
         await t.ui.startHold();
+        jest.advanceTimersByTime(VOICE_LISTEN_LEAD_MS);
         t.ui.endHold();
         await flush();
         expect(t.feedback.play).toHaveBeenCalledWith('stop');
@@ -103,16 +106,20 @@ describe('Voz — señales al grabar', () => {
     });
 
     test('grabación por toque (Dictar del menú): la indicación dice cómo terminar', async () => {
+        jest.useFakeTimers();
         const t = setup();
         await t.ui.startHold({ toggle: true });
+        jest.advanceTimersByTime(VOICE_LISTEN_LEAD_MS);
         expect(t.ui.wave.querySelector('.voice-wave-hint').textContent).toBe('Toca de nuevo para terminar');
         t.cleanup();
     });
 
     test('grabación por teclado sobre el botón Voz: también "Toca de nuevo"', async () => {
+        jest.useFakeTimers();
         const t = setup();
         t.ui.launcher.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
         await flush();
+        jest.advanceTimersByTime(VOICE_LISTEN_LEAD_MS);
         expect(t.feedback.prime).toHaveBeenCalled();
         expect(t.ui.wave.querySelector('.voice-wave-hint').textContent).toBe('Toca de nuevo para terminar');
         t.cleanup();
@@ -123,6 +130,124 @@ describe('Voz — señales al grabar', () => {
         const ks = [...t.ui.wave.querySelectorAll('.voice-wave-bars i')].map(i => i.style.getPropertyValue('--k'));
         expect(ks).toHaveLength(21);
         expect(new Set(ks).size).toBeGreaterThan(5);
+        t.cleanup();
+    });
+});
+
+describe('Voz — grabar antes de mostrar "Escuchando"', () => {
+    afterEach(() => { jest.useRealTimers(); document.body.innerHTML = ''; });
+
+    test('antes del adelanto ya graba pero sigue en arming; luego se muestra', async () => {
+        jest.useFakeTimers();
+        const t = setup();
+        await t.ui.startHold();
+        expect(t.recorder.recorder.state).toBe('recording');
+        expect(t.ui.wave.hidden).toBe(true);
+        expect(t.feedback.play).not.toHaveBeenCalledWith('start');
+        expect(t.ui.launcher.dataset.voiceState).toBe('arming');
+        expect(t.states).toContain('arming');
+        expect(t.states).not.toContain('listening');
+        jest.advanceTimersByTime(VOICE_LISTEN_LEAD_MS - 1);
+        expect(t.ui.wave.hidden).toBe(true);
+        jest.advanceTimersByTime(1);
+        expect(t.ui.wave.hidden).toBe(false);
+        expect(t.feedback.play).toHaveBeenCalledWith('start');
+        expect(t.ui.launcher.dataset.voiceState).toBe('listening');
+        t.cleanup();
+    });
+
+    test('soltar antes del adelanto: el audio se guarda, sin start ni panel', async () => {
+        jest.useFakeTimers();
+        const t = setup();
+        await t.ui.startHold();
+        t.ui.endHold();
+        await flush();
+        expect(t.states).toContain('saved');
+        expect(t.feedback.play).not.toHaveBeenCalledWith('start');
+        jest.advanceTimersByTime(VOICE_LISTEN_LEAD_MS * 2);
+        expect(t.ui.wave.hidden).toBe(true);
+        expect(t.feedback.play).not.toHaveBeenCalledWith('start');
+        expect(t.states).not.toContain('listening');
+        t.cleanup();
+    });
+});
+
+describe('Voz — micrófono pedido al tocar (warmUp)', () => {
+    afterEach(() => { jest.useRealTimers(); document.body.innerHTML = ''; });
+    const media = () => { const stop = jest.fn(); return { stop, mediaDevices: { getUserMedia: jest.fn(async () => ({ getTracks: () => [{ stop }] })) } }; };
+    const down = t => { const ev = new Event('pointerdown', { bubbles: true, cancelable: true }); Object.assign(ev, { button: 0, pointerId: 3 }); t.ui.launcher.dispatchEvent(ev); };
+
+    test('pointerdown pide el micrófono una vez y se pasa a recorder.start', async () => {
+        jest.useFakeTimers();
+        const m = media();
+        const t = setup({ mediaDevices: m.mediaDevices });
+        down(t);
+        await flush();
+        expect(m.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+        expect(m.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: true });
+        expect(t.recorder.startOptions.stream).toBeInstanceOf(Promise);
+        expect(await t.recorder.startOptions.stream).toEqual({ getTracks: expect.any(Function) });
+        expect(t.ui.warmStream).toBeNull();
+        expect(m.stop).not.toHaveBeenCalled();
+        t.cleanup();
+    });
+
+    test('un toque que no graba (releaseWarm) suelta las pistas', async () => {
+        jest.useFakeTimers();
+        const m = media();
+        const t = setup({ mediaDevices: m.mediaDevices });
+        t.ui.warmUp();
+        t.ui.warmUp();
+        expect(m.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+        t.ui.releaseWarm();
+        await flush();
+        expect(m.stop).toHaveBeenCalledTimes(1);
+        t.cleanup();
+    });
+
+    test('finishHold antes de grabar suelta las pistas', async () => {
+        jest.useFakeTimers();
+        const m = media();
+        const t = setup({ mediaDevices: m.mediaDevices });
+        t.ui.warmUp();
+        t.ui.held = true;
+        t.ui.finishHold();
+        await flush();
+        expect(m.stop).toHaveBeenCalledTimes(1);
+        t.cleanup();
+    });
+
+    test('si nadie lo usa se suelta solo tras VOICE_WARM_MS', async () => {
+        jest.useFakeTimers();
+        const m = media();
+        const t = setup({ mediaDevices: m.mediaDevices });
+        t.ui.warmUp();
+        await flush();
+        jest.advanceTimersByTime(VOICE_WARM_MS - 1);
+        await flush();
+        expect(m.stop).not.toHaveBeenCalled();
+        jest.advanceTimersByTime(1);
+        await flush();
+        expect(m.stop).toHaveBeenCalledTimes(1);
+        t.cleanup();
+    });
+});
+
+describe('Voz — beginHold no espera a borrar la toma anterior', () => {
+    afterEach(() => { jest.useRealTimers(); document.body.innerHTML = ''; });
+
+    test('con store.remove colgado el grabador arranca igual', async () => {
+        jest.useFakeTimers();
+        const storeRemove = jest.fn(() => new Promise(() => {}));
+        const t = setup({ storeRemove });
+        t.ui.record = { uid: 'u1', requestId: 'old', projectKey: 'legacy', audio: new Blob(['x']) };
+        const old = t.ui.record;
+        const startSpy = jest.spyOn(t.recorder, 'start');
+        await t.ui.startHold();
+        expect(storeRemove).toHaveBeenCalledWith('u1', 'old');
+        expect(old.discarded).toBe(true);
+        expect(startSpy).toHaveBeenCalledTimes(1);
+        expect(t.recorder.recorder.state).toBe('recording');
         t.cleanup();
     });
 });

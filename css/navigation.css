@@ -252,6 +252,12 @@ html.is-holding * {
     transform: rotate(45deg);
 }
 
+/* Abriendo el micrófono: hundido y sin ondas hasta "Escuchando". */
+.bnav-center.is-arming {
+    transform: scale(0.94);
+    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
+}
+
 .bnav-center.is-listening {
     background: #22d3ee;
     transform: scale(1.12);

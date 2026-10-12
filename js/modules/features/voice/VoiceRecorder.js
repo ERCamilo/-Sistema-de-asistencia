@@ -4,10 +4,11 @@ export class VoiceRecorder {
     constructor({ mediaDevices = globalThis.navigator?.mediaDevices, Recorder = globalThis.MediaRecorder, onComplete, onLevel = () => {}, onError = () => {}, setTimer = (...args) => globalThis.setTimeout(...args), clearTimer = id => globalThis.clearTimeout(id) } = {}) {
         Object.assign(this, { mediaDevices, Recorder, onComplete, onLevel, onError, setTimer, clearTimer }); this.generation = 0;
     }
-    async start() {
+    // `stream`: micrófono ya pedido (promesa) al tocar el botón; sin él se pide aquí.
+    async start({ stream: warm = null } = {}) {
         if (!this.mediaDevices?.getUserMedia || !this.Recorder) throw Error('Este navegador no permite grabar. Usa HTTPS o el origen local compatible.');
         const generation = ++this.generation; this.cancelled = false;
-        const stream = await this.mediaDevices.getUserMedia({ audio: true });
+        const stream = await (warm || this.mediaDevices.getUserMedia({ audio: true }));
         if (generation !== this.generation) { stream.getTracks().forEach(t => t.stop()); return; }
         this.stream = stream; this.chunks = []; this.bytes = 0; this.startedAt = Date.now(); this.tooLarge = false;
         try {
