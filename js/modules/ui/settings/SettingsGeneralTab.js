@@ -372,7 +372,7 @@ export function SettingsGeneralTab(context) {
                             <h3>Mantenimiento</h3>
                         </div>
                     </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <div class="settings-inline-action" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
                         <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
                             ¿No ves la última versión de la app? Limpia el cache del navegador para forzar la actualización.
                             <strong style="color: #cbd5e1;">No se borran tus datos</strong> (empleados, asistencia, configuración).
@@ -381,7 +381,7 @@ export function SettingsGeneralTab(context) {
                             Limpiar cache y recargar
                         </button>
                     </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
+                    <div class="settings-inline-action" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
                         <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
                             Si algo falló, exportá el registro de errores técnicos para compartirlo con soporte.
                         </span>
@@ -408,7 +408,7 @@ export function SettingsGeneralTab(context) {
                             </label>
                         </div>
                     </fieldset>
-                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
+                    <div class="settings-inline-action" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
                         <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
                             Olvida las relaciones guardadas entre nombres o números de Mini y empleados de SA.
                             <strong style="color: #cbd5e1;">No se borran empleados ni asistencias.</strong>
