@@ -13,6 +13,8 @@
  * Probado en js/tests/PettyCashStitch.test.js.
  */
 
+import { encodeImage } from './PettyCashCapture.js';
+
 /** Fracción de la altura de la foto que se usa como franja de traslape. */
 export const OVERLAP_FRACTION = 0.12;
 /** Diferencia media (0–255) por debajo de la cual dos franjas coinciden. */
@@ -28,7 +30,8 @@ const LIVE_MAX_SCORE = 14;
 const LIVE_DISTINCT_MARGIN = 2;
 /** Ancho de las versiones pequeñas en gris. */
 export const SAMPLE_WIDTH = 72;
-const MAX_STITCH_WIDTH = 1280;
+// El lector recibe hasta 1600 px de ancho: más no ayuda y pesa más.
+const MAX_STITCH_WIDTH = 1600;
 const MAX_STITCH_PIXELS = 12_000_000;
 
 const rowMean = (px, row, w) => {
@@ -174,7 +177,7 @@ export function liveAlignment(doc, video, band) {
     return judgeAlignment(band, live.gray, live.rows);
 }
 
-/** Une las partes (ImageBitmap/imagen, de arriba abajo) en un solo JPEG. */
+/** Une las partes (ImageBitmap/imagen, de arriba abajo) en una sola imagen (WebP o JPEG). */
 export async function stitchParts(doc, bitmaps, { quality = 0.9 } = {}) {
     if (!bitmaps.length) throw new Error('No hay partes para unir');
     const sizes = bitmaps.map(sizeOf);
@@ -203,6 +206,5 @@ export async function stitchParts(doc, bitmaps, { quality = 0.9 } = {}) {
         ctx.drawImage(bitmaps[s.part], 0, s.from, w, s.rows, 0, y, w * k, s.rows * k);
         y += s.rows * k;
     }
-    return new Promise((resolve, reject) => canvas.toBlob(
-        blob => (blob ? resolve(blob) : reject(new Error('No se pudo unir la factura'))), 'image/jpeg', quality));
+    return encodeImage(canvas, quality);
 }

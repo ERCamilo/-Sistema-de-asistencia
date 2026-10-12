@@ -180,6 +180,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/payroll/SalaryConversion.js",
     "./js/modules/features/pettycash/PettyCashCalc.js",
     "./js/modules/features/pettycash/PettyCashCamera.js",
+    "./js/modules/features/pettycash/PettyCashCapture.js",
     "./js/modules/features/pettycash/PettyCashDuplicateDetection.js",
     "./js/modules/features/pettycash/PettyCashExport.js",
     "./js/modules/features/pettycash/PettyCashMovementMirror.js",

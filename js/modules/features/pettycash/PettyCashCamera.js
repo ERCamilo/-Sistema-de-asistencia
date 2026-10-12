@@ -29,6 +29,7 @@
  */
 import { parseReceiptDate } from './PettyCashReceiptChecks.js';
 import { stitchParts, bottomBand, liveAlignment, OVERLAP_FRACTION } from './PettyCashStitch.js';
+import { takeShot, renderShot, encodeImage, extensionFor } from './PettyCashCapture.js';
 
 export const CAMERA_POLL_MS = 1500;
 /** Cuánto dura "Recibido" antes de mostrar el resultado. */
@@ -138,18 +139,22 @@ function issueBody(issue) {
     }
 }
 
-async function defaultGrabFrame(video, doc) {
-    const canvas = doc.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 1706;
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    return new Promise((resolve, reject) => canvas.toBlob(
-        blob => (blob ? resolve(blob) : reject(new Error('No se pudo capturar la imagen'))),
-        'image/jpeg', 0.92));
-}
+/** Ancho máximo de cada parte de una factura larga en memoria (la unión sale a 1600 px). */
+const PART_MAX_WIDTH = 1600;
 
 async function defaultToBitmap(blob, doc) {
-    if (typeof globalThis.createImageBitmap === 'function') return globalThis.createImageBitmap(blob);
+    if (typeof globalThis.createImageBitmap === 'function') {
+        // Las partes se guardan en memoria hasta unirlas: se reducen para no gastar de más.
+        const bitmap = await globalThis.createImageBitmap(blob);
+        if (bitmap.width <= PART_MAX_WIDTH) return bitmap;
+        const resized = await globalThis.createImageBitmap(bitmap, {
+            resizeWidth: PART_MAX_WIDTH,
+            resizeHeight: Math.round(bitmap.height * (PART_MAX_WIDTH / bitmap.width)),
+            resizeQuality: 'high'
+        });
+        bitmap.close?.();
+        return resized;
+    }
     const url = URL.createObjectURL(blob);
     try {
         const img = doc.createElement('img');
@@ -159,6 +164,24 @@ async function defaultToBitmap(blob, doc) {
     } finally {
         URL.revokeObjectURL(url);
     }
+}
+
+/**
+ * Lo que había justo arriba de la franja en la parte anterior, para mostrarlo
+ * por encima del recuadro (fuera de la foto): `rows` filas de la foto.
+ */
+function defaultDrawGhostContext(canvas, bitmap, rows) {
+    const w = bitmap.width || bitmap.naturalWidth;
+    const h = bitmap.height || bitmap.naturalHeight;
+    const ctx = canvas.getContext?.('2d');
+    if (!ctx || !w || !h || rows <= 0) return;
+    const band = Math.round(h * OVERLAP_FRACTION);
+    const take = Math.min(rows, h - band);
+    canvas.width = w;
+    canvas.height = Math.max(1, Math.round(rows));
+    ctx.clearRect(0, 0, w, canvas.height);
+    // Pegado abajo: la última fila queda justo encima del recuadro.
+    ctx.drawImage(bitmap, 0, h - band - take, w, take, 0, canvas.height - take, w, take);
 }
 
 /** Dibuja arriba del lienzo (mismo tamaño que la foto) la franja final de la parte anterior. */
@@ -186,7 +209,7 @@ function defaultDrawGhost(canvas, bitmap) {
 export function createReceiptCamera({
     doc = document,
     mediaDevices = globalThis.navigator?.mediaDevices,
-    grabFrame = (video) => defaultGrabFrame(video, doc),
+    grabFrame = (video, track) => takeShot({ video, track, doc }),
     capture,
     getItemsState = async () => new Map(),
     onReview = () => {},
@@ -196,18 +219,24 @@ export function createReceiptCamera({
     vibrate = (p) => { try { globalThis.navigator?.vibrate?.(p); } catch (_) { /* opcional */ } },
     fallbackPick = () => {},
     periodLabel = () => '',
-    toBitmap = (blob) => defaultToBitmap(blob, doc),
+    toBitmap = (shot) => (shot instanceof Blob ? defaultToBitmap(shot, doc) : renderShot(shot, { doc, maxWidth: PART_MAX_WIDTH })),
+    toPhoto = (shot) => (shot instanceof Blob ? shot : encodeImage(renderShot(shot, { doc }))),
     stitch = (bitmaps) => stitchParts(doc, bitmaps),
     makeBand = (bitmap) => bottomBand(doc, bitmap),
     checkAlignment = (video, band) => liveAlignment(doc, video, band),
-    drawGhost = defaultDrawGhost
+    drawGhost = defaultDrawGhost,
+    drawGhostContext = defaultDrawGhostContext
 } = {}) {
     let root = null;
     let stream = null;
     let track = null;
     let torchOn = false;
     let items = [];          // { id, preview, state, reason, issues, data }
-    let busy = false;
+    let busy = false;       // uniendo una factura larga
+    let grabbing = false;   // tomando la foto (paso rápido)
+    let saving = 0;         // fotos tomadas que aún se están guardando
+    let saveChain = Promise.resolve();
+    let sessionId = 0;
     let trayOpen = false;
     let previewIndex = -1;
     let pollTimer = null;
@@ -236,13 +265,14 @@ export function createReceiptCamera({
                 <video data-pcam-video class="pcam-video" autoplay playsinline muted></video>
                 <canvas class="pcam-ghost" data-pcam-ghost hidden aria-hidden="true"></canvas>
                 <span class="pcam-ghost-edge" data-pcam-ghost-edge hidden aria-hidden="true"></span>
-                <span class="pcam-ghost-tag" data-pcam-ghost-tag role="status" hidden></span>
                 <div class="pcam-flash" data-pcam-flash hidden></div>
             </div>
         </div>
+        <canvas class="pcam-ghost-context" data-pcam-ghost-context hidden aria-hidden="true"></canvas>
         <header class="pcam-top">
             <button type="button" class="pcam-icon" data-pcam-close aria-label="Cerrar cámara">${ico(ICON.close)}</button>
-            <span class="pcam-period">${esc(periodLabel())}</span>
+            <span class="pcam-period" data-pcam-period>${esc(periodLabel())}</span>
+            <span class="pcam-ghost-tag" data-pcam-ghost-tag role="status" hidden></span>
             <button type="button" class="pcam-icon pcam-torch" data-pcam-torch aria-label="Linterna" aria-pressed="false" hidden>${ico(ICON.torch, 20)}</button>
             <span class="pcam-top-spacer" data-pcam-torch-spacer></span>
         </header>
@@ -286,7 +316,8 @@ export function createReceiptCamera({
         const text = long.on
             ? (long.parts.length ? `${long.parts.length} ${long.parts.length === 1 ? 'parte' : 'partes'} · al unir se recorta lo repetido` : 'Parte 1 · desde arriba')
             : summarizeCameraItems(items);
-        summary.innerHTML = `${reading && !long.on ? '<span class="pcam-spin" aria-hidden="true"></span>' : ''}${esc(text)}`;
+        const withSaving = saving ? `${saving} guardando${text && items.length ? ` · ${text}` : ''}` : text;
+        summary.innerHTML = `${(reading || saving) && !long.on ? '<span class="pcam-spin" aria-hidden="true"></span>' : ''}${esc(long.on ? text : withSaving)}`;
         q('[data-pcam-count]').textContent = String(items.length);
         const stack = q('[data-pcam-stack]');
         stack.classList.toggle('is-empty', items.length === 0);
@@ -582,7 +613,7 @@ export function createReceiptCamera({
             </header>
             <div class="pcam-photo" data-pcam-photo data-phase="reading">
                 <div class="pcam-zoom" data-pcam-zoom data-zoom="1">
-                    <img src="${esc(item.preview)}" alt="Factura ${previewIndex + 1}" draggable="false">
+                    <img src="${esc(item.full || item.preview)}" alt="Factura ${previewIndex + 1}" draggable="false">
                     <span class="pcam-scan" aria-hidden="true"></span>
                     <span class="pcam-sweep" data-pcam-sweep aria-hidden="true"></span>
                     <span class="pcam-hl" data-pcam-hl hidden aria-hidden="true"></span>
@@ -656,8 +687,16 @@ export function createReceiptCamera({
         setTimeout(() => { if (el) el.hidden = true; }, FLASH_MS);
     };
 
-    const addItem = (saved) => {
-        items.push({ id: saved.id, preview: saved.previewUrl || '', state: 'reading', reason: null, issues: [], data: {} });
+    // La vista previa muestra la foto que se acaba de tomar a resolución completa
+    // (la miniatura guardada mide 480 px y no sirve para acercar); se libera al
+    // eliminarla o al cerrar la cámara.
+    const fullUrlFor = (file) => {
+        try { return file && typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : ''; } catch (_) { return ''; }
+    };
+    const releaseFull = (item) => { if (item?.full) { try { URL.revokeObjectURL(item.full); } catch (_) { /* ya liberada */ } } };
+
+    const addItem = (saved, file) => {
+        items.push({ id: saved.id, preview: saved.previewUrl || '', full: fullUrlFor(file), state: 'reading', reason: null, issues: [], data: {} });
         paint();
         restart(q('[data-pcam-stack]'), 'is-drop');
     };
@@ -666,17 +705,20 @@ export function createReceiptCamera({
         const ghost = q('[data-pcam-ghost]');
         const tagEl = q('[data-pcam-ghost-tag]');
         const edge = q('[data-pcam-ghost-edge]');
+        const context = q('[data-pcam-ghost-context]');
         const showGhost = long.on && long.parts.length > 0 && long.parts.length < MAX_PARTS;
         ghost.hidden = !showGhost;
         tagEl.hidden = !showGhost;
         edge.hidden = !showGhost;
+        context.hidden = !showGhost;
+        q('[data-pcam-period]').hidden = showGhost;
         [ghost, tagEl, edge].forEach(el => el.classList.toggle('is-aligned', showGhost && long.aligned));
         q('[data-pcam-shutter]').classList.toggle('is-ready', showGhost && long.aligned);
         q('[data-pcam-shutter]').setAttribute('aria-label', long.on ? `Tomar parte ${long.parts.length + 1}` : 'Tomar foto');
         if (showGhost) {
             tagEl.textContent = long.aligned
-                ? `Alineado ✓ · toma la parte ${long.parts.length + 1}`
-                : `Ya tomada (parte ${long.parts.length}) · haz que coincida`;
+                ? `Alineado ✓ · parte ${long.parts.length + 1}`
+                : `Ya tomada la parte ${long.parts.length} · alinea`;
         }
         paintBar();
     };
@@ -697,6 +739,26 @@ export function createReceiptCamera({
         const fit = Math.min(aw / vw, ah / vh);
         frame.style.width = `${Math.round(vw * fit)}px`;
         frame.style.height = `${Math.round(vh * fit)}px`;
+        layoutGhostContext();
+    };
+
+    /**
+     * Encima del recuadro (de la parte de arriba de la pantalla hasta el borde
+     * del recuadro) se ve lo que había antes de la franja en la parte anterior,
+     * a la misma escala: la factura "continúa" hacia arriba.
+     */
+    const layoutGhostContext = () => {
+        const context = q('[data-pcam-ghost-context]');
+        const frame = q('[data-pcam-frame]');
+        const part = long.parts[long.parts.length - 1];
+        if (!context || !frame || !part || !root) return;
+        const rootRect = root.getBoundingClientRect();
+        const rect = frame.getBoundingClientRect();
+        const above = rect.top - rootRect.top;
+        const photoW = part.bitmap?.width || part.bitmap?.naturalWidth;
+        if (above <= 0 || !rect.width || !photoW) return;
+        Object.assign(context.style, { left: `${rect.left - rootRect.left}px`, top: '0px', width: `${rect.width}px`, height: `${above}px` });
+        try { drawGhostContext(context, part.bitmap, above * (photoW / rect.width)); } catch (_) { /* sin contexto */ }
     };
 
     const stopAlign = () => { clearInterval(alignTimer); alignTimer = null; };
@@ -727,13 +789,14 @@ export function createReceiptCamera({
         paintLong();
     };
 
-    const shootPart = async (blob) => {
+    const shootPart = async (shot, videoBand) => {
         if (long.parts.length >= MAX_PARTS) { notify(TIP.full, 'info'); return; }
-        const bitmap = await toBitmap(blob);
-        long.parts.push({ blob, bitmap });
+        const bitmap = await toBitmap(shot);
+        long.parts.push({ bitmap });
         long.aligned = false;
-        try { long.band = makeBand(bitmap); } catch (_) { long.band = null; }
+        long.band = videoBand;
         try { drawGhost(q('[data-pcam-ghost]'), bitmap); } catch (_) { /* sin franja guía */ }
+        layoutGhostContext();
         showTip(long.parts.length >= MAX_PARTS ? TIP.full : TIP.next(long.parts.length));
         paintLong();
         startAlign();
@@ -744,15 +807,17 @@ export function createReceiptCamera({
         busy = true;
         q('[data-pcam-done]').setAttribute('aria-busy', 'true');
         try {
+            await saveChain; // la última parte puede estar procesándose todavía
             const blob = await stitch(long.parts.map(p => p.bitmap));
-            const file = new File([blob], `factura-larga-${Date.now()}.jpg`, { type: 'image/jpeg' });
+            const type = blob.type || 'image/jpeg';
+            const file = new File([blob], `factura-larga-${Date.now()}.${extensionFor(type)}`, { type });
             const saved = await capture(file);
             releaseParts();
             long = { on: false, parts: [], band: null, aligned: false };
             stopAlign();
             vibrate([12, 50, 12]);
             paintLong();
-            addItem(saved);
+            addItem(saved, file);
         } catch (error) {
             notify(`No se pudo unir la factura (${error?.message || 'error'}). Las partes siguen aquí.`, 'warning');
         } finally {
@@ -761,26 +826,52 @@ export function createReceiptCamera({
         }
     };
 
+    /**
+     * Dos pasos: tomar es rápido (la foto del sensor o el cuadro del video) y
+     * el botón queda libre enseguida; recortar, codificar y guardar va después,
+     * en orden, sin hacer esperar la siguiente foto.
+     */
+    const runSaving = (task) => {
+        const session = sessionId;
+        saving += 1;
+        paintBar();
+        saveChain = saveChain
+            .then(() => task(session))
+            .catch((error) => { if (session === sessionId) notify(`No se guardó la foto (${error?.message || 'error'}). Puedes tomarla de nuevo.`, 'warning'); })
+            .finally(() => { if (session === sessionId) { saving = Math.max(0, saving - 1); paintBar(); } });
+    };
+
     const shoot = async () => {
-        if (busy || !root) return;
-        busy = true;
+        if (grabbing || !root) return;
+        grabbing = true;
         q('[data-pcam-shutter]')?.setAttribute('aria-busy', 'true');
+        vibrate(12);
+        flash();
+        // Factura larga: la franja para alinear en vivo sale del mismo video que
+        // se compara después (la foto del sensor se procesa distinto).
+        let videoBand = null;
+        if (long.on) { try { videoBand = makeBand(q('[data-pcam-video]')); } catch (_) { videoBand = null; } }
+        let shot;
         try {
-            const blob = await grabFrame(q('[data-pcam-video]'));
-            vibrate(12);
-            flash();
-            if (long.on) {
-                await shootPart(blob);
-            } else {
-                const file = new File([blob], `factura-${Date.now()}.jpg`, { type: 'image/jpeg' });
-                addItem(await capture(file));
-            }
+            shot = await grabFrame(q('[data-pcam-video]'), track);
         } catch (error) {
-            notify(`No se guardó la foto (${error?.message || 'error'}). Puedes tomarla de nuevo.`, 'warning');
+            notify(`No se pudo tomar la foto (${error?.message || 'error'}). Inténtalo de nuevo.`, 'warning');
+            return;
         } finally {
-            busy = false;
+            grabbing = false;
             q('[data-pcam-shutter]')?.removeAttribute('aria-busy');
         }
+        if (long.on) {
+            runSaving(async (session) => { if (session === sessionId) await shootPart(shot, videoBand); });
+            return;
+        }
+        runSaving(async (session) => {
+            const blob = await toPhoto(shot);
+            const type = blob.type || 'image/jpeg';
+            const file = new File([blob], `factura-${Date.now()}.${extensionFor(type)}`, { type });
+            const saved = await capture(file); // entra a la cola aunque ya se haya cerrado la cámara
+            if (session === sessionId) addItem(saved, file);
+        });
     };
 
     const setupTorch = () => {
@@ -818,6 +909,7 @@ export function createReceiptCamera({
         let ok = false;
         try { ok = await onDelete(item.id); } catch (_) { ok = false; }
         if (!ok) return false;
+        releaseFull(item);
         items.splice(index, 1);
         previewIndex = items.length ? Math.min(index, items.length - 1) : -1;
         shown = { id: null, sig: '', phase: '' };
@@ -864,7 +956,8 @@ export function createReceiptCamera({
             return;
         }
         try {
-            stream = await mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+            // 4:3 como el sensor: así la foto completa (takePhoto) coincide con lo que se ve.
+            stream = await mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 } }, audio: false });
         } catch (error) {
             stream = null;
             notify('No se pudo abrir la cámara dentro de la app. Se abrirá la cámara del teléfono.', 'warning');
@@ -872,6 +965,8 @@ export function createReceiptCamera({
             return;
         }
         track = stream.getVideoTracks?.()[0] || null;
+        sessionId += 1;
+        saving = 0;
         torchOn = false;
         lastFocus = doc.activeElement;
         root = doc.createElement('div');
@@ -920,7 +1015,9 @@ export function createReceiptCamera({
         }
         doc.removeEventListener('keydown', onKey);
         doc.body.classList.remove('pcam-open');
-        items = []; trayOpen = false; previewIndex = -1; busy = false;
+        items.forEach(releaseFull);
+        sessionId += 1; // lo que aún se esté guardando entra a la cola, pero ya no a esta tanda
+        items = []; trayOpen = false; previewIndex = -1; busy = false; grabbing = false; saving = 0;
         barSig = ''; traySig = ''; shown = { id: null, sig: '', phase: '' };
         pointers.clear(); gesture = null;
         lastFocus?.focus?.();
