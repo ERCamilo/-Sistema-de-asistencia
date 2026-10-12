@@ -37,11 +37,11 @@ export function SettingsGeneralTab(context) {
                 <div class="stg-panel">
                     <div class="stg-header">
                         <div>
-                            <h3>Proyecto de trabajo</h3>
+                            <h3>Configuración de proyectos</h3>
                         </div>
                     </div>
-                    <p style="font-size:0.82rem;color:#64748b;line-height:1.55;margin:0 0 12px;">
-                        Configura la identidad oficial del proyecto usada para aislar empleados y para transferencias SA → Mini. La activación es explícita; nunca se deriva del nombre de la empresa.
+                    <p style="font-size:0.82rem;color:var(--stg-text-secondary);line-height:1.55;margin:0 0 12px;">
+                        Elige el proyecto de trabajo para organizar su personal y compartir información con Mini.
                     </p>
                     <button type="button" data-settings-action="open-project-setup" class="btn-secondary" style="width:100%;justify-content:center;padding:10px;border-radius:8px;">
                         Configurar proyecto
@@ -170,7 +170,7 @@ export function SettingsGeneralTab(context) {
                             <option value="days" ${state.settings.attendanceDeficitUnit !== 'hours' ? 'selected' : ''}>Días</option>
                             <option value="hours" ${state.settings.attendanceDeficitUnit === 'hours' ? 'selected' : ''}>Horas</option>
                         </select>
-                        <div style="font-size: 0.73rem; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                        <div style="font-size: 0.73rem; color: var(--stg-text-secondary); margin-top: 8px; line-height: 1.5;">
                             Cambia la unidad compacta del déficit en las tarjetas de asistencia.
                         </div>
                     </div>
@@ -191,11 +191,11 @@ export function SettingsGeneralTab(context) {
                                        autocomplete="off">
                                 <button type="button"
                                         onclick="const inp = document.getElementById('weatherApiKey'); inp.type = inp.type === 'password' ? 'text' : 'password';"
-                                        style="background: #334155; border: none; color: #94a3b8; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;">
+                                        style="background: var(--stg-card-bg); border: 1px solid var(--stg-border-card); color: var(--stg-text-primary); padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;">
                                     Ver/Ocultar
                                 </button>
                             </div>
-                            <div style="font-size: 0.72rem; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                            <div style="font-size: 0.72rem; color: var(--stg-text-secondary); margin-top: 8px; line-height: 1.5;">
                                 Sin API key se muestran datos de ejemplo (mock). Registrate gratis en
                                 <a href="https://www.weatherapi.com/signup.aspx" target="_blank" rel="noopener" style="color: #06b6d4; text-decoration: underline;">weatherapi.com</a>
                                 para obtener datos reales (1M llamadas/mes gratis, sin tarjeta).
@@ -215,7 +215,7 @@ export function SettingsGeneralTab(context) {
                                    class="form-input"
                                    style="width: 100%; font-size: 0.85rem; box-sizing: border-box;"
                                    autocomplete="off">
-                            <div style="font-size: 0.72rem; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                            <div style="font-size: 0.72rem; color: var(--stg-text-secondary); margin-top: 8px; line-height: 1.5;">
                                 Puedes copiar y pegar coordenadas de Google Maps directamente haciendo clic derecho en el mapa o copiando el fragmento con <code>@</code> de la barra de direcciones. Por defecto usa Santo Domingo, RD.
                             </div>
                         </div>
@@ -330,7 +330,7 @@ export function SettingsGeneralTab(context) {
                         <select id="iconSet" class="form-input" onchange="commitIconSet(this.value)">
                             ${iconSetOptions}
                         </select>
-                        <div style="font-size: 0.73rem; color: #64748b; margin-top: 8px; line-height: 1.6;">
+                        <div style="font-size: 0.73rem; color: var(--stg-text-secondary); margin-top: 8px; line-height: 1.6;">
                             Se aplica a toda la aplicación y queda guardado como preferencia.
                         </div>
                     </div>
@@ -357,7 +357,7 @@ export function SettingsGeneralTab(context) {
                         </div>
                     </div>
                     <hr class="stg-divider">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="settings-inline-action" style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 0.8rem; color: #94a3b8;">¿Viste algunos tooltips y quieres que vuelvan a aparecer?</span>
                         <button type="button" data-settings-action="reset-help-seen" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.8rem;">
                             Restablecer Vistos

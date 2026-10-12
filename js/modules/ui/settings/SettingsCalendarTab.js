@@ -62,7 +62,7 @@ export function SettingsTabCalendar(context) {
                             <div class="stg-callout">
                                 <strong>Sincronización Interactiva:</strong> Usa los botones del calendario a la derecha para seleccionar fechas directamente de forma gráfica sin usar estos campos.
                             </div>
-                            <div style="margin-top: auto; font-size: 0.75rem; color: #64748b; text-align: center; background: var(--stg-card-bg); padding: 8px; border-radius: 6px;">
+                            <div style="margin-top: auto; font-size: 0.75rem; color: var(--stg-text-secondary); text-align: center; background: var(--stg-card-bg); padding: 8px; border-radius: 6px;">
                                  Total Festivos: <strong style="color: #f59e0b;">${settings.holidays.length}</strong>
                             </div>
                         </div>
@@ -109,9 +109,9 @@ export function SettingsTabCalendar(context) {
                                        step="0.5"
                                        class="form-input"
                                        style="flex: 1;">
-                                <span style="color: #94a3b8; font-size: 0.875rem;">x (multiplicador)</span>
+                                <span style="color: #94a3b8; font-size: 0.875rem;">×</span>
                             </div>
-                            <div style="font-size: 0.73rem; color: #64748b; margin-top: 8px;">
+                            <div style="font-size: 0.73rem; color: var(--stg-text-secondary); margin-top: 8px;">
                                 Ejemplo: Factor 2 = doble pago, Factor 1.5 = pago y medio
                             </div>
                         </div>
@@ -130,9 +130,9 @@ export function SettingsTabCalendar(context) {
                                        step="0.25"
                                        class="form-input"
                                        style="flex: 1;">
-                                <span style="color: #94a3b8; font-size: 0.875rem;">x (multiplicador)</span>
+                                <span style="color: #94a3b8; font-size: 0.875rem;">×</span>
                             </div>
-                            <div style="font-size: 0.73rem; color: #64748b; margin-top: 8px;">
+                            <div style="font-size: 0.73rem; color: var(--stg-text-secondary); margin-top: 8px;">
                                 Multiplicador base si la posición o el líder no definen uno propio
                             </div>
                         </div>
@@ -168,7 +168,7 @@ export function SettingsTabCalendar(context) {
                                    style="flex: 1;">
                             <span style="color: #94a3b8; font-size: 0.875rem;">%</span>
                         </div>
-                        <div style="font-size: 0.73rem; color: #64748b; margin-top: 8px;">
+                        <div style="font-size: 0.73rem; color: var(--stg-text-secondary); margin-top: 8px;">
                             Todas las nuevas deducciones usarán este porcentaje por defecto. Se puede cambiar individualmente en cada nómina.
                         </div>
                     </div>

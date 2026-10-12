@@ -45,26 +45,26 @@ export function SettingsDataTab(context) {
                             </div>
 
                             <!-- Herramientas de Nube -->
-                            <div class="stg-card-title">Backup y Snapshots</div>
+                            <div class="stg-card-title">Respaldos en la nube</div>
                             <div class="stg-actions-grid">
                                 <button type="button" data-settings-action="sync-firebase-now" class="stg-action">
                                     <span class="stg-action-icon blue">&#8635;</span>
                                     <span class="stg-action-copy">
-                                        <strong>Sync Actual</strong>
+                                        <strong>Sincronizar datos</strong>
                                         <small>Sincronizar estado actual con la nube.</small>
                                     </span>
                                 </button>
                                 <button type="button" data-settings-action="sync-history-now" class="stg-action">
                                     <span class="stg-action-icon cyan">&#128197;</span>
                                     <span class="stg-action-copy">
-                                        <strong>Sync Historial</strong>
+                                        <strong>Sincronizar historial</strong>
                                         <small>Sincronizar historial completo.</small>
                                     </span>
                                 </button>
                                 <button type="button" data-settings-action="create-firebase-snapshot" class="stg-action span-2">
                                     <span class="stg-action-icon green">&#9679;</span>
                                     <span class="stg-action-copy">
-                                        <strong>Crear Snapshot Manual</strong>
+                                        <strong>Crear copia de respaldo</strong>
                                         <small>Guarda una copia manual del estado actual.</small>
                                     </span>
                                 </button>
@@ -72,7 +72,7 @@ export function SettingsDataTab(context) {
                             
                             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px;">
                                 <div class="form-group" style="margin-bottom: 0;">
-                                    <label class="form-label" style="font-size: 0.78rem; color: #64748b; margin-bottom: 6px; display: block;">Auto-Backup (Snapshot)</label>
+                                    <label class="form-label" style="font-size: 0.78rem; color: var(--stg-text-secondary); margin-bottom: 6px; display: block;">Copias automáticas</label>
                                     <select id="backupFrequency" onchange="updateBackupFrequency(this.value)" class="form-input" style="padding: 9px 36px 9px 12px; font-size: 0.88rem; line-height: 1.4; height: auto;">
                                         <option value="none" ${state.settings?.backupFrequency === 'none' ? 'selected' : ''}>Desactivado</option>
                                         <option value="daily" ${state.settings?.backupFrequency === 'daily' ? 'selected' : ''}>Diario</option>
@@ -81,7 +81,7 @@ export function SettingsDataTab(context) {
                                     </select>
                                 </div>
                                 <div class="form-group" style="margin-bottom: 0;">
-                                    <label class="form-label" style="font-size: 0.78rem; color: #64748b; margin-bottom: 6px; display: block;">Respaldo Espejo (Mirror)</label>
+                                    <label class="form-label" style="font-size: 0.78rem; color: var(--stg-text-secondary); margin-bottom: 6px; display: block;">Frecuencia de actualización</label>
                                     <select id="mirrorCadence" onchange="updateMirrorCadence(this.value)" class="form-input" style="padding: 9px 36px 9px 12px; font-size: 0.88rem; line-height: 1.4; height: auto;">
                                         <option value="instant" ${state.settings?.mirrorCadence === 'instant' ? 'selected' : ''}>Instantáneo (Sin espera)</option>
                                         <option value="1m" ${state.settings?.mirrorCadence === '1m' ? 'selected' : ''}>1 min (Rápido)</option>
@@ -134,13 +134,13 @@ export function SettingsDataTab(context) {
                                         <label style="flex: 1; cursor: pointer;">
                                             <input type="radio" name="storageTypeData" value="localStorage" ${!state.useIndexedDB ? 'checked' : ''} onchange="handleStorageTypeChange(this.value)" style="display: none;">
                                             <div style="padding: 10px; background: ${!state.useIndexedDB ? 'var(--stg-accent)' : 'var(--stg-card-bg)'}; border-radius: 8px; text-align: center; border: 1px solid ${!state.useIndexedDB ? 'var(--stg-accent)' : 'var(--stg-border-card)'};">
-                                                <div style="font-weight: 600; font-size: 0.9rem; color: ${!state.useIndexedDB ? 'white' : '#94a3b8'};">Local</div>
+                                                <div style="font-weight: 600; font-size: 0.9rem; color: ${!state.useIndexedDB ? 'var(--on-accent)' : 'var(--text-dim)'};">Local</div>
                                             </div>
                                         </label>
                                         <label style="flex: 1; cursor: pointer;">
                                             <input type="radio" name="storageTypeData" value="indexedDB" ${state.useIndexedDB ? 'checked' : ''} onchange="handleStorageTypeChange(this.value)" style="display: none;">
                                             <div style="padding: 10px; background: ${state.useIndexedDB ? 'var(--stg-accent)' : 'var(--stg-card-bg)'}; border-radius: 8px; text-align: center; border: 1px solid ${state.useIndexedDB ? 'var(--stg-accent)' : 'var(--stg-border-card)'};">
-                                                <div style="font-weight: 600; font-size: 0.9rem; color: ${state.useIndexedDB ? 'white' : '#94a3b8'};">IndexedDB</div>
+                                                <div style="font-weight: 600; font-size: 0.9rem; color: ${state.useIndexedDB ? 'var(--on-accent)' : 'var(--text-dim)'};">IndexedDB</div>
                                             </div>
                                         </label>
                                     </div>
@@ -149,9 +149,9 @@ export function SettingsDataTab(context) {
 
                                 <!-- Backups Manuales -->
                                 <div class="stg-card" style="display: flex; flex-direction: column; gap: 10px;">
-                                    <div class="stg-card-title" style="margin-bottom: 2px;">Archivo Backup (.json)</div>
-                                    <button type="button" data-settings-action="export-data" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px; border-radius: 8px;">Descargar Backup</button>
-                                    <button type="button" data-settings-action="open-import-input" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px; border-radius: 8px;">Cargar Backup</button>
+                                    <div class="stg-card-title" style="margin-bottom: 2px;">Archivo de respaldo (.json)</div>
+                                    <button type="button" data-settings-action="export-data" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px; border-radius: 8px;">Descargar respaldo</button>
+                                    <button type="button" data-settings-action="open-import-input" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px; border-radius: 8px;">Cargar respaldo</button>
                                     <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importData(event)">
                                 </div>
                             </div>
@@ -217,7 +217,7 @@ export function SettingsDataTab(context) {
                                         Borrar Todos los Manuales
                                     </button>
                                 </div>
-                                <p style="margin: 8px 0 0 0; font-size: 0.65rem; color: #64748b;">
+                                <p style="margin: 8px 0 0 0; font-size: 0.65rem; color: var(--stg-text-secondary);">
                                     * Las versiones marcadas como 'Protegidas' (p. ej. pre-restauración) no se borrarán.
                                 </p>
                             </div>
@@ -254,7 +254,7 @@ function SnapshotHistory(context) {
         <div class="stg-panel">
             <div class="stg-header">
                 <div>
-                    <h3>Historial de Versiones (Snapshots)</h3>
+                    <h3>Versiones de respaldo</h3>
                 </div>
             </div>
             
@@ -264,7 +264,7 @@ function SnapshotHistory(context) {
                     Cargando versiones desde la nube...
                 </div>
             ` : snapshots.length === 0 ? `
-                <div style="padding: 20px; text-align: center; color: #64748b; font-style: italic;">
+                <div style="padding: 20px; text-align: center; color: var(--stg-text-secondary); font-style: italic;">
                     No hay snapshots disponibles en esta cuenta.
                 </div>
             ` : `
@@ -274,11 +274,8 @@ function SnapshotHistory(context) {
                         const badgeLabel = snap.type === 'pre-restore'
                             ? 'PROTEGIDO'
                             : (snap.type === 'auto' ? 'AUTO' : 'MANUAL');
-                        const badgeColor = snap.type === 'pre-restore' ? '#10b981'
-                            : (snap.type === 'auto' ? '#10b981' : '#06b6d4');
-                        const badgeBg = snap.type === 'pre-restore'
-                            ? 'rgba(16, 185, 129, 0.2)'
-                            : (snap.type === 'auto' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(6, 182, 212, 0.1)');
+                        const badgeColor = 'var(--on-accent)';
+                        const badgeBg = snap.type === 'pre-restore' ? 'var(--good)' : 'var(--accent)';
                         return `
                         <div class="stg-snapshot">
                             <div style="flex: 1; min-width: 0;">
@@ -291,7 +288,7 @@ function SnapshotHistory(context) {
                                     </span>
                                 </div>
                                 <!-- Razón legible del snapshot -->
-                                <div style="color: ${info.color || '#cbd5e1'}; font-size: 0.8rem; font-weight: 500; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                                <div style="color: var(--text-dim); font-size: 0.8rem; font-weight: 500; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
                                     <span>${info.icon || ''}</span>
                                     <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${info.label}</span>
                                 </div>
@@ -321,7 +318,7 @@ function SnapshotHistory(context) {
                 </div>
             `}
             
-            <p style="margin: 16px 0 0 0; font-size: 0.7rem; color: #64748b; line-height: 1.4;">
+            <p style="margin: 16px 0 0 0; font-size: 0.7rem; color: var(--stg-text-secondary); line-height: 1.4;">
                 <strong>Nota:</strong> Al restaurar una versión, se sobrescribirán los datos actuales. Asegúrate de crear un snapshot nuevo antes si no estás seguro.
             </p>
         </div>

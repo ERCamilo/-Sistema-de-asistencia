@@ -702,3 +702,96 @@
     line-height: 1.5;
     overflow-wrap: anywhere;
 }
+
+/* Settings uses canonical tokens locally; other screens keep their own scope. */
+#settings-screen {
+    --stg-bg: var(--panel);
+    --stg-card-bg: var(--panel-2);
+    --stg-border-card: var(--border);
+    --stg-text-primary: var(--text);
+    --stg-text-secondary: var(--text-dim);
+    --stg-text-muted: var(--text-dim);
+    --stg-accent: var(--accent);
+    --stg-success: var(--good);
+    --stg-warning: var(--warn);
+    --stg-danger: var(--bad);
+    overflow-wrap: anywhere;
+}
+#settings-screen > .stg-header h3 { font-size: 1.5rem; }
+#settings-screen .stg-header { flex-wrap: wrap; }
+#settings-screen .stg-header > div { min-width: 0; flex: 1 1 12rem; }
+#settings-screen .stg-header h3 > span { min-width: 0; }
+#settings-screen button {
+    min-height: 44px;
+    max-width: 100%;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+}
+#settings-screen .form-input { min-width: 0 !important; max-width: 100%; box-sizing: border-box; }
+#settings-screen .btn-primary, #settings-draft-bar .btn-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+}
+#settings-screen .btn-danger, #settings-screen [data-settings-action="delete-cloud-data"],
+#settings-screen [data-settings-action="delete-snapshot"] {
+    background: var(--bad) !important;
+    color: var(--on-accent) !important;
+    border-color: var(--bad) !important;
+}
+#settings-screen [data-settings-action="logout-firebase"],
+#settings-screen [data-settings-action="restore-snapshot"] {
+    background: var(--panel-2) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+}
+#settings-draft-bar .btn:not(.btn-primary) { background: var(--panel-2); color: var(--text); }
+#settings-draft-bar button { min-height: 44px; max-width: 100%; white-space: normal; }
+#settings-screen .nav-tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+    gap: 8px;
+    overflow: visible;
+}
+#settings-screen .nav-tab { min-width: 0; padding: 10px; min-height: 44px; }
+#settings-screen .nav-tab .tab-text { display: inline; }
+#settings-screen .nav-tab.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.settings-tool-group { margin-top: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2); }
+.settings-tool-group > summary {
+    min-height: 44px;
+    padding: 14px 16px;
+    cursor: pointer;
+    color: var(--text);
+}
+.settings-tool-group > summary span { display: inline-grid; gap: 5px; }
+.settings-tool-group > summary small { color: var(--text-dim); font-size: 0.8rem; line-height: 1.5; }
+.settings-tool-content { padding: 0 14px 14px; }
+.settings-tool-content > .stg-card { margin-bottom: 14px; }
+.settings-calendar-scroll { overflow-x: auto; }
+.settings-calendar-scroll .stg-calendar-grid { min-width: 14rem; }
+@media (max-width: 600px) {
+    #settings-screen .nav-tabs { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); }
+    #settings-screen .nav-tab { justify-content: center; }
+    #settings-screen .stg-header > button { flex: 1 1 100%; }
+}
+
+#settings-screen button { min-width: 44px; }
+#settings-screen .stg-choice-option { min-height: 44px; }
+#settings-screen .settings-inline-action { flex-wrap: wrap; gap: 12px; }
+#settings-screen .settings-inline-action > span { flex: 1 1 12rem; min-width: 0; }
+#settings-screen .settings-inline-action > button { flex: 0 1 auto; }
+#settings-screen .stg-snapshot { flex-wrap: wrap; }
+#settings-screen .settings-calendar-modes {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 3.75rem), 1fr));
+}
+#settings-screen .form-input::placeholder { color: var(--text-dim); opacity: 1; }
+
+#settings-screen .btn-secondary {
+    background: var(--panel-2) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+}
+
+#settings-screen .form-label { flex-wrap: wrap; }
+#settings-screen .form-label .settings-save-mode { flex-shrink: 0; max-width: 100%; }
+#settings-screen [hidden] { display: none !important; }
