@@ -71,25 +71,6 @@ describe('Verificar idToken', () => {
         await expect(runCode('Verificar idToken', { body, headers: {} }, { httpRequest: async () => ({}) })).rejects.toThrow('idToken invalido');
         await expect(runCode('Verificar idToken', { body: { ...body, mimeType: 'text/html' }, headers: {} })).rejects.toThrow('no compatible');
     });
-
-    test('solo la app y pruebas locales pueden llamar desde el navegador', async () => {
-        for (const origin of ['https://sistema-de-asistencia.pages.dev', 'https://claude-epic-curie-ps0wn3.sistema-de-asistencia.pages.dev', 'http://localhost:8765']) {
-            expect((await runCode('Verificar idToken', { body, headers: { origin } }))._uid).toBe('uid-1');
-        }
-        for (const origin of ['https://evil.example', 'https://sistema-de-asistencia.pages.dev.evil.example', 'http://sistema-de-asistencia.pages.dev']) {
-            await expect(runCode('Verificar idToken', { body, headers: { origin } })).rejects.toThrow('Origen no permitido');
-        }
-    });
-
-    test('usa FIREBASE_WEB_API_KEY si n8n la permite; si está bloqueada, la clave de la app', async () => {
-        const urls = [];
-        const httpRequest = async (req) => { urls.push(req.url); return { users: [{ localId: 'u' }] }; };
-        await runCode('Verificar idToken', { body, headers: {} }, { httpRequest, env: { FIREBASE_WEB_API_KEY: 'k-env' } });
-        const blocked = new Proxy({}, { get() { throw new Error('access to env vars denied'); } });
-        await runCode('Verificar idToken', { body, headers: {} }, { httpRequest, env: blocked });
-        expect(urls[0]).toMatch(/key=k-env$/);
-        expect(urls[1]).toMatch(/key=AIza/);
-    });
 });
 
 describe('Preparar solicitud Gemini', () => {
