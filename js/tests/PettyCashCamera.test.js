@@ -611,6 +611,24 @@ describe('Cámara de facturas', () => {
         camera.close();
     });
 
+    test('factura larga: la unión recibe dónde vio la guía el final de cada parte al tomarla (si era confiable)', async () => {
+        jest.useFakeTimers();
+        const { camera, deps } = setup();
+        await camera.open();
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click(); await flush();
+        deps.checkAlignment.mockReturnValue({ aligned: false, status: 'below', yFrac: 0.7 });
+        jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
+        $('[data-pcam-shutter]').click(); await flush();          // parte 2: la guía la veía en 0.7
+        deps.checkAlignment.mockReturnValue({ aligned: false, status: 'unsure', yFrac: 0.3 });
+        jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
+        $('[data-pcam-shutter]').click(); await flush();          // parte 3: ambigua → sin pista
+        jest.useRealTimers();
+        $('[data-pcam-done]').click(); await flush(); await flush();
+        expect(deps.stitch).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ hints: [0.7, null] }));
+        camera.close();
+    });
+
     test('factura larga: apagar el modo descarta las partes y lo avisa', async () => {
         const { camera, deps } = setup();
         await camera.open();

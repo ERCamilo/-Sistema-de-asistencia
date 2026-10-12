@@ -2,7 +2,7 @@
  * Factura larga por partes: buscar dónde se repite la franja de la parte
  * anterior en la siguiente (para alinear en vivo y para unir sin duplicar).
  */
-import { planStitch, judgeAlignment, findBand } from '../modules/features/pettycash/PettyCashStitch.js';
+import { planStitch, judgeAlignment, findBand, locateOverlap, BAND_STEPS, OVERLAP_FRACTION } from '../modules/features/pettycash/PettyCashStitch.js';
 
 // "Factura" sintética: cada fila tiene un patrón distinto y no se repite (renglones de texto).
 const W = 24;
@@ -112,5 +112,76 @@ describe('franjas ambiguas', () => {
         const r = judgeAlignment({ gray: stripes(12), rows: 12, width: W }, stripes(40), 40);
         expect(r.aligned).toBe(false);
         expect(r.status).toBe('unsure');
+    });
+});
+
+// Factura de supermercado: el mismo producto en muchos renglones seguidos
+// ("CLIGHT NARANJA 4.26 27.95" diez veces). Una franja chica que cae entera en
+// esa zona coincide igual cada 5 filas; una más alta incluye un renglón
+// distinto y ya no es ambigua.
+const repeated = (rows) => {
+    const px = receipt(rows);
+    for (let y = 90; y < 130; y++) px.set(px.slice((90 + (y % 5)) * W, (91 + (y % 5)) * W), y * W);
+    return px;
+};
+// Franja escalonada como la de la cámara: 36 filas (la más alta) con escalones de 12, 24 y 36.
+const steppedBand = (doc, end) => ({ gray: slice(doc, end - 36, 36), rows: 36, width: W, steps: [12, 24, 36] });
+
+describe('renglones repetidos: la franja crece hasta dejar de ser ambigua', () => {
+    const doc = repeated(200);
+    const band = steppedBand(doc, 112); // la chica: filas 100–111, dentro de lo repetido
+
+    test('la franja chica sola es ambigua', () => {
+        const small = { gray: slice(doc, 100, 12), rows: 12, width: W };
+        expect(judgeAlignment(small, slice(doc, 70, 60), 60).status).toBe('unsure');
+    });
+
+    test('con la franja escalonada la ubica (y dice dónde queda la chica)', () => {
+        const r = judgeAlignment(band, slice(doc, 70, 60), 60);
+        expect(r.status).toBe('ok');
+        expect(r.y).toBe(30);
+    });
+
+    test('si todavía no se ve lo suficiente para la franja alta, sigue siendo ambigua', () => {
+        expect(judgeAlignment(band, slice(doc, 95, 40), 40).status).toBe('unsure');
+    });
+
+    test('sin renglones repetidos usa la franja chica, como antes', () => {
+        const plain = receipt(200);
+        const r = judgeAlignment(steppedBand(plain, 112), slice(plain, 90, 60), 60);
+        expect(r).toMatchObject({ status: 'ok', y: 10 });
+    });
+
+    test('los escalones: la chica es la franja de traslape de siempre', () => {
+        expect(BAND_STEPS[0]).toBe(OVERLAP_FRACTION);
+        expect(BAND_STEPS).toEqual([...BAND_STEPS].sort((a, b) => a - b));
+    });
+});
+
+describe('locateOverlap (al unir): dónde quedó el final de la parte anterior', () => {
+    test('la encuentra aunque esté muy abajo (mucho traslape); antes solo buscaba en el 60 % de arriba', () => {
+        const doc = receipt(200);
+        const band = steppedBand(doc, 150); // chica: filas 138–149
+        expect(locateOverlap(band, slice(doc, 90, 60), 60)).toMatchObject({ y: 48 });
+    });
+
+    test('con renglones repetidos', () => {
+        const doc = repeated(200);
+        expect(locateOverlap(steppedBand(doc, 112), slice(doc, 70, 60), 60)).toMatchObject({ y: 30 });
+    });
+
+    test('si sigue ambigua, la pista de la guía elige entre las candidatas (nunca se usa sola)', () => {
+        const doc = repeated(200);
+        const small = { gray: slice(doc, 100, 12), rows: 12, width: W, steps: [12] };
+        const next = slice(doc, 70, 60); // la franja está en y=30
+        expect(locateOverlap(small, next, 60)).toBeNull();
+        expect(locateOverlap(small, next, 60, { hintFrac: 31 / 60 })).toMatchObject({ y: 30, fromHint: true });
+        // Una pista lejos de cualquier candidata no se usa.
+        expect(locateOverlap(small, next, 60, { hintFrac: 0.02 })).toBeNull();
+    });
+
+    test('sin coincidencia confiable: null (la unión asume la franja arriba)', () => {
+        const doc = receipt(200);
+        expect(locateOverlap(steppedBand(doc, 112), slice(doc, 130, 60), 60)).toBeNull();
     });
 });

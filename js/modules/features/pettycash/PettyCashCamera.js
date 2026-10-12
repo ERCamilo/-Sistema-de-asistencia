@@ -838,7 +838,7 @@ export function createReceiptCamera({
     const stopAlign = () => { clearInterval(alignTimer); alignTimer = null; };
     // Estadística de la guía para la parte que se está buscando (diagnóstico).
     let partStats = null;
-    const resetPartStats = () => { partStats = { start: clock(), checks: 0, totalMs: 0, counts: {}, bestNcc: null, msToOk: null }; };
+    const resetPartStats = () => { partStats = { start: clock(), checks: 0, totalMs: 0, counts: {}, bestNcc: null, msToOk: null, tall: 0 }; };
     /** Al tomar una parte con la guía activa: qué decía en ese momento. */
     function notePart() {
         if (!long.parts.length || !partStats) return;
@@ -850,6 +850,7 @@ export function createReceiptCamera({
             checkMs: partStats.checks ? Math.round(partStats.totalMs / partStats.checks) : 0,
             bestNcc: partStats.bestNcc,
             msToOk: partStats.msToOk,
+            tall: partStats.tall,
             counts: partStats.counts
         });
     }
@@ -867,6 +868,8 @@ export function createReceiptCamera({
                 partStats.counts[key] = (partStats.counts[key] || 0) + 1;
                 if (Number.isFinite(r?.ncc)) partStats.bestNcc = Math.max(partStats.bestNcc ?? -1, Math.round(r.ncc * 100) / 100);
                 if (r?.aligned && partStats.msToOk === null) partStats.msToOk = Math.round(clock() - partStats.start);
+                // Ubicada con una franja más alta (renglones repetidos).
+                if (Number.isFinite(r?.rows) && r.rows > (long.band?.steps?.[0] ?? Infinity)) partStats.tall += 1;
             }
             long.ncc = Number.isFinite(r?.ncc) ? r.ncc : null;
             const aligned = !!r?.aligned;
@@ -893,10 +896,15 @@ export function createReceiptCamera({
         paintLong();
     };
 
-    const shootPart = async (shot, videoBand) => {
+    /**
+     * `hint`: dónde vio la guía el final de la parte anterior al tomar esta
+     * (fracción de la altura) si era confiable; ayuda a la unión a elegir con
+     * renglones repetidos.
+     */
+    const shootPart = async (shot, videoBand, hint = null) => {
         if (long.parts.length >= MAX_PARTS) { notify(TIP.full, 'info'); return; }
         const bitmap = await toBitmap(shot);
-        long.parts.push({ bitmap });
+        long.parts.push({ bitmap, hint: long.parts.length ? hint : null });
         Object.assign(long, { aligned: false, status: null, yFrac: null });
         long.band = videoBand;
         try { drawGhost(q('[data-pcam-ghost]'), bitmap); } catch (_) { /* sin franja guía */ }
@@ -916,7 +924,8 @@ export function createReceiptCamera({
             const stitchStart = clock();
             let info = {};
             const parts = long.parts.length;
-            const blob = await stitch(long.parts.map(p => p.bitmap), { onInfo: (i) => { info = i || {}; } });
+            const hints = long.parts.slice(1).map(p => p.hint ?? null);
+            const blob = await stitch(long.parts.map(p => p.bitmap), { onInfo: (i) => { info = i || {}; }, hints });
             note('stitch', { parts, found: info.found ?? null, total: info.total ?? null, ms: Math.round(clock() - stitchStart) });
             const type = blob.type || 'image/jpeg';
             const file = new File([blob], `factura-larga-${Date.now()}.${extensionFor(type)}`, { type });
@@ -976,7 +985,9 @@ export function createReceiptCamera({
         const origin = shot?.origin || 'other';
         if (long.on) {
             notePart();
-            runSaving(async (session) => { if (session === sessionId) await shootPart(shot, videoBand); });
+            const seen = (long.status === 'ok' || long.status === 'below') && Number.isFinite(long.yFrac);
+            const hint = seen ? long.yFrac : null;
+            runSaving(async (session) => { if (session === sessionId) await shootPart(shot, videoBand, hint); });
             note('shot', { origin, grabMs, saveMs: 0, kb: 0, mime: null, long: true });
             return;
         }
