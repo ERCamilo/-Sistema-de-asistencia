@@ -475,6 +475,27 @@
     color: var(--stg-text-secondary);
 }
 
+/* Voz (General): textos de apoyo como los demás paneles. */
+.stg-voice-note {
+    margin: 10px 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--stg-text-muted);
+}
+
+/* Versión: 7 toques activan el modo desarrollador (DeveloperMode.js). */
+.stg-version-tap {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+}
+
 /* ─── User card (connected account) ─── */
 .stg-user-card {
     background: rgba(16, 185, 129, 0.08);

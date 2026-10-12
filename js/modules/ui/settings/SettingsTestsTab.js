@@ -20,7 +20,7 @@ function newBottomNavCard(settings = {}) {
     const current = NAV_CENTER_MODES.some(([value]) => value === settings.navCenterMode) ? settings.navCenterMode : 'auto';
     const centerChoice = !on ? '' : `
                 <strong style="display:block;font-size:.88rem;color:#e2e8f0;margin:14px 0 8px;">Botón central de la barra</strong>
-                ${settings.voiceMvpEnabled === true ? '' : '<small style="display:block;color:#94a3b8;margin:-4px 0 10px;">El micrófono aparece cuando la prueba de voz está activa. Mientras tanto se muestra "+".</small>'}
+                ${settings.voiceMvpEnabled === true ? '' : '<small style="display:block;color:#94a3b8;margin:-4px 0 10px;">El micrófono aparece cuando Voz está activa (Configuración → General). Mientras tanto se muestra "+".</small>'}
                 <div class="stg-choice-group">
                     ${NAV_CENTER_MODES.map(([value, label, hint]) => `
                     <label class="stg-choice-option ${current === value ? 'is-selected' : ''}">
@@ -94,41 +94,13 @@ export function SettingsTestsTab(context) {
 
     return `
         <div class="stg-panel">
+            <section class="stg-card" aria-labelledby="developer-mode-title" style="margin-bottom:20px;" data-developer-mode>
+                <h3 id="developer-mode-title">Modo desarrollador</h3>
+                <p>Esta pestaña solo se ve en este teléfono. Para ocultarla, toca aquí o toca 7 veces la versión al pie.</p>
+                <button type="button" class="btn btn-secondary" data-settings-action="exit-developer-mode">Ocultar pestaña Tests</button>
+            </section>
             ${newBottomNavCard(state.settings)}
             ${newReceiptCameraCard(state.settings)}
-            <section class="stg-card" aria-labelledby="voice-mvp-test-title" style="margin-bottom:20px;">
-                <h3 id="voice-mvp-test-title">Prueba de voz</h3>
-                <label class="stg-switch-row ${state.settings?.voiceMvpEnabled === true ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceMvpEnabled === true}">
-                    <input type="checkbox" id="voiceMvpEnabled" ${state.settings?.voiceMvpEnabled === true ? 'checked' : ''}>
-                    <span class="stg-switch-copy"><strong>Activar botón de voz · MVP</strong><small>Muestra el micrófono para grabar y revisar instrucciones de voz.</small></span>
-                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
-                </label>
-                <p>Mantén pulsado para grabar y suelta para terminar. Revisa el préstamo antes de registrarlo.</p>
-                <label class="stg-switch-row ${state.settings?.voiceUsePreviousInterest === true ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceUsePreviousInterest === true}">
-                    <input type="checkbox" id="voiceUsePreviousInterest" ${state.settings?.voiceUsePreviousInterest === true ? 'checked' : ''}>
-                    <span class="stg-switch-copy"><strong>Usar la tasa anterior del empleado en préstamos por voz</strong><small>Si no indicas interés, reutiliza su última tasa válida; sin una anterior usa 20 %. Una tasa indicada en la voz o editada tiene prioridad.</small></span>
-                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
-                </label>
-                <label class="stg-switch-row ${state.settings?.voiceKeepLoanAudio !== false ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceKeepLoanAudio !== false}">
-                    <input type="checkbox" id="voiceKeepLoanAudio" ${state.settings?.voiceKeepLoanAudio !== false ? 'checked' : ''}>
-                    <span class="stg-switch-copy"><strong>Conservar audio de préstamos</strong><small>Solo en este navegador. Desactivarlo elimina los audios de préstamos guardados y no conserva los nuevos.</small></span>
-                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
-                </label>
-                <label class="stg-switch-row ${state.settings?.voiceFeedback !== false ? 'is-active' : ''}" role="switch" aria-checked="${state.settings?.voiceFeedback !== false}">
-                    <input type="checkbox" id="voiceFeedback" ${state.settings?.voiceFeedback !== false ? 'checked' : ''}>
-                    <span class="stg-switch-copy"><strong>Sonido y vibración al grabar</strong><small>Un tic y una vibración corta al empezar a escuchar, y otro al terminar. En iPhone solo suena: el navegador no permite vibrar.</small></span>
-                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
-                </label>
-                <h4>Tiempo de conservación desde el registro</h4>
-                <div class="stg-choice-group" role="group" aria-label="Días de conservación de audio">
-                    ${[1, 2, 3, 4, 5].map(days => `<label class="stg-choice-option ${Number(state.settings?.voiceAudioRetentionDays ?? 5) === days ? 'is-selected' : ''}"><input type="radio" name="voiceAudioRetentionDays" value="${days}" ${Number(state.settings?.voiceAudioRetentionDays ?? 5) === days ? 'checked' : ''}><span>${days} ${days === 1 ? 'día' : 'días'}</span></label>`).join('')}
-                </div>
-                <p data-voice-storage-status role="status">${context.currentUser ? 'Consultando el espacio de audios…' : 'Inicia sesión para gestionar tus audios.'}</p>
-                <button type="button" class="btn btn-secondary" data-voice-storage-retry hidden>Reintentar consulta</button>
-                <p data-voice-storage-warning role="status" hidden></p>
-                <button type="button" class="btn btn-secondary" data-settings-action="manage-voice-audio" ${context.currentUser ? '' : 'disabled'}>Gestionar audios guardados</button>
-                <p>Las búsquedas y los audios descartados se eliminan. Los vencidos se limpian al abrir la app y mientras está abierta. Límite local: 50 MiB.</p>
-            </section>
             <div class="stg-header" style="margin-bottom: 20px;">
                 <div>
                     <h3>Pruebas del Sistema</h3>
