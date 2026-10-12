@@ -127,6 +127,32 @@ describe('Voz — señales al grabar', () => {
     });
 });
 
+describe('Botón de micrófono flotante: sin gestos del sistema al mantenerlo', () => {
+    const fire = (target, type, extra = {}) => {
+        const ev = new Event(type, { bubbles: true, cancelable: true });
+        Object.assign(ev, { button: 0, pointerId: 7, ...extra });
+        target.dispatchEvent(ev);
+        return ev;
+    };
+
+    test('no selecciona ni arrastra lo de alrededor mientras se graba', async () => {
+        const t = setup();
+        document.body.insertAdjacentHTML('beforeend', '<span id="vecino">ASISTENCIA</span>');
+        const vecino = document.getElementById('vecino');
+        expect(fire(t.ui.launcher, 'touchstart').defaultPrevented).toBe(true);
+        fire(t.ui.launcher, 'pointerdown');
+        await flush();
+        expect(document.documentElement.classList.contains('is-holding')).toBe(true);
+        expect(fire(vecino, 'selectstart').defaultPrevented).toBe(true);
+        expect(fire(vecino, 'dragstart').defaultPrevented).toBe(true);
+        fire(t.ui.launcher, 'pointerup');
+        await flush();
+        expect(document.documentElement.classList.contains('is-holding')).toBe(false);
+        expect(fire(vecino, 'selectstart').defaultPrevented).toBe(false);
+        t.cleanup();
+    });
+});
+
 describe('Configuración → General: sonido y vibración de Voz', () => {
     test('interruptor encendido por defecto; se puede apagar', () => {
         document.body.innerHTML = SettingsVoiceCard({ state: { settings: {} } });

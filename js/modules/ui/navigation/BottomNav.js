@@ -23,6 +23,8 @@
  * Probado en js/tests/BottomNav.test.js.
  */
 
+import { createHoldGuard, preventTouchDefaults } from '../HoldGuard.js';
+
 const svg = (d, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}><path d="${d}"/></svg>`;
 
 const ICONS = {
@@ -325,6 +327,9 @@ function syncCenter(doc) {
 export function initBottomNav({ doc = document, win = window, getState, voice = null, pettyCash = null, notify = () => {}, refresh = () => {} } = {}) {
     let holdTimer = null;
     let pressing = false;
+    // Mientras se mantiene el botón central: sin selección, menú ni arrastre del sistema.
+    const holdGuard = createHoldGuard({ doc });
+    const releaseTouch = preventTouchDefaults(doc, '[data-bnav-center]');
     let holding = false;
     let toggleRecording = false;
     let photoInput = null;
@@ -448,6 +453,7 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
         if (event.button !== undefined && event.button !== 0) return;
         event.preventDefault();
         pressing = true; holding = false;
+        holdGuard.start();
         center.setPointerCapture?.(event.pointerId);
         clearTimeout(holdTimer);
         if (!toggleRecording && ui.centerMode === 'mic' && voice?.isAvailable?.()) {
@@ -459,8 +465,10 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     };
 
     const onPointerUp = (event) => {
+        if (pressing) holdGuard.end(); // aunque el dedo termine fuera del botón
         if (!pressing || !event.target?.closest?.('[data-bnav-center]')) return;
         pressing = false;
+        holdGuard.end();
         lastPointerUp = Date.now();
         clearTimeout(holdTimer);
         if (holding) { holding = false; stopVoice(); return; }
@@ -469,6 +477,7 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     };
 
     const onPointerCancel = () => {
+        holdGuard.end();
         if (!pressing) return;
         pressing = false;
         clearTimeout(holdTimer);
@@ -511,6 +520,8 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     return {
         destroy() {
             clearTimeout(holdTimer);
+            holdGuard.end();
+            releaseTouch();
             doc.removeEventListener('click', onClick);
             doc.removeEventListener('pointerdown', onPointerDown);
             doc.removeEventListener('pointerup', onPointerUp);

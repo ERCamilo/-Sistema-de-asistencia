@@ -7,6 +7,7 @@ import { VoiceAudioView } from './VoiceAudioView.js';
 import { voiceRetentionPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET } from './VoiceRetention.js';
 import { VoiceStore } from './VoiceStore.js';
 import { VoiceRecorder } from './VoiceRecorder.js';
+import { createHoldGuard } from '../../ui/HoldGuard.js';
 import { LOAN_FIELDS, VOICE_TEST_ENDPOINT, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceName, isVoiceEndpointAllowed, createVoiceContext, sendVoiceRecording, resolveVoiceEmployees, voiceBlocked, voiceHardBlocked, voiceDraftReady } from './VoiceCore.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { completeVoiceLoanDraft, voiceLoanNote } from './VoiceLoanDraft.js';
@@ -55,15 +56,19 @@ export class VoiceMvpUI {
         this.wave.innerHTML = `<div class="voice-wave-head"><span class="voice-rec-dot" aria-hidden="true"></span><span role="status">Activando micrófono…</span><span class="voice-wave-hint"></span></div><div class="voice-wave-bars" aria-hidden="true">${WAVE_BAR_FACTORS.map(k => `<i style="--k:${k}"></i>`).join('')}</div>`;
         this.launcher.dataset.voiceState = 'idle';
         document.body.append(this.wave);
+        // Mantener pulsado sin los gestos del sistema (selección, menú, arrastre "fantasma").
+        this.holdGuard = createHoldGuard({ doc: document });
+        this.launcher.addEventListener('touchstart', event => event.preventDefault(), { passive: false });
         this.launcher.addEventListener('pointerdown', event => {
             if (event.button !== 0 || this.held) return;
+            this.holdGuard.start();
             event.preventDefault(); this.feedback.prime(); this.toggleMode = false; this.held = true; this.pointerId = event.pointerId;
             this.launcher.setPointerCapture?.(event.pointerId);
             this.run(() => this.beginHold());
         });
-        this.launcher.addEventListener('pointerup', event => { if (event.pointerId === this.pointerId) this.finishHold(); });
-        this.launcher.addEventListener('pointercancel', () => this.cancelHold());
-        this.launcher.addEventListener('lostpointercapture', () => { if (this.held) this.cancelHold(); });
+        this.launcher.addEventListener('pointerup', event => { this.holdGuard.end(); if (event.pointerId === this.pointerId) this.finishHold(); });
+        this.launcher.addEventListener('pointercancel', () => { this.holdGuard.end(); this.cancelHold(); });
+        this.launcher.addEventListener('lostpointercapture', () => { this.holdGuard.end(); if (this.held) this.cancelHold(); });
         this.launcher.addEventListener('contextmenu', event => event.preventDefault());
         this.launcher.addEventListener('click', event => { if (event.detail !== 0) return; this.feedback.prime(); if (!this.recording) this.toggleMode = true; this.run(() => this.recording ? this.finishHold() : this.beginHold()); });
         this.onBlur = () => { if (this.recording) this.cancelHold(); };
@@ -753,5 +758,5 @@ export class VoiceMvpUI {
         if (!audio.voiceBound) { for (const event of ['play','pause','ended','timeupdate','loadedmetadata']) audio.addEventListener(event,update); audio.voiceBound = true; }
         update();
     }
-    destroy() { this.destroyed = true; document.removeEventListener('click', this.onStorageRetry); clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
+    destroy() { this.destroyed = true; this.holdGuard?.end(); document.removeEventListener('click', this.onStorageRetry); clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
 }

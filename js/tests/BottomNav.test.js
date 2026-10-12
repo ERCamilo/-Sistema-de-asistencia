@@ -264,6 +264,31 @@ describe('BottomNav — interacción', () => {
         expect(isOpen('center')).toBe(false);
     });
 
+    test('mantener pulsado no selecciona ni arrastra otras partes de la barra', () => {
+        jest.useFakeTimers();
+        mount();
+        const center = $('[data-bnav-center]');
+        const label = document.querySelector('.bottom-nav-text');
+        expect(pointer('touchstart', center).defaultPrevented).toBe(true);
+        expect(pointer('touchstart', label).defaultPrevented).toBe(false);
+        pointer('pointerdown', center);
+        expect(document.documentElement.classList.contains('is-holding')).toBe(true);
+        expect(pointer('selectstart', label).defaultPrevented).toBe(true);
+        expect(pointer('dragstart', label).defaultPrevented).toBe(true);
+        jest.advanceTimersByTime(HOLD_TO_TALK_MS + 10);
+        pointer('pointerup', center);
+        expect(document.documentElement.classList.contains('is-holding')).toBe(false);
+        expect(pointer('selectstart', label).defaultPrevented).toBe(false);
+    });
+
+    test('al cancelarse el gesto también se libera la página', () => {
+        mount();
+        const center = $('[data-bnav-center]');
+        pointer('pointerdown', center);
+        pointer('pointercancel', center);
+        expect(document.documentElement.classList.contains('is-holding')).toBe(false);
+    });
+
     test('si el gesto se cancela (scroll del sistema) la grabación se descarta', () => {
         jest.useFakeTimers();
         const { voice } = mount();
