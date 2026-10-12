@@ -73,7 +73,8 @@ testRunner.addSuite("ErrorLogWiring — SettingsUI.js (clear-cache) también reg
     "el catch de clear-cache llama a logError y translateError, no error.message crudo"() {
         const idx = SETTINGS_UI_SRC.indexOf("'clear-cache'");
         testRunner.assert(idx !== -1, "debe existir la acción clear-cache");
-        const block = SETTINGS_UI_SRC.slice(idx, idx + 700);
+        const end = SETTINGS_UI_SRC.indexOf("'clear-mini-attendance-aliases'", idx);
+        const block = SETTINGS_UI_SRC.slice(idx, end);
         testRunner.assert(/logError\s*\(\s*err\s*,/.test(block), "debe registrar el error en el log");
         testRunner.assert(/translateError\s*\(\s*err\s*,\s*\{\s*fallbackContext\s*:/.test(block),
             "debe traducir el error con translateError(err, {fallbackContext: ...})");

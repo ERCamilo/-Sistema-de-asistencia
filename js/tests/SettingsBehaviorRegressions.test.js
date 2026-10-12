@@ -22,7 +22,9 @@ describe('Ajustes: ejecución del handler real de guardado', () => {
         harness.save();
         expect(JSON.stringify(harness.state)).toBe(before);
         expect(harness.saveApplicationData).not.toHaveBeenCalled();
-        expect(harness.showNotification).toHaveBeenCalledWith(expect.any(String),'error');
+        expect(document.getElementById(field).getAttribute('aria-invalid')).toBe('true');
+        expect(document.querySelector('.settings-field-error').textContent).toBeTruthy();
+        expect(harness.showNotification).not.toHaveBeenCalled();
     });
     test('0 % sobrevive al guardar y volver a renderizar Calendario', () => {
         document.body.innerHTML='<input type="number" id="defaultDeductionPercentage" value="0">';

@@ -96,9 +96,10 @@ export function SettingsTestsTab(context) {
                 <div class="stg-choice-group" role="group" aria-label="Días de conservación de audio">
                     ${[1, 2, 3, 4, 5].map(days => `<label class="stg-choice-option ${Number(state.settings?.voiceAudioRetentionDays ?? 5) === days ? 'is-selected' : ''}"><input type="radio" name="voiceAudioRetentionDays" value="${days}" ${Number(state.settings?.voiceAudioRetentionDays ?? 5) === days ? 'checked' : ''}><span>${days} ${days === 1 ? 'día' : 'días'}</span></label>`).join('')}
                 </div>
-                <p data-voice-storage-status>Calculando el espacio de audios…</p>
+                <p data-voice-storage-status role="status">${context.currentUser ? 'Consultando el espacio de audios…' : 'Inicia sesión para gestionar tus audios.'}</p>
+                <button type="button" class="btn btn-secondary" data-voice-storage-retry hidden>Reintentar consulta</button>
                 <p data-voice-storage-warning role="status" hidden></p>
-                <button type="button" class="btn btn-secondary" data-settings-action="manage-voice-audio">Gestionar audios guardados</button>
+                <button type="button" class="btn btn-secondary" data-settings-action="manage-voice-audio" ${context.currentUser ? '' : 'disabled'}>Gestionar audios guardados</button>
                 <p>Las búsquedas y los audios descartados se eliminan. Los vencidos se limpian al abrir la app y mientras está abierta. Límite local: 50 MiB.</p>
             </section>
             <div class="stg-header" style="margin-bottom: 20px;">

@@ -651,3 +651,33 @@
 @media (max-width: 380px) {
     .stg-calendar-grid > * { padding: 4px !important; }
 }
+
+/* Save modes describe intent; outcomes still come from confirmed persistence. */
+.settings-save-mode {
+    display: inline-block;
+    margin: 4px 0 4px 8px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: var(--panel-2);
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+.settings-save-guide {
+    margin: 0 0 16px;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+.settings-field-error {
+    margin: 8px 0;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--bad) 15%, var(--panel));
+    border-left: 3px solid var(--bad);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}

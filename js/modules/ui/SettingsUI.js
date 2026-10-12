@@ -6,6 +6,7 @@ import { APP_CONFIG } from '../config/Config.js';
 import { SettingsGeneralTab } from './settings/SettingsGeneralTab.js';
 import {
     SETTINGS_DRAFT_FIELD_IDS,
+    isSettingsDraftDirty,
     captureSettingsDraft,
     restoreSettingsDraft,
     refreshSettingsDraftBar,
@@ -28,6 +29,7 @@ import {
 import { getLocalOwnerUid } from '../services/LocalDataOwner.js';
 import { escapeAttr } from '../utils/Sanitize.js';
 import { DOMDiff } from '../utils/DOMDiff.js';
+import { clearSettingsFormErrors, refreshSettingsFormErrors, showSettingsFormError } from './settings/SettingsFormFeedback.js';
 import { StorageCard, SyncCard, getSettingsSyncStatus, attachSettingsDiagnostics, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
 export { SyncCard, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
 
@@ -48,7 +50,7 @@ const _SETTINGS_ACTION_MAP = {
     // falta (ni sirve: el DOM todavía está viejo en este mismo tick). Si la
     // validación falla no hay render, y la barra correctamente queda visible.
     'save-settings': () => window.saveSettings?.(),
-    'discard-settings-draft': () => discardSettingsDraft({}),
+    'discard-settings-draft': () => { clearSettingsFormErrors(); discardSettingsDraft({}); },
     'login-with-google': () => window.loginWithGoogle?.(),
     'logout-firebase': () => window.logoutFirebase?.(),
     'sync-firebase-now': () => window.syncFirebaseNow?.(),
@@ -177,29 +179,44 @@ const _SETTINGS_ACTION_MAP = {
     },
     // Mantenimiento: limpiar el cache del navegador para forzar la última versión.
     'clear-cache': () => {
+        const dirty = isSettingsDraftDirty();
+        const snapshot = captureSettingsDraft();
+        const signature = draft => JSON.stringify(draft && [draft.scope, draft.fields]);
+        let clearing = false;
         const doClear = async () => {
+            if (clearing) return;
+            // A later edit must not be covered by an earlier confirmation.
+            if (signature(captureSettingsDraft()) !== signature(snapshot)) {
+                _SETTINGS_ACTION_MAP['clear-cache']();
+                return;
+            }
+            clearing = true;
             try {
                 const { deletedCaches } = await clearAppCaches();
                 window.showNotification?.(
-                    `Cache limpiado (${deletedCaches}). Recargando para traer la última versión…`,
+                    `Caché limpiada (${deletedCaches}). Recargando para traer la última versión…`,
                     'success'
                 );
                 setTimeout(() => window.location.reload(), 600);
             } catch (err) {
-                console.error('❌ Error limpiando cache:', err);
+                clearing = false;
                 logError(err, 'limpiar el cache');
-                window.showNotification?.(`No se pudo limpiar el cache: ${translateError(err, { fallbackContext: 'limpiar el cache' })}`, 'error');
+                showSettingsFormError(`No se pudo limpiar la caché. Tus cambios pendientes se conservan. ${translateError(err, { fallbackContext: 'limpiar el cache' })}`);
             }
         };
         if (window.showConfirm) {
             window.showConfirm({
-                title: 'Limpiar cache y recargar',
-                message: 'Se borrarán los archivos cacheados del navegador para forzar la última versión de la app. Tus datos (empleados, asistencia, configuración) NO se borran. La app se va a recargar. ¿Continuar?',
-                confirmText: 'Sí, limpiar y recargar',
-                cancelText: 'Cancelar',
+                title: 'Limpiar caché y recargar',
+                message: dirty
+                    ? 'Hay cambios sin guardar. Si recargas, se descartarán. Los datos ya guardados se conservan.'
+                    : 'Se limpiarán los archivos de la aplicación y se recargará. Tus datos guardados se conservan.',
+                confirmText: dirty ? 'Descartar cambios y recargar' : 'Limpiar y recargar',
+                cancelText: dirty ? 'Seguir editando' : 'Cancelar',
                 type: 'warning',
                 onConfirm: doClear
             });
+        } else if (dirty) {
+            showSettingsFormError('Guarda o descarta los cambios pendientes antes de limpiar la caché y recargar.');
         } else {
             doClear();
         }
@@ -446,7 +463,38 @@ export function reconcileSettingsDraftBeforeSave(doc = document) {
     const snapshot = captureSettingsDraft(doc);
     DOMDiff.patchSelf(screen, SettingsTab());
     restoreSettingsDraft(snapshot, doc);
+    refreshSettingsFormErrors(doc);
     refreshSettingsDraftBar(doc);
+}
+
+// The badge describes the persistence contract, not a completed save.
+function addSettingsSaveModes(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    for (const control of template.content.querySelectorAll('input, select')) {
+        const pending = SETTINGS_DRAFT_FIELD_IDS.includes(control.id);
+        const automatic = AUTO_SAVE_SWITCH_IDS.has(control.id)
+            || AUTO_SAVE_OPTION_VALUES.has(control.name)
+            || ['iconSet', 'helpModeSelect', 'backupFrequency', 'mirrorCadence',
+                'settingsPeriodStart', 'settingsPeriodLength', 'settingsPayDay'].includes(control.id);
+        if (!pending && !automatic) continue;
+        let label = control.closest('.stg-switch-row')?.querySelector('.stg-switch-copy strong')
+            || (control.id && template.content.querySelector(`label[for="${control.id}"]`));
+        if (!label && control.tagName === 'SELECT') {
+            label = control.closest('.form-group')?.querySelector('label');
+            label?.setAttribute('for', control.id);
+        }
+        if (!label && control.type === 'radio') {
+            label = control.closest('fieldset')?.querySelector('legend') || control.closest('.stg-choice-group');
+        }
+        if (!label || label.querySelector('.settings-save-mode')) continue;
+        const badge = document.createElement('span');
+        badge.className = 'settings-save-mode';
+        badge.textContent = pending ? 'Al guardar' : 'Automático';
+        if (label.classList.contains('stg-choice-group')) badge.style.gridColumn = '1 / -1';
+        label.append(badge);
+    }
+    return template.innerHTML;
 }
 
 // ============================================
@@ -477,7 +525,7 @@ export function SettingsTab() {
         }
     }
 
-    return `
+    return addSettingsSaveModes(`
                 <div id="settings-screen" data-settings-draft-tab="${activeTab}" data-settings-draft-scope="${escapeAttr(JSON.stringify([activeTab, activeTab === 'calendar' ? calendarContext.payrollProjectId || 'global' : 'global']))}" style="max-width: 900px; margin: 0 auto;">
                     <div class="stg-header" style="margin-bottom: 20px;">
                         <div>
@@ -516,17 +564,13 @@ export function SettingsTab() {
                         </button>
                     </div>
 
+                    <p class="settings-save-guide">Automático: se guarda al cambiar. Al guardar: confirma los cambios en la barra inferior.</p>
                     <!-- Contenido de las Pestañas -->
                     ${activeTab === 'general' ? SettingsGeneralTab(context) : ''}
                     ${activeTab === 'data' ? SettingsDataTab(context) : ''}
                     ${activeTab === 'calendar' ? SettingsTabCalendar(calendarContext) : ''}
                     ${activeTab === 'tests' ? SettingsTestsTab(context) : ''}
                     
-                    <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
-                        <button type="button" data-settings-action="save-settings" class="btn btn-primary" style="padding: 12px 32px; font-size: 1rem;">
-                            Guardar Configuración
-                        </button>
-                    </div>
 
                     <!-- Versión y fecha de actualización -->
                     <div class="stg-footer">
@@ -542,7 +586,7 @@ export function SettingsTab() {
                         </div>
                     </div>
                 </div>
-            `;
+            `);
 }
 
 // ============================================

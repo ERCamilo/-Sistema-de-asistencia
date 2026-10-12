@@ -11,16 +11,25 @@ const http = require('node:http');
 const ROOT = path.resolve(__dirname, '..');
 const styles = [...fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="(css\/[^"]+)"/g)]
     .map(match => `<link rel="stylesheet" href="/${match[1]}">`).join('');
+const names = fs.readFileSync(path.join(ROOT, 'js/modules/data/firebase.js'), 'utf8')
+    .match(/export\s*\{([\s\S]*?)\}/)[1].replace(/\/\/[^\n]*/g, '').split(',').map(name => name.trim()).filter(Boolean);
+const firebaseStub = names.map(name => name === 'auth' ? 'export const auth = {currentUser:null};' : `export const ${name} = () => {};`).join('\n');
+const appSource = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
+const saveStart = appSource.indexOf('window.saveSettings = function');
+const saveEnd = appSource.indexOf('\n};', saveStart) + 3;
+const saveHandler = appSource.slice(saveStart, saveEnd).replace('window.saveSettings = ', '').replace(/;\s*$/, '');
 const fixture = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">${styles}</head>
-<body class="has-sidebar"><main class="main-content"><div class="container"><div id="settings-screen" style="max-width:900px;margin:auto"><div class="stg-status-bar" id="diagnostics"></div><div id="screen"></div></div></div></main><nav class="bottom-nav" aria-label="Navegación de prueba">Navegación inferior</nav>
+<body class="has-sidebar"><main class="main-content"><div class="container"><div id="screen"></div></div></main><nav class="bottom-nav" aria-label="Navegación de prueba">Navegación inferior</nav>
 <script type="module">
-import {SettingsGeneralTab} from '/js/modules/ui/settings/SettingsGeneralTab.js';
-import {SettingsTabCalendar} from '/js/modules/ui/settings/SettingsCalendarTab.js';
-import {refreshSettingsDraftBar,discardSettingsDraft} from '/js/modules/ui/settings/SettingsDraftBar.js';
+import {SettingsTab,initSettingsUI,reconcileSettingsDraftBeforeSave} from '/js/modules/ui/SettingsUI.js';
+import {state,stateManager} from '/js/modules/core/AppState.js';
+import {DOMDiff} from '/js/modules/utils/DOMDiff.js';
+import {clearSettingsFormErrors,refreshSettingsFormErrors,showSettingsFieldError,showSettingsFormError} from '/js/modules/ui/settings/SettingsFormFeedback.js';
+import {refreshSettingsDraftBar,discardSettingsDraft,captureSettingsDraft,restoreSettingsDraft,guardSettingsDraftBeforeSave} from '/js/modules/ui/settings/SettingsDraftBar.js';
 import {HolidayService} from '/js/modules/features/attendance/HolidayService.js';
 import {StorageCard,SyncCard,attachSettingsDiagnostics,refreshDeviceSettingsDiagnostics,getSettingsSyncStatus} from '/js/modules/ui/settings/SettingsDiagnostics.js';
 import {SyncStatus} from '/js/modules/services/SyncStatus.js';
-const state={settings:{companyName:'Empresa de prueba',regularHoursPerDay:8,overtimeFactor:1.5,holidayFactor:2,restDayFactor:1.5,defaultDeductionPercentage:0,holidays:[],payPeriod:{}},settingsCalendarMonth:new Date(2026,9,1)};
+stateManager.batchSetState(raw=>{raw.activeTab='settings';Object.assign(raw.settings,{companyName:'Empresa de prueba',regularHoursPerDay:8,overtimeFactor:1.5,holidayFactor:2,restDayFactor:1.5,defaultDeductionPercentage:0,holidays:[],payPeriod:{}});raw.settingsCalendarMonth=new Date(2026,9,1);});
 const context={state,icons:{get:()=>'',getAvailableSets:()=>['unicode']},holidayService:new HolidayService(state)};
 // Synthetic device-local records. Genuine browser IndexedDB and Blob measurements.
 const seed=async(name,rows)=>{
@@ -29,19 +38,23 @@ const seed=async(name,rows)=>{
 };
 await seed('attendance-app-db',{employeePhotos:[{optimizedBlob:new Blob([new Uint8Array(6*1024*1024)]),thumbnailBlob:new Blob([new Uint8Array(1024)])}],mainSyncOutbox:[{status:'pending'}],pettyCashOutbox:[{status:'pending'}],pettyCashMirrorOutbox:[{status:'dead'}]});
 await seed('sa-voice-mvp-v1',{recordings:[{uid:'test-a',audio:new Blob([new Uint8Array(1024*1024)])}]});
-document.getElementById('diagnostics').innerHTML=StorageCard()+SyncCard();
-attachSettingsDiagnostics(context);await refreshDeviceSettingsDiagnostics();
+initSettingsUI(context);
 window.fixtureSyncStatus=SyncStatus;
 window.fixtureSetUser=async(user)=>{context.currentUser=user;await refreshDeviceSettingsDiagnostics();};
 window.fixtureRefresh=refreshDeviceSettingsDiagnostics;
-window.draw=tab=>{discardSettingsDraft({});document.getElementById('screen').innerHTML=tab==='calendar'?SettingsTabCalendar(context):SettingsGeneralTab(context);};
-document.addEventListener('input',()=>refreshSettingsDraftBar(document));window.draw('general');window.ready=true;
+window.draw=tab=>{clearSettingsFormErrors();discardSettingsDraft({});state.settingsActiveTab=tab;document.getElementById('screen').innerHTML=SettingsTab();refreshSettingsDraftBar();};
+window.fixtureRender=()=>{const draft=captureSettingsDraft();DOMDiff.patchSelf(document.getElementById('settings-screen'),SettingsTab());restoreSettingsDraft(draft);refreshSettingsFormErrors();refreshSettingsDraftBar();};
+window.saveCalls=0;
+const deps={state,document,isProjectsEnabled:()=>false,payrollUIRuntime:{},showNotification:()=>{},saveApplicationData:()=>window.saveCalls++,render:window.fixtureRender,stateManager,updateWeatherApiKeyProvider:()=>{},guardSettingsDraftBeforeSave,reconcileSettingsDraftBeforeSave,clearSettingsFormErrors,showSettingsFieldError,showSettingsFormError,logError:()=>{}};
+window.saveSettings=new Function(...Object.keys(deps),'return ('+${JSON.stringify(saveHandler)}+');')(...Object.values(deps));
+window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=true;
 </script></body></html>`;
 
 (async () => {
     const server=http.createServer((req,res)=>{
         const pathname=new URL(req.url,'http://fixture').pathname;
         if(pathname==='/settings-fixture') {res.setHeader('Content-Type','text/html');res.end(fixture);return;}
+        if(pathname==='/js/modules/data/firebase.js'){res.setHeader('Content-Type','text/javascript');res.end(firebaseStub);return;}
         const file=path.resolve(ROOT,'.'+decodeURIComponent(pathname));
         if(!file.startsWith(ROOT+path.sep)) {res.writeHead(403).end();return;}
         fs.readFile(file,(error,body)=>{
@@ -75,11 +88,12 @@ document.addEventListener('input',()=>refreshSettingsDraftBar(document));window.
         console.log('PASS almacenamiento real de fotos/audios, colas y cambios de red sin falsos éxitos');
         for(const width of [1440,820,390,320]) {
             await page.setViewport({width,height:844});
-            for(const tab of ['general','calendar']) {
+            for(const tab of ['general','calendar','data','tests']) {
                 await page.evaluate(tab=>window.draw(tab),tab);
-                const layout=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,unlabelled:[...document.querySelectorAll('#screen input,#screen select')].filter(el=>!el.labels.length&&!el.getAttribute('aria-label')&&!el.getAttribute('aria-labelledby')).map(el=>el.id)}));
+                const layout=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,unlabelled:[...document.querySelectorAll('#screen input,#screen select')].filter(el=>getComputedStyle(el).display!=='none'&&!el.labels.length&&!el.getAttribute('aria-label')&&!el.getAttribute('aria-labelledby')).map(el=>el.id)}));
                 assert.ok(layout.scroll<=layout.width,`${tab} desborda a ${width}px: ${JSON.stringify(layout)}`);
                 assert.deepEqual(layout.unlabelled,[],`${tab}: etiquetas accesibles`);
+                assert.equal(await page.$$eval('#settings-screen [data-settings-action="save-settings"]',els=>els.length),0);
                 if(tab==='calendar') {
                     const inputWidth=await page.$eval('#settingsPeriodStart',el=>el.getBoundingClientRect().width);
                     assert.ok(inputWidth>=180,`Inicio del período demasiado estrecho a ${width}px: ${inputWidth}`);
@@ -94,9 +108,25 @@ document.addEventListener('input',()=>refreshSettingsDraftBar(document));window.
                     assert.ok(bar.buttons.every(b=>b.left>=bar.left&&b.right<=bar.right),`Botones fuera de la barra: ${JSON.stringify(bar)}`);
                     if(width<1024&&bar.navVisible) assert.ok(bar.bottom<=bar.navTop,`Barra cubre navegación: ${JSON.stringify(bar)}`);
                 }
+                if(width===320&&process.env.SETTINGS_SCREENSHOT_DIR){fs.mkdirSync(process.env.SETTINGS_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.SETTINGS_SCREENSHOT_DIR,`settings-${tab}.png`),fullPage:true});}
                 console.log(`PASS Ajustes ${tab}: ${width}px, etiquetas, sin desbordamiento${tab==='general'?', barra y navegación':''}`);
             }
         }
+        await page.evaluate(()=>window.draw('calendar'));
+        await page.$eval('#overtimeFactor',el=>{el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));});
+        await page.click('#settings-draft-bar [data-settings-action="save-settings"]');
+        assert.equal(await page.evaluate(()=>window.saveCalls),0);
+        assert.equal(await page.$eval('#overtimeFactor',el=>el.getAttribute('aria-invalid')),'true');
+        assert.match(await page.$eval('#settings-error-overtimeFactor',el=>el.textContent),/entre 1 y 5/);
+        await page.evaluate(()=>window.fixtureRender());
+        assert.equal(await page.$eval('#overtimeFactor',el=>el.value),'');
+        assert.ok(await page.$('#settings-error-overtimeFactor'));
+        await page.$eval('#overtimeFactor',el=>{el.value='2';el.dispatchEvent(new Event('input',{bubbles:true}));});
+        assert.equal(await page.$('#settings-error-overtimeFactor'),null);
+        await page.click('#settings-draft-bar [data-settings-action="save-settings"]');
+        assert.equal(await page.evaluate(()=>window.saveCalls),1);
+        assert.equal(await page.$eval('#settings-draft-bar',el=>el.hidden),true);
+        console.log('PASS handler real: error inline, borrador preservado, corrección y guardado contextual único');
         assert.deepEqual(errors,[]);console.log('PASS sin errores JavaScript ni llamadas a cuentas reales');
     } finally {if(browser) await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});
