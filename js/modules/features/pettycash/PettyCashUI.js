@@ -531,6 +531,31 @@ export async function applyReceiptFix(id, { patch = null, accept = null } = {}, 
     return true;
 }
 
+/**
+ * "Volver a leer" desde la vista previa de la cámara: la misma foto vuelve a
+ * la cola del lector. Se borran los recuadros y los avisos aceptados de la
+ * lectura anterior, porque la nueva puede traer otros datos. Necesita la foto
+ * original guardada en este teléfono.
+ */
+export async function rereadReceipt(id, {
+    getJob = (txId) => indexedDBService.getReceipt(txId),
+    updateJob = (txId, patch) => indexedDBService.updateReceiptJob(txId, patch),
+    save = (mov) => (mov.localDraft ? saveMovementLocal(mov, 'receipt-reread') : saveMovement(mov, null, 'receipt-reread')),
+    process = (options) => processPendingReceiptJobs(options)
+} = {}) {
+    const mov = pc().movements.find(m => m.id === id);
+    if (!mov) return false;
+    const job = await Promise.resolve().then(() => getJob(id)).catch(() => null);
+    if (!job?.originalBlob) return false;
+    delete mov.ocrBoxes;
+    delete mov.reviewAccepted;
+    mov.updatedAt = Date.now();
+    await save(mov);
+    await updateJob(id, { queueStatus: 'queued', ocrStatus: 'pending', attempts: 0, nextRetryAt: null, lastError: null });
+    Promise.resolve(process({ txIds: [id] })).catch((error) => console.warn('reread receipt', error));
+    return true;
+}
+
 export async function cameraItemsState(ids = [], { listJobs = () => indexedDBService.listReceiptJobs() } = {}) {
     const jobs = await listJobs();
     const byId = new Map((jobs || []).map(job => [job.txId, job]));
@@ -596,6 +621,7 @@ function receiptCamera() {
         },
         getItemsState: (ids) => cameraItemsState(ids),
         onFix: (id, fix) => applyReceiptFix(id, fix),
+        onRescan: (id) => rereadReceipt(id),
         diag: cameraDiagnostics(),
         onReview: (id) => window.pcOpenMovement?.(id),
         onDelete: async (id) => {

@@ -900,6 +900,25 @@ button.pcam-issue[aria-pressed="true"] { border-color: #fb923c; background: #2a1
 
 .pcam-actions { display: flex; gap: 10px; }
 
+/* "Volver a leer": acción secundaria sobre los botones principales. */
+.pcam-rescan {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    margin: 2px auto 10px;
+    padding: 0 16px;
+    border: 1px solid #334155;
+    border-radius: 999px;
+    background: transparent;
+    color: #67e8f9;
+    font: 700 13px 'Inter', system-ui, sans-serif;
+    cursor: pointer;
+}
+
+.pcam-rescan:active { background: rgba(34, 211, 238, 0.12); }
+
 .pcam-btn {
     flex: 1;
     min-height: 48px;
