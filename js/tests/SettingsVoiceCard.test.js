@@ -18,7 +18,7 @@ const render = (settingsActiveTab, settings = {}) => {
     });
     document.body.innerHTML = SettingsTab();
 };
-const tabs = () => [...document.querySelectorAll('[data-settings-action="change-settings-tab"]')].map(b => b.dataset.value);
+const tabs = () => [...document.querySelectorAll('.nav-tabs [data-settings-action="change-settings-tab"]')].map(b => b.dataset.value);
 
 afterEach(() => localStorage.removeItem(DEV_MODE_KEY));
 

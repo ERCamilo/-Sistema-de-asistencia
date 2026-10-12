@@ -6,7 +6,7 @@ import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { DateUtils } from '../../utils/DateUtils.js';
 import { getReasonInfo } from '../../services/SnapshotReasons.js';
 import { renderProjectReconciliationSettingsAction } from '../../features/projects/ProjectReconciliationUI.js';
-import { StorageRecords } from './SettingsDiagnostics.js';
+import { StorageCard, StorageRecords } from './SettingsDiagnostics.js';
 
 export function SettingsDataTab(context) {
     const state = context.state;
@@ -128,8 +128,10 @@ export function SettingsDataTab(context) {
 
                             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
                                 <!-- Sistema de Almacenamiento -->
-                                <div class="stg-card">
-                                    <div class="stg-card-title">Almacenamiento Interno</div>
+                                <div class="stg-card" data-settings-storage-section>
+                                    <h4 class="stg-card-title">Almacenamiento de este dispositivo</h4>
+                                    ${StorageCard()}
+                                    <div class="stg-card-title">Dónde guardar los datos principales</div>
                                     <div style="display: flex; gap: 8px; margin-bottom: 12px;">
                                         <label style="flex: 1; cursor: pointer;">
                                             <input type="radio" name="storageTypeData" value="localStorage" ${!state.useIndexedDB ? 'checked' : ''} onchange="handleStorageTypeChange(this.value)" style="display: none;">

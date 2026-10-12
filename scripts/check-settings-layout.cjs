@@ -45,6 +45,7 @@ window.fixtureSetUser=async(user)=>{context.currentUser=user;await refreshDevice
 window.fixtureRefresh=refreshDeviceSettingsDiagnostics;
 window.enableExperiments=()=>stateManager.batchSetState(raw=>{raw.settings.newReceiptCamera=true;raw.settings.newBottomNav=true;raw.settings.voiceMvpEnabled=true;raw.settings.weatherEnabled=true;});
 window.draw=tab=>{clearSettingsFormErrors();discardSettingsDraft({});state.settingsActiveTab=tab;document.getElementById('screen').innerHTML=SettingsTab();refreshSettingsDraftBar();};
+window.changeSettingsTab=tab=>window.draw(tab);
 window.fixtureRender=()=>{const draft=captureSettingsDraft();DOMDiff.patchSelf(document.getElementById('settings-screen'),SettingsTab());restoreSettingsDraft(draft);refreshSettingsFormErrors();refreshSettingsDraftBar();};
 window.saveCalls=0;
 const deps={state,document,isProjectsEnabled:()=>false,payrollUIRuntime:{},showNotification:()=>{},saveApplicationData:()=>window.saveCalls++,render:window.fixtureRender,stateManager,updateWeatherApiKeyProvider:()=>{},guardSettingsDraftBeforeSave,reconcileSettingsDraftBeforeSave,clearSettingsFormErrors,showSettingsFieldError,showSettingsFormError,logError:()=>{}};
@@ -75,10 +76,15 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
         await page.goto(`http://127.0.0.1:${server.address().port}/settings-fixture`);
         await page.waitForFunction(()=>window.ready);
         await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});
-        const deviceStats=await page.$eval('[data-settings-storage-card]',el=>el.textContent);
+        const summary=await page.$eval('[data-settings-storage-summary]',el=>el.textContent);
+        assert.ok(!summary.includes('Fotos de empleados')&&!summary.includes('LocalStorage:'));
+        await page.click('[data-settings-storage-summary] button');
+        await page.waitForSelector('[data-settings-storage-section]');
+        const deviceStats=await page.$eval('[data-settings-storage-section] [data-settings-storage-card]',el=>el.textContent);
         assert.ok(deviceStats.includes('6.00 MB (1)'),`Fotos reales: ${deviceStats}`);
         assert.ok(deviceStats.includes('1.00 MB (1)'),`Audios reales: ${deviceStats}`);
         assert.ok(!deviceStats.includes('5MB'),`Sin cuota inventada: ${deviceStats}`);
+        await page.evaluate(()=>window.draw('general'));
         assert.equal(await page.$eval('[data-settings-sync-card] .stg-value',el=>el.textContent),'Sin sesión');
         await page.evaluate(()=>window.fixtureSetUser({uid:'test-a',email:'ana@example.invalid'}));
         assert.equal(await page.$eval('[data-settings-sync-card] .stg-value',el=>el.textContent),'Error de sincronización');
@@ -144,7 +150,7 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
             await page.evaluate(scale=>{localStorage.removeItem('sa.devMode.v1');document.documentElement.style.fontSize=scale===200?'200%':'';},textScale);
             for (const tab of ['general','calendar','data']) {
                 await page.evaluate(tab=>window.draw(tab),tab);
-                const normal=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,tabs:[...document.querySelectorAll('[data-settings-action="change-settings-tab"]')].map(el=>el.dataset.value),hiddenNames:[...document.querySelectorAll('.tab-text')].some(el=>getComputedStyle(el).display==='none')}));
+                const normal=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,tabs:[...document.querySelectorAll('.nav-tabs [data-settings-action="change-settings-tab"]')].map(el=>el.dataset.value),hiddenNames:[...document.querySelectorAll('.tab-text')].some(el=>getComputedStyle(el).display==='none')}));
                 assert.deepEqual(normal.tabs,['data','general','calendar']);
                 assert.ok(normal.scroll<=normal.width&&!normal.hiddenNames,`${tab}: modo normal ${textScale}% ${JSON.stringify(normal)}`);
             }

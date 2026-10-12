@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { StorageCard, StorageRecords, SyncCard, attachSettingsDiagnostics, getSettingsSyncStatus } from '../modules/ui/settings/SettingsDiagnostics.js';
+import { StorageCard, StorageSummary, StorageRecords, SyncCard, attachSettingsDiagnostics, getSettingsSyncStatus } from '../modules/ui/settings/SettingsDiagnostics.js';
 import { SyncStatus } from '../modules/services/SyncStatus.js';
 import { eventBus } from '../modules/core/Events.js';
 
@@ -88,6 +88,46 @@ test('ejecuta listeners reales de app.js: online/offline no anuncian guardado ni
 function mount() {
     document.body.innerHTML = `<div id="settings-screen"><input id="companyName" value="Guardado">${StorageCard()}${SyncCard()}</div>`;
 }
+test('el resumen conserva uso y cuota sin duplicar el desglose técnico', () => {
+    document.body.innerHTML = StorageSummary(measurement);
+    expect(document.body.textContent).toContain('800 B usados');
+    expect(document.body.textContent).toContain('200 B disponibles');
+    expect(document.body.textContent).not.toContain('Fotos de empleados');
+    expect(document.body.textContent).not.toContain('LocalStorage:');
+    const link = document.querySelector('button');
+    expect(link.dataset.settingsAction).toBe('change-settings-tab');
+    expect(link.dataset.value).toBe('data');
+    document.body.innerHTML = StorageSummary({ ...measurement, usage: null, quota: null });
+    expect(document.body.textContent).toContain('Total no disponible');
+    expect(document.body.textContent).not.toContain('disponibles');
+    document.body.innerHTML = StorageSummary({ ...measurement, usage: 1200 });
+    expect(document.body.textContent).toContain('0 B disponibles');
+    expect(document.querySelector('.stg-value').classList.contains('danger')).toBe(true);
+});
+
+test('resumen y detalle se actualizan desde una sola medición sin perder el borrador', async () => {
+    jest.useFakeTimers();
+    document.body.innerHTML = `<div id="settings-screen"><input id="companyName" value="Borrador">${StorageSummary()}${StorageCard()}</div>`;
+    const input = document.getElementById('companyName'); input.focus();
+    const measureStorage = jest.fn().mockResolvedValue(measurement);
+    cleanup = attachSettingsDiagnostics({}, { measureStorage, measureQueues: async () => emptyQueue });
+    await settle();
+    expect(measureStorage).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-settings-storage-summary]').textContent).toContain('800 B usados');
+    expect(document.querySelector('[data-settings-storage-card]:not([data-settings-storage-summary])').textContent).toContain('700 B (2)');
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe('Borrador');
+    measureStorage.mockResolvedValue({ ...measurement, usage: 1200 });
+    for (let i = 0; i < 20; i++) eventBus.emit('render:complete', {});
+    await settle();
+    expect(measureStorage).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(30000);
+    expect(measureStorage).toHaveBeenCalledTimes(2);
+    expect(document.querySelectorAll('[data-settings-storage-card]')).toHaveLength(2);
+    expect(document.querySelector('[data-settings-storage-summary]').textContent).toContain('0 B disponibles');
+    expect(document.querySelector('[data-settings-storage-card]:not([data-settings-storage-summary]) .stg-progress-bar').style.width).toBe('100%');
+});
+
 test('render:complete refresca celdas, conserva texto/foco y deduplica lecturas de almacenamiento', async () => {
     jest.useFakeTimers(); mount(); const input = document.getElementById('companyName'); input.value = 'Borrador'; input.focus();
     const measureStorage = jest.fn().mockResolvedValue(measurement); const measureQueues = jest.fn().mockResolvedValue(emptyQueue);

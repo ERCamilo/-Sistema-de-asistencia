@@ -31,7 +31,7 @@ import { getLocalOwnerUid } from '../services/LocalDataOwner.js';
 import { escapeAttr } from '../utils/Sanitize.js';
 import { DOMDiff } from '../utils/DOMDiff.js';
 import { clearSettingsFormErrors, refreshSettingsFormErrors, showSettingsFormError } from './settings/SettingsFormFeedback.js';
-import { StorageCard, SyncCard, getSettingsSyncStatus, attachSettingsDiagnostics, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
+import { StorageSummary, SyncCard, getSettingsSyncStatus, attachSettingsDiagnostics, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
 export { SyncCard, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
 
 // ============================================
@@ -625,7 +625,7 @@ function SettingsDashboard() {
     return `
                 <div class="stg-panel" style="margin-bottom: 24px;">
                     <div class="stg-status-bar">
-                        ${StorageCard()}
+                        ${StorageSummary()}
                         ${SyncCard(getSettingsSyncStatus(context))}
                         ${DataSummaryCard()}
                     </div>

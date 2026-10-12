@@ -795,3 +795,11 @@
 #settings-screen .form-label { flex-wrap: wrap; }
 #settings-screen .form-label .settings-save-mode { flex-shrink: 0; max-width: 100%; }
 #settings-screen [hidden] { display: none !important; }
+
+#settings-screen .stg-storage-summary .stg-value { font-size: 1.1rem; }
+#settings-screen .stg-storage-summary .btn { margin-top: 8px; font-size: 0.8rem; }
+#settings-screen [data-settings-storage-section] > [data-settings-storage-card] {
+    padding: 0 0 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+}
