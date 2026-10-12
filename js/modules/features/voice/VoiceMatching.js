@@ -50,13 +50,17 @@ export function resolveVoiceEmployees(mention={},employees=[],aliases=[]) {
     const memo=new Map();
     const similarity=(a,b)=>{const key=a+'\0'+b;if(!memo.has(key)) memo.set(key,voiceSpellingSimilarity(a,b));return memo.get(key);};
     const ordered=value=>value.split(' ').sort().join(' ');
+    const compact=value=>value.replace(/\s/g,'');
+    const compactName=compact(name);
     const ranked=indexed.map(({employee,full,known})=>{
         if(number) return {employee,score:sameEmployeeNumber(employee.number,number)?2:0,reason:'Número coincidente'};
         const tokens=full.split(' '),variants=[full,...tokens,...known];
-        if(known.includes(name)) return {employee,score:1,reason:'Alias confirmado'};
-        if(tokens.includes(name) || (full && ordered(full)===ordered(name))) return {employee,score:1,reason:'Nombre coincidente'};
+        if(known.some(alias=>compact(alias)===compactName)) return {employee,score:1,reason:'Alias confirmado'};
+        if(tokens.includes(name) || (full && (ordered(full)===ordered(name) || compact(full)===compactName))) return {employee,score:1,reason:'Nombre coincidente'};
         const eligible=variants.filter(v=>Array.from(v).length>=3 && Array.from(name).length>=3);
-        let score=Math.max(0,...eligible.map(v=>similarity(name,v)));
+        // Also compare the complete name/aliases with spaces removed on both sides.
+        const compactVariants=[full,...known].map(compact).filter(v=>Array.from(v).length>=3 && Array.from(compactName).length>=3);
+        let score=Math.max(0,...eligible.map(v=>similarity(name,v)),...compactVariants.map(v=>similarity(compactName,v)));
         const query=name.split(' ');
         if(query.length>1) {
             // One-to-one token alignment: repeated words cannot reuse the same surname.
