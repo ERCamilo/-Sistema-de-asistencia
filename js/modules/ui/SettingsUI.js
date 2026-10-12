@@ -531,9 +531,9 @@ export function SettingsTab() {
                         <div>
                             <h3>
                                 <span>${icons.get('settings', { size: 24 })}</span>
-                                <span>Configuración del Sistema</span>
+                                <span>Ajustes</span>
                             </h3>
-                            <p>Personaliza la configuración de tu sistema de asistencia</p>
+                            <p>Preferencias y datos de tu sistema.</p>
                         </div>
                     </div>
                     
@@ -544,23 +544,23 @@ export function SettingsTab() {
                     <div class="nav-tabs" style="margin-bottom: 32px;">
 
                         <button class="nav-tab ${activeTab === 'data' ? 'active' : ''}" 
-                                type="button" aria-label="Datos" data-settings-action="change-settings-tab" data-value="data">
+                                type="button" aria-label="Datos" data-settings-action="change-settings-tab" data-value="data" aria-pressed="${activeTab === 'data'}">
                             <span>${icons.get('save')}</span><span class="tab-text"> Datos</span>
                         </button>
 
                         <button class="nav-tab ${activeTab === 'general' ? 'active' : ''}" 
-                                type="button" aria-label="General" data-settings-action="change-settings-tab" data-value="general">
+                                type="button" aria-label="General" data-settings-action="change-settings-tab" data-value="general" aria-pressed="${activeTab === 'general'}">
                             <span>${icons.get('settings')}</span><span class="tab-text"> General</span>
                         </button>
 
                         <button class="nav-tab ${activeTab === 'calendar' ? 'active' : ''}"
-                                type="button" aria-label="Calendario" data-settings-action="change-settings-tab" data-value="calendar">
+                                type="button" aria-label="Calendario" data-settings-action="change-settings-tab" data-value="calendar" aria-pressed="${activeTab === 'calendar'}">
                             <span>${icons.get('calendar')}</span><span class="tab-text"> Calendario</span>
                         </button>
 
                         <button class="nav-tab ${activeTab === 'tests' ? 'active' : ''}"
-                                type="button" aria-label="Tests" data-settings-action="change-settings-tab" data-value="tests">
-                            <span>${icons.get('info')}</span><span class="tab-text"> Tests</span>
+                                type="button" aria-label="Pruebas" data-settings-action="change-settings-tab" data-value="tests" aria-pressed="${activeTab === 'tests'}">
+                            <span>${icons.get('info')}</span><span class="tab-text"> Pruebas</span>
                         </button>
                     </div>
 
@@ -615,7 +615,7 @@ function DataSummaryCard() {
                 <div class="stg-status-cell">
                     <span class="stg-label">Datos</span>
                     <span class="stg-value accent">${totalEmployees}</span>
-                    <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">
+                    <div style="font-size: 0.7rem; color: var(--stg-text-secondary); margin-top: 2px;">
                         empleados (${activeEmployees} activos)
                     </div>
                     <div style="display: flex; justify-content: space-between; font-size: 0.7rem; margin-top: 6px; background: rgba(17, 24, 39, 0.5); padding: 4px 6px; border-radius: 4px;">

@@ -157,10 +157,10 @@ export class HolidayService {
                         <button type="button"
                                 data-holiday-action="change-settings-calendar-month" data-value="-1"
                                 aria-label="Mes anterior"
-                                style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
+                                style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; width: 44px; height: 44px; flex-shrink: 0; border-radius: 8px; cursor: pointer; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
                                 onmouseover="this.style.borderColor='#06b6d4'; this.style.background='#334155'"
                                 onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'">
-                            ◀
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
                         </button>
                         <div style="font-size: 1rem; font-weight: 700; color: #f1f5f9;">
                             ${formatMonthYear(month)}
@@ -168,48 +168,48 @@ export class HolidayService {
                         <button type="button"
                                 data-holiday-action="change-settings-calendar-month" data-value="1"
                                 aria-label="Mes siguiente"
-                                style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
+                                style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; width: 44px; height: 44px; flex-shrink: 0; border-radius: 8px; cursor: pointer; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
                                 onmouseover="this.style.borderColor='#06b6d4'; this.style.background='#334155'"
                                 onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'">
-                            ▶
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
                         </button>
                     </div>
                     <!-- Selector de Modo de Calendario -->
-                    <div style="display: flex; gap: 8px; margin-bottom: 16px; background: #1e293b; padding: 4px; border-radius: 8px;">
+                    <div class="settings-calendar-modes" style="display: flex; gap: 8px; margin-bottom: 16px; background: #1e293b; padding: 4px; border-radius: 8px;">
                         ${['holiday', 'periodStart', 'payDay'].map(mode => {
                             const isSelected = (this.state.settingsCalendarMode || 'holiday') === mode;
                             const labels = {
-                                holiday: '☀️ Festivo',
-                                periodStart: '🗓️ Inicio Período',
-                                payDay: '💰 Día de Pago'
+                                holiday: 'Festivos',
+                                periodStart: 'Inicio',
+                                payDay: 'Pago'
                             };
                             return `
                                 <button type="button"
                                         data-holiday-action="change-settings-calendar-mode" data-value="${mode}"
                                         style="flex: 1; padding: 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none;
-                                               background: ${isSelected ? '#3b82f6' : 'transparent'}; 
-                                               color: ${isSelected ? '#ffffff' : '#94a3b8'};">
+                                               background: ${isSelected ? 'var(--accent)' : 'var(--panel-2)'};
+                                               color: ${isSelected ? 'var(--on-accent)' : 'var(--text-dim)'};">
                                     ${labels[mode]}
                                 </button>
                             `;
                         }).join('')}
                     </div>
-                    
+
                     <!-- Grid del calendario -->
-                    <div class="stg-calendar-grid" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px;">
+                    <div class="settings-calendar-scroll"><div class="stg-calendar-grid" style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px;">
                         <!-- Nombres de días -->
                         ${dayNames.map(name => `
-                            <div style="text-align: center; padding: 8px; font-size: 0.75rem; font-weight: 600; color: #64748b;">
+                            <div style="text-align: center; padding: 8px; font-size: 0.75rem; font-weight: 600; color: var(--text-dim);">
                                 ${name}
                             </div>
                         `).join('')}
-                        
+
                         <!-- Días -->
                         ${days.map(({ date, currentMonth }) => {
         const dateKey = getDateKey(date);
         const isHoliday = settings.holidays.includes(dateKey);
         const isToday = dateKey === getDateKey(new Date());
-        
+
         let inPeriod = false;
         if (pStart && pEnd) {
             inPeriod = date >= pStart && date <= pEnd;
@@ -221,22 +221,22 @@ export class HolidayService {
             bgColor = '#1e3a5f'; // Un azul sutil para el rango
         }
 
-        let textColor = currentMonth ? '#f1f5f9' : '#475569';
+        let textColor = currentMonth ? 'var(--text)' : 'var(--text-dim)';
         let borderColor = inPeriod && currentMonth ? '#3b82f6' : '#334155';
         let dayIcon = '';
 
         // Determinar color e icono según los marcadores
         if (isHoliday) {
-            bgColor = 'linear-gradient(135deg, #f59e0b, #fbbf24)';
-            textColor = '#fff';
+            bgColor = 'var(--warn)';
+            textColor = 'var(--on-accent)';
             borderColor = '#f59e0b';
             dayIcon = '☀️';
         }
         if (isPayDay) {
             dayIcon = dayIcon ? dayIcon + ' 💰' : '💰';
             borderColor = '#10b981';
-            if (!isHoliday && currentMonth) bgColor = 'linear-gradient(135deg, #059669, #10b981)';
-            if (!isHoliday && currentMonth) textColor = '#fff';
+            if (!isHoliday && currentMonth) bgColor = 'var(--good)';
+            if (!isHoliday && currentMonth) textColor = 'var(--on-accent)';
         }
 
         if (isToday && !isHoliday && !isPayDay) {
@@ -252,8 +252,8 @@ export class HolidayService {
                                         border: 2px solid ${borderColor};
                                         padding: 6px;
                                         border-radius: 8px;
-                                        ${!currentMonth ? 'opacity: 0.3;' : ''}
-                                        ${isClickable ? 'cursor: pointer;' : 'cursor: not-allowed; opacity: 0.5;'}
+
+                                        ${isClickable ? 'cursor: pointer;' : 'cursor: default;'}
                                         min-height: 60px;
                                         display: flex;
                                         flex-direction: column;
@@ -269,7 +269,7 @@ export class HolidayService {
                                 </div>
                             `;
     }).join('')}
-                    </div>
+                    </div></div>
                 </div>
             `;
     }
