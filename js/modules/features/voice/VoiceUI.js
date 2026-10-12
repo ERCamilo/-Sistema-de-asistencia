@@ -157,9 +157,10 @@ export class VoiceMvpUI {
         return identity;
     }
     endpoint() {
+        if (this.testEndpointUid === this.identity().uid) return VOICE_TEST_ENDPOINT;
         const saved = localStorage.getItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`);
         // The legacy HTTP endpoint cannot be used from the public HTTPS preview.
-        return (saved === VOICE_DEV_ENDPOINT && location.protocol === 'https:' ? this.adapter.getEndpoint() : saved) || this.adapter.getEndpoint() || '';
+        return (saved === VOICE_TEST_ENDPOINT || saved === VOICE_DEV_ENDPOINT && location.protocol === 'https:' ? this.adapter.getEndpoint() : saved) || this.adapter.getEndpoint() || '';
     }
     async open() {
         const identity = this.identity();
@@ -172,6 +173,7 @@ export class VoiceMvpUI {
         if (this.record?.result?.intent === 'registrar_gasto_caja_chica' && !this.record.pendingResult) await this.routeResult();
     }
     close({ discard = false } = {}) {
+        this.testEndpointUid = null;
         if (discard && this.record && !this.record.completedLoanId) { const record = this.record; record.discarded = true; if (this.processingRecord === record) this.processingController?.abort(); this.store.remove?.(record.uid, record.requestId).catch(() => this.adapter.notify?.('No se pudo eliminar el audio descartado.', 'warning')); }
         this.finishConfirmation?.(false);
         if (this.recording) { this.feedback.play('cancel'); this.setCaptureState('idle'); }
@@ -186,6 +188,7 @@ export class VoiceMvpUI {
         this.launcher?.setAttribute('aria-pressed', String(on));
     }
     async beginHold() {
+        this.testEndpointUid = null;
         this.held = true;
         if (this.busy || this.recording) { this.held = false; return; }
         this.identity();
@@ -429,8 +432,8 @@ export class VoiceMvpUI {
         }
         if (this.view === 'playback' || this.view === 'storage') return;
         if (action === 'back-loan') { this.view = 'loan'; this.render(); return; }
-        if (action === 'test-endpoint') { localStorage.setItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`, VOICE_TEST_ENDPOINT); this.message = 'Webhook de prueba seleccionado. Activa la escucha en n8n antes de enviar.'; this.render(); return; }
-        if (action === 'default-endpoint') { localStorage.removeItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`); this.message = 'URL predeterminada restaurada.'; this.render(); return; }
+        if (action === 'test-endpoint') { this.testEndpointUid = this.identity().uid; this.message = 'Webhook de prueba temporal. Activa la escucha en n8n antes de enviar.'; this.render(); return; }
+        if (action === 'default-endpoint') { this.testEndpointUid = null; localStorage.removeItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`); this.message = 'Webhook de producción seleccionado.'; this.render(); return; }
         if (action === 'record') {
             if (this.record && !this.record.completedLoanId) { this.record.discarded = true; await this.store.remove?.(this.record.uid, this.record.requestId); }
             this.record = null; if (this.dialog.open) this.dialog.close();
@@ -545,6 +548,8 @@ export class VoiceMvpUI {
     async change(input) {
         if (input.dataset.voiceEndpoint !== undefined) {
             const value = input.value.trim(); if (value && !isVoiceEndpointAllowed(value)) throw Error('Usa HTTPS o el endpoint Tailscale de desarrollo desde http://127.0.0.1:8080.');
+            this.testEndpointUid = value === VOICE_TEST_ENDPOINT ? this.identity().uid : null;
+            if (value === VOICE_TEST_ENDPOINT) { this.message = 'Webhook de prueba temporal.'; return; }
             localStorage.setItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`, value); this.message = 'Endpoint guardado localmente. No contiene credenciales.'; return;
         }
         if (this.busy || this.recording || !this.record) return;
@@ -595,7 +600,7 @@ export class VoiceMvpUI {
         const view = this.view || (record?.result ? selected ? 'loan' : 'employees' : 'audio');
         this.view = view;
         const views = {
-            audio: () => VoiceAudioView(this, button) + (blocked && result ? '<section class="voice-review" role="alert">Instrucción negada o no reconocida. No se registrará una operación.</section>' : ''),
+            audio: () => VoiceAudioView(this, button) + (blocked && result ? '<section class="voice-review" role="alert">Instrucción negada o no reconocida. No se registrará una operación. Revisa el texto y el motivo en Opciones de audio.</section>' : ''),
             employees: () => VoiceEmployeeView(this, button),
             loan: () => VoiceLoanView(this, button),
             playback: () => `${voiceEmployeeCard(selected)}${voicePlayer(this,button)}<p class="voice-expiry">${voiceIcon('clock')} Hasta ${escapeHTML(new Date(record.audioExpiresAt).toLocaleDateString('es-DO', {day:'numeric',month:'short',timeZone:record.context?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone}))}</p>`,

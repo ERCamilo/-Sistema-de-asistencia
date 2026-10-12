@@ -211,3 +211,10 @@
 .voice-dialog[data-voice-view=loan] .voice-transcript textarea { background:#101720; color:#f6f7f8; -webkit-text-fill-color:#f6f7f8; border-color:#3c4b5e; line-height:1.5; }
 .voice-dialog[data-voice-view=loan] .voice-transcript textarea:disabled { opacity:.8; }
 .voice-dialog[data-voice-view=loan] [data-voice-alias] { color:#f6f7f8; background:#171c25; -webkit-text-fill-color:#f6f7f8; }
+
+.voice-audio-diagnosis { margin:10px 0 14px; padding:12px; background:var(--panel-2); border:1px solid var(--border); border-radius:12px; }
+.voice-audio-diagnosis h3 { color:var(--text); font-size:12px; margin:0 0 6px; }
+.voice-audio-diagnosis .voice-recognized-text { color:var(--text); white-space:pre-wrap; margin:0 0 14px; }
+.voice-audio-diagnosis ul { margin:0; padding-left:18px; color:var(--text); font-size:13px; }
+.voice-audio-diagnosis li + li { margin-top:8px; }
+.voice-audio-diagnosis small { display:block; color:var(--text-dim); font-size:11px; overflow-wrap:anywhere; }
