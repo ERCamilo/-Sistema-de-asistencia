@@ -1,7 +1,7 @@
 import { VoiceMvpUI } from '../modules/features/voice/VoiceUI.js';
 import { VoiceStore } from '../modules/features/voice/VoiceStore.js';
 import { indexedDB } from 'fake-indexeddb';
-import { SettingsTestsTab } from '../modules/ui/settings/SettingsTestsTab.js';
+import { SettingsVoiceCard } from '../modules/ui/settings/SettingsVoiceCard.js';
 
 // jsdom lacks structuredClone; preserve Blob semantics for fake IndexedDB.
 if (!globalThis.structuredClone) globalThis.structuredClone = function clone(value) {
@@ -25,10 +25,10 @@ function setup() {
 const originalFetch = global.fetch;
 describe('Voice draft UI: confirmation and async boundaries', () => {
     afterEach(() => { global.fetch = originalFetch; jest.restoreAllMocks(); });
-    test('Tests offers an opt-in voice switch and renders its saved state', () => {
-        document.body.innerHTML = SettingsTestsTab({ state: { settings: {} } });
+    test('General offers an opt-in voice switch and renders its saved state', () => {
+        document.body.innerHTML = SettingsVoiceCard({ state: { settings: {} } });
         expect(document.getElementById('voiceMvpEnabled').checked).toBe(false);
-        document.body.innerHTML = SettingsTestsTab({ state: { settings: { voiceMvpEnabled: true } } });
+        document.body.innerHTML = SettingsVoiceCard({ state: { settings: { voiceMvpEnabled: true } } });
         expect(document.getElementById('voiceMvpEnabled').checked).toBe(true);
     });
     test('disabling voice hides the launcher, stops capture and retains saved drafts', async () => {

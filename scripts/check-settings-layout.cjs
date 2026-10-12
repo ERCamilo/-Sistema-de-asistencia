@@ -38,6 +38,7 @@ const seed=async(name,rows)=>{
 };
 await seed('attendance-app-db',{employeePhotos:[{optimizedBlob:new Blob([new Uint8Array(6*1024*1024)]),thumbnailBlob:new Blob([new Uint8Array(1024)])}],mainSyncOutbox:[{status:'pending'}],pettyCashOutbox:[{status:'pending'}],pettyCashMirrorOutbox:[{status:'dead'}]});
 await seed('sa-voice-mvp-v1',{recordings:[{uid:'test-a',audio:new Blob([new Uint8Array(1024*1024)])}]});
+localStorage.setItem('sa.devMode.v1','1');
 initSettingsUI(context);
 window.fixtureSyncStatus=SyncStatus;
 window.fixtureSetUser=async(user)=>{context.currentUser=user;await refreshDeviceSettingsDiagnostics();};
@@ -94,6 +95,8 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
                 assert.ok(layout.scroll<=layout.width,`${tab} desborda a ${width}px: ${JSON.stringify(layout)}`);
                 assert.deepEqual(layout.unlabelled,[],`${tab}: etiquetas accesibles`);
                 assert.equal(await page.$$eval('#settings-screen [data-settings-action="save-settings"]',els=>els.length),0);
+                if(tab==='tests') assert.ok(await page.$('[data-developer-mode]'),'Tests visible en modo desarrollador');
+                if(tab==='general') assert.ok(await page.$('[data-settings-voice] #voiceMvpEnabled'),'Voz en General');
                 if(tab==='calendar') {
                     const inputWidth=await page.$eval('#settingsPeriodStart',el=>el.getBoundingClientRect().width);
                     assert.ok(inputWidth>=180,`Inicio del período demasiado estrecho a ${width}px: ${inputWidth}`);
