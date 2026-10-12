@@ -86,16 +86,51 @@ describe('Cámara de facturas', () => {
         camera.close();
     });
 
-    test('no dispara dos veces seguidas mientras guarda la anterior', async () => {
+    test('mientras toma la foto no dispara dos veces', async () => {
         let release;
-        const { camera, deps } = setup({ capture: jest.fn(() => new Promise(r => { release = r; })) });
+        const { camera, deps } = setup({ grabFrame: jest.fn(() => new Promise(r => { release = r; })) });
         await camera.open();
         $('[data-pcam-shutter]').click();
         $('[data-pcam-shutter]').click();
         await flush();
-        expect(deps.capture).toHaveBeenCalledTimes(1);
-        release({ id: 'm1', previewUrl: 'data:,' });
+        expect(deps.grabFrame).toHaveBeenCalledTimes(1);
+        release(new Blob(['jpg'], { type: 'image/jpeg' }));
         await flush();
+        camera.close();
+    });
+
+    test('flash y vibración al instante; la siguiente foto no espera a que se guarde la anterior, y se guardan en orden', async () => {
+        const releases = [];
+        let n = 0;
+        const { camera, deps } = setup({ capture: jest.fn(() => new Promise(r => { n += 1; const id = `m${n}`; releases.push(() => r({ id, previewUrl: `data:,${id}` })); })) });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        expect(deps.vibrate).toHaveBeenCalledWith(12);
+        expect($('[data-pcam-flash]').hidden).toBe(false);
+        await flush();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(deps.grabFrame).toHaveBeenCalledTimes(2);
+        expect(deps.capture).toHaveBeenCalledTimes(1);
+        expect($('[data-pcam-summary]').textContent).toContain('2 guardando');
+        releases[0](); await flush(); await flush();
+        expect(deps.capture).toHaveBeenCalledTimes(2);
+        releases[1](); await flush(); await flush();
+        expect(camera.items().map(i => i.id)).toEqual(['m1', 'm2']);
+        expect($('[data-pcam-summary]').textContent).not.toContain('guardando');
+        camera.close();
+    });
+
+    test('si se cierra la cámara mientras se guarda, la foto entra a la cola pero no reaparece en la próxima tanda', async () => {
+        let release;
+        const { camera, deps } = setup({ capture: jest.fn(() => new Promise(r => { release = r; })) });
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        camera.close();
+        await camera.open();
+        release({ id: 'm1', previewUrl: 'data:,' }); await flush(); await flush();
+        expect(deps.capture).toHaveBeenCalledTimes(1);
+        expect(camera.items()).toEqual([]);
         camera.close();
     });
 
@@ -397,11 +432,105 @@ describe('Cámara de facturas', () => {
         camera.close();
     });
 
-    test('el marco solo marca esquinas y aclara que se guarda toda la foto', async () => {
+    test('lo que se ve es lo que se guarda: la cámara completa dentro del recuadro, sin nada encima', async () => {
         const { camera } = setup();
         await camera.open();
-        expect(document.querySelectorAll('[data-pcam-guide] i')).toHaveLength(4);
-        expect($('[data-pcam-tip]').textContent).toContain('Se guarda toda la foto');
+        const frame = $('[data-pcam-frame]');
+        expect(frame).not.toBeNull();
+        expect(frame.contains($('[data-pcam-video]'))).toBe(true);
+        expect(frame.contains($('[data-pcam-ghost]'))).toBe(true);
+        // Los botones no van encima de la imagen que se guarda.
+        expect(frame.contains($('[data-pcam-shutter]'))).toBe(false);
+        expect(frame.contains($('[data-pcam-long]'))).toBe(false);
+        expect($('[data-pcam-guide]')).toBeNull();
+        expect($('[data-pcam-tip]').textContent).toContain('recuadro');
+        camera.close();
+    });
+
+    test('el recuadro toma la forma de la foto (sin recortar la imagen)', async () => {
+        const { camera } = setup();
+        await camera.open();
+        const view = $('[data-pcam-view]');
+        Object.defineProperty(view, 'clientWidth', { configurable: true, value: 390 });
+        Object.defineProperty(view, 'clientHeight', { configurable: true, value: 560 });
+        const video = $('[data-pcam-video]');
+        Object.defineProperty(video, 'videoWidth', { configurable: true, value: 1080 });
+        Object.defineProperty(video, 'videoHeight', { configurable: true, value: 1920 });
+        video.dispatchEvent(new Event('loadedmetadata'));
+        const frame = $('[data-pcam-frame]');
+        expect(frame.style.width).toBe('315px');
+        expect(frame.style.height).toBe('560px');
+        // Foto horizontal: se ajusta al ancho.
+        Object.defineProperty(video, 'videoWidth', { configurable: true, value: 1920 });
+        Object.defineProperty(video, 'videoHeight', { configurable: true, value: 1080 });
+        video.dispatchEvent(new Event('resize'));
+        expect(frame.style.width).toBe('390px');
+        expect(frame.style.height).toBe('219px');
+        camera.close();
+    });
+
+    test('factura larga: la franja ya tomada lleva un borde y la marca "ya tomada"', async () => {
+        const { camera } = setup();
+        await camera.open();
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click(); await flush();
+        expect($('[data-pcam-ghost-edge]').hidden).toBe(false);
+        expect($('[data-pcam-frame]').contains($('[data-pcam-ghost-edge]'))).toBe(true);
+        expect($('[data-pcam-ghost-tag]').textContent).toContain('Ya tomada');
+        camera.close();
+    });
+
+    test('factura larga: lo anterior de la factura se ve arriba del recuadro, y la marca va pequeña en la barra de arriba', async () => {
+        const { camera } = setup();
+        await camera.open();
+        expect($('[data-pcam-ghost-context]').hidden).toBe(true);
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click(); await flush();
+        const context = $('[data-pcam-ghost-context]');
+        expect(context.hidden).toBe(false);
+        // Fuera del recuadro: no tapa lo que se guarda.
+        expect($('[data-pcam-frame]').contains(context)).toBe(false);
+        // La marca ya no va sobre la imagen: va en la barra de arriba, en lugar del nombre de la caja.
+        expect($('.pcam-top').contains($('[data-pcam-ghost-tag]'))).toBe(true);
+        expect($('[data-pcam-frame]').contains($('[data-pcam-ghost-tag]'))).toBe(false);
+        expect($('[data-pcam-period]').hidden).toBe(true);
+        $('[data-pcam-long]').click();
+        expect($('[data-pcam-period]').hidden).toBe(false);
+        expect($('[data-pcam-ghost-context]').hidden).toBe(true);
+        camera.close();
+    });
+
+    test('la vista previa muestra la foto a resolución completa (no la miniatura) y la libera al cerrar', async () => {
+        const create = jest.fn(() => 'blob:full-1');
+        const revoke = jest.fn();
+        const saved = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+        URL.createObjectURL = create;
+        URL.revokeObjectURL = revoke;
+        try {
+            const { camera } = setup();
+            await camera.open();
+            $('[data-pcam-shutter]').click(); await flush();
+            camera.openPreview(0);
+            expect($('[data-pcam-preview] img').getAttribute('src')).toBe('blob:full-1');
+            // La pila sigue usando la miniatura liviana.
+            expect($('.pcam-card').getAttribute('style')).toContain('data:image/jpeg;base64,1');
+            camera.close();
+            expect(revoke).toHaveBeenCalledWith('blob:full-1');
+        } finally {
+            URL.createObjectURL = saved.create;
+            URL.revokeObjectURL = saved.revoke;
+        }
+    });
+
+    test('la foto se guarda con la extensión de su formato y la captura recibe la cámara (para la foto del sensor)', async () => {
+        const track = { stop: jest.fn() };
+        const { camera, deps } = setup({ track, grabFrame: jest.fn().mockResolvedValue(new Blob(['w'], { type: 'image/webp' })) });
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        expect(deps.grabFrame).toHaveBeenCalledWith($('[data-pcam-video]'), track);
+        const file = deps.capture.mock.calls[0][0];
+        expect(file.type).toBe('image/webp');
+        expect(file.name).toMatch(/\.webp$/);
         camera.close();
     });
 
@@ -415,6 +544,8 @@ describe('Cámara de facturas', () => {
         $('[data-pcam-shutter]').click(); await flush();
         expect(deps.capture).not.toHaveBeenCalled();
         expect(deps.drawGhost).toHaveBeenCalled();
+        // La franja para alinear en vivo sale del video (igual que lo que se compara), no de la foto del sensor.
+        expect(deps.makeBand).toHaveBeenCalledWith($('[data-pcam-video]'));
         expect($('[data-pcam-ghost]').hidden).toBe(false);
         expect($('[data-pcam-tip]').textContent).toContain('parte 1');
         $('[data-pcam-shutter]').click(); await flush();
@@ -442,6 +573,7 @@ describe('Cámara de facturas', () => {
         jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
         expect($('[data-pcam-ghost]').classList.contains('is-aligned')).toBe(true);
         expect($('[data-pcam-ghost-tag]').textContent).toContain('Alineado');
+        expect($('[data-pcam-ghost-edge]').classList.contains('is-aligned')).toBe(true);
         expect(deps.vibrate).toHaveBeenCalledTimes(1);
         jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
         expect(deps.vibrate).toHaveBeenCalledTimes(1);

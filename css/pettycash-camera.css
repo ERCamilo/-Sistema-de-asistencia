@@ -23,38 +23,98 @@ body.pcam-open { overflow: hidden; }
     object-fit: cover;
 }
 
-/* Marco guía: solo esquinas y sin oscurecer, para que no parezca un recorte
-   (se guarda la foto completa). En factura larga se hace más alto. */
-.pcam-guide {
+/* Ventana de la cámara: queda entre la barra de arriba y los controles, y
+   toma la forma de la foto (layoutFrame en JS). Se ve la imagen completa de
+   la cámara: lo que está dentro del recuadro es exactamente lo que se guarda,
+   y nada de lo que se guarda queda debajo de los botones. */
+.pcam-view {
     position: absolute;
-    left: 50%;
-    top: 44%;
-    width: min(76vw, 340px);
-    height: min(54vh, 470px);
-    transform: translate(-50%, -50%);
+    left: 10px;
+    right: 10px;
+    top: calc(68px + env(safe-area-inset-top));
+    bottom: calc(212px + env(safe-area-inset-bottom));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pcam-frame {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #0b0f17;
+    /* Por fuera, para no tapar ningún borde de la imagen. */
+    outline: 3px solid #22d3ee;
+    outline-offset: 2px;
+}
+
+/* Factura larga: el final de la parte anterior (ya tomada), más sólido para
+   distinguirlo, pero aún transparente para ver si coincide. */
+.pcam-ghost {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.82;
     pointer-events: none;
-    transition: width 0.35s cubic-bezier(0.2, 0.9, 0.3, 1), height 0.35s cubic-bezier(0.2, 0.9, 0.3, 1), top 0.35s;
 }
 
-.pcam-guide.is-long { width: min(70vw, 310px); height: min(58vh, 500px); top: 45%; }
-
-.pcam-guide i {
+/* Arriba del recuadro (fuera de la foto): lo que había antes de la franja en
+   la parte anterior, casi sólido. Se desvanece hacia arriba bajo los botones. */
+.pcam-ghost-context {
     position: absolute;
-    width: 30px;
-    height: 30px;
-    border: 0 solid #22d3ee;
+    top: 0;
+    opacity: 0.95;
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 45%);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 45%);
 }
 
-.pcam-guide .is-tl { left: 0; top: 0; border-top-width: 4px; border-left-width: 4px; border-top-left-radius: 12px; }
-.pcam-guide .is-tr { right: 0; top: 0; border-top-width: 4px; border-right-width: 4px; border-top-right-radius: 12px; }
-.pcam-guide .is-bl { left: 0; bottom: 0; border-bottom-width: 4px; border-left-width: 4px; border-bottom-left-radius: 12px; }
-.pcam-guide .is-br { right: 0; bottom: 0; border-bottom-width: 4px; border-right-width: 4px; border-bottom-right-radius: 12px; }
+.pcam-ghost-edge {
+    position: absolute;
+    left: 0;
+    right: 0;
+    /* = OVERLAP_FRACTION (PettyCashStitch.js): alto de la franja. */
+    top: 12%;
+    border-top: 3px dashed #22d3ee;
+    box-shadow: 0 -1px 6px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    transition: border-color 0.2s;
+}
+
+.pcam-ghost-edge.is-aligned { border-top-style: solid; border-top-color: #22c55e; }
+
+/* Marca pequeña en la barra de arriba (en lugar del nombre de la caja), para
+   no tapar nada de lo que hay que alinear. */
+.pcam-ghost-tag {
+    min-width: 0;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: #06b6d4;
+    color: #06202a;
+    font-size: 11.5px;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.2s, color 0.2s;
+}
+
+.pcam-ghost-tag.is-aligned { background: #22c55e; color: #052e16; }
+.pcam-ghost[hidden],
+.pcam-ghost-edge[hidden],
+.pcam-ghost-context[hidden],
+.pcam-ghost-tag[hidden],
+.pcam-period[hidden] { display: none; }
 
 /* Aviso breve que se desvanece solo. */
 .pcam-tip {
     position: absolute;
     left: 50%;
-    top: calc(76px + env(safe-area-inset-top));
+    top: calc(84px + env(safe-area-inset-top));
     z-index: 2;
     max-width: min(86vw, 330px);
     margin: 0;
@@ -73,7 +133,7 @@ body.pcam-open { overflow: hidden; }
 .pcam-tip.is-on { animation: pcam-tip 5s ease forwards; }
 
 /* Con la franja de la parte anterior arriba, el aviso va abajo para no taparla. */
-.pcam-tip.is-low { top: auto; bottom: calc(196px + env(safe-area-inset-bottom)); }
+.pcam-tip.is-low { top: auto; bottom: calc(228px + env(safe-area-inset-bottom)); }
 
 @keyframes pcam-tip {
     0% { opacity: 0; transform: translate(-50%, -6px); }
@@ -81,42 +141,6 @@ body.pcam-open { overflow: hidden; }
     82% { opacity: 1; }
     100% { opacity: 0; }
 }
-
-/* Factura larga: el final de la parte anterior, encima del visor en vivo. */
-.pcam-ghost {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0.5;
-    pointer-events: none;
-    filter: drop-shadow(0 2px 0 #22d3ee);
-    transition: filter 0.2s;
-}
-
-.pcam-ghost.is-aligned { opacity: 0.6; filter: drop-shadow(0 3px 0 #22c55e); }
-
-.pcam-ghost-tag {
-    position: absolute;
-    left: 50%;
-    top: calc(16% + env(safe-area-inset-top));
-    z-index: 2;
-    transform: translateX(-50%);
-    padding: 4px 11px;
-    border-radius: 999px;
-    background: #06b6d4;
-    color: #06202a;
-    font-size: 11.5px;
-    font-weight: 800;
-    white-space: nowrap;
-    pointer-events: none;
-    transition: background 0.2s, color 0.2s;
-}
-
-.pcam-ghost-tag.is-aligned { background: #22c55e; color: #052e16; }
-.pcam-ghost[hidden],
-.pcam-ghost-tag[hidden] { display: none; }
 
 .pcam-flash {
     position: absolute;
@@ -186,7 +210,7 @@ body.pcam-open { overflow: hidden; }
     right: 0;
     bottom: 0;
     padding: 12px 18px calc(24px + env(safe-area-inset-bottom));
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.88) 35%);
+    background: #000;
     display: flex;
     flex-direction: column;
     gap: 12px;
