@@ -4,6 +4,7 @@
  */
 import { normalizeHelpMode } from '../../components/HelpController.js';
 import { escapeAttr } from '../../utils/Sanitize.js';
+import { SettingsVoiceCard } from './SettingsVoiceCard.js';
 
 
 export function SettingsGeneralTab(context) {
@@ -334,6 +335,8 @@ export function SettingsGeneralTab(context) {
                         </div>
                     </div>
                 </div>
+
+                ${SettingsVoiceCard(context)}
 
                 <!-- Ayuda contextual -->
                 <div class="stg-panel">

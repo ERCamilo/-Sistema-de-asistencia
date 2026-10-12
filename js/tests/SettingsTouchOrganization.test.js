@@ -5,11 +5,11 @@ import { discardSettingsDraft } from '../modules/ui/settings/SettingsDraftBar.js
 
 const context = { state: { employees: [], positions: [], settings: { companyName: 'Empresa', holidays: [], payPeriod: {} } },
     icons: { get: () => '', getAvailableSets: () => ['unicode'] }, holidayService: { renderSettingsCalendar: () => '' } };
-afterEach(() => { discardSettingsDraft({}); document.body.innerHTML = ''; delete window.runBrowserTests; delete window.appBootLoader; });
+afterEach(() => { localStorage.removeItem('sa.devMode.v1'); discardSettingsDraft({}); document.body.innerHTML = ''; delete window.runBrowserTests; delete window.appBootLoader; });
 test('las funciones experimentales quedan visibles y las herramientas se agrupan sin duplicar controles', () => {
     document.body.innerHTML = SettingsTestsTab(context);
     expect(document.getElementById('settings-experiments-title').textContent).toBe('Funciones en prueba');
-    for (const id of ['voiceMvpEnabled', 'newBottomNav', 'newReceiptCamera']) {
+    for (const id of ['newBottomNav', 'newReceiptCamera']) {
         expect(document.getElementById(id).closest('details')).toBeNull();
         expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
     }
@@ -42,7 +42,7 @@ test('las herramientas conservan sus acciones reales tras desplegarse', () => {
     expect(window.appBootLoader.startSimulation).toHaveBeenCalledWith({ slowDelayMs: 3000, failureDelayMs: 6000, reloadEnabled: true });
 });
 test('las pestañas mantienen sus claves de navegación y nombres visibles en español', () => {
-    context.state.settingsActiveTab = 'tests'; initSettingsUI(context);
+    localStorage.setItem('sa.devMode.v1', '1'); context.state.settingsActiveTab = 'tests'; initSettingsUI(context);
     document.body.innerHTML = SettingsTab();
     const button = document.querySelector('[data-settings-action="change-settings-tab"][data-value="tests"]');
     expect(button.getAttribute('aria-label')).toBe('Pruebas');

@@ -38,6 +38,7 @@ const seed=async(name,rows)=>{
 };
 await seed('attendance-app-db',{employeePhotos:[{optimizedBlob:new Blob([new Uint8Array(6*1024*1024)]),thumbnailBlob:new Blob([new Uint8Array(1024)])}],mainSyncOutbox:[{status:'pending'}],pettyCashOutbox:[{status:'pending'}],pettyCashMirrorOutbox:[{status:'dead'}]});
 await seed('sa-voice-mvp-v1',{recordings:[{uid:'test-a',audio:new Blob([new Uint8Array(1024*1024)])}]});
+localStorage.setItem('sa.devMode.v1','1');
 initSettingsUI(context);
 window.fixtureSyncStatus=SyncStatus;
 window.fixtureSetUser=async(user)=>{context.currentUser=user;await refreshDeviceSettingsDiagnostics();};
@@ -98,6 +99,8 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
                 assert.equal(await page.$$eval('#screen input,#screen button,#screen select',els=>els.filter(el=>!el.closest('#settings-screen')).length),0,`${tab}: controles dentro del panel`);
                 assert.equal(await page.$$eval('#settings-screen [data-settings-action="save-settings"]',els=>els.length),0);
                 assert.ok(await page.$$eval('#settings-screen [hidden]',els=>els.every(el=>el.getBoundingClientRect().height===0)));
+                if(tab==='tests') assert.ok(await page.$('[data-developer-mode]'),'Tests visible en modo desarrollador');
+                if(tab==='general') assert.ok(await page.$('[data-settings-voice] #voiceMvpEnabled'),'Voz en General');
                 if(tab==='calendar') {
                     const inputWidth=await page.$eval('#settingsPeriodStart',el=>el.getBoundingClientRect().width);
                     assert.ok(inputWidth>=180,`Inicio del período demasiado estrecho a ${width}px: ${inputWidth}`);
@@ -136,6 +139,16 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
                 if(process.env.SETTINGS_SCREENSHOT_DIR&&tab==='tests'){await page.screenshot({path:path.join(process.env.SETTINGS_SCREENSHOT_DIR,`settings-tests-expanded-${textScale}.png`),fullPage:true});}
                 if(report.incomplete.length)console.log(`REVIEW ${tab}: ${JSON.stringify(report.incomplete)}`);
             }
+        }
+        for (const textScale of [100,200]) {
+            await page.evaluate(scale=>{localStorage.removeItem('sa.devMode.v1');document.documentElement.style.fontSize=scale===200?'200%':'';},textScale);
+            for (const tab of ['general','calendar','data']) {
+                await page.evaluate(tab=>window.draw(tab),tab);
+                const normal=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,tabs:[...document.querySelectorAll('[data-settings-action="change-settings-tab"]')].map(el=>el.dataset.value),hiddenNames:[...document.querySelectorAll('.tab-text')].some(el=>getComputedStyle(el).display==='none')}));
+                assert.deepEqual(normal.tabs,['data','general','calendar']);
+                assert.ok(normal.scroll<=normal.width&&!normal.hiddenNames,`${tab}: modo normal ${textScale}% ${JSON.stringify(normal)}`);
+            }
+            console.log(`PASS modo normal: tres pestañas, nombres visibles y reflujo con texto ${textScale}%`);
         }
         await page.evaluate(()=>document.documentElement.style.fontSize='');
         await page.evaluate(()=>window.draw('calendar'));

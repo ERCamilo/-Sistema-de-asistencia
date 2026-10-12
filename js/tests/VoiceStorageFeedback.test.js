@@ -1,10 +1,10 @@
 import { VoiceMvpUI } from '../modules/features/voice/VoiceUI.js';
-import { SettingsTestsTab } from '../modules/ui/settings/SettingsTestsTab.js';
+import { SettingsVoiceCard } from '../modules/ui/settings/SettingsVoiceCard.js';
 
 let ui;
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 function fixture({ user = { uid: 'one' }, store = {}, mount = false } = {}) {
-    document.body.innerHTML = SettingsTestsTab({ state: { settings: {} }, currentUser: user });
+    document.body.innerHTML = SettingsVoiceCard({ state: { settings: {} }, currentUser: user });
     const session = { user };
     const settings = { voiceKeepLoanAudio: true, voiceAudioRetentionDays: 5 };
     let onRender;

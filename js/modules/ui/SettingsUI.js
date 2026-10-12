@@ -16,6 +16,7 @@ import {
 import { SettingsDataTab } from './settings/SettingsDataTab.js';
 import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
 import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
+import { createVersionTapper, isDeveloperMode, setDeveloperMode, versionTapMessage } from './settings/DeveloperMode.js';
 import './onboarding/OnboardingPreview.js';
 import { openSafeModalPreview } from './ModalPreviewGallery.js';
 import { openSafeNotificationPreview } from './NotificationPreviewGallery.js';
@@ -36,7 +37,21 @@ export { SyncCard, refreshDeviceSettingsDiagnostics } from './settings/SettingsD
 // ============================================
 // EVENT DELEGATION (data-settings-action)
 // ============================================
+const versionTapper = createVersionTapper();
+
 const _SETTINGS_ACTION_MAP = {
+    'version-tap': () => {
+        const result = versionTapper.tap();
+        const message = versionTapMessage(result);
+        if (message) window.showNotification?.(message.text, message.type);
+        if (result.state !== 'counting') applyDeveloperMode(result.state === 'on');
+    },
+    'exit-developer-mode': () => {
+        setDeveloperMode(false);
+        const message = versionTapMessage({ state: 'off' });
+        window.showNotification?.(message.text, message.type);
+        applyDeveloperMode(false);
+    },
     'refresh-device-diagnostics': () => refreshDeviceSettingsDiagnostics(),
     'manage-voice-audio': () => window.openVoiceAudioStorage?.(),
     // Cambiar de sub-pestaña re-renderiza el formulario desde state y pisa el
@@ -260,6 +275,14 @@ const _SETTINGS_ACTION_MAP = {
         }
     }
 };
+
+// Al activar se abre Tests; al desactivar se sale de Tests o, si se está en
+// otra pestaña, solo se quita su botón (sin re-render que pise el borrador).
+function applyDeveloperMode(on) {
+    if (on) { _SETTINGS_ACTION_MAP['change-settings-tab']('tests'); return; }
+    if (state.settingsActiveTab === 'tests') _SETTINGS_ACTION_MAP['change-settings-tab']('general');
+    else document.querySelector('[data-settings-action="change-settings-tab"][data-value="tests"]')?.remove();
+}
 
 function _handleSettingsClick(e) {
     const target = e.target.closest('[data-settings-action]');
@@ -505,8 +528,11 @@ export function SettingsTab() {
     const state = getState();
     const icons = getIcons();
 
-    // Fallback para pestaña activa si está indefinida
-    const activeTab = state.settingsActiveTab || 'general';
+    // Fallback para pestaña activa si está indefinida. Tests solo existe en
+    // modo desarrollador (tocar 7 veces la versión, ver DeveloperMode.js).
+    const developerMode = isDeveloperMode();
+    const requestedTab = state.settingsActiveTab || 'general';
+    const activeTab = requestedTab === 'tests' && !developerMode ? 'general' : requestedTab;
     let calendarContext = context;
     if (activeTab === 'calendar' && context.payrollRuntime) {
         const payrollView = context.payrollRuntime.getCurrentView();
@@ -558,10 +584,10 @@ export function SettingsTab() {
                             <span>${icons.get('calendar')}</span><span class="tab-text"> Calendario</span>
                         </button>
 
-                        <button class="nav-tab ${activeTab === 'tests' ? 'active' : ''}"
+                        ${developerMode ? `<button class="nav-tab ${activeTab === 'tests' ? 'active' : ''}"
                                 type="button" aria-label="Pruebas" data-settings-action="change-settings-tab" data-value="tests" aria-pressed="${activeTab === 'tests'}">
                             <span>${icons.get('info')}</span><span class="tab-text"> Pruebas</span>
-                        </button>
+                        </button>` : ''}
                     </div>
 
                     <p class="settings-save-guide">Automático: se guarda al cambiar. Al guardar: confirma los cambios en la barra inferior.</p>
@@ -576,7 +602,7 @@ export function SettingsTab() {
                     <div class="stg-footer">
                         <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;">
                             <span>${icons.get('info', { size: 12 })}</span>
-                            <span><strong>Versión ${APP_CONFIG.VERSION}</strong></span>
+                            <button type="button" class="stg-version-tap" data-settings-action="version-tap" aria-label="Versión ${APP_CONFIG.VERSION}"><strong>Versión ${APP_CONFIG.VERSION}</strong></button>
                             <span style="opacity: 0.5;">·</span>
                             <span title="Versión del Service Worker (caché PWA)">
                                 SW <strong>${state.swVersion || '…'}</strong>

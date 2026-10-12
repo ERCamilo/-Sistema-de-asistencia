@@ -7,7 +7,7 @@
  * - Al cancelar o fallar: solo vibración ('cancel' / 'error') y vuelta a 'idle'.
  */
 import { VoiceMvpUI } from '../modules/features/voice/VoiceUI.js';
-import { SettingsTestsTab } from '../modules/ui/settings/SettingsTestsTab.js';
+import { SettingsVoiceCard } from '../modules/ui/settings/SettingsVoiceCard.js';
 
 function setup({ startFails = false } = {}) {
     let opts = null;
@@ -127,11 +127,11 @@ describe('Voz — señales al grabar', () => {
     });
 });
 
-describe('Configuración → Tests: sonido y vibración de Voz', () => {
+describe('Configuración → General: sonido y vibración de Voz', () => {
     test('interruptor encendido por defecto; se puede apagar', () => {
-        document.body.innerHTML = SettingsTestsTab({ state: { settings: {} } });
+        document.body.innerHTML = SettingsVoiceCard({ state: { settings: {} } });
         expect(document.getElementById('voiceFeedback').checked).toBe(true);
-        document.body.innerHTML = SettingsTestsTab({ state: { settings: { voiceFeedback: false } } });
+        document.body.innerHTML = SettingsVoiceCard({ state: { settings: { voiceFeedback: false } } });
         expect(document.getElementById('voiceFeedback').checked).toBe(false);
     });
 
