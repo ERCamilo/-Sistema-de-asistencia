@@ -218,3 +218,7 @@
 .voice-audio-diagnosis ul { margin:0; padding-left:18px; color:var(--text); font-size:13px; }
 .voice-audio-diagnosis li + li { margin-top:8px; }
 .voice-audio-diagnosis small { display:block; color:var(--text-dim); font-size:11px; overflow-wrap:anywhere; }
+
+.voice-processing { display:grid; justify-items:center; gap:12px; padding:28px 8px; text-align:center; }
+.voice-processing > svg { color:var(--accent); width:40px!important; height:40px!important; }
+.voice-dialog[data-voice-view=intent] .voice-body > button { display:flex; width:100%; margin:8px 0; }

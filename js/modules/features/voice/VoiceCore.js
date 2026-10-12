@@ -30,7 +30,7 @@ export function readVoiceResponse(data, requestId) {
     if (!r.employee || !nullableString(r.employee.spokenName) || !nullableString(r.employee.spokenNumber)) invalid();
     if (!Array.isArray(r.issues) || r.issues.length > 50 || r.issues.some(x => !x || typeof x.code !== 'string' || typeof x.message !== 'string' || !nullableString(x.field))) invalid();
     let loan = null;
-    if (r.intent === 'crear_prestamo') {
+    if ((r.intent === 'crear_prestamo' && !r.extracted) || r.loan != null) {
         if (!r.loan || typeof r.loan !== 'object') invalid();
         loan = {};
         for (const field of LOAN_FIELDS) {
@@ -46,7 +46,7 @@ export function readVoiceResponse(data, requestId) {
         }
     }
     let pettyCash;
-    if (r.intent === 'registrar_gasto_caja_chica') {
+    if ((r.intent === 'registrar_gasto_caja_chica' && !r.extracted) || r.pettyCash != null) {
         if (!r.pettyCash || typeof r.pettyCash !== 'object') invalid();
         pettyCash = {};
         for (const field of ['amount', 'concept', 'date', 'note', 'spokenCategory', 'paidTo']) {
@@ -58,13 +58,24 @@ export function readVoiceResponse(data, requestId) {
             const date = new Date(`${pettyCash.date}T12:00:00Z`);
             if (!/^\d{4}-\d{2}-\d{2}$/.test(pettyCash.date) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== pettyCash.date) invalid();
         }
-        if (r.loan != null || r.employee.spokenName !== null || r.employee.spokenNumber !== null) invalid();
+        if (r.intent === 'registrar_gasto_caja_chica' && !r.extracted && (r.loan != null || r.employee.spokenName !== null || r.employee.spokenNumber !== null)) invalid();
     }
-    return { transcript: r.transcript, intent: r.intent, employee: { spokenName: r.employee.spokenName, spokenNumber: r.employee.spokenNumber }, loan, ...(pettyCash ? { pettyCash } : {}), needsReview: r.needsReview, issues: r.issues.map(x => ({ code: x.code.slice(0, 100), field: x.field, message: x.message.slice(0, 1000) })) };
+    let extracted;
+    if (r.extracted != null) {
+        if (typeof r.extracted !== 'object' || Array.isArray(r.extracted)) invalid();
+        extracted = {};
+        for (const field of ['amount', 'spokenName', 'spokenNumber', 'concept', 'note', 'date', 'paidTo', 'spokenCategory']) {
+            const value = r.extracted[field] ?? null;
+            if (field === 'amount' ? value !== null && (typeof value !== 'number' || !Number.isFinite(value)) : !nullableString(value)) invalid();
+            extracted[field] = value;
+        }
+    }
+    return { transcript: r.transcript, intent: r.intent, employee: { spokenName: r.employee.spokenName, spokenNumber: r.employee.spokenNumber }, loan, ...(pettyCash ? { pettyCash } : {}), ...(extracted ? { extracted } : {}), needsReview: r.needsReview, issues: r.issues.map(x => ({ code: x.code.slice(0, 100), field: x.field, message: x.message.slice(0, 1000) })) };
 }
 
+export const voiceHardBlocked = result => !!result?.issues?.some(x => /NEGAT|MULTIPLE_ACTIONS/.test(x.code));
 export function voiceBlocked(result) {
-    return !result || result.intent === 'desconocida' || result.issues.some(x => /NEGAT|MULTIPLE_ACTIONS/.test(x.code));
+    return !result || result.intent === 'desconocida' || voiceHardBlocked(result);
 }
 export function voiceDraftReady(draft) {
     return draft && ['principal', 'interestRate', 'interestIncluded', 'installmentMode', 'startDate'].every(k => draft[k] !== null && draft[k] !== '') && (draft.installmentMode !== 'installments' || ['installmentCount', 'installmentFrequencyWeeks'].every(k => draft[k] !== null && draft[k] !== ''));
