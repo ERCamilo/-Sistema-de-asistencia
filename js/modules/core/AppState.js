@@ -164,6 +164,7 @@ const initialState = {
         overtimeFactor: 1,
         holidayFactor: 2,
         holidays: [],
+        scrollTopButton: false, // botón flotante "Ir arriba" (oculto por defecto)
         scrollbarMode: 'on-scroll', // Opciones: 'always', 'on-scroll', 'hidden'
         miniConnectedReviewMode: 'daily', // Mini conectados: 'daily' (día por día) | 'compare' (Comparar con SA)
         payPeriod: {

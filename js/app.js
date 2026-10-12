@@ -7,6 +7,7 @@ import { hydrateApplicationAndInitializeWeather } from './modules/core/StartupOr
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
+import { syncBackToTop } from './modules/ui/BackToTop.js';
 import { debug } from './modules/utils/Debug.js';
 
 // debug está disponible globalmente (window.debug) — usar `debug.enable()` desde
@@ -7628,7 +7629,6 @@ let lastScrollTime = 0;
 window.addEventListener('scroll', () => {
     const scrollY = window.scrollY;
     const passedScrollThreshold = scrollY > 200;
-    const showBackToTop = scrollY > 400;
     const onAttendance = state.activeTab === 'attendance';
     let shouldShowCompactControls = passedScrollThreshold;
 
@@ -7654,11 +7654,7 @@ window.addEventListener('scroll', () => {
     }
 
     // 🚀 Control del botón "Ir Arriba"
-    const backToTopBtn = document.getElementById('backToTop');
-    if (backToTopBtn) {
-        if (showBackToTop) backToTopBtn.classList.add('visible');
-        else backToTopBtn.classList.remove('visible');
-    }
+    syncBackToTop(document, { enabled: state.settings?.scrollTopButton === true, scrollY });
 
     if (shouldShowCompactControls !== state.isScrolled) {
         const now = Date.now();
@@ -8839,4 +8835,6 @@ function initBackToTop() {
     btn.title = 'Ir arriba';
     btn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
     document.body.appendChild(btn);
+    // Oculto salvo que el ajuste `scrollTopButton` esté activo.
+    syncBackToTop(document, { enabled: state.settings?.scrollTopButton === true, scrollY: window.scrollY });
 }

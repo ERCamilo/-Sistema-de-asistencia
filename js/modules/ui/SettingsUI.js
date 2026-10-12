@@ -3,6 +3,7 @@ import icons from './IconSystem.js';
 import { state, stateManager } from '../core/AppState.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
 import { APP_CONFIG } from '../config/Config.js';
+import { syncBackToTop } from './BackToTop.js';
 import { SettingsGeneralTab } from './settings/SettingsGeneralTab.js';
 import {
     SETTINGS_DRAFT_FIELD_IDS,
@@ -336,6 +337,7 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'legacyNavigation',
     'hideDuplicateAlerts',
     'weatherEnabled',
+    'scrollTopButton',
     'voiceMvpEnabled',
     'voiceUsePreviousInterest',
     'voiceKeepLoanAudio',
@@ -423,6 +425,9 @@ function _handleSettingsSwitch(target) {
     row.setAttribute('aria-checked', target.checked ? 'true' : 'false');
     commitAutoSaveSwitch({ id: target.id, checked: target.checked });
     if (target.id === 'weatherEnabled') _toggleWeatherPanel(target.checked);
+    if (target.id === 'scrollTopButton') {
+        syncBackToTop(document, { enabled: target.checked, scrollY: window.scrollY });
+    }
     if (target.id === 'attendancePositionWatermarks') {
         _toggleAttendanceWatermarkPanel(target.checked);
     }

@@ -36,6 +36,7 @@ function makeHarness(settingsOverrides = {}) {
             legacyNavigation: false,
             hideDuplicateAlerts: false,
             weatherEnabled: false,
+            scrollTopButton: false,
             attendancePositionWatermarks: true,
             attendanceWatermarkVisibility: 'present',
             attendanceWatermarkContent: 'position',
@@ -55,7 +56,7 @@ function makeHarness(settingsOverrides = {}) {
 testRunner.addSuite("SettingsUI — commitAutoSaveSwitch (auto-save de switches)", {
 
     "cada switch conocido comete su valor en state.settings y dispara el save"() {
-        for (const id of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks', 'voiceMvpEnabled', 'voiceUsePreviousInterest', 'voiceKeepLoanAudio', 'newBottomNav', 'voiceFeedback', 'newReceiptCamera']) {
+        for (const id of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks', 'voiceMvpEnabled', 'voiceUsePreviousInterest', 'voiceKeepLoanAudio', 'newBottomNav', 'voiceFeedback', 'newReceiptCamera', 'scrollTopButton']) {
             const { st, calls, deps } = makeHarness();
             const result = commitAutoSaveSwitch({ id, checked: true, deps });
 
