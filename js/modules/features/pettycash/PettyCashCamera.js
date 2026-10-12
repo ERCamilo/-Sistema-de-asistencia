@@ -2,7 +2,8 @@
  * Cámara de facturas a pantalla completa (prueba: Configuración → Tests →
  * "Cámara de facturas nueva").
  *
- * Visor en vivo (getUserMedia, cámara trasera) con marco de esquinas, linterna
+ * Visor en vivo (getUserMedia, cámara trasera) en una ventana que muestra la
+ * imagen completa de la cámara (lo que se ve es lo que se guarda), linterna
  * si el teléfono la tiene, disparador, y las fotos de la tanda en una pila
  * pequeña junto al disparador con una línea de estado ("2 leídas · 1
  * leyendo"). Tocar la pila abre una bandeja compacta; cada miniatura abre su
@@ -48,7 +49,7 @@ const WAITING_TEXT = {
     paused: 'La lectura está pausada. Reanúdala desde Caja chica.'
 };
 const TIP = {
-    start: 'Se guarda toda la foto. Las esquinas solo ayudan a centrar.',
+    start: 'Lo que ves en el recuadro es exactamente lo que se guarda.',
     long: 'Factura larga: empieza por arriba, con el nombre del comercio.',
     next: (n) => `Baja el teléfono hasta que el final de la parte ${n} coincida con la franja de arriba.`,
     full: 'Llegaste al máximo de partes. Toca Unir.'
@@ -218,6 +219,7 @@ export function createReceiptCamera({
     let receivedTimer = null;
     let view = { s: 1, px: 0, py: 0, focus: -1, fit: false };
     let resizeObserver = null;
+    let viewObserver = null;
     const pointers = new Map();
     let gesture = null;
     let lastTap = 0;
@@ -229,11 +231,15 @@ export function createReceiptCamera({
     const q = (sel) => root?.querySelector(sel);
 
     const shell = () => `
-        <video data-pcam-video class="pcam-video" autoplay playsinline muted></video>
-        <canvas class="pcam-ghost" data-pcam-ghost hidden aria-hidden="true"></canvas>
-        <div class="pcam-guide" data-pcam-guide aria-hidden="true"><i class="is-tl"></i><i class="is-tr"></i><i class="is-bl"></i><i class="is-br"></i></div>
-        <span class="pcam-ghost-tag" data-pcam-ghost-tag role="status" hidden></span>
-        <div class="pcam-flash" data-pcam-flash hidden></div>
+        <div class="pcam-view" data-pcam-view>
+            <div class="pcam-frame" data-pcam-frame>
+                <video data-pcam-video class="pcam-video" autoplay playsinline muted></video>
+                <canvas class="pcam-ghost" data-pcam-ghost hidden aria-hidden="true"></canvas>
+                <span class="pcam-ghost-edge" data-pcam-ghost-edge hidden aria-hidden="true"></span>
+                <span class="pcam-ghost-tag" data-pcam-ghost-tag role="status" hidden></span>
+                <div class="pcam-flash" data-pcam-flash hidden></div>
+            </div>
+        </div>
         <header class="pcam-top">
             <button type="button" class="pcam-icon" data-pcam-close aria-label="Cerrar cámara">${ico(ICON.close)}</button>
             <span class="pcam-period">${esc(periodLabel())}</span>
@@ -296,7 +302,6 @@ export function createReceiptCamera({
         done.disabled = long.on && long.parts.length < 2;
         const mode = q('[data-pcam-long]');
         mode.setAttribute('aria-pressed', String(long.on));
-        q('[data-pcam-guide]').classList.toggle('is-long', long.on);
         const tray = q('[data-pcam-tray]');
         tray.hidden = !trayOpen || !items.length;
         if (tray.hidden) { traySig = ''; return; }
@@ -660,19 +665,38 @@ export function createReceiptCamera({
     const paintLong = () => {
         const ghost = q('[data-pcam-ghost]');
         const tagEl = q('[data-pcam-ghost-tag]');
+        const edge = q('[data-pcam-ghost-edge]');
         const showGhost = long.on && long.parts.length > 0 && long.parts.length < MAX_PARTS;
         ghost.hidden = !showGhost;
         tagEl.hidden = !showGhost;
-        ghost.classList.toggle('is-aligned', showGhost && long.aligned);
-        tagEl.classList.toggle('is-aligned', showGhost && long.aligned);
+        edge.hidden = !showGhost;
+        [ghost, tagEl, edge].forEach(el => el.classList.toggle('is-aligned', showGhost && long.aligned));
         q('[data-pcam-shutter]').classList.toggle('is-ready', showGhost && long.aligned);
         q('[data-pcam-shutter]').setAttribute('aria-label', long.on ? `Tomar parte ${long.parts.length + 1}` : 'Tomar foto');
         if (showGhost) {
             tagEl.textContent = long.aligned
                 ? `Alineado ✓ · toma la parte ${long.parts.length + 1}`
-                : `Final de la parte ${long.parts.length} · haz que coincida`;
+                : `Ya tomada (parte ${long.parts.length}) · haz que coincida`;
         }
         paintBar();
+    };
+
+    /**
+     * El recuadro toma la forma de la foto (como object-fit: contain): se ve
+     * la imagen completa de la cámara, y lo que se ve es lo que se guarda.
+     */
+    const layoutFrame = () => {
+        const view = q('[data-pcam-view]');
+        const frame = q('[data-pcam-frame]');
+        const video = q('[data-pcam-video]');
+        const vw = video?.videoWidth;
+        const vh = video?.videoHeight;
+        const aw = view?.clientWidth;
+        const ah = view?.clientHeight;
+        if (!frame || !vw || !vh || !aw || !ah) return;
+        const fit = Math.min(aw / vw, ah / vh);
+        frame.style.width = `${Math.round(vw * fit)}px`;
+        frame.style.height = `${Math.round(vh * fit)}px`;
     };
 
     const stopAlign = () => { clearInterval(alignTimer); alignTimer = null; };
@@ -860,8 +884,15 @@ export function createReceiptCamera({
         doc.body.appendChild(root);
         doc.body.classList.add('pcam-open');
         const video = q('[data-pcam-video]');
+        video.addEventListener('loadedmetadata', layoutFrame);
+        video.addEventListener('resize', layoutFrame); // la cámara cambia de tamaño al girar el teléfono
+        if (typeof ResizeObserver === 'function') {
+            viewObserver = new ResizeObserver(layoutFrame);
+            viewObserver.observe(q('[data-pcam-view]'));
+        }
         video.srcObject = stream;
         try { await video.play?.(); } catch (_) { /* autoplay ya lo inicia */ }
+        layoutFrame();
         setupTorch();
         root.addEventListener('click', onClick);
         doc.addEventListener('keydown', onKey);
@@ -878,6 +909,7 @@ export function createReceiptCamera({
         stopAlign();
         releaseParts();
         resizeObserver?.disconnect(); resizeObserver = null;
+        viewObserver?.disconnect(); viewObserver = null;
         long = { on: false, parts: [], band: null, aligned: false };
         stream?.getTracks?.().forEach(t => { try { t.stop(); } catch (_) { /* ya detenida */ } });
         stream = null; track = null; torchOn = false;

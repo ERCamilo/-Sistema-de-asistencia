@@ -397,11 +397,51 @@ describe('Cámara de facturas', () => {
         camera.close();
     });
 
-    test('el marco solo marca esquinas y aclara que se guarda toda la foto', async () => {
+    test('lo que se ve es lo que se guarda: la cámara completa dentro del recuadro, sin nada encima', async () => {
         const { camera } = setup();
         await camera.open();
-        expect(document.querySelectorAll('[data-pcam-guide] i')).toHaveLength(4);
-        expect($('[data-pcam-tip]').textContent).toContain('Se guarda toda la foto');
+        const frame = $('[data-pcam-frame]');
+        expect(frame).not.toBeNull();
+        expect(frame.contains($('[data-pcam-video]'))).toBe(true);
+        expect(frame.contains($('[data-pcam-ghost]'))).toBe(true);
+        // Los botones no van encima de la imagen que se guarda.
+        expect(frame.contains($('[data-pcam-shutter]'))).toBe(false);
+        expect(frame.contains($('[data-pcam-long]'))).toBe(false);
+        expect($('[data-pcam-guide]')).toBeNull();
+        expect($('[data-pcam-tip]').textContent).toContain('recuadro');
+        camera.close();
+    });
+
+    test('el recuadro toma la forma de la foto (sin recortar la imagen)', async () => {
+        const { camera } = setup();
+        await camera.open();
+        const view = $('[data-pcam-view]');
+        Object.defineProperty(view, 'clientWidth', { configurable: true, value: 390 });
+        Object.defineProperty(view, 'clientHeight', { configurable: true, value: 560 });
+        const video = $('[data-pcam-video]');
+        Object.defineProperty(video, 'videoWidth', { configurable: true, value: 1080 });
+        Object.defineProperty(video, 'videoHeight', { configurable: true, value: 1920 });
+        video.dispatchEvent(new Event('loadedmetadata'));
+        const frame = $('[data-pcam-frame]');
+        expect(frame.style.width).toBe('315px');
+        expect(frame.style.height).toBe('560px');
+        // Foto horizontal: se ajusta al ancho.
+        Object.defineProperty(video, 'videoWidth', { configurable: true, value: 1920 });
+        Object.defineProperty(video, 'videoHeight', { configurable: true, value: 1080 });
+        video.dispatchEvent(new Event('resize'));
+        expect(frame.style.width).toBe('390px');
+        expect(frame.style.height).toBe('219px');
+        camera.close();
+    });
+
+    test('factura larga: la franja ya tomada lleva un borde y la marca "ya tomada"', async () => {
+        const { camera } = setup();
+        await camera.open();
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click(); await flush();
+        expect($('[data-pcam-ghost-edge]').hidden).toBe(false);
+        expect($('[data-pcam-frame]').contains($('[data-pcam-ghost-edge]'))).toBe(true);
+        expect($('[data-pcam-ghost-tag]').textContent).toContain('Ya tomada');
         camera.close();
     });
 
@@ -442,6 +482,7 @@ describe('Cámara de facturas', () => {
         jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
         expect($('[data-pcam-ghost]').classList.contains('is-aligned')).toBe(true);
         expect($('[data-pcam-ghost-tag]').textContent).toContain('Alineado');
+        expect($('[data-pcam-ghost-edge]').classList.contains('is-aligned')).toBe(true);
         expect(deps.vibrate).toHaveBeenCalledTimes(1);
         jest.advanceTimersByTime(ALIGN_POLL_MS + 10);
         expect(deps.vibrate).toHaveBeenCalledTimes(1);
