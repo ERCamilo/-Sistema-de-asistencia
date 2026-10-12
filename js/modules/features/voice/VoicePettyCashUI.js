@@ -1,6 +1,7 @@
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { voiceIcon } from './VoiceVisuals.js';
 import { voiceBlocked } from './VoiceCore.js';
+import { voiceFacts, isVoiceIntentUnclear } from './VoiceIntent.js';
 
 const fields = ['amount', 'concept', 'date', 'category', 'note', 'paidTo'];
 function realDate(value) {
@@ -49,10 +50,10 @@ export class VoicePettyCashUI {
         }
     }
     async open(record, bridge) {
-        this.close(); this.record = record; this.bridge = bridge; this.message = ''; this.busy = false;
+        this.close(); this.record = record; this.bridge = bridge; this.message = isVoiceIntentUnclear(record.result) ? 'Acción propuesta. Revisa los datos o cambia el tipo.' : ''; this.busy = false;
         this.guard();
         const context = this.adapter.getContext();
-        const source = record.result.pettyCash;
+        const source = { ...voiceFacts(record.result), ...record.cashTransfer };
         const ambiguousDate = record.result.issues.some(issue => /date|fecha/i.test(issue.field || '') || /DATE|FECHA/.test(issue.code));
         record.cashDraft ||= {
             id: `voice-cash-${record.requestId}`, type: 'gasto', amount: source.amount,
@@ -77,7 +78,7 @@ export class VoicePettyCashUI {
         finally { if (generation === this.generation) this.busy = false; }
     }
     problem() {
-        if (voiceBlocked(this.record?.result)) return 'La instrucción no permite registrar un gasto.';
+        if (voiceBlocked(this.record?.result ? { ...this.record.result, intent: this.record.manualIntent || this.record.result.intent } : null)) return 'La instrucción no permite registrar un gasto.';
         if (!(Number.isFinite(this.draft?.amount) && this.draft.amount > 0)) return 'Indica un monto mayor que cero.';
         if (!this.draft.concept.trim()) return 'Escribe el concepto.';
         if (!realDate(this.draft.date)) return 'Selecciona una fecha válida.';
@@ -120,6 +121,11 @@ export class VoicePettyCashUI {
         if (this.busy) return;
         this.guard();
         if (action === 'cancel') return this.cancel();
+        if (action === 'switch-loan') {
+            if (this.draft.pendingMovement || this.record.completedCashId) throw Error('Reintenta el registro pendiente o inicia otra grabación.');
+            const generation = this.generation; await this.bridge.save(); this.guard(generation);
+            const bridge = this.bridge; this.close(); await bridge.switchTo('crear_prestamo'); return;
+        }
         if (action === 'back') {
             if (this.draft.pendingMovement) throw Error('Reintenta el registro pendiente o cancela este borrador.');
             const generation = this.generation;
@@ -175,7 +181,7 @@ export class VoicePettyCashUI {
         const warnings = this.record.result.issues.map(issue => `<p>${escapeHTML(issue.message)}</p>`).join('');
         const labels = { amount: 'Monto', description: 'Concepto', date: 'Fecha', category: 'Categoría', paidTo: 'Proveedor' };
         const proposal = this.proposal ? `<section class="voice-cash-proposal"><strong>Datos de la foto</strong>${Object.entries(labels).filter(([key]) => this.proposal[key] != null && this.proposal[key] !== '').map(([key, label]) => `<label><input type="checkbox" data-cash-ocr="${key}"> ${label}: ${escapeHTML(this.proposal[key])}</label>`).join('')}<label><input type="checkbox" data-cash-ocr="fiscal"> Datos del comprobante</label>${button('apply-ocr', 'Aplicar selección')}</section>` : '';
-        this.dialog.innerHTML = `<header class="voice-header"><h2>${voiceIcon('receipt')} Caja chica <small>Voz</small></h2>${button('cancel', `${voiceIcon('close')}<span class="voice-sr">Cerrar</span>`)}</header><div class="voice-body voice-cash-body"><label class="voice-cash-amount"><span class="voice-sr">Monto en pesos dominicanos</span><span>RD$</span><input aria-label="Monto en pesos dominicanos" data-cash-field="amount" type="number" inputmode="decimal" step="0.01" min="0" value="${escapeAttr(draft.amount ?? '')}" ${this.busy ? 'disabled' : ''}></label>${input('concept', 'Concepto')}<div class="voice-cash-row">${input('date', 'Fecha', 'date')}<label>Categoría<select data-cash-field="category" ${this.busy ? 'disabled' : ''}><option value="">Seleccionar</option>${context.categories.map(category => `<option ${draft.category === category ? 'selected' : ''}>${escapeHTML(category)}</option>`).join('')}</select></label></div><label class="voice-cash-destination">${voiceIcon('building')}<select aria-label="Caja y periodo" data-cash-period ${this.busy ? 'disabled' : ''}>${options}</select></label><div class="voice-cash-photo">${draft.photoPreviewDataUrl ? `<img src="${escapeAttr(draft.photoPreviewDataUrl)}" alt="Comprobante adjunto"><div>${button('scan', 'Leer foto')}${button('remove-photo', 'Quitar')}</div>` : `<label class="voice-cash-photo-button">${voiceIcon('camera')} Agregar foto <span>Opcional</span><input data-cash-file type="file" accept="image/*" capture="environment" ${this.busy ? 'disabled' : ''}></label><label class="voice-cash-file">Elegir archivo<input data-cash-file type="file" accept="image/*,application/pdf" ${this.busy ? 'disabled' : ''}></label>`}</div>${proposal}<details data-cash-details="note"><summary>Nota y proveedor</summary>${input('note', 'Nota opcional')}${input('paidTo', 'Proveedor')}</details><details data-cash-details="text"><summary>Ver texto reconocido</summary><p>${escapeHTML(this.record.transcript)}</p>${this.bridge.back && !draft.pendingMovement ? button('back', 'Volver al audio') : ''}</details>${warnings || this.record.result.needsReview ? `<section class="voice-cash-review">${warnings}<label><input type="checkbox" data-cash-reviewed ${draft.reviewed ? 'checked' : ''} ${this.busy ? 'disabled' : ''}> Revisé los campos pendientes</label></section>` : ''}<p class="voice-cash-status" role="status">${escapeHTML(this.message || '')}</p></div><footer class="voice-footer">${button('cancel', 'Cancelar')}${button('save', `${voiceIcon('check')} Registrar gasto`)}<span data-cash-hint></span></footer>`;
+        this.dialog.innerHTML = `<header class="voice-header"><h2>${voiceIcon('receipt')} Caja chica <small>Voz</small></h2>${button('cancel', `${voiceIcon('close')}<span class="voice-sr">Cerrar</span>`)}</header><div class="voice-body voice-cash-body"><label class="voice-cash-amount"><span class="voice-sr">Monto en pesos dominicanos</span><span>RD$</span><input aria-label="Monto en pesos dominicanos" data-cash-field="amount" type="number" inputmode="decimal" step="0.01" min="0" value="${escapeAttr(draft.amount ?? '')}" ${this.busy ? 'disabled' : ''}></label>${input('concept', 'Concepto')}<div class="voice-cash-row">${input('date', 'Fecha', 'date')}<label>Categoría<select data-cash-field="category" ${this.busy ? 'disabled' : ''}><option value="">Seleccionar</option>${context.categories.map(category => `<option ${draft.category === category ? 'selected' : ''}>${escapeHTML(category)}</option>`).join('')}</select></label></div><label class="voice-cash-destination">${voiceIcon('building')}<select aria-label="Caja y periodo" data-cash-period ${this.busy ? 'disabled' : ''}>${options}</select></label><div class="voice-cash-photo">${draft.photoPreviewDataUrl ? `<img src="${escapeAttr(draft.photoPreviewDataUrl)}" alt="Comprobante adjunto"><div>${button('scan', 'Leer foto')}${button('remove-photo', 'Quitar')}</div>` : `<label class="voice-cash-photo-button">${voiceIcon('camera')} Agregar foto <span>Opcional</span><input data-cash-file type="file" accept="image/*" capture="environment" ${this.busy ? 'disabled' : ''}></label><label class="voice-cash-file">Elegir archivo<input data-cash-file type="file" accept="image/*,application/pdf" ${this.busy ? 'disabled' : ''}></label>`}</div>${proposal}${this.bridge.switchTo && !draft.pendingMovement ? button('switch-loan', 'Cambiar a préstamo') : ''}<details data-cash-details="note"><summary>Nota y proveedor</summary>${input('note', 'Nota opcional')}${input('paidTo', 'Proveedor')}</details><details data-cash-details="text"><summary>Ver texto reconocido</summary><p>${escapeHTML(this.record.transcript)}</p>${this.bridge.back && !draft.pendingMovement ? button('back', 'Volver al audio') : ''}</details>${warnings || this.record.result.needsReview ? `<section class="voice-cash-review">${warnings}<label><input type="checkbox" data-cash-reviewed ${draft.reviewed ? 'checked' : ''} ${this.busy ? 'disabled' : ''}> Revisé los campos pendientes</label></section>` : ''}<p class="voice-cash-status" role="status">${escapeHTML(this.message || '')}</p></div><footer class="voice-footer">${button('cancel', 'Cancelar')}${button('save', `${voiceIcon('check')} Registrar gasto`)}<span data-cash-hint></span></footer>`;
         for (const key of open) this.dialog.querySelector(`[data-cash-details="${key}"]`)?.setAttribute('open', '');
         this.updateReady();
     }

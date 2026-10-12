@@ -237,6 +237,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/voice/VoiceCore.js",
     "./js/modules/features/voice/VoiceEmployeeView.js",
     "./js/modules/features/voice/VoiceFeedback.js",
+    "./js/modules/features/voice/VoiceIntent.js",
     "./js/modules/features/voice/VoiceLoanDraft.js",
     "./js/modules/features/voice/VoiceLoanView.js",
     "./js/modules/features/voice/VoiceMatching.js",

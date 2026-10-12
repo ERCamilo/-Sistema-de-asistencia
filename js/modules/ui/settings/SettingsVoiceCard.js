@@ -37,7 +37,10 @@ export function SettingsVoiceCard(context = {}) {
                         </div>
                     </div>
                     ${switchRow('voiceMvpEnabled', settings.voiceMvpEnabled === true, 'Activar botón de voz', 'Muestra el micrófono para grabar y revisar instrucciones de voz.')}
-                    <p class="stg-voice-note">Mantén pulsado para grabar y suelta para terminar. Revisa el préstamo antes de registrarlo.</p>
+                    <p class="stg-voice-note">Mantén pulsado para grabar y suelta para terminar. Al terminar se envía el audio. Revisa el borrador antes de registrar.</p>
+                    <fieldset class="stg-choice-fieldset"><legend>Cuando la intención sea ambigua</legend><div class="stg-choice-group">
+                        ${[['loan', 'Proponer préstamo'], ['cash', 'Proponer caja chica'], ['ask', 'Preguntar siempre']].map(([value, label]) => `<label class="stg-choice-option ${(settings.voiceAmbiguousAction || 'loan') === value ? 'is-selected' : ''}"><input type="radio" name="voiceAmbiguousAction" value="${value}" ${(settings.voiceAmbiguousAction || 'loan') === value ? 'checked' : ''}><span>${label}</span></label>`).join('')}
+                    </div></fieldset>
                     ${switchRow('voiceUsePreviousInterest', settings.voiceUsePreviousInterest === true, 'Usar la tasa anterior del empleado en préstamos por voz', 'Si no indicas interés, reutiliza su última tasa válida; sin una anterior usa 20 %. Una tasa indicada en la voz o editada tiene prioridad.')}
                     ${switchRow('voiceKeepLoanAudio', settings.voiceKeepLoanAudio !== false, 'Conservar audio de préstamos', 'Solo en este navegador. Desactivarlo elimina los audios de préstamos guardados y no conserva los nuevos.')}
                     ${switchRow('voiceFeedback', settings.voiceFeedback !== false, 'Sonido y vibración al grabar', 'Un tic y una vibración corta al empezar a escuchar, y otro al terminar. En iPhone solo suena: el navegador no permite vibrar.')}
