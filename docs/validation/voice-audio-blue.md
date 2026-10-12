@@ -10,8 +10,11 @@ Opciones de audio tiene dos accesos:
 - **Webhook de prueba**: selecciona
   `https://n8n.erlin.do/webhook-test/sa-voice-v1-dev`.
 
-La preferencia continúa siendo local por cuenta. No se modifica ni registra
-una grabación por cambiar de endpoint. En n8n se debe activar «Escuchar evento
+Producción es el destino predeterminado. La selección de prueba es temporal
+por cuenta y se restablece al cerrar el modal o comenzar otra grabación; una
+preferencia antigua para esa URL de prueba no se reutiliza al abrir la app.
+Las URL personalizadas explícitas continúan guardadas. No se modifica ni
+registra una grabación por cambiar de endpoint. En n8n se debe activar «Escuchar evento
 de prueba» para usar su ruta temporal. La configuración de CORS/proxy también
 debe permitir esa ruta; esta entrega configura el cliente, no modifica n8n.
 
@@ -38,3 +41,14 @@ Validación:
 Queda probar el endpoint temporal con una sesión real y su escucha activa en
 n8n. El responsable de n8n habilita escucha/CORS; el usuario envía la grabación
 desde SA y el agente SA revisa cualquier error recibido.
+
+## Instrucciones bloqueadas
+
+Opciones de audio muestra la transcripción original de Gemini y sus issues
+(mensaje, código y campo) para instrucciones negadas, múltiples o desconocidas.
+Si no hay explicación, indica la intención recibida y que no se devolvió otro
+motivo. Una respuesta ausente no se presenta como si Gemini hubiera entendido
+algo. El panel trata el texto como datos y escapa el HTML.
+
+Verificación adicional: 69 pruebas aprobadas en cuatro suites; Chromium
+comprobó el panel y que la URL temporal vuelve a producción al cerrar.
