@@ -19,7 +19,7 @@ Para una prueba local por Tailscale, la excepción HTTP admite únicamente
 `http://100.91.16.14:5678/webhook/sa-voice-v1-dev` desde `http://127.0.0.1:8080`; no acepta localhost, otro puerto,
 otra ruta ni orígenes HTTPS. Fuera de esta excepción, el transporte requiere
 HTTPS. No se reutiliza el endpoint OCR. Una URL personalizada previamente guardada
-por la cuenta sigue teniendo prioridad; **Usar URL predeterminada** permite restaurarla.
+por la cuenta sigue teniendo prioridad; **Webhook activo** permite restaurarla.
 En un origen HTTPS se sustituye la preferencia antigua HTTP de Tailscale por la
 URL predeterminada HTTPS, sin borrar audios, alias ni otras URL personalizadas.
 El ajuste de URL es local, por cuenta, y no admite credenciales.

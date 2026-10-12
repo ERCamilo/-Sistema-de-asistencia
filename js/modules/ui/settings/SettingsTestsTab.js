@@ -6,6 +6,7 @@
  */
 
 import icons from '../IconSystem.js';
+import { createCameraDiagnostics } from '../../features/pettycash/PettyCashCameraDiagnostics.js';
 
 const NAV_CENTER_MODES = [
     ['auto', 'Automático', 'Micrófono con conexión; "+" sin conexión o sin permiso de micrófono.'],
@@ -44,6 +45,32 @@ function newBottomNavCard(settings = {}) {
             </section>`;
 }
 
+// Diagnóstico de la cámara (solo números, en este teléfono) para ajustarla con uso real.
+const STATE_LABEL = { ok: 'leídas', review: 'por revisar', failed: 'sin datos' };
+function cameraDiagnosticsBlock() {
+    const s = createCameraDiagnostics().summary();
+    const pct = (n, total) => (total ? `${Math.round((n / total) * 100)}%` : '—');
+    const lines = s.shots.count || s.parts.count || s.results.count
+        ? [
+            `<li><strong>${s.shots.count} fotos</strong> · ${s.shots.sensor} del sensor, ${s.shots.video} del video · guardado ${s.shots.avgSaveMs} ms · ${s.shots.avgKb} KB promedio</li>`,
+            s.parts.count ? `<li><strong>Factura larga:</strong> ${s.parts.withOk} de ${s.parts.count} partes con ✓ · revisión en vivo ${s.parts.avgCheckMs} ms · mejor coincidencia ${s.parts.avgBestNcc}</li>` : '',
+            s.stitches.count ? `<li><strong>Uniones:</strong> ${s.stitches.count} · traslape encontrado ${s.stitches.found} de ${s.stitches.total} (${pct(s.stitches.found, s.stitches.total)})</li>` : '',
+            s.results.count ? `<li><strong>Lecturas:</strong> ${Object.entries(s.results.states).map(([k, n]) => `${n} ${STATE_LABEL[k] || k}`).join(' · ')}</li>` : '',
+            s.fixes.count ? `<li><strong>Correcciones:</strong> ${s.fixes.count}</li>` : ''
+        ].join('')
+        : '<li>Aún no hay datos. Toma algunas facturas con la cámara nueva.</li>';
+    return `
+                <div data-pcam-diag style="margin-top:14px;">
+                    <strong style="display:block;font-size:.88rem;color:#e2e8f0;margin-bottom:6px;">Diagnóstico de la cámara</strong>
+                    <small style="display:block;color:#94a3b8;margin-bottom:8px;">Solo números (tiempos, tamaños, qué decía la guía); nunca fotos ni datos de las facturas. Se guarda en este teléfono.</small>
+                    <ul style="margin:0 0 10px;padding-left:18px;color:#cbd5e1;font-size:.84rem;line-height:1.6;">${lines}</ul>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button type="button" class="btn btn-secondary" data-app-fn="pcCameraDiagCopy">Copiar diagnóstico</button>
+                        <button type="button" class="btn btn-secondary" data-app-fn="pcCameraDiagClear">Borrar</button>
+                    </div>
+                </div>`;
+}
+
 // Prueba de la cámara de facturas a pantalla completa (PettyCashCamera.js).
 function newReceiptCameraCard(settings = {}) {
     const on = settings.newReceiptCamera === true;
@@ -57,7 +84,7 @@ function newReceiptCameraCard(settings = {}) {
                         <small>Varias fotos seguidas, con las facturas en una pila junto al disparador y vista previa de cada una. Si el navegador no lo permite, se usa la cámara del teléfono.</small>
                     </span>
                     <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
-                </label>
+                </label>${on ? cameraDiagnosticsBlock() : ''}
             </section>`;
 }
 

@@ -5,7 +5,7 @@ import { VoiceAudioView } from './VoiceAudioView.js';
 import { voiceRetentionPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET } from './VoiceRetention.js';
 import { VoiceStore } from './VoiceStore.js';
 import { VoiceRecorder } from './VoiceRecorder.js';
-import { LOAN_FIELDS, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceName, isVoiceEndpointAllowed, createVoiceContext, sendVoiceRecording, resolveVoiceEmployees, voiceBlocked, voiceDraftReady } from './VoiceCore.js';
+import { LOAN_FIELDS, VOICE_TEST_ENDPOINT, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceName, isVoiceEndpointAllowed, createVoiceContext, sendVoiceRecording, resolveVoiceEmployees, voiceBlocked, voiceDraftReady } from './VoiceCore.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { completeVoiceLoanDraft, voiceLoanNote } from './VoiceLoanDraft.js';
 import { getDateKey } from '../../utils/DateUtils.js';
@@ -429,6 +429,7 @@ export class VoiceMvpUI {
         }
         if (this.view === 'playback' || this.view === 'storage') return;
         if (action === 'back-loan') { this.view = 'loan'; this.render(); return; }
+        if (action === 'test-endpoint') { localStorage.setItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`, VOICE_TEST_ENDPOINT); this.message = 'Webhook de prueba seleccionado. Activa la escucha en n8n antes de enviar.'; this.render(); return; }
         if (action === 'default-endpoint') { localStorage.removeItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`); this.message = 'URL predeterminada restaurada.'; this.render(); return; }
         if (action === 'record') {
             if (this.record && !this.record.completedLoanId) { this.record.discarded = true; await this.store.remove?.(this.record.uid, this.record.requestId); }

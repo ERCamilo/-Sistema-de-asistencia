@@ -305,7 +305,7 @@ export function liveAlignment(doc, video, band) {
 }
 
 /** Une las partes (ImageBitmap/imagen, de arriba abajo) en una sola imagen (WebP o JPEG). */
-export async function stitchParts(doc, bitmaps, { quality = 0.9 } = {}) {
+export async function stitchParts(doc, bitmaps, { quality = 0.9, onInfo = null } = {}) {
     if (!bitmaps.length) throw new Error('No hay partes para unir');
     const sizes = bitmaps.map(sizeOf);
     const overlaps = [];
@@ -318,6 +318,7 @@ export async function stitchParts(doc, bitmaps, { quality = 0.9 } = {}) {
         const k = (sizes[i].h * NEXT_SEARCH) / next.rows;
         overlaps.push(r.status === 'ok' || r.status === 'below' ? { y: Math.round(r.y * k), band: Math.round(band.rows * k) } : null);
     }
+    onInfo?.({ found: overlaps.filter(Boolean).length, total: overlaps.length });
     const plan = planStitch(sizes.map(s => s.h), overlaps, { band: Math.round(sizes[1]?.h * OVERLAP_FRACTION || 0) });
     // Todas las partes vienen de la misma cámara; se limita el ancho y el área total.
     const scale = Math.min(1, MAX_STITCH_WIDTH / sizes[0].w, Math.sqrt(MAX_STITCH_PIXELS / (sizes[0].w * plan.height)));
