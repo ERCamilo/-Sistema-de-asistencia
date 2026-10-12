@@ -222,3 +222,13 @@
 .voice-processing { display:grid; justify-items:center; gap:12px; padding:28px 8px; text-align:center; }
 .voice-processing > svg { color:var(--accent); width:40px!important; height:40px!important; }
 .voice-dialog[data-voice-view=intent] .voice-body > button { display:flex; width:100%; margin:8px 0; }
+
+.voice-name-words { margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:14px; background:var(--panel-2); }
+.voice-name-words h3 { margin:0 0 10px; font-size:15px; }
+.voice-word-chips,.voice-name-suggestions { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+.voice-word-chips { max-height:220px; overflow:auto; overscroll-behavior:contain; }
+.voice-name-words button { max-width:100%; overflow-wrap:anywhere; }
+.voice-name-suggestions > span { width:100%; color:var(--text-dim); font-size:12px; }
+.voice-dialog[data-voice-view=loan] .voice-name-words { --text:#f6f7f8; --text-dim:#a6afb7; --border:#34393d; color:var(--text); }
+.voice-dialog[data-voice-view=loan] [data-voice-action=name-words] { color:#f6f7f8; border-color:#34393d; }
+.voice-dialog[data-voice-view=loan] .voice-name-words :focus-visible { outline-color:#f5c542; }

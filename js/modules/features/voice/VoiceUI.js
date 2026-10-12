@@ -1,3 +1,4 @@
+import { transcriptWords, selectedTranscriptName, suggestTranscriptNames, VoiceNameWords } from './VoiceNameWords.js';
 import { voiceFacts, suggestedVoiceIntent, isVoiceIntentUnclear } from './VoiceIntent.js';
 import { voiceIcon, voicePlayer, voiceEmployeeCard } from './VoiceVisuals.js';
 import { VoiceLoanView } from './VoiceLoanView.js';
@@ -351,7 +352,7 @@ export class VoiceMvpUI {
         if (!this.record?.result || this.record.pendingResult) return;
         if (voiceHardBlocked(this.record.result)) { this.view = 'audio'; return; }
         if (!this.record.manualIntent && isVoiceIntentUnclear(this.record.result)) {
-            const suggested = suggestedVoiceIntent(this.record.result, this.adapter.getSettings?.()?.voiceAmbiguousAction || 'loan');
+            const suggested = suggestedVoiceIntent({ ...this.record.result, extracted: { ...voiceFacts(this.record.result), ...this.record.mention } }, this.adapter.getSettings?.()?.voiceAmbiguousAction || 'loan');
             if (!suggested) { this.view = 'intent'; return; }
             this.record.manualIntent = suggested; await this.save(); await this.refreshMatches();
         }
@@ -493,6 +494,29 @@ export class VoiceMvpUI {
         if (action === 'intent-loan') { await this.chooseIntent('crear_prestamo'); return; }
         if (action === 'intent-cash') { await this.chooseIntent('registrar_gasto_caja_chica'); return; }
         if (action === 'intent-search') { await this.chooseIntent('buscar_empleado'); return; }
+        if (action === 'name-words') {
+            const record = this.record, transcript = record.transcript || '';
+            const aliases = await this.store.aliases(record.uid, record.projectKey); this.guard(record);
+            if (this.record !== record || record.transcript !== transcript) return;
+            this.nameWordPicker = { requestId: this.record.requestId, transcript, words: transcriptWords(transcript), indexes: [], suggestions: suggestTranscriptNames(transcript, this.adapter.getEmployees(), aliases) };
+            this.render(); return;
+        }
+        if (action.startsWith('name-') && this.nameWordPicker) {
+            const picker = this.nameWordPicker;
+            if (picker.requestId !== this.record.requestId || picker.transcript !== this.record.transcript) { this.nameWordPicker = null; this.render(); return; }
+            const index = Number(id);
+            if (action === 'name-word' && Number.isInteger(index) && index >= 0 && index < picker.words.length) picker.indexes = picker.indexes.includes(index) ? picker.indexes.filter(i => i !== index) : [...picker.indexes, index];
+            if (action === 'name-reset') picker.indexes = [];
+            if (action === 'name-close') this.nameWordPicker = null;
+            const name = action === 'name-suggestion' ? picker.suggestions[index]?.name : action === 'name-apply' ? selectedTranscriptName(picker.words, picker.indexes) : null;
+            if (name) {
+                this.record.mention = { ...this.record.mention, spokenName: name, spokenNumber: null };
+                this.record.selectedEmployeeId = null; this.record.reviewed = false; this.record.rememberName = false; this.record.dirty = true;
+                this.nameWordPicker = null; this.allEmployees = false; this.view = 'employees';
+                await this.save(); await this.refreshMatches();
+            }
+            this.render(); return;
+        }
         if (action === 'process') { await this.process(); return; }
         if (action === 'apply-result') {
             if (!await this.confirmInline('¿Reemplazar los campos editados con el nuevo resultado?')) return;
@@ -600,7 +624,7 @@ export class VoiceMvpUI {
             if (field === 'installmentMode' && v === 'installments' && this.record.draft.installmentCount < 2) this.record.draft.installmentCount = 2;
         }
         if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.reviewed = false; this.record.rememberName = false; this.view = 'employees'; }
-        if (input.dataset.voiceTranscript !== undefined) this.record.transcript = input.value;
+        if (input.dataset.voiceTranscript !== undefined) { this.record.transcript = input.value; this.nameWordPicker = null; }
         if (input.dataset.voiceReviewed !== undefined) this.record.reviewed = input.checked;
         if (input.dataset.voiceRemember !== undefined) this.record.rememberName = input.checked;
         this.record.dirty = true; await this.save(); await this.refreshMatches(); this.render();
@@ -636,7 +660,7 @@ export class VoiceMvpUI {
         const view = this.view || (record?.result ? selected ? 'loan' : 'employees' : 'audio');
         this.view = view;
         const views = {
-            intent: () => `<section class="voice-review"><h3>¿Qué quieres hacer?</h3><p>${escapeHTML(record.transcript)}</p><p>${escapeHTML(String(voiceFacts(result).amount ?? 'Sin monto'))} · ${escapeHTML(voiceFacts(result).spokenName || voiceFacts(result).concept || 'Completa los datos en el borrador')}</p></section>${button('intent-loan','Préstamo',this.busy)}${button('intent-cash','Caja chica',this.busy)}${button('intent-search','Buscar empleado',this.busy)}`,
+            intent: () => `<section class="voice-review"><h3>¿Qué quieres hacer?</h3><p>${escapeHTML(record.transcript)}</p><p>${escapeHTML(String(voiceFacts(result).amount ?? 'Sin monto'))} · ${escapeHTML(voiceFacts(result).spokenName || voiceFacts(result).concept || 'Completa los datos en el borrador')}</p></section>${button('intent-loan','Préstamo',this.busy)}${button('intent-cash','Caja chica',this.busy)}${button('intent-search','Buscar empleado',this.busy)}${VoiceNameWords(this,button)}`,
             audio: () => VoiceAudioView(this, button) + (blocked && result ? '<section class="voice-review" role="alert">Instrucción negada o no reconocida. No se registrará una operación. Revisa el texto y el motivo en Opciones de audio.</section>' : ''),
             employees: () => VoiceEmployeeView(this, button),
             loan: () => VoiceLoanView(this, button),
