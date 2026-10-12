@@ -97,3 +97,26 @@ como «sin factura» o «no tengo factura» no son negaciones de registrar un ga
 
 Esta entrega modifica SA; el prompt/workflow de voz debe actualizarlo el agente
 de n8n. La validación local usa respuestas simuladas y datos de prueba.
+
+## Corregir el nombre desde la transcripción
+
+En el selector de empleado, el borrador de préstamo y la elección de acción,
+«Elegir nombre del audio» muestra palabras seleccionables. Se pueden marcar varias,
+incluso en orden distinto; el nombre conserva el orden original del audio.
+«Buscar coincidencias» reemplaza únicamente la mención local del nombre, limpia
+el número anterior y exige volver a elegir empleado. Conserva monto, tasa, notas,
+transcripción y la respuesta original de Gemini. No genera otra petición al proveedor.
+
+«Posibles nombres» examina hasta 80 palabras distintas con letras, excluye términos
+financieros frecuentes y muestra hasta seis propuestas con similitud >= 80 % usando
+el mismo algoritmo local de nombres/apellidos/alias. Ese porcentaje es similitud
+ortográfica, no probabilidad de identidad. Las sugerencias requieren un clic y la
+selección posterior del empleado; no crean alias ni operaciones automáticamente.
+Todas las palabras de la transcripción quedan disponibles para selección manual,
+aunque no generen sugerencia. Editar la transcripción invalida la selección anterior.
+Los candidatos normales conservan los niveles de 60/50/40 %.
+
+Un nombre corregido también puede orientar una intención desconocida según la
+preferencia configurada. La negación continúa bloqueando las operaciones. El
+aprendizaje de alias sigue siendo optativo mediante la confirmación existente.
+No requiere modificaciones adicionales del contrato de n8n ni envío del catálogo.
