@@ -4,7 +4,7 @@
  * Visor en vivo, disparador, pila de fotos con su estado, bandeja compacta y
  * vista previa por foto. Las fotos entran a la misma cola de caja chica.
  */
-import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, RESOLVED_ADVANCE_MS, summarizeCameraItems } from '../modules/features/pettycash/PettyCashCamera.js';
+import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, RESOLVED_ADVANCE_MS, summarizeCameraItems, highlightBox } from '../modules/features/pettycash/PettyCashCamera.js';
 
 function setup(overrides = {}) {
     const stop = jest.fn();
@@ -32,6 +32,7 @@ function setup(overrides = {}) {
         checkAlignment: jest.fn(() => ({ aligned: false })),
         stitch: jest.fn(async () => new Blob(['larga'], { type: 'image/jpeg' })),
         onFix: jest.fn().mockResolvedValue(true),
+        onRescan: jest.fn().mockResolvedValue(true),
         diag: { record: jest.fn() },
         ...overrides
     };
@@ -388,6 +389,14 @@ describe('Cámara de facturas', () => {
         camera.close();
     });
 
+    test('el recuadro del dato lleva margen para no tapar el valor si llega algo corrido', () => {
+        expect(highlightBox([880, 100, 910, 900])).toEqual([865, 92, 925, 908]);
+        // Recuadro muy delgado (una línea): al menos 8 de alto por lado.
+        expect(highlightBox([500, 400, 504, 600])).toEqual([492, 392, 512, 608]);
+        // No se sale de la foto.
+        expect(highlightBox([2, 0, 20, 1000])).toEqual([0, 0, 29, 1000]);
+    });
+
     test('con la posición del dato, tocar el aviso enfoca la foto en él', async () => {
         const { camera, states } = setup();
         await camera.open();
@@ -405,7 +414,9 @@ describe('Cámara de facturas', () => {
         expect(Number($('[data-pcam-zoom]').dataset.zoom)).toBeGreaterThan(1);
         const hl = $('[data-pcam-hl]');
         expect(hl.hidden).toBe(false);
-        expect(hl.style.top).toBe('88%');
+        // Con margen: [880, 100, 910, 900] → [865, 92, 925, 908].
+        expect(hl.style.top).toBe('86.5%');
+        expect(hl.style.height).toBe('6%');
         expect(buttons[0].getAttribute('aria-pressed')).toBe('true');
         $('[data-pcam-zoom-out]').click();
         expect(hl.hidden).toBe(true);
@@ -779,5 +790,59 @@ describe('summarizeCameraItems', () => {
     test('separa las que no se pudieron leer de las que hay que revisar', () => {
         expect(summarizeCameraItems([{ state: 'ok' }, { state: 'review' }, { state: 'failed' }, { state: 'reading' }]))
             .toBe('1 leída · 1 por revisar · 1 sin datos · 1 leyendo');
+    });
+});
+
+describe('Cámara de facturas: volver a leer', () => {
+    const itbis = { code: 'itbis-rate', field: 'itbis', message: 'El ITBIS no es el 18% del subtotal.', detail: { read: 120, calc: 180, base: 1000 } };
+    const withState = async (state, extra = {}) => {
+        const ctx = setup(extra);
+        await ctx.camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        ctx.states.set('m1', state);
+        await ctx.camera.refresh();
+        ctx.camera.openPreview(0);
+        return ctx;
+    };
+
+    test('con avisos o sin datos aparece "Volver a leer"; leída sin avisos, no', async () => {
+        let ctx = await withState({ state: 'review', issues: [itbis], data: {} });
+        expect($('[data-pcam-action="rescan"]').textContent).toContain('Volver a leer');
+        ctx.camera.close();
+        ctx = await withState({ state: 'failed', issues: [], data: {} });
+        expect($('[data-pcam-action="rescan"]')).not.toBeNull();
+        ctx.camera.close();
+        ctx = await withState({ state: 'ok', issues: [], data: {} });
+        expect($('[data-pcam-action="rescan"]')).toBeNull();
+        ctx.camera.close();
+    });
+
+    test('la manda otra vez al lector: vuelve a "Leyendo" y muestra el nuevo resultado al llegar', async () => {
+        const ctx = await withState({ state: 'review', issues: [itbis], data: {} });
+        ctx.deps.onRescan.mockImplementation(async () => { ctx.states.set('m1', { state: 'reading', issues: [], data: {} }); return true; });
+        $('[data-pcam-action="rescan"]').click(); await flush();
+        expect(ctx.deps.onRescan).toHaveBeenCalledWith('m1');
+        expect($('[data-pcam-chip]').textContent).toContain('Leyendo');
+        expect($('[data-pcam-wait]')).not.toBeNull();
+        expect(ctx.deps.diag.record).toHaveBeenCalledWith('rescan', expect.objectContaining({ from: 'review', codes: ['itbis-rate'] }));
+
+        jest.useFakeTimers();
+        ctx.states.set('m1', { state: 'ok', issues: [], data: {} });
+        await ctx.camera.refresh();
+        expect($('[data-pcam-chip]').textContent).toContain('Recibido');
+        jest.advanceTimersByTime(RECEIVED_MS + 10);
+        expect($('[data-pcam-seal]').dataset.pcamSeal).toBe('ok');
+        // El nuevo resultado también queda en el diagnóstico.
+        expect(ctx.deps.diag.record.mock.calls.filter(([type]) => type === 'result')).toHaveLength(2);
+        ctx.camera.close();
+    });
+
+    test('si no se puede reenviar, avisa y deja el resultado anterior', async () => {
+        const ctx = await withState({ state: 'review', issues: [itbis], data: {} }, { onRescan: jest.fn().mockResolvedValue(false) });
+        $('[data-pcam-action="rescan"]').click(); await flush();
+        expect(ctx.deps.notify).toHaveBeenCalledWith(expect.stringContaining('No se pudo'), 'warning');
+        expect($('[data-pcam-chip]').textContent).toContain('Por revisar');
+        expect($('[data-pcam-action="rescan"]')).not.toBeNull();
+        ctx.camera.close();
     });
 });

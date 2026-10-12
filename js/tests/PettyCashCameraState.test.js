@@ -2,7 +2,7 @@
  * Caja chica → cámara nueva: estado de cada foto a partir de la cola de
  * lectura y del gasto, y el botón "Cámara" según el interruptor de Tests.
  */
-import { cameraItemsState, applyReceiptFix, copyCameraDiagnostics, PettyCashTab } from '../modules/features/pettycash/PettyCashUI.js';
+import { cameraItemsState, applyReceiptFix, rereadReceipt, copyCameraDiagnostics, PettyCashTab } from '../modules/features/pettycash/PettyCashUI.js';
 import { state } from '../modules/core/AppState.js';
 import { SettingsTestsTab } from '../modules/ui/settings/SettingsTestsTab.js';
 
@@ -139,5 +139,37 @@ describe('Configuración → Tests: diagnóstico de la cámara', () => {
         expect(ok).toBe(true);
         const text = writeText.mock.calls[0][0];
         expect(JSON.parse(text)).toMatchObject({ diag: 'camara-facturas', summary: { fixes: { count: 1 } } });
+    });
+});
+
+describe('rereadReceipt (volver a leer desde la vista previa)', () => {
+    afterEach(() => { state.pettyCash = null; });
+
+    test('vuelve a poner la foto en la cola y limpia lo que dependía de la lectura anterior', async () => {
+        seed([{ id: 'm1', periodId: 'p1', type: 'gasto', amount: 1484.64, ocrBoxes: { total: [1, 2, 3, 4] }, reviewAccepted: ['itbis-rate'], localDraft: true }]);
+        const updateJob = jest.fn().mockResolvedValue();
+        const save = jest.fn().mockResolvedValue();
+        const process = jest.fn().mockResolvedValue({});
+        const ok = await rereadReceipt('m1', { getJob: async () => ({ txId: 'm1', originalBlob: new Blob(['x']) }), updateJob, save, process });
+        expect(ok).toBe(true);
+        const mov = state.pettyCash.movements[0];
+        expect(mov.ocrBoxes).toBeUndefined();
+        expect(mov.reviewAccepted).toBeUndefined();
+        expect(save).toHaveBeenCalledWith(mov);
+        expect(updateJob).toHaveBeenCalledWith('m1', expect.objectContaining({ queueStatus: 'queued', ocrStatus: 'pending', attempts: 0, nextRetryAt: null, lastError: null }));
+        expect(process).toHaveBeenCalledWith({ txIds: ['m1'] });
+        // En la cola, la foto se ve como "leyendo" otra vez.
+        const map = await cameraItemsState(['m1'], { listJobs: async () => [{ txId: 'm1', queueStatus: 'queued', ocrStatus: 'pending' }] });
+        expect(map.get('m1').state).toBe('reading');
+    });
+
+    test('sin la foto original guardada (o sin gasto) no hace nada', async () => {
+        seed([{ id: 'm1', periodId: 'p1', type: 'gasto', amount: 10 }]);
+        const updateJob = jest.fn();
+        const process = jest.fn();
+        expect(await rereadReceipt('m1', { getJob: async () => ({ txId: 'm1' }), updateJob, save: jest.fn(), process })).toBe(false);
+        expect(await rereadReceipt('nada', { getJob: async () => ({ originalBlob: new Blob(['x']) }), updateJob, save: jest.fn(), process })).toBe(false);
+        expect(updateJob).not.toHaveBeenCalled();
+        expect(process).not.toHaveBeenCalled();
     });
 });

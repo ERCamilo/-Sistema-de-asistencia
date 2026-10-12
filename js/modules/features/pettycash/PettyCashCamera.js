@@ -67,7 +67,8 @@ const ICON = {
     check: 'M5 12.5l4.5 4.5L19 7.5',
     torch: 'M13 2 4 14h7l-1 8 9-12h-7z',
     long: 'M7 2h10v20H7zM7 9h10M7 15h10',
-    fit: 'M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4'
+    fit: 'M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4',
+    rescan: 'M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5'
 };
 // Sello: anillo + glifo (se dibujan con stroke-dashoffset).
 const SEAL_GLYPH = {
@@ -77,6 +78,19 @@ const SEAL_GLYPH = {
 };
 
 /** Texto y color por estado de lectura. */
+/**
+ * Recuadro [y0, x0, y1, x1] (0–1000) con margen alrededor del dato: medio
+ * alto del dato arriba y abajo (mínimo 8) y 1 % del ancho a los lados
+ * (mínimo 8). Así, si el lector lo manda algo corrido, el marco rodea el
+ * valor en vez de taparlo.
+ */
+export function highlightBox([y0, x0, y1, x1]) {
+    const py = Math.max(8, (y1 - y0) * 0.5);
+    const px = Math.max(8, (x1 - x0) * 0.01);
+    const clamp = n => Math.round(Math.max(0, Math.min(1000, n)));
+    return [clamp(y0 - py), clamp(x0 - px), clamp(y1 + py), clamp(x1 + px)];
+}
+
 export const STATE_UI = Object.freeze({
     reading: { label: 'Leyendo', chip: 'Leyendo…', tone: 'reading' },
     waiting: { label: 'En cola', chip: 'En cola', tone: 'reading' },
@@ -232,6 +246,7 @@ export function createReceiptCamera({
     onReview = () => {},
     onDelete = async () => true,
     onFix = async () => false,
+    onRescan = async () => false,
     diag = { record() {} },
     clock = () => (globalThis.performance?.now?.() ?? Date.now()),
     onFinish = () => {},
@@ -404,6 +419,9 @@ export function createReceiptCamera({
         return `<div class="pcam-issue pcam-in" data-pcam-issue-card="${i}">${body}${locate}${fixRow(issue, i)}</div>`;
     }).join('');
 
+    // Con avisos o sin datos: mandar la misma foto otra vez al lector.
+    const RESCAN_BUTTON = `<button type="button" class="pcam-rescan pcam-in" data-pcam-action="rescan">${ico(ICON.rescan, 16)} Volver a leer</button>`;
+
     const sheetHtml = (item) => {
         if (item.state === 'reading' || item.state === 'waiting') {
             return `<div class="pcam-wait" data-pcam-wait>
@@ -419,10 +437,12 @@ export function createReceiptCamera({
         if (item.state === 'failed') {
             return `<p class="pcam-fail pcam-in">No se obtuvo ningún dato de esta foto.</p>
                 <ul class="pcam-tips pcam-in"><li>Busca más luz o enciende la linterna.</li><li>Que se vea la factura completa, sin cortar el total.</li></ul>
+                ${RESCAN_BUTTON}
                 <div class="pcam-actions pcam-in"><button type="button" class="pcam-btn" data-pcam-action="review">Llenar a mano</button><button type="button" class="pcam-btn is-primary" data-pcam-action="retake">Retomar foto</button></div>`;
         }
         return `<div class="pcam-issues">${issueList(item.issues || [])}</div>
             ${dataRows(item.data)}
+            ${RESCAN_BUTTON}
             <div class="pcam-actions pcam-in"><button type="button" class="pcam-btn" data-pcam-action="delete">Eliminar</button><button type="button" class="pcam-btn is-primary" data-pcam-action="review">Revisar ahora</button></div>`;
     };
 
@@ -561,7 +581,7 @@ export function createReceiptCamera({
     const focusIssue = (index) => {
         const issue = items[previewIndex]?.issues?.[index];
         if (!issue?.box) return;
-        const [y0, x0, y1, x1] = issue.box;
+        const [y0, x0, y1, x1] = highlightBox(issue.box);
         const { pw, ph, w, h } = photoBox();
         const bw = ((x1 - x0) / 1000) * w;
         const bh = ((y1 - y0) / 1000) * h;
@@ -1031,6 +1051,35 @@ export function createReceiptCamera({
         }, RESOLVED_ADVANCE_MS);
     }
 
+    /**
+     * "Volver a leer": la misma foto vuelve a la cola del lector. Mientras
+     * tanto se ve "Leyendo…"; el nuevo resultado llega con su animación y
+     * queda otra vez en el diagnóstico. Si no se pudo reenviar, se deja el
+     * resultado anterior.
+     */
+    const rescan = async () => {
+        const item = items[previewIndex];
+        if (!item || !DONE.has(item.state) || item.rescanning) return;
+        const before = { state: item.state, issues: item.issues, data: item.data };
+        note('rescan', { from: item.state, codes: (item.issues || []).map(i => i.code) });
+        item.rescanning = true;
+        Object.assign(item, { state: 'reading', issues: [], noted: false });
+        view.focus = -1;
+        const hl = q('[data-pcam-hl]');
+        if (hl) hl.hidden = true;
+        paintResult(item, { animate: false });
+        let ok = false;
+        try { ok = await onRescan(item.id); } catch (_) { ok = false; }
+        item.rescanning = false;
+        if (!ok) {
+            Object.assign(item, before, { noted: true });
+            if (items[previewIndex]?.id === item.id) paintResult(item, { animate: false });
+            notify('No se pudo volver a leer la foto. Inténtalo de nuevo.', 'warning');
+            return;
+        }
+        vibrate(8);
+    };
+
     const applyFix = async (button) => {
         const item = items[previewIndex];
         const [i, j] = button.dataset.pcamFix.split(':').map(Number);
@@ -1117,6 +1166,7 @@ export function createReceiptCamera({
         if (action === 'back') closePreview();
         else if (action === 'finish') finish();
         else if (action === 'delete') removeItem(previewIndex);
+        else if (action === 'rescan') rescan();
         else if (action === 'retake') removeItem(previewIndex).then((ok) => { if (ok) closePreview(); });
         else if (action === 'review') { const id = items[previewIndex]?.id; close(); if (id) onReview(id); }
     };
