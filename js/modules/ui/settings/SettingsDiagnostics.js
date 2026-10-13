@@ -43,7 +43,6 @@ export function StorageSummary(stats = storageSnapshot) {
         <span class="stg-label">Almacenamiento</span>
         <span class="stg-value ${tone}">${stats ? measured ? `${formatStorageBytes(stats.usage)} usados` : 'Total no disponible' : 'Calculando…'}</span>
         ${ratio !== null ? `<div class="stg-diagnostic-detail">${formatStorageBytes(Math.max(0, stats.quota - stats.usage))} disponibles · ${Math.min(100, Math.round(ratio))} % usado</div>` : ''}
-        <button type="button" class="btn btn-secondary" data-settings-action="change-settings-tab" data-value="data">Ver detalle en Datos</button>
     </div>`;
 }
 
@@ -55,7 +54,7 @@ export function StorageRecords(useIndexedDB, stats = storageSnapshot) {
     </div>`;
 }
 
-export function SyncCard(status = {}) {
+function syncPresentation(status) {
     const user = status.user;
     const online = status.online !== false;
     const q = status.queues || queues;
@@ -69,6 +68,16 @@ export function SyncCard(status = {}) {
         else if (status.lastSyncedAt != null) { text = 'Última sync confirmada'; tone = 'success'; }
         else { text = 'Aún no sincronizado'; tone = 'warning'; }
     }
+    return { text, tone, user, online, q };
+}
+
+export function SyncSummary(status = {}) {
+    const { text, tone } = syncPresentation(status);
+    return `<small class="settings-sync-summary ${tone}" data-settings-sync-summary>${text}</small>`;
+}
+
+export function SyncCard(status = {}) {
+    const { text, tone, user, online, q } = syncPresentation(status);
     const pauses = [status.uploadPaused ? 'Subida pausada' : '', status.downloadPaused ? 'Descarga pausada' : ''].filter(Boolean);
     return `<div class="stg-status-cell" data-settings-sync-card>
         <span class="stg-label">Sincronización</span>
@@ -103,14 +112,16 @@ export function attachSettingsDiagnostics(context, {
     storageSnapshot = null; queues = { available: false, pending: null, failed: null };
     let disposed = false, timer = null, storageFlight = null, queueFlight = null;
     let storageAt = -Infinity, queueAt = -Infinity, visible = false;
-    const mounted = () => !!doc.querySelector('#settings-screen');
+    const mounted = () => !!doc.querySelector('#settings-screen [data-settings-storage-card], #settings-screen [data-settings-sync-card], #settings-screen [data-settings-sync-summary]');
     const paint = () => {
         if (disposed || !mounted()) return;
         const storageCells = doc.querySelectorAll('[data-settings-storage-card]');
         const syncCell = doc.querySelector('[data-settings-sync-card]');
+        const syncSummary = doc.querySelector('[data-settings-sync-summary]');
         const recordsCell = doc.getElementById('indexeddb-stats');
         storageCells.forEach(cell => DOMDiff.patchSelf(cell, cell.hasAttribute('data-settings-storage-summary') ? StorageSummary() : StorageCard()));
         if (syncCell) DOMDiff.patchSelf(syncCell, SyncCard(getSettingsSyncStatus(context)));
+        if (syncSummary) DOMDiff.patchSelf(syncSummary, SyncSummary(getSettingsSyncStatus(context)));
         if (recordsCell) DOMDiff.patchSelf(recordsCell, StorageRecords(context.state?.useIndexedDB));
     };
     const refresh = async (force = false, forceQueues = force) => {
