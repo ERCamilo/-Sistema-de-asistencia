@@ -42,14 +42,14 @@ test('un borrador ofrece un único Guardar; un automático no se revierte al des
     expect(input.value).toBe('Empresa'); expect(automatic.checked).toBe(true);
     expect(state.settings.weatherEnabled).toBe(true);
 });
-test('el acceso al detalle de almacenamiento respeta un borrador pendiente', () => {
+test('el acceso a Datos respeta un borrador pendiente', () => {
     draw();
     const input = document.getElementById('companyName'); input.value = 'Pendiente';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     window.changeSettingsTab = jest.fn();
     window.showConfirm = jest.fn();
     try {
-        document.querySelector('[data-settings-storage-summary] button').click();
+        document.querySelector('.nav-tab[data-value="data"]').click();
         expect(window.showConfirm).toHaveBeenCalledTimes(1);
         expect(window.changeSettingsTab).not.toHaveBeenCalled();
         expect(input.value).toBe('Pendiente');

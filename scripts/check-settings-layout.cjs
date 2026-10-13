@@ -76,15 +76,17 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
         await page.goto(`http://127.0.0.1:${server.address().port}/settings-fixture`);
         await page.waitForFunction(()=>window.ready);
         await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});
+        await page.evaluate(async()=>{window.draw('data');await window.fixtureRefresh();});
+        assert.equal(await page.$eval('#settings-device-status',el=>el.open),false);
+        await page.click('#settings-device-status > summary');
+        assert.equal(await page.$eval('#settings-device-status',el=>el.open),true);
         const summary=await page.$eval('[data-settings-storage-summary]',el=>el.textContent);
         assert.ok(!summary.includes('Fotos de empleados')&&!summary.includes('LocalStorage:'));
-        await page.click('[data-settings-storage-summary] button');
         await page.waitForSelector('[data-settings-storage-section]');
         const deviceStats=await page.$eval('[data-settings-storage-section] [data-settings-storage-card]',el=>el.textContent);
         assert.ok(deviceStats.includes('6.00 MB (1)'),`Fotos reales: ${deviceStats}`);
         assert.ok(deviceStats.includes('1.00 MB (1)'),`Audios reales: ${deviceStats}`);
         assert.ok(!deviceStats.includes('5MB'),`Sin cuota inventada: ${deviceStats}`);
-        await page.evaluate(()=>window.draw('general'));
         assert.equal(await page.$eval('[data-settings-sync-card] .stg-value',el=>el.textContent),'Sin sesión');
         await page.evaluate(()=>window.fixtureSetUser({uid:'test-a',email:'ana@example.invalid'}));
         assert.equal(await page.$eval('[data-settings-sync-card] .stg-value',el=>el.textContent),'Error de sincronización');
@@ -99,6 +101,16 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
             await page.setViewport({width,height:844});
             for(const tab of ['general','calendar','data','tests']) {
                 await page.evaluate(tab=>window.draw(tab),tab);
+                if(tab==='data') {
+                    const status=await page.$eval('#settings-device-status',el=>({open:el.open,height:el.getBoundingClientRect().height,afterTabs:Boolean(document.querySelector('.nav-tabs').compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING)}));
+                    assert.ok(!status.open&&status.height<=120&&status.afterTabs,`Estado compacto: ${JSON.stringify(status)}`);
+                    await page.click('#settings-device-status > summary');
+                    await page.evaluate(()=>window.fixtureRender());
+                    assert.equal(await page.$eval('#settings-device-status',el=>el.open),true);
+                    await page.click('#settings-device-status > summary');
+                } else {
+                    assert.equal(await page.$('#settings-device-status'),null,`${tab}: sin dashboard`);
+                }
                 const layout=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,unlabelled:[...document.querySelectorAll('#screen input,#screen select')].filter(el=>getComputedStyle(el).display!=='none'&&!el.labels.length&&!el.getAttribute('aria-label')&&!el.getAttribute('aria-labelledby')).map(el=>el.id)}));
                 assert.ok(layout.scroll<=layout.width,`${tab} desborda a ${width}px: ${JSON.stringify(layout)}`);
                 assert.deepEqual(layout.unlabelled,[],`${tab}: etiquetas accesibles`);

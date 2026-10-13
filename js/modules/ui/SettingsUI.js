@@ -32,7 +32,7 @@ import { getLocalOwnerUid } from '../services/LocalDataOwner.js';
 import { escapeAttr } from '../utils/Sanitize.js';
 import { DOMDiff } from '../utils/DOMDiff.js';
 import { clearSettingsFormErrors, refreshSettingsFormErrors, showSettingsFormError } from './settings/SettingsFormFeedback.js';
-import { StorageSummary, SyncCard, getSettingsSyncStatus, attachSettingsDiagnostics, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
+import { StorageSummary, SyncCard, SyncSummary, getSettingsSyncStatus, attachSettingsDiagnostics, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
 export { SyncCard, refreshDeviceSettingsDiagnostics } from './settings/SettingsDiagnostics.js';
 
 // ============================================
@@ -571,9 +571,6 @@ export function SettingsTab() {
                         </div>
                     </div>
                     
-                    <!-- Dashboard de Resumen -->
-                    ${SettingsDashboard()}
-                    
                     <!-- Navegación de Pestañas -->
                     <div class="nav-tabs" style="margin-bottom: 32px;">
 
@@ -600,6 +597,7 @@ export function SettingsTab() {
 
                     <p class="settings-save-guide">Automático: se guarda al cambiar. Al guardar: confirma los cambios en la barra inferior.</p>
                     <!-- Contenido de las Pestañas -->
+                    ${activeTab === 'data' ? SettingsDashboard() : ''}
                     ${activeTab === 'general' ? SettingsGeneralTab(context) : ''}
                     ${activeTab === 'data' ? SettingsDataTab(context) : ''}
                     ${activeTab === 'calendar' ? SettingsTabCalendar(calendarContext) : ''}
@@ -628,14 +626,16 @@ export function SettingsTab() {
 // ============================================
 
 function SettingsDashboard() {
+    const open = document.getElementById('settings-device-status')?.open === true;
     return `
-                <div class="stg-panel" style="margin-bottom: 24px;">
-                    <div class="stg-status-bar">
+                <details id="settings-device-status" class="settings-tool-group settings-device-status" ${open ? 'open' : ''}>
+                    <summary><span><strong>Estado de este dispositivo</strong>${SyncSummary(getSettingsSyncStatus(context))}</span></summary>
+                    <div class="settings-tool-content stg-status-bar">
                         ${StorageSummary()}
                         ${SyncCard(getSettingsSyncStatus(context))}
                         ${DataSummaryCard()}
                     </div>
-                </div>
+                </details>
             `;
 }
 
