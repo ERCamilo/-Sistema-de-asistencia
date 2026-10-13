@@ -14,11 +14,29 @@ const NAV_CENTER_MODES = [
     ['mic', 'Siempre micrófono', 'Mantén pulsado para dictar, aunque no haya conexión.']
 ];
 
+const NAV_STYLES = [
+    ['subbar', 'Mini barra', 'Un toque abre la última pantalla de la sección y muestra sus pantallas en una fila sobre la barra. "Más" abre su menú.'],
+    ['menu', 'Primero el menú', 'Un toque solo abre el menú de la sección; se cambia de pantalla al elegir.'],
+    ['twotap', 'Dos toques', 'El primer toque abre la última pantalla; el segundo, el menú. Lo que elijas queda como la pantalla de esa sección.']
+];
+
 // Prueba de la barra inferior de 5 posiciones (js/modules/ui/navigation/BottomNav.js).
 function newBottomNavCard(settings = {}) {
     const on = settings.newBottomNav === true;
     const current = NAV_CENTER_MODES.some(([value]) => value === settings.navCenterMode) ? settings.navCenterMode : 'auto';
+    const style = NAV_STYLES.some(([value]) => value === settings.navStyle) ? settings.navStyle : 'subbar';
     const centerChoice = !on ? '' : `
+                <strong style="display:block;font-size:.88rem;color:#e2e8f0;margin:14px 0 8px;">Cómo navegar entre secciones</strong>
+                <div class="stg-choice-group">
+                    ${NAV_STYLES.map(([value, label, hint]) => `
+                    <label class="stg-choice-option ${style === value ? 'is-selected' : ''}">
+                        <input type="radio" name="navStyle" value="${value}" ${style === value ? 'checked' : ''}>
+                        <span class="stg-choice-copy">
+                            <strong>${label}</strong>
+                            <small>${hint}</small>
+                        </span>
+                    </label>`).join('')}
+                </div>
                 <strong style="display:block;font-size:.88rem;color:#e2e8f0;margin:14px 0 8px;">Botón central de la barra</strong>
                 ${settings.voiceMvpEnabled === true ? '' : '<small style="display:block;color:#94a3b8;margin:-4px 0 10px;">El micrófono aparece cuando Voz está activa (Configuración → General). Mientras tanto se muestra "+".</small>'}
                 <div class="stg-choice-group">

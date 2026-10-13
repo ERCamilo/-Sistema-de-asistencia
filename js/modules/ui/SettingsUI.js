@@ -355,7 +355,8 @@ const AUTO_SAVE_OPTION_VALUES = new Map([
     ['loansCapacityStyle', new Set(['gauge', 'stacked'])],
     ['loansKpiDensity', new Set(['full', 'compact'])],
     ['miniConnectedReviewMode', new Set(['daily', 'compare'])],
-    ['navCenterMode', new Set(['auto', 'plus', 'mic'])]
+    ['navCenterMode', new Set(['auto', 'plus', 'mic'])],
+    ['navStyle', new Set(['subbar', 'menu', 'twotap'])]
 ]);
 
 function commitAutoSaveSetting({ key, value, deps = {} } = {}) {
