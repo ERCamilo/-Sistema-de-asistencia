@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { StorageCard, StorageSummary, StorageRecords, SyncCard, attachSettingsDiagnostics, getSettingsSyncStatus } from '../modules/ui/settings/SettingsDiagnostics.js';
+import { StorageCard, StorageSummary, StorageRecords, SyncCard, SyncSummary, attachSettingsDiagnostics, getSettingsSyncStatus } from '../modules/ui/settings/SettingsDiagnostics.js';
 import { SyncStatus } from '../modules/services/SyncStatus.js';
 import { eventBus } from '../modules/core/Events.js';
 
@@ -29,6 +29,9 @@ test.each([
     expect(document.querySelector('.stg-value').textContent).toBe(title);
     expect(document.body.textContent).toContain(detail);
     expect(document.body.textContent).not.toContain('Conectado');
+    document.body.innerHTML = SyncSummary({ queues: emptyQueue, ...status });
+    expect(document.body.textContent).toBe(title);
+    expect(document.body.textContent).not.toContain('ana@example.invalid');
 });
 
 test('correo de la sesión se escapa', () => {
@@ -94,9 +97,7 @@ test('el resumen conserva uso y cuota sin duplicar el desglose técnico', () => 
     expect(document.body.textContent).toContain('200 B disponibles');
     expect(document.body.textContent).not.toContain('Fotos de empleados');
     expect(document.body.textContent).not.toContain('LocalStorage:');
-    const link = document.querySelector('button');
-    expect(link.dataset.settingsAction).toBe('change-settings-tab');
-    expect(link.dataset.value).toBe('data');
+    expect(document.querySelector('button')).toBeNull();
     document.body.innerHTML = StorageSummary({ ...measurement, usage: null, quota: null });
     expect(document.body.textContent).toContain('Total no disponible');
     expect(document.body.textContent).not.toContain('disponibles');
@@ -126,6 +127,26 @@ test('resumen y detalle se actualizan desde una sola medición sin perder el bor
     expect(document.querySelectorAll('[data-settings-storage-card]')).toHaveLength(2);
     expect(document.querySelector('[data-settings-storage-summary]').textContent).toContain('0 B disponibles');
     expect(document.querySelector('[data-settings-storage-card]:not([data-settings-storage-summary]) .stg-progress-bar').style.width).toBe('100%');
+});
+
+test('la tarjeta cerrada refleja errores sin abrirse y suspende lecturas fuera de Datos', async () => {
+    jest.useFakeTimers();
+    const measureStorage = jest.fn().mockResolvedValue(measurement);
+    const measureQueues = jest.fn().mockResolvedValue(emptyQueue);
+    document.body.innerHTML = `<div id="settings-screen"><details><summary>${SyncSummary()}</summary>${StorageCard()}${SyncCard()}</details></div>`;
+    cleanup = attachSettingsDiagnostics({ currentUser: user }, { measureStorage, measureQueues }); await settle();
+    SyncStatus.markError(Error('Fail')); await settle();
+    expect(document.querySelector('[data-settings-sync-summary]').textContent).toBe('Error de sincronización');
+    expect(document.querySelector('details').open).toBe(false);
+    document.getElementById('settings-screen').innerHTML = '<input id="companyName" value="Borrador">';
+    eventBus.emit('render:complete', {});
+    const reads = [measureStorage.mock.calls.length, measureQueues.mock.calls.length];
+    await jest.advanceTimersByTimeAsync(35000);
+    expect([measureStorage.mock.calls.length, measureQueues.mock.calls.length]).toEqual(reads);
+    document.getElementById('settings-screen').innerHTML = SyncSummary() + StorageCard() + SyncCard();
+    eventBus.emit('render:complete', {}); await settle();
+    expect(measureStorage).toHaveBeenCalledTimes(reads[0] + 1);
+    expect(document.querySelector('[data-settings-sync-summary]').textContent).toBe('Error de sincronización');
 });
 
 test('render:complete refresca celdas, conserva texto/foco y deduplica lecturas de almacenamiento', async () => {

@@ -62,3 +62,29 @@ test('el diagnóstico conserva los valores temporales al actualizar la pantalla'
     expect(document.getElementById('bootLoaderTestErrorSeconds').value).toBe('6');
     expect(document.getElementById('bootLoaderTestReloadEnabled').checked).toBe(false);
 });
+
+test('el estado del dispositivo solo aparece en Datos, cerrado y después de las pestañas', () => {
+    initSettingsUI(context);
+    for (const tab of ['general', 'calendar', 'tests']) {
+        localStorage.setItem('sa.devMode.v1', '1'); context.state.settingsActiveTab = tab;
+        document.body.innerHTML = SettingsTab();
+        expect(document.getElementById('settings-device-status')).toBeNull();
+    }
+    context.state.settingsActiveTab = 'data'; document.body.innerHTML = SettingsTab();
+    const section = document.getElementById('settings-device-status');
+    expect(section.open).toBe(false);
+    expect(document.querySelector('.nav-tabs').compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(section.querySelector('[data-settings-sync-summary]')).not.toBeNull();
+    expect(section.querySelector('[data-settings-sync-card]')).not.toBeNull();
+});
+
+test('el desplegable conserva abierto o cerrado durante el parcheo reactivo', () => {
+    context.state.settingsActiveTab = 'data'; initSettingsUI(context);
+    const root = document.createElement('div'); document.body.append(root);
+    DOMDiff.apply(root, SettingsTab());
+    const section = document.getElementById('settings-device-status'); section.open = true;
+    DOMDiff.apply(root, SettingsTab());
+    expect(document.getElementById('settings-device-status')).toBe(section);
+    expect(section.open).toBe(true);
+    section.open = false; DOMDiff.apply(root, SettingsTab()); expect(section.open).toBe(false);
+});

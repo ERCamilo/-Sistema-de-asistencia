@@ -803,3 +803,8 @@
     border-bottom: 1px solid var(--border);
     margin-bottom: 16px;
 }
+
+#settings-screen .settings-device-status { margin: 0 0 16px; }
+#settings-screen .settings-device-status > summary { font-size: 0.9rem; }
+#settings-screen .settings-sync-summary.warning,
+#settings-screen .settings-sync-summary.danger { font-weight: 700; }
