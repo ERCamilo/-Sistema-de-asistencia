@@ -98,6 +98,21 @@ export function navSections({ devMode = false } = {}) {
 const SECTION_BY_ID = new Map(NAV_SECTIONS.map(section => [section.id, section]));
 const SECTION_OF_ITEM = new Map([...NAV_SECTIONS.flatMap(section => section.items.map(item => [item.id, section.id])), [TESTS_ITEM.id, 'mas']]);
 
+/**
+ * Mini barra al desplazarse: se esconde al bajar (deja más pantalla) y
+ * vuelve al subir o cerca del inicio. Los movimientos de menos de
+ * SUBBAR_MIN_DELTA px no cuentan, para que no parpadee.
+ */
+const SUBBAR_TOP_ZONE = 80;
+const SUBBAR_MIN_DELTA = 6;
+const SUBBAR_TUCKED_CLASS = 'bnav-sub-tucked';
+export function nextSubbarTucked({ tucked = false, y = 0, lastY = 0 } = {}) {
+    if (y < SUBBAR_TOP_ZONE) return false;
+    const delta = y - lastY;
+    if (Math.abs(delta) < SUBBAR_MIN_DELTA) return tucked;
+    return delta > 0;
+}
+
 /** Cómo se navega entre secciones (ajuste `navStyle`). */
 export const NAV_STYLES = Object.freeze(['subbar', 'menu', 'twotap']);
 export function resolveNavStyle(setting) {
@@ -586,6 +601,18 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     win.addEventListener?.('resize', onResize);
     view.addEventListener?.('sa:voice-state', onVoiceState);
 
+    let lastScrollY = win.scrollY || 0;
+    let subTucked = false;
+    const onScroll = () => {
+        const y = win.scrollY || 0;
+        const next = nextSubbarTucked({ tucked: subTucked, y, lastY: lastScrollY });
+        if (Math.abs(y - lastScrollY) >= SUBBAR_MIN_DELTA || y < SUBBAR_TOP_ZONE) lastScrollY = y;
+        if (next === subTucked) return;
+        subTucked = next;
+        doc.body?.classList.toggle(SUBBAR_TUCKED_CLASS, next);
+    };
+    win.addEventListener?.('scroll', onScroll, { passive: true });
+
     return {
         destroy() {
             clearTimeout(holdTimer);
@@ -601,6 +628,8 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
             win.removeEventListener?.('offline', onConnectivity);
             win.removeEventListener?.('resize', onResize);
             view.removeEventListener?.('sa:voice-state', onVoiceState);
+            win.removeEventListener?.('scroll', onScroll);
+            doc.body?.classList.remove(SUBBAR_TUCKED_CLASS);
             photoInput?.remove();
         }
     };

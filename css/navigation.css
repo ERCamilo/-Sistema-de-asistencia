@@ -202,9 +202,24 @@ html.is-holding * {
     padding: 4px;
     border-radius: 16px;
     background: rgba(17, 24, 39, 0.98);
-    border: 1px solid #2b3a52;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    /* Aro celeste fino: se distingue del contenido que pasa por debajo. */
+    border: 1px solid rgba(34, 211, 238, 0.55);
+    box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.12), 0 10px 30px rgba(0, 0, 0, 0.5);
     font-family: 'Inter', system-ui, sans-serif;
+    transition: transform 0.24s cubic-bezier(0.2, 0.9, 0.3, 1), opacity 0.18s ease-out;
+}
+
+/* Al bajar por la pantalla se esconde detrás de la barra; al subir vuelve. */
+body.bnav-sub-tucked .bnav-sub {
+    transform: translateY(calc(100% + 34px));
+    opacity: 0;
+    pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bnav-sub {
+        transition: none;
+    }
 }
 
 .bnav-sub-item {
