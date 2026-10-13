@@ -4,7 +4,7 @@
  */
 import {
     NAV_SECTIONS, activeNavItem, sectionOfItem, resolveCenterMode, navigateToItem,
-    renderBottomNav, initBottomNav, lastNavItem, rememberNavItem, bottomNavOpenMenu,
+    renderBottomNav, initBottomNav, navSections, resolveNavStyle, NAV_STYLES, lastNavItem, rememberNavItem, bottomNavOpenMenu,
     _resetBottomNavState, HOLD_TO_TALK_MS, watchMicPermission
 } from '../modules/ui/navigation/BottomNav.js';
 
@@ -20,7 +20,7 @@ function makeWin(overrides = {}) {
         removeEventListener: jest.fn(),
         ...Object.fromEntries(['changeTab', 'changeViewMode', 'openEmpleadosPersonal', 'openPuestosPersonal', 'openLideresPersonal',
             'openNomina', 'openCuentasPorCobrar', 'openHistorialNomina', 'openCalendarioAjustes', 'openAjustesGenerales',
-            'openDatosAjustes', 'pcCameraBatchPhoto'].map(n => [n, fn(n)])),
+            'openDatosAjustes', 'openTestsAjustes', 'pcCameraBatchPhoto'].map(n => [n, fn(n)])),
         ...overrides
     };
     return { win, calls, store };
@@ -50,8 +50,8 @@ describe('BottomNav — estructura', () => {
         expect(items).toEqual({
             asistencia: ['Diaria', 'Semanal'],
             personal: ['Empleados', 'Posiciones', 'Líderes'],
-            finanzas: ['Nómina', 'Préstamos', 'Caja chica', 'Historial'],
-            mas: ['Reportes', 'Calendario', 'Ajustes', 'Datos']
+            finanzas: ['Nómina', 'Préstamos', 'Caja chica'],
+            mas: ['Reportes', 'Historial', 'Calendario', 'Ajustes', 'Datos']
         });
     });
 
@@ -69,14 +69,14 @@ describe('BottomNav — estructura', () => {
         [{ activeTab: 'dashboard' }, 'reports'],
         [{ activeTab: 'settings', settingsActiveTab: 'calendar' }, 'calendar'],
         [{ activeTab: 'settings', settingsActiveTab: 'data' }, 'data'],
-        [{ activeTab: 'settings', settingsActiveTab: 'tests' }, 'settings'],
+        [{ activeTab: 'settings', settingsActiveTab: 'tests' }, 'tests'],
         [{ activeTab: 'algo-nuevo' }, null]
     ])('pantalla activa %j → %s', (state, item) => {
         expect(activeNavItem(state)).toBe(item);
     });
 
     test('marca la sección activa y la pantalla actual dentro de su menú', () => {
-        document.body.innerHTML = renderBottomNav({ activeTab: 'export', payrollViewMode: 'ledger' }, { win: makeWin().win });
+        document.body.innerHTML = renderBottomNav({ activeTab: 'export', payrollViewMode: 'ledger', settings: { navStyle: 'twotap' } }, { win: makeWin().win });
         const fin = document.querySelector('[data-bnav-section="finanzas"]');
         expect(fin.classList.contains('active')).toBe(true);
         expect(fin.getAttribute('aria-current')).toBe('page');
@@ -167,10 +167,11 @@ describe('BottomNav — navegación', () => {
 describe('BottomNav — interacción', () => {
     let nav; let env; let state;
 
-    const mount = ({ voiceAvailable = true, canCapture = true, setting, inAppCamera = null } = {}) => {
+    const mount = ({ voiceAvailable = true, canCapture = true, setting, inAppCamera = null, navStyle, activeTab = 'attendance', devMode = false } = {}) => {
         _resetBottomNavState();
-        state = { activeTab: 'attendance', viewMode: 'day', settings: setting ? { navCenterMode: setting } : {} };
+        state = { activeTab, viewMode: 'day', settings: { ...(setting ? { navCenterMode: setting } : {}), ...(navStyle ? { navStyle } : {}) } };
         env = makeWin();
+        if (devMode) env.store.set('sa.devMode.v1', '1');
         const voice = {
             isAvailable: () => voiceAvailable,
             startHold: jest.fn(() => Promise.resolve()),
@@ -192,7 +193,7 @@ describe('BottomNav — interacción', () => {
     afterEach(() => { nav?.destroy(); jest.useRealTimers(); document.body.innerHTML = ''; });
 
     test('tocar la sección activa abre y cierra su menú sin navegar', () => {
-        mount();
+        mount({ navStyle: 'twotap' });
         $('[data-bnav-section="asistencia"]').click();
         expect(isOpen('asistencia')).toBe(true);
         expect($('[data-bnav-section="asistencia"]').getAttribute('aria-expanded')).toBe('true');
@@ -203,15 +204,15 @@ describe('BottomNav — interacción', () => {
 
     test('tocar otra sección va a su última pantalla y muestra su menú', () => {
         mount();
-        rememberNavItem('pettycash', { win: env.win });
-        $('[data-bnav-section="finanzas"]').click();
-        expect(env.calls).toEqual([['changeTab', 'pettycash']]);
-        expect(isOpen('finanzas')).toBe(true);
-        expect(isOpen('asistencia')).toBe(false);
+        rememberNavItem('history', { win: env.win });
+        $('[data-bnav-section="mas"]').click();
+        expect(env.calls).toEqual([['openHistorialNomina']]);
+        expect(isOpen('mas')).toBe(true);
+        expect($('[data-bnav-menu="asistencia"]')).toBeNull();
     });
 
     test('elegir una pantalla navega, la recuerda y cierra el menú', () => {
-        mount();
+        mount({ navStyle: 'twotap' });
         $('[data-bnav-section="asistencia"]').click();
         $('[data-bnav-item="attendance-week"]').click();
         expect(env.calls).toEqual([['changeViewMode', 'week']]);
@@ -220,7 +221,7 @@ describe('BottomNav — interacción', () => {
     });
 
     test('un render() con el menú abierto lo conserva abierto', () => {
-        const { draw } = mount();
+        const { draw } = mount({ navStyle: 'twotap' });
         $('[data-bnav-section="asistencia"]').click();
         draw();
         expect(isOpen('asistencia')).toBe(true);
@@ -228,7 +229,7 @@ describe('BottomNav — interacción', () => {
     });
 
     test('tocar fuera o Escape cierran el menú', () => {
-        mount();
+        mount({ navStyle: 'twotap' });
         const outside = document.createElement('div');
         document.body.appendChild(outside);
         $('[data-bnav-section="asistencia"]').click();
@@ -503,5 +504,184 @@ describe('BottomNav — interacción', () => {
 
     test('sectionOfItem cubre todas las pantallas', () => {
         for (const section of NAV_SECTIONS) for (const item of section.items) expect(sectionOfItem(item.id)).toBe(section.id);
+    });
+});
+
+describe('BottomNav — ajuste navStyle y modo desarrollador', () => {
+    beforeEach(() => _resetBottomNavState());
+
+    test('resolveNavStyle: por defecto subbar; inválido → subbar; válido se respeta', () => {
+        expect(NAV_STYLES).toEqual(['subbar', 'menu', 'twotap']);
+        expect(resolveNavStyle()).toBe('subbar');
+        expect(resolveNavStyle('raro')).toBe('subbar');
+        for (const style of NAV_STYLES) expect(resolveNavStyle(style)).toBe(style);
+    });
+
+    test('navSections: Tests solo con modo desarrollador y al final de Más; NAV_SECTIONS no cambia', () => {
+        const mas = devMode => navSections({ devMode }).find(s => s.id === 'mas').items.map(i => i.id);
+        expect(mas(false)).toEqual(['reports', 'history', 'calendar', 'settings', 'data']);
+        expect(mas(true)).toEqual(['reports', 'history', 'calendar', 'settings', 'data', 'tests']);
+        expect(navSections()).toBe(NAV_SECTIONS);
+        expect(NAV_SECTIONS.find(s => s.id === 'mas').items.some(i => i.id === 'tests')).toBe(false);
+        expect(Object.isFrozen(NAV_SECTIONS)).toBe(true);
+        expect(sectionOfItem('tests')).toBe('mas');
+    });
+
+    test('Tests aparece en el menú de Más solo con el modo desarrollador', () => {
+        const on = makeWin(); on.store.set('sa.devMode.v1', '1');
+        document.body.innerHTML = renderBottomNav({ activeTab: 'attendance' }, { win: on.win });
+        expect(document.querySelector('[data-bnav-menu="mas"] [data-bnav-item="tests"]')).not.toBeNull();
+        document.body.innerHTML = renderBottomNav({ activeTab: 'attendance' }, { win: makeWin().win });
+        expect(document.querySelector('[data-bnav-item="tests"]')).toBeNull();
+    });
+
+    test('navigateToItem("tests") usa openTestsAjustes', () => {
+        const { win, calls } = makeWin();
+        expect(navigateToItem('tests', { win, state: {} })).toBe(true);
+        expect(calls).toEqual([['openTestsAjustes']]);
+    });
+
+    test('una última pantalla guardada que no está visible (tests sin modo desarrollador) cae a la primera de Más', () => {
+        const { win, store } = makeWin();
+        store.set('sa.bottomNav.lastItem', '{"mas":"tests"}');
+        const calls = [];
+        win.openTestsAjustes = () => calls.push('tests');
+        win.changeTab = (...a) => calls.push(['changeTab', ...a]);
+        const state = { activeTab: 'attendance', viewMode: 'day', settings: {} };
+        document.body.innerHTML = renderBottomNav(state, { win });
+        const nav = initBottomNav({ doc: document, win, getState: () => state, voice: { isAvailable: () => false }, pettyCash: { canCapture: () => true }, notify: jest.fn(), refresh: () => {} });
+        document.querySelector('[data-bnav-section="mas"]').click();
+        expect(calls).toEqual([['changeTab', 'employee-report']]);
+        nav.destroy();
+        document.body.innerHTML = '';
+    });
+});
+
+describe('BottomNav — estilos de navegación', () => {
+    let nav; let env; let state;
+    const $ = sel => document.querySelector(sel);
+    const mount = ({ navStyle, activeTab = 'attendance' } = {}) => {
+        _resetBottomNavState();
+        state = { activeTab, viewMode: 'day', settings: navStyle ? { navStyle } : {} };
+        env = makeWin();
+        const draw = () => { document.body.innerHTML = renderBottomNav(state, { win: env.win }); };
+        draw();
+        nav = initBottomNav({ doc: document, win: env.win, getState: () => state, voice: { isAvailable: () => false }, pettyCash: { canCapture: () => true }, notify: jest.fn(), refresh: draw });
+        return draw;
+    };
+    const isOpen = id => $(`[data-bnav-menu="${id}"]`).dataset.open === 'true';
+    afterEach(() => { nav?.destroy(); document.body.innerHTML = ''; });
+
+    describe('subbar (por defecto)', () => {
+        test('tocar otra sección va a su última pantalla sin abrir menú', () => {
+            mount();
+            rememberNavItem('pettycash', { win: env.win });
+            $('[data-bnav-section="finanzas"]').click();
+            expect(env.calls).toEqual([['changeTab', 'pettycash']]);
+            expect(bottomNavOpenMenu()).toBeNull();
+        });
+
+        test('tocar la sección activa no navega y cierra cualquier menú abierto', () => {
+            mount();
+            $('[data-bnav-section="mas"]').click();
+            expect(bottomNavOpenMenu()).toBe('mas');
+            env.calls.length = 0;
+            $('[data-bnav-section="asistencia"]').click();
+            expect(bottomNavOpenMenu()).toBeNull();
+            expect(env.calls).toEqual([]);
+        });
+
+        test('sin menú vertical (ni aria-haspopup) en asistencia, personal y finanzas; Más conserva el suyo', () => {
+            mount();
+            for (const id of ['asistencia', 'personal', 'finanzas']) {
+                expect($(`[data-bnav-menu="${id}"]`)).toBeNull();
+                expect($(`[data-bnav-section="${id}"]`).hasAttribute('aria-haspopup')).toBe(false);
+                expect($(`[data-bnav-section="${id}"]`).hasAttribute('aria-expanded')).toBe(false);
+            }
+            expect($('[data-bnav-menu="mas"]')).not.toBeNull();
+            expect($('[data-bnav-section="mas"]').getAttribute('aria-haspopup')).toBe('menu');
+        });
+
+        test('la mini barra de la sección activa lista sus pantallas y marca la actual', () => {
+            mount({ activeTab: 'export', navStyle: 'subbar' });
+            const sub = $('[data-bnav-sub="finanzas"]');
+            expect(sub).not.toBeNull();
+            expect(document.querySelectorAll('[data-bnav-sub]')).toHaveLength(1);
+            expect([...sub.querySelectorAll('button.bnav-sub-item')].map(b => b.dataset.bnavItem)).toEqual(['payroll', 'loans', 'pettycash']);
+            const current = sub.querySelectorAll('.is-current');
+            expect(current).toHaveLength(1);
+            expect(current[0].dataset.bnavItem).toBe('payroll');
+            expect(current[0].getAttribute('aria-current')).toBe('page');
+        });
+
+        test('elegir una pantalla de la mini barra navega y la recuerda', () => {
+            mount();
+            $('[data-bnav-sub="asistencia"] [data-bnav-item="attendance-week"]').click();
+            expect(env.calls).toEqual([['changeViewMode', 'week']]);
+            expect(lastNavItem('asistencia', { win: env.win })).toBe('attendance-week');
+        });
+
+        test('sin mini barra cuando la sección activa es Más', () => {
+            mount({ activeTab: 'employee-report' });
+            expect($('[data-bnav-sub]')).toBeNull();
+        });
+
+        test('Más: si no está activa navega a su última pantalla y abre su menú; si está activa lo alterna', () => {
+            mount();
+            rememberNavItem('data', { win: env.win });
+            $('[data-bnav-section="mas"]').click();
+            expect(env.calls).toEqual([['openDatosAjustes']]);
+            expect(isOpen('mas')).toBe(true);
+            state.activeTab = 'settings'; state.settingsActiveTab = 'data';
+            env.calls.length = 0;
+            $('[data-bnav-section="mas"]').click();
+            expect(isOpen('mas')).toBe(false);
+            $('[data-bnav-section="mas"]').click();
+            expect(isOpen('mas')).toBe(true);
+            expect(env.calls).toEqual([]);
+        });
+    });
+
+    describe('menu', () => {
+        test('tocar una sección (activa o no) solo abre su menú, sin navegar; elegir navega', () => {
+            mount({ navStyle: 'menu' });
+            $('[data-bnav-section="finanzas"]').click();
+            expect(env.calls).toEqual([]);
+            expect(isOpen('finanzas')).toBe(true);
+            $('[data-bnav-section="finanzas"]').click();
+            expect(isOpen('finanzas')).toBe(false);
+            $('[data-bnav-section="asistencia"]').click();
+            expect(isOpen('asistencia')).toBe(true);
+            expect(env.calls).toEqual([]);
+            expect($('[data-bnav-sub]')).toBeNull();
+            $('[data-bnav-menu="asistencia"] [data-bnav-item="attendance-week"]').click();
+            expect(env.calls).toEqual([['changeViewMode', 'week']]);
+            expect(isOpen('asistencia')).toBe(false);
+        });
+    });
+
+    describe('twotap', () => {
+        test('primer toque en otra sección navega sin menú; tocar la activa abre el menú', () => {
+            mount({ navStyle: 'twotap' });
+            $('[data-bnav-section="finanzas"]').click();
+            expect(env.calls).toEqual([['openNomina']]);
+            expect(isOpen('finanzas')).toBe(false);
+            state.activeTab = 'export';
+            $('[data-bnav-section="finanzas"]').click();
+            expect(isOpen('finanzas')).toBe(true);
+            expect(env.calls).toHaveLength(1);
+        });
+
+        test('elegir una pantalla navega y se recuerda para la próxima vez', () => {
+            mount({ navStyle: 'twotap' });
+            $('[data-bnav-section="asistencia"]').click();
+            $('[data-bnav-item="attendance-week"]').click();
+            expect(env.calls).toEqual([['changeViewMode', 'week']]);
+            state.activeTab = 'export';
+            env.calls.length = 0;
+            $('[data-bnav-section="asistencia"]').click();
+            expect(env.calls).toEqual([['changeTab', 'attendance'], ['changeViewMode', 'week']]);
+            expect(isOpen('asistencia')).toBe(false);
+        });
     });
 });

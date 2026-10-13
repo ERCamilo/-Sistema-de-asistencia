@@ -4180,6 +4180,14 @@ window.openAjustesGenerales = () => {
     if (typeof window.changeTab === 'function') window.changeTab('settings');
 };
 
+// Tests (solo con el modo desarrollador; sin él SettingsUI cae en General).
+window.openTestsAjustes = () => {
+    stateManager.batchSetState(() => {
+        state.settingsActiveTab = 'tests';
+    });
+    if (typeof window.changeTab === 'function') window.changeTab('settings');
+};
+
 window.openEmpleadosPersonal = () => {
     if (state) state.employeeViewMode = 'employees';
     if (typeof window.changeTab === 'function') window.changeTab('employees');

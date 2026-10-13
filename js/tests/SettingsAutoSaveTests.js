@@ -125,7 +125,10 @@ testRunner.addSuite("SettingsUI — commitAutoSaveOption (opciones cerradas)", {
             ['loansKpiDensity', 'compact'],
             ['navCenterMode', 'auto'],
             ['navCenterMode', 'plus'],
-            ['navCenterMode', 'mic']
+            ['navCenterMode', 'mic'],
+            ['navStyle', 'subbar'],
+            ['navStyle', 'menu'],
+            ['navStyle', 'twotap']
         ];
 
         for (const [name, value] of cases) {

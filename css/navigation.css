@@ -189,6 +189,80 @@ html.is-holding * {
     transform: scale(0.86);
 }
 
+/* ── Mini barra de la sección (navStyle "subbar") ──────────────────────── */
+.bnav-sub {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    /* Por encima del botón central, que sobresale 20 px de la barra. */
+    bottom: calc(100% + 26px);
+    z-index: 2;
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 16px;
+    background: rgba(17, 24, 39, 0.98);
+    border: 1px solid #2b3a52;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    font-family: 'Inter', system-ui, sans-serif;
+}
+
+.bnav-sub-item {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: #cbd5e1;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.18s, color 0.18s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.bnav-sub-item.is-current {
+    background: #06b6d4;
+    color: #06202a;
+}
+
+.bnav-sub-item:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px #22d3ee;
+}
+
+.bnav-sub-icon {
+    display: grid;
+    flex: none;
+}
+
+.bnav-sub-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+.bnav-sub-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Con la mini barra: espacio extra al final del contenido. */
+@media (max-width: 1023px) {
+    body:has(.bnav-sub),
+    body.has-sidebar:has(.bnav-sub),
+    body.has-bottom-nav:has(.bnav-sub) {
+        padding-bottom: 158px;
+    }
+}
+
 /* ── Botón central ─────────────────────────────────────────────────────── */
 .bnav-center-slot {
     flex: 1;
@@ -478,6 +552,10 @@ html.is-holding * {
 @media (max-width: 1023px) {
     body:has(.bnav) .back-to-top {
         bottom: calc(var(--bottom-nav-offset, 85px) + 22px);
+    }
+
+    body:has(.bnav-sub) .back-to-top {
+        bottom: calc(var(--bottom-nav-offset, 85px) + 96px);
     }
 }
 

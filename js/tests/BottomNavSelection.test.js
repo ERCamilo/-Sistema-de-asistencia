@@ -56,4 +56,17 @@ describe('Configuración → Tests: prueba de la barra nueva', () => {
         expect(options.map(o => o.value)).toEqual(['auto', 'plus', 'mic']);
         expect(options.find(o => o.checked).value).toBe('plus');
     });
+
+    test('el estilo de navegación (navStyle) se ve solo con la barra nueva; por defecto subbar', () => {
+        draw({});
+        expect(document.querySelector('input[name="navStyle"]')).toBeNull();
+
+        draw({ newBottomNav: true });
+        const options = [...document.querySelectorAll('input[name="navStyle"]')];
+        expect(options.map(o => o.value)).toEqual(['subbar', 'menu', 'twotap']);
+        expect(options.find(o => o.checked).value).toBe('subbar');
+
+        draw({ newBottomNav: true, navStyle: 'twotap' });
+        expect([...document.querySelectorAll('input[name="navStyle"]')].find(o => o.checked).value).toBe('twotap');
+    });
 });

@@ -3,9 +3,16 @@
  *
  *   Asistencia · Personal · [botón central] · Finanzas · Más
  *
- * Cada sección agrupa sus pantallas en un menú que sale de su botón:
- * tocar una sección distinta abre la última pantalla que se usó en ella y
- * muestra el menú; tocar la sección activa abre o cierra el menú.
+ * Cada sección agrupa sus pantallas. Cómo se navega depende del ajuste
+ * `navStyle` (Configuración → Tests); en todos se recuerda la última
+ * pantalla usada de cada sección:
+ *   - subbar (por defecto): tocar una sección abre su última pantalla y
+ *     muestra encima una mini barra horizontal con sus pantallas. "Más" usa
+ *     el menú vertical: abre su última pantalla y muestra el menú.
+ *   - menu: tocar una sección solo abre su menú; se cambia al elegir.
+ *   - twotap: el primer toque abre la última pantalla; tocar la sección
+ *     activa abre el menú.
+ * Con el modo desarrollador, "Más" incluye Tests.
  *
  * El botón central es de captura rápida y se adapta (ajuste
  * `navCenterMode`: auto | plus | mic):
@@ -24,6 +31,7 @@
  */
 
 import { createHoldGuard, preventTouchDefaults } from '../HoldGuard.js';
+import { isDeveloperMode } from '../settings/DeveloperMode.js';
 
 const svg = (d, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}><path d="${d}"/></svg>`;
 
@@ -44,6 +52,7 @@ const ICONS = {
     reports: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
     calendar: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01',
     settings: 'M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4v4M9 10v4M17 16v4',
+    tests: 'M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7 15h10',
     data: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
     mic: 'M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0zM5 10v1a7 7 0 0 0 14 0v-1M12 18v3M8 21h8',
     plus: 'M12 5v14M5 12h14',
@@ -66,19 +75,34 @@ export const NAV_SECTIONS = Object.freeze([
     { id: 'finanzas', label: 'Finanzas', slot: 3, items: [
         { id: 'payroll', label: 'Nómina', desc: 'Cálculo y pago' },
         { id: 'loans', label: 'Préstamos', desc: 'Saldos y cobros' },
-        { id: 'pettycash', label: 'Caja chica', desc: 'Gastos y facturas' },
-        { id: 'history', label: 'Historial', desc: 'Pagos anteriores' }
+        { id: 'pettycash', label: 'Caja chica', desc: 'Gastos y facturas' }
     ] },
     { id: 'mas', label: 'Más', slot: 4, items: [
         { id: 'reports', label: 'Reportes', desc: 'Estadísticas' },
+        { id: 'history', label: 'Historial', desc: 'Pagos anteriores' },
         { id: 'calendar', label: 'Calendario', desc: 'Feriados y periodos' },
         { id: 'settings', label: 'Ajustes', desc: 'Preferencias de la app' },
         { id: 'data', label: 'Datos', desc: 'Respaldo y sincronización' }
     ] }
 ]);
 
+/** Solo con el modo desarrollador (tocar 7 veces la versión), al final de "Más". */
+const TESTS_ITEM = Object.freeze({ id: 'tests', label: 'Tests', desc: 'Pruebas y diagnóstico' });
+
+/** Secciones visibles: con el modo desarrollador, "Más" suma Tests. */
+export function navSections({ devMode = false } = {}) {
+    if (!devMode) return NAV_SECTIONS;
+    return NAV_SECTIONS.map(section => section.id === 'mas' ? { ...section, items: [...section.items, TESTS_ITEM] } : section);
+}
+
 const SECTION_BY_ID = new Map(NAV_SECTIONS.map(section => [section.id, section]));
-const SECTION_OF_ITEM = new Map(NAV_SECTIONS.flatMap(section => section.items.map(item => [item.id, section.id])));
+const SECTION_OF_ITEM = new Map([...NAV_SECTIONS.flatMap(section => section.items.map(item => [item.id, section.id])), [TESTS_ITEM.id, 'mas']]);
+
+/** Cómo se navega entre secciones (ajuste `navStyle`). */
+export const NAV_STYLES = Object.freeze(['subbar', 'menu', 'twotap']);
+export function resolveNavStyle(setting) {
+    return NAV_STYLES.includes(setting) ? setting : 'subbar';
+}
 
 export const CENTER_MODES = Object.freeze(['auto', 'plus', 'mic']);
 export const HOLD_TO_TALK_MS = 280;
@@ -104,6 +128,7 @@ export function activeNavItem(state = {}) {
         case 'settings':
             if (state.settingsActiveTab === 'calendar') return 'calendar';
             if (state.settingsActiveTab === 'data') return 'data';
+            if (state.settingsActiveTab === 'tests') return 'tests';
             return 'settings';
         default: return null;
     }
@@ -149,6 +174,7 @@ export function navigateToItem(itemId, { win = window, state = {} } = {}) {
         case 'calendar': return call('openCalendarioAjustes');
         case 'settings': return call('openAjustesGenerales');
         case 'data': return call('openDatosAjustes');
+        case 'tests': return call('openTestsAjustes');
         default: return false;
     }
 }
@@ -157,6 +183,7 @@ export function navigateToItem(itemId, { win = window, state = {} } = {}) {
 const ui = {
     openMenu: null,          // id de sección | 'center' | null
     centerMode: 'plus',
+    navStyle: 'subbar',
     listening: false,
     arming: false,           // micrófono abriéndose: aún sin "Escuchando" (no hablar todavía)
     saved: false,            // ✓ breve tras guardar un audio (evento sa:voice-state)
@@ -174,7 +201,7 @@ function readLastItems(win) {
     ui.lastItems = {};
     for (const section of NAV_SECTIONS) {
         const item = saved[section.id];
-        ui.lastItems[section.id] = section.items.some(i => i.id === item) ? item : section.items[0].id;
+        ui.lastItems[section.id] = sectionOfItem(item) === section.id ? item : section.items[0].id;
     }
     return ui.lastItems;
 }
@@ -194,7 +221,7 @@ export function lastNavItem(sectionId, { win = window } = {}) {
 
 /** Solo para tests. */
 export function _resetBottomNavState() {
-    ui.openMenu = null; ui.centerMode = 'plus'; ui.listening = false; ui.arming = false; ui.saved = false; ui.lastItems = null;
+    ui.openMenu = null; ui.centerMode = 'plus'; ui.navStyle = 'subbar'; ui.listening = false; ui.arming = false; ui.saved = false; ui.lastItems = null;
 }
 
 export function bottomNavOpenMenu() {
@@ -231,6 +258,17 @@ function menuHTML(section, activeItem) {
         </div>`;
 }
 
+// Modo `subbar`: las pantallas de la sección activa, en fila sobre la barra.
+function subbarHTML(section, activeItem) {
+    const chips = section.items.map(item => {
+        const on = item.id === activeItem;
+        return `<button type="button" class="bnav-sub-item${on ? ' is-current' : ''}" data-bnav-item="${item.id}"${on ? ' aria-current="page"' : ''}>
+                <span class="bnav-sub-icon">${svg(ICONS[item.id])}</span><span class="bnav-sub-label">${esc(item.label)}</span>
+            </button>`;
+    }).join('');
+    return `<div class="bnav-sub" data-bnav-sub="${section.id}" role="group" aria-label="Pantallas de ${esc(section.label)}">${chips}</div>`;
+}
+
 function captureMenuHTML({ voiceAvailable }) {
     const open = ui.openMenu === 'center';
     const option = (id, icon, label, desc, i) => `<button type="button" class="bnav-item" role="menuitem" data-bnav-capture="${id}" style="--i:${i}">
@@ -258,18 +296,24 @@ export function renderBottomNav(state = {}, { voiceAvailable = false, online = t
     const activeSection = sectionOfItem(activeItem);
     if (activeItem) rememberNavItem(activeItem, { win });
     ui.centerMode = resolveCenterMode({ setting: state.settings?.navCenterMode || 'auto', voiceAvailable, online, micDenied });
+    ui.navStyle = resolveNavStyle(state.settings?.navStyle);
     const mode = ui.centerMode;
+    const sections = navSections({ devMode: isDeveloperMode(storage(win)) });
+    // En `subbar` solo "Más" tiene menú vertical; las demás usan la mini barra.
+    const usesMenu = (section) => ui.navStyle !== 'subbar' || section.id === 'mas';
+    const subSection = ui.navStyle === 'subbar' && activeSection && activeSection !== 'mas'
+        ? sections.find(section => section.id === activeSection) : null;
 
     const tab = (section) => {
         const active = section.id === activeSection;
         const expanded = ui.openMenu === section.id;
         return `<button type="button" class="bottom-nav-tab bnav-tab${active ? ' active' : ''}" data-bnav-section="${section.id}"
-                    aria-haspopup="menu" aria-expanded="${expanded}" aria-controls="bnav-menu-${section.id}"${active ? ' aria-current="page"' : ''}>
+                    ${usesMenu(section) ? `aria-haspopup="menu" aria-expanded="${expanded}" aria-controls="bnav-menu-${section.id}"` : ''}${active ? ' aria-current="page"' : ''}>
                     <span class="bottom-nav-icon">${svg(ICONS[section.id])}</span>
                     <span class="bottom-nav-text">${esc(section.label)}</span>
                 </button>`;
     };
-    const [asistencia, personal, finanzas, mas] = NAV_SECTIONS;
+    const [asistencia, personal, finanzas, mas] = sections;
 
     return `<nav class="bottom-nav bnav glass-effect" aria-label="Navegación principal" data-bnav>
             ${tab(asistencia)}
@@ -285,7 +329,8 @@ export function renderBottomNav(state = {}, { voiceAvailable = false, online = t
             </div>
             ${tab(finanzas)}
             ${tab(mas)}
-            ${NAV_SECTIONS.map(section => menuHTML(section, activeItem)).join('')}
+            ${subSection ? subbarHTML(subSection, activeItem) : ''}
+            ${sections.filter(usesMenu).map(section => menuHTML(section, activeItem)).join('')}
             ${captureMenuHTML({ voiceAvailable })}
         </nav>`;
 }
@@ -343,14 +388,28 @@ export function initBottomNav({ doc = document, win = window, getState, voice = 
     const setListening = (on) => { ui.listening = on; if (!on) ui.arming = false; syncCenter(doc); };
     const setArming = (on) => { ui.arming = on; syncCenter(doc); };
 
+    // Última pantalla de la sección, si sigue visible (Tests sin modo desarrollador no).
+    const lastVisibleItem = (sectionId) => {
+        const section = navSections({ devMode: isDeveloperMode(storage(win)) }).find(s => s.id === sectionId);
+        const last = lastNavItem(sectionId, { win });
+        return section?.items.some(item => item.id === last) ? last : section?.items[0]?.id;
+    };
+    const toggleMenu = (sectionId) => setOpen(ui.openMenu === sectionId ? null : sectionId);
+    const goToSection = (sectionId, { openMenu = false } = {}) => {
+        setOpen(openMenu ? sectionId : null);
+        navigateToItem(lastVisibleItem(sectionId), { win, state: state() });
+    };
+
     const onSection = (sectionId) => {
-        const current = sectionOfItem(activeNavItem(state()));
-        if (sectionId === current) {
-            setOpen(ui.openMenu === sectionId ? null : sectionId);
-            return;
-        }
-        setOpen(sectionId);
-        navigateToItem(lastNavItem(sectionId, { win }), { win, state: state() });
+        const active = sectionId === sectionOfItem(activeNavItem(state()));
+        const style = ui.navStyle;
+        // Primero el menú; se cambia de pantalla al elegir.
+        if (style === 'menu') { toggleMenu(sectionId); return; }
+        // Segundo toque sobre la sección activa: su menú.
+        if (style === 'twotap') { if (active) toggleMenu(sectionId); else goToSection(sectionId); return; }
+        // subbar: "Más" como siempre (menú vertical); las demás, mini barra.
+        if (sectionId === 'mas') { if (active) toggleMenu(sectionId); else goToSection(sectionId, { openMenu: true }); return; }
+        if (active) close(); else goToSection(sectionId);
     };
 
     const onItem = (itemId) => {
