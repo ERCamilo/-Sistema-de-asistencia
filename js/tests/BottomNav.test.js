@@ -5,7 +5,7 @@
 import {
     NAV_SECTIONS, activeNavItem, sectionOfItem, resolveCenterMode, navigateToItem,
     renderBottomNav, initBottomNav, navSections, resolveNavStyle, NAV_STYLES, lastNavItem, rememberNavItem, bottomNavOpenMenu,
-    _resetBottomNavState, HOLD_TO_TALK_MS, watchMicPermission
+    _resetBottomNavState, HOLD_TO_TALK_MS, watchMicPermission, nextSubbarTucked
 } from '../modules/ui/navigation/BottomNav.js';
 
 function makeWin(overrides = {}) {
@@ -683,5 +683,37 @@ describe('BottomNav — estilos de navegación', () => {
             expect(env.calls).toEqual([['changeTab', 'attendance'], ['changeViewMode', 'week']]);
             expect(isOpen('asistencia')).toBe(false);
         });
+    });
+});
+
+describe('mini barra: se esconde al bajar y vuelve al subir', () => {
+    test('nextSubbarTucked', () => {
+        // Cerca del inicio siempre visible.
+        expect(nextSubbarTucked({ tucked: true, y: 40, lastY: 300 })).toBe(false);
+        // Bajar la esconde; subir la muestra.
+        expect(nextSubbarTucked({ tucked: false, y: 400, lastY: 300 })).toBe(true);
+        expect(nextSubbarTucked({ tucked: true, y: 380, lastY: 400 })).toBe(false);
+        // Movimientos mínimos no la hacen parpadear.
+        expect(nextSubbarTucked({ tucked: false, y: 404, lastY: 400 })).toBe(false);
+        expect(nextSubbarTucked({ tucked: true, y: 397, lastY: 400 })).toBe(true);
+    });
+
+    test('al desplazar, la barra marca body.bnav-sub-tucked y la quita al subir', () => {
+        _resetBottomNavState();
+        const { win } = makeWin();
+        let y = 0;
+        Object.defineProperty(window, 'scrollY', { get: () => y, configurable: true });
+        const state = { activeTab: 'employees', settings: {} };
+        document.body.innerHTML = renderBottomNav(state, { win });
+        const nav = initBottomNav({ doc: document, win: window, getState: () => state });
+        const scroll = (to) => { y = to; window.dispatchEvent(new Event('scroll')); };
+        scroll(300); scroll(500);
+        expect(document.body.classList.contains('bnav-sub-tucked')).toBe(true);
+        scroll(450);
+        expect(document.body.classList.contains('bnav-sub-tucked')).toBe(false);
+        scroll(700);
+        nav.destroy();
+        expect(document.body.classList.contains('bnav-sub-tucked')).toBe(false);
+        document.body.innerHTML = '';
     });
 });
