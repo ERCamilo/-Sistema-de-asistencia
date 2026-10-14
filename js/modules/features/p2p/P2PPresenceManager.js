@@ -1,3 +1,4 @@
+import { attachEmployeeIntakeChannel } from './MiniEmployeeIntakeBridge.js';
 /**
  * P2PPresenceManager — Bounded presence coordinator for SA (F3.4 P2P Presence v1).
  *
@@ -286,6 +287,8 @@ export class P2PPresenceManager {
     }
 
     detachChannel(entry) {
+        entry.employeeIntakeCleanup?.();
+        entry.employeeIntakeCleanup=null;
         if (typeof entry.channelMessageCleanup === 'function') {
             entry.channelMessageCleanup();
             entry.channelMessageCleanup = null;
@@ -466,6 +469,7 @@ export class P2PPresenceManager {
 
         this.detachChannel(entry);
         entry.channel = channel;
+        entry.employeeIntakeCleanup=attachEmployeeIntakeChannel(channel,peer || {peerId,peerApp:'mini',displayName:'Mini'},{core:this.getCore()});
         if (session) entry.session = session;
 
         const messageHandler = (event) => {
