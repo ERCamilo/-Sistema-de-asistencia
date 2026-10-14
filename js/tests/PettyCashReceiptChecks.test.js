@@ -59,7 +59,7 @@ describe('checkReceipt', () => {
 
     test('subtotal + ITBIS que no da el total (tolera redondeo de 1 peso)', () => {
         expect(checkReceipt({ ...good, total: 1180.6 }, { period })).toEqual([]);
-        const issues = checkReceipt({ ...good, total: 1280, amount: 1280 }, { period });
+        const issues = checkReceipt({ ...good, total: 1300, amount: 1300 }, { period });
         expect(issues.map(i => i.code)).toEqual(['total-mismatch']);
         expect(issues[0].field).toBe('total');
     });
@@ -122,8 +122,8 @@ describe('detalles para mostrar lo leído frente a lo calculado', () => {
     const byCode = (issues, code) => issues.find(i => i.code === code);
 
     test('total que no cuadra: total leído y subtotal + ITBIS', () => {
-        const issue = byCode(checkReceipt({ ...good, total: 1280, amount: 1280 }, { period }), 'total-mismatch');
-        expect(issue.detail).toEqual({ read: 1280, calc: 1180 });
+        const issue = byCode(checkReceipt({ ...good, total: 1300, amount: 1300 }, { period }), 'total-mismatch');
+        expect(issue.detail).toEqual({ read: 1300, calc: 1180 });
     });
 
     test('ITBIS mayor que el 18% del subtotal: siempre es un error', () => {
@@ -192,7 +192,7 @@ describe('detalles para mostrar lo leído frente a lo calculado', () => {
 describe('posición del dato en la foto (cuando el lector la envíe)', () => {
     const period = { openingDate: '2026-10-01', closingDate: '2026-10-15' };
     test('cada aviso lleva el recuadro de su campo si existe', () => {
-        const mov = { id: 'm1', amount: 1280, subtotal: 1000, itbis: 180, total: 1280, date: '2026-10-05',
+        const mov = { id: 'm1', amount: 1300, subtotal: 1000, itbis: 180, total: 1300, date: '2026-10-05',
             ocrBoxes: { total: [880, 100, 910, 900], ncf: 'basura' } };
         const issues = checkReceipt(mov, { period });
         expect(issues.find(i => i.code === 'total-mismatch').box).toEqual([880, 100, 910, 900]);
@@ -215,7 +215,7 @@ describe('corregir desde la vista previa', () => {
     const period = { openingDate: '2026-10-01', closingDate: '2026-10-15' };
 
     test('total que no cuadra: usar subtotal + ITBIS, o dar por bueno el leído', () => {
-        const fixes = fixesFor({ code: 'total-mismatch', detail: { read: 1280, calc: 1180 } });
+        const fixes = fixesFor({ code: 'total-mismatch', detail: { read: 1300, calc: 1180 } });
         expect(fixes).toEqual([
             { kind: 'apply', patch: { total: 1180, amount: 1180 }, value: 1180 },
             { kind: 'accept', code: 'total-mismatch' }

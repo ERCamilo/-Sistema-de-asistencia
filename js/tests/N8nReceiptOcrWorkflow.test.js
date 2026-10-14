@@ -39,6 +39,25 @@ describe('Parsear JSON', () => {
     });
 });
 
+describe('Parsear JSON: campos fiscales extra', () => {
+    test('pasa descuento, propina, exento e itbisIncluido', async () => {
+        const out = await runCode('Parsear JSON', gemini({ total: 1, descuento: '1,250.50', propina: 100, exento: '2,000', itbis_incluido: 'si' }));
+        expect(out).toMatchObject({ descuento: 1250.5, propina: 100, exento: 2000, itbisIncluido: true });
+        expect((await runCode('Parsear JSON', gemini({ total: 1, itbis_incluido: true }))).itbisIncluido).toBe(true);
+        expect((await runCode('Parsear JSON', gemini({ total: 1, itbis_incluido: false }))).itbisIncluido).toBe(false);
+        expect((await runCode('Parsear JSON', gemini({ total: 1, itbis_incluido: 'No' }))).itbisIncluido).toBe(false);
+        const app = normalizeReceiptOcr(out);
+        expect(app.fiscal).toMatchObject({ descuento: 1250.5, propina: 100, exento: 2000, itbisIncluido: true });
+    });
+
+    test('si faltan quedan en null', async () => {
+        const out = await runCode('Parsear JSON', gemini({ total: 5, itbis_incluido: 'quizas' }));
+        expect(out).toMatchObject({ descuento: null, propina: null, exento: null, itbisIncluido: null });
+        const app = normalizeReceiptOcr(out);
+        expect(app.fiscal).toMatchObject({ descuento: null, propina: null, exento: null, itbisIncluido: null });
+    });
+});
+
 describe('Parsear JSON: recuadros (boxes)', () => {
     test('pasa los recuadros a la app con sus nombres y la app los guarda', async () => {
         const out = await runCode('Parsear JSON', gemini({
@@ -79,6 +98,12 @@ describe('Preparar solicitud Gemini', () => {
         const parts = out.geminiBody.contents[0].parts;
         expect(parts[1].inlineData).toEqual({ mimeType: 'image/webp', data: 'QUJD' });
         expect(out.geminiBody.generationConfig.responseMimeType).toBe('application/json');
+    });
+
+    test('pide descuento, propina, exento e itbis_incluido', async () => {
+        const out = await runCode('Preparar solicitud Gemini', { body: { fileBase64: 'QUJD' } });
+        const prompt = out.geminiBody.contents[0].parts[0].text;
+        ['"descuento"', '"propina"', '"exento"', '"itbis_incluido"'].forEach(k => expect(prompt).toContain(k));
     });
 
     test('pide los recuadros de cada dato y deja espacio para la respuesta', async () => {

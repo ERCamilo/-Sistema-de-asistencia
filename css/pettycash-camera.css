@@ -795,6 +795,11 @@ body.pcam-open { overflow: hidden; }
 }
 
 .pcam-issue b { color: #fdba74; font-size: 12.5px; }
+/* Notas que no marcan la factura (cómo cuadró el total, factura de consumo). */
+.pcam-infos { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
+.pcam-info { margin: 0; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(56, 189, 248, 0.35); background: rgba(14, 116, 144, 0.16); color: #bae6fd; font-size: 12px; line-height: 1.4; }
+.pcam-info b { color: #e0f2fe; font-weight: 700; }
+.pcam-info span { color: #93c5fd; }
 button.pcam-issue { cursor: pointer; transition: border-color 0.2s, background 0.2s; }
 button.pcam-issue[aria-pressed="true"] { border-color: #fb923c; background: #2a1708; }
 
