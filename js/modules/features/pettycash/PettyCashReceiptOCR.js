@@ -43,6 +43,10 @@ export function normalizeReceiptOcr(data, allowedCategories = []) {
             subtotal: source.subtotal ?? null,
             itbis: source.itbis ?? null,
             total: source.total ?? null,
+            descuento: source.descuento ?? null,
+            propina: source.propina ?? null,
+            exento: source.exento ?? null,
+            itbisIncluido: source.itbisIncluido ?? null,
             fechaEmision: source.fecha ?? null,
             notas: source.notas ?? null,
             items: Array.isArray(source.items) ? source.items : [],
@@ -63,7 +67,7 @@ export function applyReceiptOcrToMovement(movement, normalized) {
     if (normalized.category) movement.category = normalized.category;
 
     const fiscal = normalized.fiscal || {};
-    ['rncEmisor', 'ncf', 'cliente', 'rncCliente', 'subtotal', 'itbis', 'total', 'notas'].forEach((key) => {
+    ['rncEmisor', 'ncf', 'cliente', 'rncCliente', 'subtotal', 'itbis', 'total', 'descuento', 'propina', 'exento', 'itbisIncluido', 'notas'].forEach((key) => {
         if (hasValue(fiscal[key])) movement[key] = fiscal[key];
     });
     if (Array.isArray(fiscal.items) && fiscal.items.length) movement.items = fiscal.items;

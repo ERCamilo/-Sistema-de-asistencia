@@ -44,10 +44,14 @@ Cada aviso de la vista previa con posición muestra "⌖ Ver en la foto". Al toc
 
 **Siguiente:** probarlo con 10–20 fotos reales y ver con "⌖ Ver en la foto" si los recuadros caen bien. Si no bastan, el plan B es un servicio RapidOCR (los modelos de PaddleOCR en ONNX): Gemini dice de qué línea del OCR sacó cada dato, el recuadro sale exacto del OCR, y cuando el texto del OCR y el de Gemini no coinciden, el dato se marca como dudoso.
 
-## Pendiente 2: verificar el RNC de la compañía
+## Hecho: RNC de la empresa por proyecto
 
-**Objetivo.** Enviar en la petición al lector el RNC de la empresa (cliente) para que el flujo confirme si aparece en la factura.
+- Cada proyecto de caja chica guarda `companyRnc` y `consumerNoteMin` (botón 🧾 "Datos fiscales").
+- Crédito fiscal (B01/E31) cuyo RNC del cliente no es el de la empresa: aviso `client-rnc`, con escribir el RNC o "Dejar así".
+- Consumo (B02/E32): nota "no da crédito fiscal", en todas o solo desde un monto.
+- El lector ya devolvía `rnc_cliente`; no hizo falta tocar n8n. Mejora posible: enviarle el RNC de la empresa para que lo busque a propósito.
 
-- Una factura con crédito fiscal debe estar a nombre de la empresa.
-- Respuesta sugerida: `{ clientRncFound: true | false | null }`.
-- La app lo mostraría en la vista previa: "RNC de la empresa encontrado" o "No aparece el RNC de la empresa".
+## Hecho: totales con descuento, ITBIS incluido y propina
+
+- El lector devuelve también `descuento`, `propina`, `exento` e `itbis_incluido`.
+- `explainTotal` prueba la suma normal, el ITBIS incluido y la propina legal deducida antes de avisar; `receiptNotes` explica cómo cuadró.

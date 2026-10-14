@@ -27,6 +27,18 @@ testRunner.addSuite('Caja chica — contrato OCR compartido', {
         testRunner.assertEquals(result.got, true);
     },
 
+    'conserva descuento, propina, exento e itbisIncluido (false incluido) en el gasto'() {
+        const n = normalizeReceiptOcr({ total: 10, descuento: 2, propina: 1, exento: 3, itbisIncluido: false });
+        testRunner.assertEquals(n.fiscal.descuento, 2);
+        testRunner.assertEquals(n.fiscal.propina, 1);
+        testRunner.assertEquals(n.fiscal.exento, 3);
+        testRunner.assertEquals(n.fiscal.itbisIncluido, false);
+        const mov = applyReceiptOcrToMovement({}, n);
+        testRunner.assertEquals(mov.itbisIncluido, false);
+        testRunner.assertEquals(mov.propina, 1);
+        testRunner.assertEquals(normalizeReceiptOcr({ total: 1 }).fiscal.itbisIncluido, null);
+    },
+
     'rechaza categorías desconocidas sin perder los demás datos'() {
         const result = normalizeReceiptOcr({ subtotal: 90, categoria: 'Inventada' }, ['Otros']);
         testRunner.assertEquals(result.amount, 90);

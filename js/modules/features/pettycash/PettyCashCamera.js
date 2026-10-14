@@ -136,7 +136,9 @@ function issueBody(issue) {
     const d = issue.detail || {};
     switch (issue.code) {
         case 'total-mismatch':
-            return `<span class="pcam-cmp"><span>Leído ${tag(money(d.read), 'bad')}</span><span>Subtotal + ITBIS ${tag(money(d.calc), 'calc')}</span></span>`;
+            return `<span class="pcam-cmp"><span>Leído ${tag(money(d.read), 'bad')}</span><span>Subtotal + ITBIS ${tag(money(d.calc), 'calc')}</span></span>${issue.hint ? `<span class="pcam-note">${esc(issue.hint)}</span>` : ''}`;
+        case 'client-rnc':
+            return `<span class="pcam-cmp"><span>Cliente ${tag(d.read ? esc(d.read) : 'no se leyó', 'bad')}</span><span>Empresa ${tag(esc(d.expected), 'calc')}</span></span>${issue.hint ? `<span class="pcam-note">${esc(issue.hint)}</span>` : ''}`;
         case 'itbis-rate':
             return `<span class="pcam-cmp"><span>Leído ${tag(money(d.read), 'bad')}</span><span>Calculado ${tag(money(d.calc), 'calc')}</span></span>
                 <span class="pcam-note">18% de ${money(d.base)}.${issue.hint ? ` ${esc(issue.hint)}` : ''}</span>`;
@@ -165,13 +167,14 @@ function fixLabel(issue, fix) {
             'total-mismatch': 'El total está bien',
             'itbis-rate': 'Lo leído está bien',
             'date-outside-period': 'La fecha está bien',
-            'ncf-duplicate': 'Es otra factura'
+            'ncf-duplicate': 'Es otra factura',
+            'client-rnc': 'Dejar así'
         }[issue.code] || 'Dejar así';
     }
     if (fix.kind === 'apply') return issue.code === 'date-outside-period' ? `Cambiar a ${shortDate(fix.value)}` : `Usar ${money(fix.value)}`;
     return 'Guardar';
 }
-const FIX_PLACEHOLDER = { ncf: 'B0100000000', rnc: 'RNC o cédula', amount: '0.00', date: 'dd/mm/aaaa' };
+const FIX_PLACEHOLDER = { ncf: 'B0100000000', rnc: 'RNC o cédula', 'rnc-client': 'RNC del cliente', amount: '0.00', date: 'dd/mm/aaaa' };
 
 async function defaultToBitmap(blob, doc) {
     if (typeof globalThis.createImageBitmap === 'function') {
@@ -231,7 +234,7 @@ function defaultDrawGhost(canvas, bitmap) {
 /**
  * @param {object} deps
  * @param {(file: File) => Promise<{id: string, previewUrl: string}>} deps.capture
- * @param {(ids: string[]) => Promise<Map<string, {state, reason, issues, data}>>} deps.getItemsState
+ * @param {(ids: string[]) => Promise<Map<string, {state, reason, issues, notes, data}>>} deps.getItemsState
  * @param {(id: string) => void} deps.onReview   abre el gasto para revisarlo (la cámara ya cerró)
  * @param {(id: string) => Promise<boolean>} deps.onDelete
  * @param {(ids: string[]) => void} deps.onFinish
@@ -387,7 +390,7 @@ export function createReceiptCamera({
 
     // ── Vista previa ──────────────────────────────────────────────────────
 
-    const itemSig = (item) => JSON.stringify([item.state, item.reason, item.issues, item.data]);
+    const itemSig = (item) => JSON.stringify([item.state, item.reason, item.issues, item.notes, item.data]);
 
     const dataRows = (data = {}) => {
         const rows = [
@@ -419,6 +422,11 @@ export function createReceiptCamera({
         return `<div class="pcam-issue pcam-in" data-pcam-issue-card="${i}">${body}${locate}${fixRow(issue, i)}</div>`;
     }).join('');
 
+    // Notas que no marcan la factura: cómo cuadró el total, factura de consumo.
+    const noteList = (notes = []) => (notes.length
+        ? `<div class="pcam-infos pcam-in">${notes.map(n => `<p class="pcam-info" data-pcam-info="${esc(n.code)}"><b>${esc(n.message)}</b>${n.hint ? ` <span>${esc(n.hint)}</span>` : ''}</p>`).join('')}</div>`
+        : '');
+
     // Con avisos o sin datos: mandar la misma foto otra vez al lector.
     const RESCAN_BUTTON = `<button type="button" class="pcam-rescan pcam-in" data-pcam-action="rescan">${ico(ICON.rescan, 16)} Volver a leer</button>`;
 
@@ -431,7 +439,7 @@ export function createReceiptCamera({
                 <div class="pcam-actions"><button type="button" class="pcam-btn" data-pcam-action="delete">Eliminar</button><button type="button" class="pcam-btn is-primary" data-pcam-action="back">Seguir tomando</button></div>`;
         }
         if (item.state === 'ok') {
-            return `${dataRows(item.data)}
+            return `${dataRows(item.data)}${noteList(item.notes)}
                 <div class="pcam-actions pcam-in"><button type="button" class="pcam-btn" data-pcam-action="review">Editar</button><button type="button" class="pcam-btn is-ok" data-pcam-action="back">${ico(ICON.check, 18)} Se ve bien</button></div>`;
         }
         if (item.state === 'failed') {
@@ -441,7 +449,7 @@ export function createReceiptCamera({
                 <div class="pcam-actions pcam-in"><button type="button" class="pcam-btn" data-pcam-action="review">Llenar a mano</button><button type="button" class="pcam-btn is-primary" data-pcam-action="retake">Retomar foto</button></div>`;
         }
         return `<div class="pcam-issues">${issueList(item.issues || [])}</div>
-            ${dataRows(item.data)}
+            ${dataRows(item.data)}${noteList(item.notes)}
             ${RESCAN_BUTTON}
             <div class="pcam-actions pcam-in"><button type="button" class="pcam-btn" data-pcam-action="delete">Eliminar</button><button type="button" class="pcam-btn is-primary" data-pcam-action="review">Revisar ahora</button></div>`;
     };
@@ -731,7 +739,7 @@ export function createReceiptCamera({
             const states = await getItemsState(items.map(i => i.id));
             for (const item of items) {
                 const next = states?.get?.(item.id);
-                if (next) Object.assign(item, { state: next.state || item.state, reason: next.reason || null, issues: next.issues || [], data: next.data || {} });
+                if (next) Object.assign(item, { state: next.state || item.state, reason: next.reason || null, issues: next.issues || [], notes: next.notes || [], data: next.data || {} });
                 if (DONE.has(item.state) && !item.noted) {
                     item.noted = true;
                     note('result', { state: item.state, codes: (item.issues || []).map(i => i.code) });
@@ -1074,7 +1082,7 @@ export function createReceiptCamera({
         const before = { state: item.state, issues: item.issues, data: item.data };
         note('rescan', { from: item.state, codes: (item.issues || []).map(i => i.code) });
         item.rescanning = true;
-        Object.assign(item, { state: 'reading', issues: [], noted: false });
+        Object.assign(item, { state: 'reading', issues: [], notes: [], noted: false });
         view.focus = -1;
         const hl = q('[data-pcam-hl]');
         if (hl) hl.hidden = true;

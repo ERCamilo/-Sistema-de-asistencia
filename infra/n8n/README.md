@@ -6,6 +6,17 @@ Copias de los flujos que usa la app, para versionarlos y probarlos.
 |---|---|---|
 | `caja-chica-ocr.json` | `caja-chica-ocr` (`APP_CONFIG.OCR_WEBHOOK_URL`) | Lector de facturas de Caja chica |
 
+## Respuesta del lector de facturas
+
+Devuelve `ok`, `emisor`, `rncEmisor`, `cliente`, `rncCliente`, `ncf`, `fecha`, `subtotal`, `itbis`, `total`, `concepto`, `categoria`, `notas`, `items` y `boxes`, más cuatro campos fiscales para explicar totales que no cuadran:
+
+- `descuento`: monto total del descuento (número, `null` si no hay).
+- `propina`: propina legal / "Ley 10%" / servicio (número, `null` si no hay).
+- `exento`: monto de artículos exentos de ITBIS (número, `null` si no se muestra).
+- `itbisIncluido`: `true` si los precios o el subtotal ya incluyen el ITBIS, `false` si se suma aparte, `null` si no se sabe.
+
+`subtotal` es el monto antes de descuento e ITBIS cuando así viene impreso.
+
 ## Cómo actualizar un flujo
 
 1. Cambia el JSON aquí y corre sus pruebas: `npx jest js/tests/N8nReceiptOcrWorkflow.test.js`.

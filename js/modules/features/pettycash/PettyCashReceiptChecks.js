@@ -7,6 +7,15 @@
  * formato conocido y no se repite con el mismo emisor, y la fecha cae dentro
  * del periodo. Solo se revisa lo que el OCR leyó: un campo vacío no es un error.
  *
+ * Antes de avisar que el total no cuadra se prueban las formas reales de una
+ * factura dominicana: con descuento, con el ITBIS incluido en los precios y
+ * con la propina legal (10%), leídos o deducidos de los montos. Cuando una
+ * cuadra, `receiptNotes` lo explica sin marcar la factura.
+ *
+ * Con el RNC de la empresa del proyecto (`companyRnc`), una factura de
+ * crédito fiscal (B01/E31) debe estar a su nombre. Las de consumo (B02/E32)
+ * llevan una nota: no dan crédito fiscal (desde `consumerNoteMin`, 0 = todas).
+ *
  * Cada aviso trae `detail` (lo leído frente a lo calculado, los dígitos que
  * faltan o la fecha con día y mes invertidos) y `box`, la posición del dato en
  * la foto cuando el lector la envía.
@@ -109,7 +118,78 @@ function missingRncDigits(d) {
     return 0;
 }
 
-export function checkReceipt(movement, { period = null, movements = [], today = localToday() } = {}) {
+const PROPINA_RATE = 0.10;
+const ncfType = (value) => String(value ?? '').replace(/[\s-]/g, '').toUpperCase().slice(0, 3);
+/** Crédito fiscal: B01 en papel, E31 electrónica. */
+const isFiscalCredit = (value) => ['B01', 'E31'].includes(ncfType(value));
+/** Consumo: B02 en papel, E32 electrónica. */
+const isConsumer = (value) => ['B02', 'E32'].includes(ncfType(value));
+
+/** Base gravada: subtotal menos descuento y lo exento. */
+function taxableBase(m) {
+    return round2((num(m.subtotal) || 0) - (num(m.descuento) || 0) - (num(m.exento) || 0));
+}
+
+/**
+ * ¿Cómo cuadra el total? Prueba, en orden: la suma normal (con descuento y
+ * propina si se leyeron), el ITBIS incluido en los precios y la propina legal
+ * deducida (lo que sobra es el 10%). null si faltan subtotal o ITBIS.
+ * @returns {{ok:true, kind:'plain'|'discount'|'tip'|'included', amount?:number}|{ok:false, calc:number}|null}
+ */
+export function explainTotal(m = {}) {
+    const total = num(m.total) ?? num(m.amount);
+    const subtotal = num(m.subtotal);
+    const itbis = num(m.itbis);
+    if (!total || subtotal === null || itbis === null) return null;
+    const descuento = num(m.descuento) || 0;
+    const propina = num(m.propina) || 0;
+    const net = round2(subtotal - descuento);
+    const near = (x) => Math.abs(x - total) <= TOTAL_TOLERANCE;
+    const calc = round2(net + itbis + propina);
+    if (near(calc) && m.itbisIncluido !== true) {
+        if (descuento) return { ok: true, kind: 'discount', amount: descuento };
+        if (propina) return { ok: true, kind: 'tip', amount: propina };
+        return { ok: true, kind: 'plain' };
+    }
+    // ITBIS incluido: el subtotal ya lo trae (súper, farmacia).
+    if (near(net + propina)) {
+        const base = taxableBase(m);
+        const share = (rate) => Math.abs(itbis - round2(base * rate / (1 + rate))) <= TOTAL_TOLERANCE;
+        if (m.itbisIncluido === true || share(ITBIS_RATE) || share(ITBIS_REDUCED_RATE)) return { ok: true, kind: 'included' };
+    }
+    // Propina legal no leída: lo que sobra es el 10% de lo consumido.
+    const extra = round2(total - (net + itbis));
+    if (!propina && extra > 0 && Math.abs(extra - round2(net * PROPINA_RATE)) <= TOTAL_TOLERANCE) {
+        return { ok: true, kind: 'tip', amount: extra };
+    }
+    return { ok: false, calc };
+}
+
+const money = (n) => `RD$${Number(n).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * Notas que explican la factura sin marcarla "por revisar": cómo cuadró el
+ * total y si es de consumo (no da crédito fiscal).
+ * @param {object} movement
+ * @param {{consumerNoteMin?: number}} options  0 = nota en todas las de consumo
+ */
+export function receiptNotes(movement, { consumerNoteMin = 0 } = {}) {
+    if (!movement) return [];
+    const notes = [];
+    const fit = explainTotal(movement);
+    if (fit?.kind === 'discount') notes.push(issue('total-discount', 'total', `Cuadra con un descuento de ${money(fit.amount)}.`, { detail: { amount: fit.amount } }));
+    if (fit?.kind === 'tip') notes.push(issue('total-tip', 'total', `Incluye la propina legal (10%) de ${money(fit.amount)}.`, { detail: { amount: fit.amount } }));
+    if (fit?.kind === 'included') notes.push(issue('itbis-included', 'itbis', 'El ITBIS viene incluido en los precios.'));
+    const total = num(movement.total) ?? num(movement.amount) ?? 0;
+    const min = Math.max(0, num(consumerNoteMin) || 0);
+    if (isConsumer(movement.ncf) && total > min) {
+        notes.push(issue('consumer-invoice', 'ncf', 'Factura de consumo: no da crédito fiscal.',
+            { hint: 'Si la compra lo permitía, pide la factura con el RNC de la empresa.' }));
+    }
+    return notes;
+}
+
+export function checkReceipt(movement, { period = null, movements = [], today = localToday(), companyRnc = null } = {}) {
     if (!movement) return [];
     const issues = [];
     const add = (code, field, message, extra) => issues.push(issue(code, field, message, { box: boxFor(movement, field), ...extra }));
@@ -117,20 +197,40 @@ export function checkReceipt(movement, { period = null, movements = [], today = 
     const subtotal = num(movement.subtotal);
     const itbis = num(movement.itbis);
 
+    const fit = explainTotal(movement);
     if (!total) {
         add('missing-total', 'total', 'No se pudo leer el total.');
-    } else if (subtotal !== null && itbis !== null && Math.abs(subtotal + itbis - total) > TOTAL_TOLERANCE) {
-        add('total-mismatch', 'total', 'Subtotal + ITBIS no da el total leído.', { detail: { read: total, calc: round2(subtotal + itbis) } });
+    } else if (fit && !fit.ok) {
+        add('total-mismatch', 'total', 'Subtotal + ITBIS no da el total leído.', {
+            detail: { read: total, calc: fit.calc },
+            ...(total < fit.calc && !num(movement.descuento) ? { hint: 'Puede tener un descuento que no se leyó.' } : {})
+        });
     }
 
     if (subtotal && itbis) {
-        const full = round2(subtotal * ITBIS_RATE);
-        const reduced = round2(subtotal * ITBIS_REDUCED_RATE);
+        const base = taxableBase(movement);
+        const included = fit?.kind === 'included' || movement.itbisIncluido === true;
+        const rates = included
+            ? [ITBIS_RATE / (1 + ITBIS_RATE), ITBIS_REDUCED_RATE / (1 + ITBIS_REDUCED_RATE)]
+            : [ITBIS_RATE, ITBIS_REDUCED_RATE];
         const near = (x) => Math.abs(itbis - x) <= TOTAL_TOLERANCE;
-        if (!near(full) && !near(reduced)) {
-            const detail = { read: itbis, calc: full, base: subtotal };
+        if (!rates.some(rate => near(round2(base * rate)))) {
+            const full = round2(base * rates[0]);
+            const detail = { read: itbis, calc: full, base };
             if (itbis > full) add('itbis-rate', 'itbis', 'El ITBIS es mayor que el 18% del subtotal.', { detail });
             else add('itbis-rate', 'itbis', 'El ITBIS no es el 18% del subtotal.', { detail, hint: 'Puede ser correcto si hay artículos exentos o al 16%.' });
+        }
+    }
+
+    // Crédito fiscal (B01/E31): a nombre de la empresa del proyecto.
+    const company = digits(companyRnc);
+    if (company && isFiscalCredit(movement.ncf)) {
+        const client = digits(movement.rncCliente);
+        if (client !== company) {
+            add('client-rnc', 'rncCliente', client
+                ? 'La factura no está a nombre de la empresa: el RNC del cliente es otro.'
+                : 'La factura no está a nombre de la empresa: no se leyó el RNC del cliente.',
+            { detail: { read: client, expected: company }, hint: 'Sin el RNC de la empresa no sirve para crédito fiscal.' });
         }
     }
 
@@ -195,6 +295,8 @@ export function fixesFor(issue) {
             return [{ kind: 'input', field: 'rncEmisor', validate: 'rnc', value: d.read || '' }, accept];
         case 'ncf-duplicate':
             return [accept];
+        case 'client-rnc':
+            return [{ kind: 'input', field: 'rncCliente', validate: 'rnc-client', value: d.read || '' }, accept];
         case 'missing-total':
             return [{ kind: 'input', field: 'total', validate: 'amount', value: '' }];
         default:
@@ -211,6 +313,9 @@ export function validateFixInput(validate, raw) {
     }
     if (validate === 'rnc') {
         return isValidRnc(text) ? { ok: true, patch: { rncEmisor: digits(text) } } : { ok: false };
+    }
+    if (validate === 'rnc-client') {
+        return isValidRnc(text) ? { ok: true, patch: { rncCliente: digits(text) } } : { ok: false };
     }
     if (validate === 'amount') {
         const n = Number(text.replace(/[^\d.]/g, ''));
@@ -235,7 +340,7 @@ export function receiptReviewState(job = {}, movement = null, context = {}) {
     if (ocr === 'needs-review') return { state: 'failed', issues: [issue('not-read', null, 'No se obtuvo ningún dato de esta foto.')] };
     if (ocr === 'extracted') {
         const issues = checkReceipt(movement, context);
-        return { state: issues.length ? 'review' : 'ok', issues };
+        return { state: issues.length ? 'review' : 'ok', issues, notes: receiptNotes(movement, context) };
     }
     const WAITING = { 'waiting-network': 'network', 'waiting-session': 'session', paused: 'paused' };
     if (WAITING[job?.queueStatus]) return { state: 'waiting', reason: WAITING[job.queueStatus], issues: [] };

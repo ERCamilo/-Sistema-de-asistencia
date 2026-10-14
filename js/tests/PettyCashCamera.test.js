@@ -283,6 +283,42 @@ describe('Cámara de facturas', () => {
         camera.close();
     });
 
+    test('leída con notas: explica el total y la factura de consumo sin marcarla', async () => {
+        jest.useFakeTimers();
+        const { camera, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        camera.openPreview(0);
+        states.set('m1', { state: 'ok', issues: [], data: { total: 'RD$ 1,062.00' }, notes: [
+            { code: 'total-discount', message: 'Cuadra con un descuento de RD$100.00.' },
+            { code: 'consumer-invoice', message: 'Factura de consumo: no da crédito fiscal.', hint: 'Si la compra lo permitía, pide la factura con el RNC de la empresa.' }
+        ] });
+        await camera.refresh();
+        jest.advanceTimersByTime(RECEIVED_MS + 10);
+        expect($('[data-pcam-seal]').dataset.pcamSeal).toBe('ok');
+        expect([...document.querySelectorAll('[data-pcam-info]')].map(n => n.dataset.pcamInfo)).toEqual(['total-discount', 'consumer-invoice']);
+        expect($('[data-pcam-sheet]').textContent).toContain('pide la factura con el RNC de la empresa');
+        camera.close();
+    });
+
+    test('a nombre de otra empresa: RNC del cliente frente al de la empresa', async () => {
+        jest.useFakeTimers();
+        const { camera, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        camera.openPreview(0);
+        states.set('m1', { state: 'review', data: {}, issues: [
+            { code: 'client-rnc', field: 'rncCliente', message: 'La factura no está a nombre de la empresa: el RNC del cliente es otro.', hint: 'Sin el RNC de la empresa no sirve para crédito fiscal.', detail: { read: '131246796', expected: '101010632' } }
+        ] });
+        await camera.refresh();
+        jest.advanceTimersByTime(RECEIVED_MS + 10);
+        const sheet = $('[data-pcam-sheet]').textContent;
+        expect(sheet).toContain('131246796');
+        expect(sheet).toContain('101010632');
+        expect($('[data-pcam-fix-input]').dataset.validate).toBe('rnc-client');
+        camera.close();
+    });
+
     test('por revisar (!): muestra lo leído frente a lo calculado, los dígitos que faltan y la fecha propuesta', async () => {
         jest.useFakeTimers();
         const { camera, deps, states } = setup();

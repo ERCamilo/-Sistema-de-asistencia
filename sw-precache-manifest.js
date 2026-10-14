@@ -194,6 +194,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/pettycash/PettyCashPersistenceMetrics.js",
     "./js/modules/features/pettycash/PettyCashPhoto.js",
     "./js/modules/features/pettycash/PettyCashPresentation.js",
+    "./js/modules/features/pettycash/PettyCashProjectFiscal.js",
     "./js/modules/features/pettycash/PettyCashReceiptBackup.js",
     "./js/modules/features/pettycash/PettyCashReceiptChecks.js",
     "./js/modules/features/pettycash/PettyCashReceiptOCR.js",

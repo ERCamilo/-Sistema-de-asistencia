@@ -44,6 +44,7 @@ import { createReceiptQueueProcessor } from './PettyCashReceiptProcessor.js';
 import { createReceiptCamera } from './PettyCashCamera.js';
 import { createCameraDiagnostics } from './PettyCashCameraDiagnostics.js';
 import { receiptReviewState } from './PettyCashReceiptChecks.js';
+import { projectFiscal, projectFiscalFormHTML, readProjectFiscalForm } from './PettyCashProjectFiscal.js';
 import {
     isReceiptReadyForBackup,
     uploadReceiptBackup,
@@ -556,6 +557,12 @@ export async function rereadReceipt(id, {
     return true;
 }
 
+/** Proyecto de caja chica de un gasto (o del periodo actual). */
+function projectOfMovement(movement, period) {
+    const id = movement?.projectId || period?.projectId;
+    return pc().projects.find(p => p.id === id) || null;
+}
+
 export async function cameraItemsState(ids = [], { listJobs = () => indexedDBService.listReceiptJobs() } = {}) {
     const jobs = await listJobs();
     const byId = new Map((jobs || []).map(job => [job.txId, job]));
@@ -565,7 +572,7 @@ export async function cameraItemsState(ids = [], { listJobs = () => indexedDBSer
     return new Map(ids.map((id) => {
         const movement = d.movements.find(m => m.id === id) || null;
         const job = byId.get(id) || (movement && Number(movement.amount) ? { ocrStatus: 'extracted' } : {});
-        const review = receiptReviewState(job, movement, { period, movements: periodMovements });
+        const review = receiptReviewState(job, movement, { period, movements: periodMovements, ...projectFiscal(projectOfMovement(movement, period)) });
         const data = movement ? {
             paidTo: movement.paidTo || null,
             ncf: movement.ncf || null,
@@ -789,6 +796,7 @@ function receiptOcrMetadata(movement) {
     if (!movement) return {};
     const fields = [
         'rncEmisor', 'ncf', 'cliente', 'rncCliente', 'subtotal', 'itbis',
+        'descuento', 'propina', 'exento', 'itbisIncluido',
         'total', 'fechaEmision', 'fechaVencimiento', 'notas', 'items'
     ];
     return fields.reduce((result, field) => {
@@ -1109,6 +1117,8 @@ function _projectBar(d, obra = { obraId: null, knownObraIds: [], obras: [] }) {
         ${d.selectedProjectId ? `
         <button type="button" data-app-fn="pcEditProject" title="Renombrar proyecto"
             style="background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:8px;padding:9px 12px;cursor:pointer;">✏️</button>
+        <button type="button" data-app-fn="pcEditProjectFiscal" title="Datos fiscales del proyecto" aria-label="Datos fiscales del proyecto"
+            style="background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:8px;padding:9px 12px;cursor:pointer;">🧾</button>
         <button type="button" data-app-fn="pcDeleteProject" title="Eliminar proyecto"
             style="background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:8px;padding:9px 12px;cursor:pointer;">🗑️</button>` : ''}
         <button type="button" data-app-fn="pcNewProject"
@@ -1661,6 +1671,10 @@ export async function savePettyCashMovementDraft(form, fields, { periodId = null
             if (form.ocr.subtotal != null) mov.subtotal = form.ocr.subtotal;
             if (form.ocr.itbis != null) mov.itbis = form.ocr.itbis;
             if (form.ocr.total != null) mov.total = form.ocr.total;
+            if (form.ocr.descuento != null) mov.descuento = form.ocr.descuento;
+            if (form.ocr.propina != null) mov.propina = form.ocr.propina;
+            if (form.ocr.exento != null) mov.exento = form.ocr.exento;
+            if (form.ocr.itbisIncluido != null) mov.itbisIncluido = form.ocr.itbisIncluido;
             if (form.ocr.fechaEmision) mov.fechaEmision = form.ocr.fechaEmision;
             if (form.ocr.notas) mov.notas = form.ocr.notas;
             if (Array.isArray(form.ocr.items) && form.ocr.items.length) mov.items = form.ocr.items;
@@ -1830,6 +1844,36 @@ export function registerPettyCashGlobals() {
         d.movementSearchQuery = '';
         d.form = null; d.periodForm = null; d.editMov = null;
         persist(); window.render?.();
+    };
+
+    // RNC de la empresa y aviso de facturas de consumo (PettyCashProjectFiscal.js).
+    window.pcEditProjectFiscal = () => {
+        const proj = currentProject();
+        if (!proj) return;
+        const modal = new Modal({
+            title: '🧾 Datos fiscales del proyecto',
+            subtitle: esc(proj.name || ''),
+            content: projectFiscalFormHTML(proj),
+            size: 'small',
+            buttons: [
+                { text: 'Cancelar', class: 'btn-secondary', onClick() { this.close(); } },
+                {
+                    text: 'Guardar', class: 'btn-primary', onClick() {
+                        const result = readProjectFiscalForm(this.element);
+                        const error = this.element.querySelector('[data-fiscal-error]');
+                        if (!result.ok) {
+                            error.textContent = result.error; error.hidden = false;
+                            this.element.querySelector(result.field === 'rnc' ? '[data-fiscal-rnc]' : '[data-fiscal-min]')?.focus();
+                            return;
+                        }
+                        Object.assign(proj, result.patch, { updatedAt: Date.now() });
+                        persist(); saveProject(proj, 'Datos fiscales guardados'); window.render?.();
+                        this.close();
+                    }
+                }
+            ]
+        });
+        modal.open();
     };
 
     window.pcEditProject = async () => {
