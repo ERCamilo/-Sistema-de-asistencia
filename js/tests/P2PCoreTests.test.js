@@ -7,6 +7,12 @@ Object.defineProperty(window, 'crypto', { value: webcrypto, configurable: true }
 const Core = require('../p2p/P2PCore.js');
 const Pairing = require('../p2p/P2PPairing.js');
 
+test('roster de propuesta Mini admite únicamente el esquema de personal autorizado', () => {
+  const start={protocol:Core.TRANSFER_PROTOCOL,type:'start',transferId:'proposal-transfer-123456789',kind:'roster',schema:'mini-roster-proposal/v1',size:0,chunkSize:Core.CHUNK_SIZE,totalChunks:0,sha256:'a'.repeat(64)};
+  expect(Core.validateTransferStart(start).schema).toBe('mini-roster-proposal/v1');
+  expect(()=>Core.validateTransferStart({...start,schema:'mini-roster/v1'})).toThrow();
+});
+
 function tick() { return new Promise(resolve => setTimeout(resolve, 0)); }
 async function waitFor(predicate, label, attempts = 50) {
   for (let i = 0; i < attempts; i++) { if (predicate()) return; await tick(); }
