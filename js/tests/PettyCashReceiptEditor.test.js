@@ -304,3 +304,44 @@ describe('descargar y compartir la foto', () => {
         expect(document.querySelector('[data-pcn-fbar]')).toBeNull();
     });
 });
+
+describe('un solo botón para guardar', () => {
+    test('un registro por revisar se guarda con «Confirmar y guardar»; no hay un Confirmar aparte', () => {
+        render(gasto({ reviewPending: true }));
+        const buttons = [...document.querySelectorAll('.pcn-footer button')].map((b) => [b.dataset.appFn, b.textContent.trim()]);
+        expect(buttons).toEqual([['pcCancelMovementEdit', 'Cancelar'], ['pcSaveMovementEdit', 'Confirmar y guardar']]);
+        expect(document.querySelector('[data-app-fn="pcConfirmMovement"]')).toBeNull();
+    });
+    test('un registro ya confirmado se guarda con «Guardar cambios»', () => {
+        render(gasto());
+        expect(document.querySelector('[data-app-fn="pcSaveMovementEdit"]').textContent).toContain('Guardar cambios');
+    });
+});
+
+describe('aprovechar el espacio bajo la imagen', () => {
+    test('artículos y seguridad de la lectura van en la columna de la imagen, no en la del formulario', () => {
+        render(gasto(), { showConfidence: true });
+        expect(document.querySelector('[data-pcn-view] [data-pcn-items]')).not.toBeNull();
+        expect(document.querySelector('[data-pcn-view] [data-pcn-confidence]')).not.toBeNull();
+        expect(document.querySelector('.pcn-form [data-pcn-items]')).toBeNull();
+        expect(document.querySelector('.pcn-form [data-pcn-confidence]')).toBeNull();
+    });
+    test('también cuando el gasto no tiene foto', () => {
+        render(gasto({ hasReceipt: false, receiptStatus: null }));
+        expect(document.querySelector('[data-pcn-view] [data-pcn-items]')).not.toBeNull();
+    });
+});
+
+describe('la ventana de la imagen se ajusta a lo que muestra', () => {
+    const source = { url: 'blob:abc', mime: 'image/jpeg' };
+    test('sin recuadro (PDF o lectura sin recuadros) la ventana se ciñe a la imagen', () => {
+        render(gasto(), { source });
+        expect(document.querySelector('[data-pcn-win]').dataset.box).toBe('false');
+        render(gasto(), { source: { url: 'x', mime: 'application/pdf', preview: 'data:image/png;base64,AAA' } });
+        expect(document.querySelector('[data-pcn-win]').dataset.box).toBe('false');
+    });
+    test('con recuadro lo marca, para no desalinearlo con la imagen', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] } }), { source });
+        expect(document.querySelector('[data-pcn-win]').dataset.box).toBe('true');
+    });
+});

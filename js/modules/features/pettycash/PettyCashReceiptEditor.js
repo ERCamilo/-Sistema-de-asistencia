@@ -92,7 +92,7 @@ function fileInputs(disabled) {
             <input type="file" accept="image/*,application/pdf" onchange="window.pcPhotoEdit(this)" style="display:none;"></label>`;
 }
 
-function viewerHTML(mov, { cerrada, ui, source }) {
+function viewerHTML(mov, { cerrada, ui, source, extra = '' }) {
     const hasPhoto = !!(mov.hasReceipt || mov.receiptStatus);
     if (!hasPhoto) {
         return `<div class="pcn-view" data-pcn-view>
@@ -100,6 +100,7 @@ function viewerHTML(mov, { cerrada, ui, source }) {
                 <p>Este gasto no tiene foto de factura</p>
                 <div class="pcn-empty-actions">${fileInputs(cerrada)}</div>
             </div>
+            ${extra}
         </div>`;
     }
     const field = ui.field;
@@ -117,8 +118,7 @@ function viewerHTML(mov, { cerrada, ui, source }) {
         stage = `<div class="pcn-stage" style="width:${pct(width)}%">
             ${src ? `<img class="pcn-img" src="${esc(src)}" alt="Foto de la factura">` : ''}
             ${showBox ? `<div class="pcn-box" data-pcn-box style="left:${pct(x0 / 10)}%;top:${pct(y0 / 10)}%;width:${pct((x1 - x0) / 10)}%;height:${pct((y1 - y0) / 10)}%"><span class="pcn-tag">${esc(LABELS[field] || '')}</span></div>` : ''}
-        </div>
-        ${isPdf ? '<p class="pcn-msg pcn-msg--pdf">PDF: no hay recuadros. Abre el original con «Ver comprobante».</p>' : ''}`;
+        </div>`;
     }
     const chips = BOX_FIELDS.filter(([k]) => hasBox(mov.ocrBoxes?.[k]) && !isPdf).map(([k, label]) =>
         `<button type="button" class="pcn-chip" data-pcn-chip data-app-fn="pcEditorField" data-arg="${k}" aria-pressed="${k === field}">${label}</button>`).join('');
@@ -126,12 +126,13 @@ function viewerHTML(mov, { cerrada, ui, source }) {
         ? `<p class="pcn-note" data-pcn-nobox>«${esc(LABELS[field] || field)}» no tiene recuadro del lector. Revisa la foto y escríbelo.</p>` : '';
     return `<div class="pcn-view" data-pcn-view>
         <div class="pcn-winwrap">
-            <div class="pcn-win" data-pcn-win data-size="${ui.size}" data-zoom="${!!(ui.zoom && showBox)}">${stage}</div>
+            <div class="pcn-win" data-pcn-win data-size="${ui.size}" data-zoom="${!!(ui.zoom && showBox)}" data-box="${showBox}">${stage}</div>
             ${source ? `<div class="pcn-fbar" data-pcn-fbar>
                 <button type="button" class="pcn-fb" data-app-fn="pcEditorDownload" aria-label="Descargar foto" title="Descargar">${DOWNLOAD_ICON}</button>
                 <button type="button" class="pcn-fb" data-app-fn="pcEditorShare" aria-label="Compartir foto" title="Compartir">${SHARE_ICON}</button>
             </div>` : ''}
         </div>
+        ${isPdf ? '<p class="pcn-msg pcn-msg--pdf">PDF: no hay recuadros. Abre el original con «Ver comprobante».</p>' : ''}
         ${chips ? `<div class="pcn-chips">${chips}</div>` : ''}
         <div class="pcn-tools">
             <button type="button" class="pcn-tool" data-app-fn="pcEditorSize">Imagen: ${WINDOW_SIZES[ui.size] || WINDOW_SIZES[1]}</button>
@@ -140,6 +141,7 @@ function viewerHTML(mov, { cerrada, ui, source }) {
             ${cerrada ? '' : `<button type="button" class="pcn-tool" data-app-fn="pcRescanReceipt" data-arg="${esc(mov.id)}">Reescanear</button>${fileInputs(false)}`}
         </div>
         ${noBox}
+        ${extra}
     </div>`;
 }
 
@@ -231,10 +233,10 @@ function confidenceHTML(mov, ui) {
 }
 
 function footerHTML(mov, cerrada) {
+    // Un solo botón: guardar los cambios también da el registro por revisado.
     return `<div class="pcn-footer">
-        ${(mov.reviewPending && !cerrada) ? `<button type="button" class="pcn-btn pcn-btn--ok" data-app-fn="pcConfirmMovement" data-arg="${esc(mov.id)}">✓ Confirmar</button>` : ''}
         <button type="button" class="pcn-btn" data-app-fn="pcCancelMovementEdit">${cerrada ? 'Cerrar' : 'Cancelar'}</button>
-        ${cerrada ? '' : '<button type="button" class="pcn-btn pcn-btn--primary" data-app-fn="pcSaveMovementEdit">Guardar cambios</button>'}
+        ${cerrada ? '' : `<button type="button" class="pcn-btn pcn-btn--primary" data-app-fn="pcSaveMovementEdit">${mov.reviewPending ? 'Confirmar y guardar' : 'Guardar cambios'}</button>`}
     </div>`;
 }
 
@@ -317,7 +319,7 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
             ${closeButtonHTML()}
         </header>
         <div class="pcn-body" onchange="window.pcEditorTouch?.()" onfocusin="window.pcEditorFocusIn?.(event)">
-            ${viewerHTML(mov, { cerrada, ui: view, source })}
+            ${viewerHTML(mov, { cerrada, ui: view, source, extra: `${itemsHTML(mov, view)}${showConfidence ? confidenceHTML(mov, view) : ''}` })}
             <div class="pcn-form">
                 ${review.issues.map((i) => issueCardHTML(i, cerrada)).join('')}
                 ${notes.length ? `<div class="pcn-notes" data-pcn-notes>${notes.map((n) => `<div>${esc(n.message)}${n.hint ? ' ' + esc(n.hint) : ''}</div>`).join('')}</div>` : ''}
@@ -360,8 +362,6 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
                         </div>
                     </div>
                 </section>
-                ${itemsHTML(mov, view)}
-                ${showConfidence ? confidenceHTML(mov, view) : ''}
                 ${footerHTML(mov, cerrada)}
             </div>
         </div>

@@ -62,3 +62,19 @@ export function centerEditorBox(root = document) {
     win.scrollTop += (b.top + b.height / 2) - (w.top + w.height / 2);
     return true;
 }
+
+/**
+ * En pantalla ancha y con el editor abierto, la pantalla ocupa lo que queda de
+ * la ventana: así la lista y el detalle se desplazan cada uno por su lado.
+ * En teléfono el editor es una hoja inferior y no hace falta altura fija.
+ */
+export function fitEditorScreen({ doc = document, win = window } = {}) {
+    const el = doc.querySelector('[data-pcn-screen]');
+    if (!el) return false;
+    const wide = typeof win.matchMedia === 'function' && win.matchMedia('(min-width: 960px)').matches;
+    if (!wide || el.dataset.editing !== 'true') { el.style.height = ''; return false; }
+    // Distancia al borde superior de la ventana cuando la página está arriba del todo.
+    const top = el.getBoundingClientRect().top + (win.scrollY || 0);
+    el.style.height = `${Math.max(420, Math.round(win.innerHeight - top - 12))}px`;
+    return true;
+}

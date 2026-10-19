@@ -48,7 +48,7 @@ import { movementReviewState, reviewFilterCounts, needsAttention } from './Petty
 import { screenHTML } from './PettyCashScreen.js';
 import { receiptFileName, downloadReceipt, shareReceipt } from './PettyCashReceiptShare.js';
 import { receiptEditorHTML, editorViewState, EDITOR_FIELDS } from './PettyCashReceiptEditor.js';
-import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, centerEditorBox } from './PettyCashEditorUi.js';
+import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, centerEditorBox, fitEditorScreen } from './PettyCashEditorUi.js';
 import { projectFiscal, projectFiscalFormHTML, readProjectFiscalForm } from './PettyCashProjectFiscal.js';
 import {
     isReceiptReadyForBackup,
@@ -1002,9 +1002,9 @@ export function PettyCashTab() {
             </h2>
         </div>
         ${_receiptQueueBanner(d)}
-        ${_projectBar(d, obra)}
-        ${_officialLinkDiagnostic(d, proj)}
-        ${proj ? _projectBody(proj) : _emptyProjects(obra)}
+        ${newPettyCashScreen() ? _compactTopbar(d, obra, proj) : `${_projectBar(d, obra)}
+        ${_officialLinkDiagnostic(d, proj)}`}
+        ${proj ? (newPettyCashScreen() ? _compactBody() : _projectBody(proj)) : _emptyProjects(obra)}
     </div>`;
 }
 
@@ -1134,6 +1134,42 @@ function _projectBar(d, obra = { obraId: null, knownObraIds: [], obras: [] }) {
             style="background:#0ea5e9;color:#fff;border:none;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;">+ Proyecto</button>
         ${scopeLink}
     </div>`;
+}
+
+// ── pantalla nueva: barra superior de una línea (caja, periodo y acciones) ──
+function _compactTopbar(d, obra, proj) {
+    const view = filterCajasByObra(d.projects, { ...obra, showAll: !!d.showAllObras, selectedId: d.selectedProjectId });
+    const obraName = (id) => obra.obras.find((item) => item.id === id)?.name || 'otra obra';
+    const suffix = (p) => {
+        if (!view.scoped) return '';
+        const relation = cajaObraRelation(p, obra.obraId, obra.knownObraIds);
+        if (relation === 'orphan') return ' (sin obra)';
+        return relation === 'other' ? ` (${obraName(getOfficialProjectId(p))})` : '';
+    };
+    const projectOptions = view.visible.map((p) => `<option value="${p.id}" ${p.id === d.selectedProjectId ? 'selected' : ''}>${esc(p.name + suffix(p))}</option>`).join('');
+    const period = proj ? currentPeriod() : null;
+    const periods = proj ? periodsOfProject(d.periods, proj.id) : [];
+    const periodOptions = periods.map((p) => `<option value="${p.id}" ${period && p.id === period.id ? 'selected' : ''}>${esc(p.label)}${p.status === 'cerrada' ? ' 🔒' : ''}</option>`).join('');
+    const scopeLink = view.scoped && view.hiddenCount > 0
+        ? `<button type="button" class="pcn-link" data-app-fn="pcToggleAllObras" data-petty-obra-filter>${d.showAllObras
+            ? `Ver solo las cajas de ${esc(obraName(obra.obraId))}`
+            : `Ver cajas de todas las obras (${view.hiddenCount} más)`}</button>` : '';
+    const iconBtn = (fn, title, icon) => `<button type="button" class="pcn-icon-btn pcn-icon-btn--sm" data-app-fn="${fn}" title="${title}" aria-label="${title}">${icon}</button>`;
+    return `<div class="pcn-topbar" data-pcn-topbar>
+        <select class="pcn-select" onchange="window.pcSelectProject(this.value)" aria-label="Caja chica">
+            <option value="">— Selecciona un proyecto —</option>${projectOptions}
+        </select>
+        ${proj ? `<select class="pcn-select pcn-select--period" data-pcn-period onchange="window.pcSelectPeriod(this.value)" aria-label="Periodo">${periodOptions}</select>
+        <button type="button" class="pcn-link" data-app-fn="pcNewPeriod">+ Periodo</button>
+        ${iconBtn('pcEditProject', 'Renombrar proyecto', '✏️')}${iconBtn('pcEditProjectFiscal', 'Datos fiscales del proyecto', '🧾')}${iconBtn('pcDeleteProject', 'Eliminar proyecto', '🗑️')}` : ''}
+        <button type="button" class="pcn-link" data-app-fn="pcNewProject">+ Proyecto</button>
+        ${scopeLink}
+        ${_officialLinkDiagnostic(d, proj)}
+    </div>`;
+}
+function _compactBody() {
+    const period = currentPeriod();
+    return period ? _periodPanel(period) : '<div style="color:#64748b;padding:20px 0;">Selecciona o crea un periodo de caja.</div>';
 }
 
 // F1.7 (DEP-SA-001): diagnóstico visible mínimo del vínculo oficial.
@@ -1370,7 +1406,7 @@ function _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, acti
         ${_periodHeaderHTML(period, cerrada)}
         ${screenHTML({
             period: { label: period.label, cerrada },
-            summary,
+            summary: { ...summary, projectTotal: periodsOfProject(d.periods, period.projectId).length > 1 ? saldoProyectoFlat(d.movements, period.projectId) : null },
             cameraMode: state.settings?.newReceiptCamera === true ? 'camera' : 'native',
             items: page.items.map((movement) => byId.get(movement.id)),
             counts, filter, reviewFirst: d.reviewFirst !== false,
@@ -1532,8 +1568,13 @@ function openEditorState(movId) {
 /** Repinta y, con la imagen ampliada, centra el recuadro del dato activo. */
 function repaintEditor() {
     window.render?.();
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => centerEditorBox(document));
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { fitEditorScreen(); centerEditorBox(document); });
+    if (!_editorResizeBound && typeof window.addEventListener === 'function') {
+        _editorResizeBound = true;
+        window.addEventListener('resize', () => fitEditorScreen());
+    }
 }
+let _editorResizeBound = false;
 function closeEditorState() {
     releaseEditorSource();
     pc()._editorUi = null;
@@ -2190,7 +2231,7 @@ export function registerPettyCashGlobals() {
         pc()._editPhotoCapture = null;
         pc()._rescanStatus = null;
         openEditorState(movId);
-        window.render?.();
+        if (newPettyCashScreen()) repaintEditor(); else window.render?.();
     };
     window.pcOpenDuplicateReference = (movId) => {
         const d = pc();

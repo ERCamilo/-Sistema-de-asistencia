@@ -95,3 +95,41 @@ describe('centerEditorBox', () => {
         expect(centerEditorBox(document)).toBe(false);
     });
 });
+
+describe('fitEditorScreen', () => {
+    const { fitEditorScreen } = require('../modules/features/pettycash/PettyCashEditorUi.js');
+    const setup = (editing = 'true') => {
+        document.body.innerHTML = `<div data-pcn-screen data-editing="${editing}"></div>`;
+        const el = document.querySelector('[data-pcn-screen]');
+        el.getBoundingClientRect = () => ({ top: 300 });
+        return el;
+    };
+    afterEach(() => { document.body.innerHTML = ''; });
+
+    test('en pantalla ancha y editando, la pantalla ocupa lo que queda de la ventana (lista y detalle se desplazan por separado)', () => {
+        const el = setup();
+        expect(fitEditorScreen({ doc: document, win: { innerHeight: 900, scrollY: 0, matchMedia: () => ({ matches: true }) } })).toBe(true);
+        expect(el.style.height).toBe('588px');   // 900 − 300 − 12
+    });
+    test('tiene en cuenta cuánto se ha desplazado la página', () => {
+        const el = setup();
+        el.getBoundingClientRect = () => ({ top: 100 });   // ya se desplazó 200 px
+        fitEditorScreen({ doc: document, win: { innerHeight: 900, scrollY: 200, matchMedia: () => ({ matches: true }) } });
+        expect(el.style.height).toBe('588px');
+    });
+    test('nunca queda más baja de 420 px', () => {
+        const el = setup();
+        fitEditorScreen({ doc: document, win: { innerHeight: 500, scrollY: 0, matchMedia: () => ({ matches: true }) } });
+        expect(el.style.height).toBe('420px');
+    });
+    test('en teléfono (hoja inferior) o sin editar, quita la altura fija', () => {
+        const el = setup();
+        el.style.height = '500px';
+        expect(fitEditorScreen({ doc: document, win: { innerHeight: 900, scrollY: 0, matchMedia: () => ({ matches: false }) } })).toBe(false);
+        expect(el.style.height).toBe('');
+        const el2 = setup('false');
+        el2.style.height = '500px';
+        fitEditorScreen({ doc: document, win: { innerHeight: 900, scrollY: 0, matchMedia: () => ({ matches: true }) } });
+        expect(el2.style.height).toBe('');
+    });
+});

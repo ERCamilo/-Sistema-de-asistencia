@@ -17,7 +17,7 @@ const FILTERS = Object.freeze([['todos', 'Todos'], ['revisar', RECEIPT_STATES.re
     ['consumo', RECEIPT_STATES.consumo.label], ['otra', RECEIPT_STATES.otra.label], ['leida', RECEIPT_STATES.leida.label]]);
 const CAMERA_ICON = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
 
-export function balanceCardHTML({ saldo = 0, reposiciones = 0, gastos = 0, reembolso = 0 } = {}) {
+export function balanceCardHTML({ saldo = 0, reposiciones = 0, gastos = 0, reembolso = 0, projectTotal = null } = {}) {
     const used = reposiciones > 0 ? Math.min(100, Math.max(0, Math.round((gastos / reposiciones) * 100))) : 0;
     return `<section class="pcn-balance" data-pcn-balance>
         <div class="pcn-balance-label">Saldo disponible</div>
@@ -25,6 +25,7 @@ export function balanceCardHTML({ saldo = 0, reposiciones = 0, gastos = 0, reemb
         <div class="pcn-track"><span data-pcn-spent-bar style="width:${used}%"></span></div>
         <div class="pcn-balance-foot"><span>Fondo ${rd(reposiciones)}</span><span>Gastado ${rd(gastos)}</span></div>
         ${reembolso > 0 ? `<div class="pcn-balance-refund">Por reembolsar ${rd(reembolso)}</div>` : ''}
+        ${projectTotal === null || projectTotal === undefined ? '' : `<div class="pcn-balance-project" data-pcn-project-total data-negative="${projectTotal < 0}"><span>Saldo total del proyecto</span><b>${rd(projectTotal)}</b></div>`}
     </section>`;
 }
 
