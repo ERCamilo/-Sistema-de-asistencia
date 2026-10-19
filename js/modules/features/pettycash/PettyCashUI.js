@@ -43,7 +43,10 @@ import {
 import { createReceiptQueueProcessor } from './PettyCashReceiptProcessor.js';
 import { createReceiptCamera } from './PettyCashCamera.js';
 import { createCameraDiagnostics } from './PettyCashCameraDiagnostics.js';
-import { receiptReviewState } from './PettyCashReceiptChecks.js';
+import { receiptReviewState, checkReceipt, fixesFor } from './PettyCashReceiptChecks.js';
+import { movementReviewState } from './PettyCashReceiptReview.js';
+import { receiptEditorHTML, editorViewState, EDITOR_FIELDS } from './PettyCashReceiptEditor.js';
+import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, centerEditorBox } from './PettyCashEditorUi.js';
 import { projectFiscal, projectFiscalFormHTML, readProjectFiscalForm } from './PettyCashProjectFiscal.js';
 import {
     isReceiptReadyForBackup,
@@ -1379,7 +1382,80 @@ function _movementForm(form) {
     </div>`;
 }
 
+// ── editor de factura nuevo (Configuración → Tests → «Caja chica renovada») ──
+const newPettyCashScreen = () => state.settings?.newPettyCashScreen === true;
+function editorUi() { const d = pc(); return (d._editorUi ||= defaultEditorUi()); }
+function editorContext(mov) {
+    const d = pc();
+    const period = d.periods.find((item) => item.id === mov.periodId) || currentPeriod();
+    return {
+        period,
+        movements: d.movements.filter((item) => item.periodId === mov.periodId),
+        ...projectFiscal(projectOfMovement(mov, period))
+    };
+}
+function editingMovement() { const d = pc(); return d.movements.find((item) => item.id === d.editMov) || null; }
+function releaseEditorSource() {
+    const d = pc();
+    if (d._editSource?.objectUrl) { try { URL.revokeObjectURL(d._editSource.url); } catch { /* noop */ } }
+    d._editSource = undefined;
+}
+/** Foto del gasto para el editor: copia local, respaldo en la nube o vista previa. */
+async function loadEditorSource(movId) {
+    const d = pc();
+    let source = null;
+    try {
+        const rec = await Promise.resolve(indexedDBService.getReceipt(movId)).catch(() => null);
+        const mime = rec?.originalType || rec?.originalBlob?.type || null;
+        if (rec?.originalBlob) {
+            source = { url: URL.createObjectURL(rec.originalBlob), mime, preview: rec.previewDataUrl || null, objectUrl: true };
+        } else if (auth?.currentUser && APP_CONFIG?.RECEIPT_UPLOAD_URL) {
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const remote = await lookupReceiptBackup({ url: APP_CONFIG.RECEIPT_UPLOAD_URL, idToken, txId: movId });
+                if (remote.signedUrl) source = { url: remote.signedUrl, mime: remote.receipt?.mime_type || mime, preview: rec?.previewDataUrl || null };
+            } catch { /* sin red: se usa la vista previa */ }
+        }
+        if (!source && (rec?.dataUrl || rec?.previewDataUrl)) {
+            source = { url: rec.dataUrl || rec.previewDataUrl, mime: 'image/jpeg', preview: rec.previewDataUrl || null };
+        }
+    } catch { source = null; }
+    if (d.editMov !== movId) {
+        if (source?.objectUrl) { try { URL.revokeObjectURL(source.url); } catch { /* noop */ } }
+        return;
+    }
+    d._editSource = source;
+    repaintEditor();
+}
+/** Abre el editor de un gasto: pantalla en su estado inicial y la foto cargándose. */
+function openEditorState(movId) {
+    const d = pc();
+    releaseEditorSource();
+    d._editorUi = defaultEditorUi();
+    if (newPettyCashScreen() && movId) loadEditorSource(movId);
+}
+/** Repinta y, con la imagen ampliada, centra el recuadro del dato activo. */
+function repaintEditor() {
+    window.render?.();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => centerEditorBox(document));
+}
+function closeEditorState() {
+    releaseEditorSource();
+    pc()._editorUi = null;
+}
+function _newMovementEditor(mov, cerrada) {
+    const d = pc();
+    return receiptEditorHTML(mov, {
+        cerrada,
+        context: editorContext(mov),
+        ui: editorUi(),
+        source: d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource,
+        showConfidence: state.settings?.pettyCashReadConfidence === true
+    });
+}
+
 function _movementEditForm(mov, cerrada) {
+    if (newPettyCashScreen()) return _newMovementEditor(mov, cerrada);
     const isGasto = mov.type === 'gasto';
     const ro = cerrada ? 'disabled' : '';
     const inp = (id, val, type = 'text', extra = '') => `<input id="${id}" type="${type}" ${extra} ${ro} value="${esc(val ?? '')}" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;">`;
@@ -2013,6 +2089,7 @@ export function registerPettyCashGlobals() {
         pc()._editPhoto = null;
         pc()._editPhotoCapture = null;
         pc()._rescanStatus = null;
+        openEditorState(movId);
         window.render?.();
     };
     window.pcOpenDuplicateReference = (movId) => {
@@ -2027,6 +2104,7 @@ export function registerPettyCashGlobals() {
         d._editPhoto = null;
         d._editPhotoCapture = null;
         d._rescanStatus = null;
+        openEditorState(movement.id);
         persist();
         window.render?.();
     };
@@ -2035,7 +2113,81 @@ export function registerPettyCashGlobals() {
         pc()._editPhoto = null;
         pc()._editPhotoCapture = null;
         pc()._rescanStatus = null;
+        closeEditorState();
         window.render?.();
+    };
+
+    // Acciones del editor nuevo. Antes de repintar se guarda lo escrito para no perderlo.
+    const editorAct = (name) => (arg) => {
+        const d = pc();
+        const mov = editingMovement();
+        if (!mov) return;
+        const ui = { ...editorUi(), draft: readEditorDraft(document) };
+        const shown = editorViewState(mov, { context: editorContext(mov), ui, showConfidence: state.settings?.pettyCashReadConfidence === true });
+        d._editorUi = editorUiAction(ui, name, arg, shown);
+        repaintEditor();
+    };
+    window.pcEditorSize = editorAct('size');
+    window.pcEditorZoom = editorAct('zoom');
+    window.pcEditorItems = editorAct('items');
+    window.pcEditorMore = editorAct('more');
+    window.pcEditorSecurity = editorAct('security');
+    window.pcEditorField = editorAct('field');
+    window.pcEditorFocus = (id) => {
+        const d = pc();
+        const mov = editingMovement();
+        if (!mov) return;
+        const ui = { ...editorUi(), draft: readEditorDraft(document) };
+        const hidden = !!document.getElementById(id)?.closest('[data-pcn-more]')?.hidden;
+        const key = EDITOR_FIELDS[id]?.key;
+        d._editorUi = { ...ui, field: key || ui.field, more: hidden ? true : ui.more };
+        window.render?.();
+        setTimeout(() => document.getElementById(id)?.focus?.(), 0);
+    };
+    window.pcEditorFix = async (arg) => {
+        const [code, kind] = String(arg || '').split('|');
+        const d = pc();
+        const mov = editingMovement();
+        if (!mov) return;
+        const draft = readEditorDraft(document);
+        const issue = checkReceipt({ ...mov, ...draft }, editorContext(mov)).find((item) => item.code === code);
+        const fix = issue && fixesFor(issue).find((item) => item.kind === kind);
+        if (!fix || (fix.kind !== 'apply' && fix.kind !== 'accept')) return;
+        if (fix.kind === 'apply') {
+            Object.keys(fix.patch).forEach((key) => { delete draft[key]; });
+            await applyReceiptFix(mov.id, { patch: fix.patch });
+        } else {
+            await applyReceiptFix(mov.id, { accept: code });
+        }
+        d._editorUi = { ...editorUi(), draft };
+        window.render?.();
+    };
+    // Cambió un valor: solo se repinta si cambian el estado o los avisos.
+    const editorSignature = (mov, draft) => {
+        const review = movementReviewState({ ...mov, ...draft }, editorContext(mov));
+        const merged = { ...mov, ...draft };
+        const diff = Number(merged.total) > 0 && Math.abs(Number(merged.amount) - Number(merged.total)) > 0.005;
+        return `${review.key}|${draftSignature(review.issues)}|${diff}`;
+    };
+    window.pcEditorTouch = () => {
+        const d = pc();
+        const mov = editingMovement();
+        if (!mov) return;
+        const ui = editorUi();
+        const draft = readEditorDraft(document);
+        const changed = editorSignature(mov, ui.draft) !== editorSignature(mov, draft);
+        d._editorUi = { ...ui, draft };
+        if (changed) window.render?.();
+    };
+    // Al entrar a un dato que tiene recuadro en la foto, ese pasa a ser el activo.
+    window.pcEditorFocusIn = (event) => {
+        const key = EDITOR_FIELDS[event?.target?.id]?.key;
+        const mov = editingMovement();
+        if (!key || !mov || !Array.isArray(mov.ocrBoxes?.[key])) return;
+        const ui = editorUi();
+        if (ui.field === key) return;
+        pc()._editorUi = { ...ui, field: key, draft: readEditorDraft(document) };
+        repaintEditor();
     };
 
     window.pcConfirmMovement = async (movId) => {
@@ -2557,6 +2709,13 @@ export function registerPettyCashGlobals() {
             mov.fechaEmision = document.getElementById('pce-femision')?.value || null;
             mov.fechaVencimiento = document.getElementById('pce-fvenc')?.value || null;
             mov.notas = document.getElementById('pce-notas')?.value?.trim() || '';
+            // Datos fiscales que solo trae el editor nuevo: sin el campo, el gasto queda como está.
+            if (document.getElementById('pce-descuento')) mov.descuento = numOrNull('pce-descuento');
+            if (document.getElementById('pce-propina')) mov.propina = numOrNull('pce-propina');
+            if (document.getElementById('pce-exento')) mov.exento = numOrNull('pce-exento');
+            const included = document.getElementById('pce-itbisincl');
+            if (included?.checked) mov.itbisIncluido = true;
+            else if (included && mov.itbisIncluido === true) mov.itbisIncluido = false; // «no se sabe» (null) se respeta
         }
         mov.reviewPending = false; // guardar el detalle = revisado/confirmado
         delete mov.localDraft;
@@ -2598,6 +2757,7 @@ export function registerPettyCashGlobals() {
             }
         }
         d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null;
+        closeEditorState();
         persist();
         await saveMovement(
             mov,
