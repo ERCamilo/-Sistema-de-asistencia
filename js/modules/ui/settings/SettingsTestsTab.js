@@ -106,6 +106,40 @@ function newReceiptCameraCard(settings = {}) {
             </section>`;
 }
 
+// Pantalla nueva de Caja chica (lista con saldo, tarjetas y editor de factura).
+function newPettyCashScreenCard(settings = {}) {
+    const on = settings.newPettyCashScreen === true;
+    return `
+            <section class="stg-card" aria-labelledby="new-petty-cash-screen-title" style="margin-bottom:20px;">
+                <h3 id="new-petty-cash-screen-title">Caja chica renovada</h3>
+                <label class="stg-switch-row ${on ? 'is-active' : ''}" role="switch" aria-checked="${on}">
+                    <input type="checkbox" id="newPettyCashScreen" ${on ? 'checked' : ''}>
+                    <span class="stg-switch-copy">
+                        <strong>Pantalla nueva de Caja chica</strong>
+                        <small>Saldo y botón de foto arriba, gastos en tarjetas con su estado, y un editor de factura que muestra la imagen junto a los datos. Los datos guardados no cambian.</small>
+                    </span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
+            </section>`;
+}
+
+// Nivel de seguridad de la lectura: solo se ve si el lector de facturas lo envía.
+function pettyCashReadConfidenceCard(settings = {}) {
+    const on = settings.pettyCashReadConfidence === true;
+    return `
+            <section class="stg-card" aria-labelledby="petty-cash-confidence-title" style="margin-bottom:20px;">
+                <h3 id="petty-cash-confidence-title">Seguridad de la lectura</h3>
+                <label class="stg-switch-row ${on ? 'is-active' : ''}" role="switch" aria-checked="${on}">
+                    <input type="checkbox" id="pettyCashReadConfidence" ${on ? 'checked' : ''}>
+                    <span class="stg-switch-copy">
+                        <strong>Mostrar qué tan seguro está el lector</strong>
+                        <small>Añade un panel en el editor de factura con el porcentaje por dato y marca los dudosos. El lector actual aún no envía este dato; se verá cuando lo haga.</small>
+                    </span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
+            </section>`;
+}
+
 function toolGroup(id, title, hint, content) {
     // Read the live disclosure state so a reactive patch does not close it.
     const current = document.getElementById(id);
@@ -133,7 +167,7 @@ export function SettingsTestsTab(context) {
     const state = context?.state || {};
     const splitxActiveUrl = state.settings?.splitxUrl || 'https://splitx.erlin.do';
 
-    const experiments = `<section class="stg-card"><h3>Revisión de audio</h3><label class="stg-switch-row" role="switch" aria-checked="${state.settings?.voiceReviewBeforeSend === true}"><input type="checkbox" id="voiceReviewBeforeSend" ${state.settings?.voiceReviewBeforeSend === true ? 'checked' : ''}><span class="stg-switch-copy"><strong>Revisar audio antes de enviar</strong><small>Muestra Enviar y Cancelar; al desactivarlo, se envía al terminar la grabación.</small></span><span class="stg-switch-track"><span></span></span></label></section>${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}`;
+    const experiments = `<section class="stg-card"><h3>Revisión de audio</h3><label class="stg-switch-row" role="switch" aria-checked="${state.settings?.voiceReviewBeforeSend === true}"><input type="checkbox" id="voiceReviewBeforeSend" ${state.settings?.voiceReviewBeforeSend === true ? 'checked' : ''}><span class="stg-switch-copy"><strong>Revisar audio antes de enviar</strong><small>Muestra Enviar y Cancelar; al desactivarlo, se envía al terminar la grabación.</small></span><span class="stg-switch-track"><span></span></span></label></section>${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}${newPettyCashScreenCard(state.settings)}${pettyCashReadConfidenceCard(state.settings)}`;
     const diagnostics = `            <div class="stg-header" style="margin-bottom: 20px;">
                 <div>
                     <h3>Pruebas del Sistema</h3>
