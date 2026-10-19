@@ -384,6 +384,7 @@ document.addEventListener('keydown', _handleAppKeydown);
 import { EmployeeStatsService } from './modules/features/stats/EmployeeStatsService.js';
 import { EmployeeFloatingCard } from './modules/ui/components/EmployeeFloatingCard.js';
 import { InstallPromptManager } from './modules/services/InstallPromptManager.js';
+import { scheduleWhatsNew } from './modules/services/WhatsNewBoot.js';
 import './modules/ui/MaintenanceUI.js';
 import './modules/ui/DuplicatesScreenBoot.js';
 
@@ -1415,6 +1416,8 @@ const employeeReportDateManager = new EmployeeReportDateManager(state, saveAppli
 // 📱 INSTALLPROMPTMANAGER (Inyectado)
 // ============================================
 const installPrompt = new InstallPromptManager(eventBus, NotificationSystem, debug, render);
+// Novedades de la actualización: una sola vez por dispositivo, cuando la app ya arrancó.
+scheduleWhatsNew();
 
 // ============================================
 // 📤 EXPORTSERVICE (Inyectado)

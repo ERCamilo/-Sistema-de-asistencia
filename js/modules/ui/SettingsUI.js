@@ -1,3 +1,4 @@
+import { whatsNew } from '../services/WhatsNew.js';
 import { DateUtils } from '../utils/DateUtils.js';
 import icons from './IconSystem.js';
 import { state, stateManager } from '../core/AppState.js';
@@ -54,6 +55,7 @@ const _SETTINGS_ACTION_MAP = {
         applyDeveloperMode(false);
     },
     'refresh-device-diagnostics': () => refreshDeviceSettingsDiagnostics(),
+    'show-whats-new': () => { whatsNew().showLatest().catch(() => {}); },
     'manage-voice-audio': () => window.openVoiceAudioStorage?.(),
     // Cambiar de sub-pestaña re-renderiza el formulario desde state y pisa el
     // draft: con draft sucio se pregunta antes (guardSettingsDraftOnLeave).
@@ -617,6 +619,8 @@ export function SettingsTab() {
                             </span>
                             <span style="opacity: 0.5;">·</span>
                             <span>Actualizado: ${APP_CONFIG.LAST_UPDATED}</span>
+                            <span style="opacity: 0.5;">·</span>
+                            <button type="button" class="stg-version-tap" data-settings-action="show-whats-new">Ver novedades</button>
                         </div>
                     </div>
                 </div>
