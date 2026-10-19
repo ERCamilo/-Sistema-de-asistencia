@@ -996,17 +996,27 @@ export function PettyCashTab() {
         if (pers.length) d.selectedPeriodId = pers[0].id;
     }
     const proj = currentProject();
+    if (newPettyCashScreen()) {
+        // Título, avisos, caja y periodo viajan dentro de la columna de la lista: así, con el editor
+        // abierto, el detalle ocupa todo el alto de la pantalla.
+        const top = `<div class="pcn-page-title">${icons.get('dollar', { size: 20 })} Caja Chica</div>${_receiptQueueBanner(d)}${_compactTopbar(d, obra, proj)}`;
+        const period = proj ? currentPeriod() : null;
+        const inner = period
+            ? _periodPanel(period, top)
+            : `${top}${proj ? '<div style="color:#64748b;padding:20px 0;">Selecciona o crea un periodo de caja.</div>' : _emptyProjects(obra)}`;
+        return `<div class="pc-wrap" style="max-width:1280px;margin:0 auto;padding:16px;color:#e2e8f0;">${inner}</div>`;
+    }
     return `
-    <div class="pc-wrap" style="max-width:${newPettyCashScreen() ? 1280 : 980}px;margin:0 auto;padding:16px;color:#e2e8f0;">
+    <div class="pc-wrap" style="max-width:980px;margin:0 auto;padding:16px;color:#e2e8f0;">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
             <h2 style="margin:0;font-size:1.4rem;display:flex;align-items:center;gap:8px;">
                 ${icons.get('dollar', { size: 22 })} Caja Chica
             </h2>
         </div>
         ${_receiptQueueBanner(d)}
-        ${newPettyCashScreen() ? _compactTopbar(d, obra, proj) : `${_projectBar(d, obra)}
-        ${_officialLinkDiagnostic(d, proj)}`}
-        ${proj ? (newPettyCashScreen() ? _compactBody() : _projectBody(proj)) : _emptyProjects(obra)}
+        ${_projectBar(d, obra)}
+        ${_officialLinkDiagnostic(d, proj)}
+        ${proj ? _projectBody(proj) : _emptyProjects(obra)}
     </div>`;
 }
 
@@ -1169,10 +1179,6 @@ function _compactTopbar(d, obra, proj) {
         ${_officialLinkDiagnostic(d, proj)}
     </div>`;
 }
-function _compactBody() {
-    const period = currentPeriod();
-    return period ? _periodPanel(period) : '<div style="color:#64748b;padding:20px 0;">Selecciona o crea un periodo de caja.</div>';
-}
 
 // F1.7 (DEP-SA-001): diagnóstico visible mínimo del vínculo oficial.
 // Sólo con Projects ON; nunca filtra ni altera selección — las filas
@@ -1237,7 +1243,7 @@ function _projectBody(proj) {
     ${period ? _periodPanel(period) : '<div style="color:#64748b;padding:20px 0;">Selecciona o crea un periodo de caja.</div>'}`;
 }
 
-function _periodPanel(period) {
+function _periodPanel(period, top = '') {
     const d = pc();
     const movs = movementsOfPeriod(d.movements, period.id);
     const duplicateFindings = detectPettyCashDuplicates(d.movements, d.periods);
@@ -1268,7 +1274,7 @@ function _periodPanel(period) {
     const editMov = d.editMov ? movs.find(m => m.id === d.editMov) : null;
 
     if (newPettyCashScreen()) {
-        return _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary: r, cerrada, editMov });
+        return _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary: r, cerrada, editMov, top });
     }
 
     return `
@@ -1364,7 +1370,7 @@ function attentionQueueIds(period) {
 }
 
 function _periodHeaderHTML(period, cerrada) {
-    return `<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+    return `<div class="pcn-period-head" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
         <div>
             <div style="font-weight:700;font-size:1.05rem;display:flex;align-items:center;gap:8px;">
                 ${esc(period.label)} ${cerrada ? '<span style="font-size:.7rem;color:#fbbf24;">🔒 cerrada</span>' : ''}
@@ -1383,7 +1389,7 @@ function _periodFooterHTML(cerrada) {
     </div>`;
 }
 
-function _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary, cerrada, editMov }) {
+function _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary, cerrada, editMov, top = '' }) {
     const d = pc();
     const query = String(d.movementSearchQuery || '').slice(0, 120);
     const searched = filterPettyCashMovements(visibleMovs, query);
@@ -1404,27 +1410,25 @@ function _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, acti
         cerrada && period.efectivoContado !== undefined && period.efectivoContado !== null ? _conciliacionBlock(period) : '',
         d.form && !cerrada ? _movementForm(d.form) : ''
     ].join('');
-    return `<div class="pcn-period">
-        ${_periodHeaderHTML(period, cerrada)}
-        ${screenHTML({
-            period: { label: period.label, cerrada },
-            summary: { ...summary, projectTotal: periodsOfProject(d.periods, period.projectId).length > 1 ? saldoProyectoFlat(d.movements, period.projectId) : null },
-            cameraMode: state.settings?.newReceiptCamera === true ? 'camera' : 'native',
-            items: page.items.map((movement) => byId.get(movement.id)),
-            counts, filter, reviewFirst: d.reviewFirst !== false,
-            selectedId: editMov?.id || null,
-            editing: !!editMov,
-            editorHTML: editMov ? _movementEditForm(editMov, cerrada) : '',
-            slots: {
-                before,
-                search: _movementSearchControl(query),
-                sort: `${_duplicateSummary(searched, duplicatesByMovement)}${_movementSortControls(d, filtered.length, visibleMovs.length)}`
-            },
-            hasMore: page.hasMore,
-            moreLabel: `Mostrar 50 más · ${page.visible} de ${page.total}`
-        })}
-        ${_periodFooterHTML(cerrada)}
-    </div>`;
+    return screenHTML({
+        period: { label: period.label, cerrada },
+        summary: { ...summary, projectTotal: periodsOfProject(d.periods, period.projectId).length > 1 ? saldoProyectoFlat(d.movements, period.projectId) : null },
+        cameraMode: state.settings?.newReceiptCamera === true ? 'camera' : 'native',
+        items: page.items.map((movement) => byId.get(movement.id)),
+        counts, filter, reviewFirst: d.reviewFirst !== false,
+        selectedId: editMov?.id || null,
+        editing: !!editMov,
+        editorHTML: editMov ? _movementEditForm(editMov, cerrada) : '',
+        slots: {
+            top: `${top}${_periodHeaderHTML(period, cerrada)}`,
+            before,
+            search: _movementSearchControl(query),
+            sort: `${_duplicateSummary(searched, duplicatesByMovement)}${_movementSortControls(d, filtered.length, visibleMovs.length)}`,
+            after: _periodFooterHTML(cerrada)
+        },
+        hasMore: page.hasMore,
+        moreLabel: `Mostrar 50 más · ${page.visible} de ${page.total}`
+        });
 }
 
 function _conciliacionBlock(period) {

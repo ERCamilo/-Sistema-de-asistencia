@@ -207,3 +207,13 @@ textarea.pcn-input { padding: 10px 12px; resize: vertical; }
 .pcn-box[data-source="manual"] { border-color: #a78bfa; }
 .pcn-box[data-source="manual"] .pcn-tag { background: #a78bfa; }
 .pcn-handle { position: absolute; right: -13px; bottom: -13px; width: 26px; height: 26px; border-radius: 8px; background: #22d3ee; border: 2px solid #081a24; cursor: nwse-resize; touch-action: none; pointer-events: auto; }
+
+/* ── Encabezado dentro de la columna de la lista ─────────────────────────── */
+.pcn-page-title { display: flex; align-items: center; gap: 8px; font-size: 1.15rem; font-weight: 700; color: #f4f6fa; }
+.pcn-main > .pcn-topbar { margin-bottom: 0; }
+.pcn-period-head { margin-top: -2px; }
+@media (min-width: 960px) {
+    /* Con el editor abierto, la columna de la lista es angosta: caja arriba y periodo debajo. */
+    .pcn-screen[data-editing="true"] .pcn-select { flex: 1 1 100%; }
+    .pcn-screen[data-editing="true"] .pcn-select--period { flex: 1 1 120px; }
+}

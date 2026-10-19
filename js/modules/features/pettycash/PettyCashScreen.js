@@ -71,6 +71,7 @@ export function screenHTML(model) {
         : `<div class="pcn-empty" data-pcn-empty>${filter !== 'todos' ? 'No hay registros con ese estado.' : 'Sin movimientos aún.'}</div>`;
     return `<div class="pcn-screen" data-pcn-screen data-editing="${!!editing}">
         <div class="pcn-main">
+            ${slots.top || ''}
             ${balanceCardHTML(summary)}
             ${cerrada ? '' : `${cta}
             <div class="pcn-actions" data-pcn-actions>

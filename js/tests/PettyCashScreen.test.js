@@ -208,3 +208,17 @@ describe('saldo total del proyecto', () => {
         expect(document.querySelector('[data-pcn-project-total]')).toBeNull();
     });
 });
+
+describe('encabezado dentro de la columna de la lista', () => {
+    test('el bloque superior (título, avisos, caja y periodo) va primero dentro de la columna principal', () => {
+        render(model({ slots: { top: '<div id="s-top"></div>', after: '<div id="s-after"></div>' } }));
+        const main = document.querySelector('.pcn-main');
+        expect(main.firstElementChild.id).toBe('s-top');
+        expect(main.lastElementChild.id).toBe('s-after');
+        expect(document.querySelector('[data-pcn-screen] #s-top')).not.toBeNull();
+    });
+    test('sin bloque superior, la tarjeta de saldo sigue primero', () => {
+        render(model());
+        expect(document.querySelector('.pcn-main').firstElementChild.hasAttribute('data-pcn-balance')).toBe(true);
+    });
+});

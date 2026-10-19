@@ -198,3 +198,29 @@ describe('barra superior compacta', () => {
         expect(document.querySelector('[data-app-fn="pcNewPeriod"]')).not.toBeNull();
     });
 });
+
+describe('encabezado en la columna izquierda', () => {
+    test('con caja y periodo, el título, la barra de caja y el periodo van dentro de la pantalla, antes del saldo', () => {
+        seed(); paint();
+        const main = document.querySelector('[data-pcn-screen] .pcn-main');
+        const order = [...main.children].map((el) => (el.matches('.pcn-page-title') ? 'title' : el.hasAttribute('data-pcn-topbar') ? 'topbar' : el.matches('.pcn-period-head') ? 'period' : el.hasAttribute('data-pcn-balance') ? 'balance' : '?'));
+        expect(order.slice(0, 4)).toEqual(['title', 'topbar', 'period', 'balance']);
+        expect(document.querySelector('.pc-wrap > .pcn-page-title')).toBeNull();
+    });
+    test('los botones de periodo (Excel, Cerrar periodo) siguen al final de la columna', () => {
+        seed(); paint();
+        const main = document.querySelector('[data-pcn-screen] .pcn-main');
+        expect(main.lastElementChild.querySelector('[data-app-fn="pcExportExcel"]')).not.toBeNull();
+    });
+    test('sin ninguna caja, la barra queda arriba como antes', () => {
+        seed(); state.pettyCash.projects = []; state.pettyCash.periods = []; state.pettyCash.selectedProjectId = null; state.pettyCash.selectedPeriodId = null; paint();
+        expect(document.querySelector('[data-pcn-screen]')).toBeNull();
+        expect(document.querySelector('[data-pcn-topbar]')).not.toBeNull();
+    });
+    test('con el editor abierto el encabezado sigue en la columna de la lista, no encima del editor', async () => {
+        seed(); paint();
+        window.pcOpenMovement('g2'); await flush();
+        expect(document.querySelector('[data-pcn-screen] .pcn-main [data-pcn-topbar]')).not.toBeNull();
+        expect(document.querySelector('[data-pcn-side] [data-pcn-topbar]')).toBeNull();
+    });
+});
