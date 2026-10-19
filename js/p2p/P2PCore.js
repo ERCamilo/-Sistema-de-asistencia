@@ -10,6 +10,7 @@
   const CONTROL_PROTOCOL = 'sa-mini-p2p-control/v1';
   const ROSTER_KIND = 'roster';
   const ROSTER_SCHEMA = 'sa-roster/v1';
+  const MINI_ROSTER_PROPOSAL_SCHEMA = 'mini-roster-proposal/v1';
   const LINK_TOKEN_BYTES = 32;
   const MAX_ROSTER_BYTES = 5 * 1024 * 1024;
   const CHUNK_SIZE = 12 * 1024;
@@ -600,7 +601,7 @@
   function validateTransferStart(message) {
     exactKeys(message, ['protocol', 'type', 'transferId', 'kind', 'schema', 'size', 'chunkSize', 'totalChunks', 'sha256'], 'Inicio de transferencia inválido.');
     if (message.protocol !== TRANSFER_PROTOCOL || message.type !== 'start') throw new Error('Inicio de transferencia inválido.');
-    if (message.kind !== ROSTER_KIND || message.schema !== ROSTER_SCHEMA) throw new Error('Sólo se admite roster sa-roster/v1.');
+    if (message.kind !== ROSTER_KIND || ![ROSTER_SCHEMA, MINI_ROSTER_PROPOSAL_SCHEMA].includes(message.schema)) throw new Error('Sólo se admite roster sa-roster/v1.');
     if (!Number.isSafeInteger(message.size) || message.size < 0 || message.size > MAX_ROSTER_BYTES) throw new Error('Tamaño de transferencia inválido.');
     if (message.chunkSize !== CHUNK_SIZE) throw new Error('Tamaño de chunk no compatible.');
     if (!Number.isSafeInteger(message.totalChunks) || message.totalChunks !== expectedTotalChunks(message.size)) throw new Error('Cantidad de chunks inválida.');
@@ -634,7 +635,7 @@
 
   async function sendPayload(channel, { kind, schema, text, onProgress }) {
     if (!isChannelAuthenticated(channel)) throw new Error('Canal P2P no autenticado.');
-    if (kind !== ROSTER_KIND || schema !== ROSTER_SCHEMA) throw new Error('Sólo se admite roster sa-roster/v1.');
+    if (kind !== ROSTER_KIND || ![ROSTER_SCHEMA, MINI_ROSTER_PROPOSAL_SCHEMA].includes(schema)) throw new Error('Sólo se admite roster sa-roster/v1.');
     if (typeof text !== 'string') throw new Error('El roster debe ser texto UTF-8.');
     const bytes = new TextEncoder().encode(text);
     if (bytes.byteLength > MAX_ROSTER_BYTES) throw new Error('El roster excede el límite permitido.');
@@ -655,7 +656,7 @@
       onProgress?.((index + 1) / totalChunks);
     }
     await sendAuthenticated(channel, JSON.stringify({ protocol: TRANSFER_PROTOCOL, type: 'end', transferId }));
-    return { transferId, size: bytes.byteLength, sha256: digest, kind: ROSTER_KIND, schema: ROSTER_SCHEMA, totalChunks };
+    return { transferId, size: bytes.byteLength, sha256: digest, kind: ROSTER_KIND, schema, totalChunks };
   }
 
   function createTransferReceiver({ channel, onComplete, onProgress, onError } = {}) {

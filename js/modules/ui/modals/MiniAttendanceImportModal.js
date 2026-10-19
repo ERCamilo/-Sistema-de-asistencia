@@ -1,4 +1,5 @@
 import { Modal } from '../../components/Modal.js';
+import { eventBus } from '../../core/Events.js';
 import { parseMiniAttendanceReport } from '../../features/attendance/MiniAttendanceParser.js';
 import {
     buildMiniAttendanceApplyPlan,
@@ -635,6 +636,19 @@ export class MiniAttendanceImportModal {
         });
         this.modal.open();
         this.mount(content);
+        this._employeeIntakeSubscription=eventBus.on('mini-employee-intake:accepted', async ({peerId,saProjectId,mappings})=>{
+            if(!this.host?.isConnected || !this.multiDayResolver || this.saProjectId!==saProjectId)return;
+            this.employees=state.employees;this.positions=state.positions;
+            this.multiDayResolver.employees=this.employees;this.multiDayResolver.positions=this.positions;
+            for(const item of [...this.multiDayResolver.items]) {
+                if(item.saEmployeeId || item.excluded)continue;
+                const source=item.sources?.find(s=>s.sourcePeerId===peerId);
+                const mapping=source&&mappings.find(m=>m.miniLocalId===source.miniLocalId);
+                if(!mapping)continue;
+                try {this.multiDayResolver.resolveItemIdentity(item.id,mapping.saEmployeeId);await this.rememberConnectedIdentity(item,mapping.saEmployeeId);}catch(error){console.warn('No se pudo actualizar el vínculo del empleado en revisión:',error);}
+            }
+            if(this.host?.isConnected)this.render();
+        });
         return this;
     }
 
@@ -643,6 +657,7 @@ export class MiniAttendanceImportModal {
     }
 
     handleModalClosed() {
+        this._employeeIntakeSubscription?.();this._employeeIntakeSubscription=null;
         if (this.activeAbortController && !this.activeAbortController.signal?.aborted) {
             try { this.activeAbortController.abort(); } catch (_) {}
         }
@@ -2166,6 +2181,12 @@ export class MiniAttendanceImportModal {
 
         picker.append(trigger, panel, empSelect);
         resolveIdentityEl.append(ignoreBtn, picker, linkBtn);
+        const registerBtn=actionButton('Registrar empleado desde Mini','register-mini-employee');
+        registerBtn.classList.add('mini-import-action-secondary');
+        registerBtn.addEventListener('click',async()=>{
+            try{await window.openP2PRosterTransfer?.();window.showNotification?.('Solicita el personal del Mini, revisa su ficha y acepta. Esta asistencia se mantiene pendiente de aprobación.','info');}catch(error){window.showNotification?.(error.message||'No se pudo abrir la recepción de personal.','error');}
+        });
+        resolveIdentityEl.append(registerBtn);
         return resolveIdentityEl;
     }
 

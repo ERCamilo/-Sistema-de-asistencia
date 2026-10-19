@@ -1,4 +1,7 @@
 import { state } from '../../core/AppState.js';
+import { miniEmployeeIntakeStore } from './MiniEmployeeIntakeStore.js';
+import { requestMiniEmployees } from './MiniEmployeeIntakeBridge.js';
+import { renderEmployeeIntakeReview } from './MiniEmployeeIntakeUI.js';
 import { eventBus } from '../../core/Events.js';
 import { getEntityScope } from '../projects/ProjectContext.js';
 import { p2pPeerAliasStore } from './P2PPeerAliasStore.js';
@@ -86,13 +89,15 @@ export function getPendingP2PActivityCount() {
 }
 
 export async function getPendingP2PReviewCount(peerId = null) {
+  let personal=0;
+  try { personal=(await miniEmployeeIntakeStore.list()).filter(e=>e.status==='pending'&&(!peerId||e.peerId===peerId)).length; } catch (_) {}
   try {
     const provider = window.getSaP2PPendingReviewCount;
-    if (typeof provider !== 'function') return 0;
+    if (typeof provider !== 'function') return personal;
     const value = await provider(peerId);
-    return Number.isSafeInteger(value) && value > 0 ? value : 0;
+    return personal+(Number.isSafeInteger(value) && value > 0 ? value : 0);
   } catch (_) {
-    return 0;
+    return personal;
   }
 }
 
@@ -109,6 +114,9 @@ export async function getActionablePendingReviewCountsByPeer() {
         }
       }
     }
+  } catch (_) {}
+  try {
+    for(const entry of await miniEmployeeIntakeStore.list())if(entry.status==='pending')counts.set(entry.peerId,(counts.get(entry.peerId)||0)+1);
   } catch (_) {}
   return counts;
 }
@@ -535,6 +543,7 @@ async function renderHome() {
         <div class="sa-p2p-device-actions">
           <button type="button" class="sa-p2p-icon-btn" data-rename-peer="${esc(peer.peerId)}" aria-label="Cambiar nombre de ${esc(peerName(peer))}" title="Cambiar nombre">${p2pIcon('edit', 16)}</button>
           ${button('Enviar roster', `data-send-peer="${esc(peer.peerId)}" ${projectState.ready ? '' : 'disabled aria-disabled="true" title="Configura un proyecto antes de enviar"'}`, 'primary', 'send')}
+          ${button('Recibir personal', `data-receive-employees="${esc(peer.peerId)}" ${projectState.ready ? '' : 'disabled'}`, 'secondary', 'mini')}
           <button type="button" class="sa-p2p-icon-btn" data-unlink-peer="${esc(peer.peerId)}" aria-label="Desvincular ${esc(peerName(peer))}" title="Desvincular">${p2pIcon('unlink', 16)}</button>
         </div>
       </div>`;
@@ -542,11 +551,13 @@ async function renderHome() {
 
   const selfPresentation = resolveSaSelfPresentationName(projectState, self);
   const pairingGate = getNewPairingProjectGate(projectState);
+  let personalEntries=[];
+  try {personalEntries=(await miniEmployeeIntakeStore.list()).filter(e=>e.status==='pending');} catch (_) {}
   setBodyHtml(`
     <section class="sa-p2p-capabilities-wrap" aria-labelledby="sa-p2p-capabilities-title">
       <h3 id="sa-p2p-capabilities-title" class="sa-p2p-section-label">Capacidades</h3>
       <div class="sa-p2p-capabilities">
-        ${capability('users', 'Personal', 'SA → Mini', 'is-ready')}
+        ${capability('users', 'Personal', 'Enviar y recibir', 'is-ready')}
         ${projectCapability}
         ${capability('attendance', 'Asistencia', 'Mini → SA', 'is-ready')}
         ${capability('files', 'Archivos', 'Próximamente', 'is-disabled')}
@@ -559,6 +570,7 @@ async function renderHome() {
       </div>
       <div class="sa-p2p-peer-list">${peerRows}</div>
     </section>
+    ${personalEntries.length?`<section class="sa-p2p-step"><h3>Personal recibido para revisar</h3>${personalEntries.map(e=>`<div class="sa-p2p-peer-row"><span>${esc(e.peerName||'Mini')} · ${e.payload.employees.length} empleados${e.payload.saProjectId!==projectState.activeProjectId?' · Cambia a la obra de destino':''}</span>${button('Revisar',`data-review-mini-employees="${esc(e.id)}" ${e.payload.saProjectId!==projectState.activeProjectId?'disabled':''}`,'primary')}</div>`).join('')}</section>`:''}
     ${pairingGate ? '<div class="sa-p2p-status is-warning">SA se presenta con el nombre del proyecto activo. Configura el proyecto para vincular un Mini.</div>' : ''}
     <div>${button('Vincular Mini', 'data-new-pair aria-label="Vincular un nuevo Mini por QR o código"', 'primary', 'link')}</div>
     <p class="sa-p2p-footnote">Vincular sólo crea una relación segura entre dispositivos. Ningún dato se importa o modifica automáticamente.</p>`);
@@ -582,6 +594,13 @@ async function renderHome() {
   });
   body().querySelectorAll('[data-rename-peer]').forEach(btn => btn.addEventListener('click', () => renderPeerAliasEditor(btn.dataset.renamePeer)));
   body().querySelectorAll('[data-send-peer]').forEach(btn => btn.addEventListener('click', () => connectTrustedAndSend(btn.dataset.sendPeer)));
+  body().querySelectorAll('[data-receive-employees]').forEach(btn=>btn.addEventListener('click',async()=>{
+    btn.disabled=true;
+    try {notify('Confirma el envío de personal en Mini.','info');const entry=await requestMiniEmployees(btn.dataset.receiveEmployees);await showEmployeeIntake(entry,projectState);} catch(error){notify(error.message,'error');if(btn.isConnected)btn.disabled=false;}
+  }));
+  body().querySelectorAll('[data-review-mini-employees]').forEach(btn=>btn.addEventListener('click',async()=>{
+    try{const entry=(await miniEmployeeIntakeStore.list()).find(e=>e.id===btn.dataset.reviewMiniEmployees);if(entry)await showEmployeeIntake(entry,projectState);}catch(error){notify(error.message,'error');}
+  }));
   body().querySelectorAll('[data-unlink-peer]').forEach(btn => btn.addEventListener('click', async () => {
     const peerId = btn.dataset.unlinkPeer;
     const peer = peers.find(item => String(item.peerId) === String(peerId));
@@ -877,6 +896,8 @@ export function registerP2PRosterGlobals() {
   window.closeP2PRosterTransfer = closeP2PRosterTransfer;
   window.refreshSaP2PHeaderIndicator = refreshSaP2PHeaderIndicator;
   if (!headerIndicatorListenerAttached) {
+    eventBus.on('mini-employee-intake:received',()=>{scheduleSaP2PHeaderRefresh();notify('Personal recibido de Mini. Puedes revisarlo en Conexiones.','info');if(modal()&&!body()?.querySelector('.sa-mini-intake'))renderHome().catch(()=>{});});
+    eventBus.on('mini-employee-intake:accepted',scheduleSaP2PHeaderRefresh);
     eventBus.on('render:complete', () => scheduleSaP2PHeaderRefresh());
     headerIndicatorListenerAttached = true;
   }
@@ -890,4 +911,8 @@ export function registerP2PRosterGlobals() {
     });
     projectSetupListenerAttached = true;
   }
+}
+
+async function showEmployeeIntake(entry,projectState) {
+  await renderEmployeeIntakeReview(body(),entry,{projectName:projectState.activeProject?.name || '',onBack:()=>{scheduleSaP2PHeaderRefresh();renderHome();}});
 }
