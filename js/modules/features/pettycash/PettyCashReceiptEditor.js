@@ -71,6 +71,8 @@ function mergeDraft(mov, draft) {
 
 
 const CLOSE_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const DOWNLOAD_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></svg>';
+const SHARE_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.6M8.2 13.2l7.6 4.6"/></svg>';
 function queueNavHTML(queue) {
     if (!queue || !(queue.total > 1)) return '';
     return `<div class="pcn-queue" data-pcn-queue>
@@ -123,7 +125,13 @@ function viewerHTML(mov, { cerrada, ui, source }) {
     const noBox = source && !showBox && !isPdf && field
         ? `<p class="pcn-note" data-pcn-nobox>«${esc(LABELS[field] || field)}» no tiene recuadro del lector. Revisa la foto y escríbelo.</p>` : '';
     return `<div class="pcn-view" data-pcn-view>
-        <div class="pcn-win" data-pcn-win data-size="${ui.size}" data-zoom="${!!(ui.zoom && showBox)}">${stage}</div>
+        <div class="pcn-winwrap">
+            <div class="pcn-win" data-pcn-win data-size="${ui.size}" data-zoom="${!!(ui.zoom && showBox)}">${stage}</div>
+            ${source ? `<div class="pcn-fbar" data-pcn-fbar>
+                <button type="button" class="pcn-fb" data-app-fn="pcEditorDownload" aria-label="Descargar foto" title="Descargar">${DOWNLOAD_ICON}</button>
+                <button type="button" class="pcn-fb" data-app-fn="pcEditorShare" aria-label="Compartir foto" title="Compartir">${SHARE_ICON}</button>
+            </div>` : ''}
+        </div>
         ${chips ? `<div class="pcn-chips">${chips}</div>` : ''}
         <div class="pcn-tools">
             <button type="button" class="pcn-tool" data-app-fn="pcEditorSize">Imagen: ${WINDOW_SIZES[ui.size] || WINDOW_SIZES[1]}</button>

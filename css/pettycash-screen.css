@@ -24,6 +24,9 @@
 .pcn-win[data-zoom="false"] { --h: 400px; }
 .pcn-win[data-size="0"] { --h: 150px; } .pcn-win[data-size="0"][data-zoom="false"] { --h: 260px; }
 .pcn-win[data-size="2"] { --h: 400px; } .pcn-win[data-size="2"][data-zoom="false"] { --h: 520px; }
+.pcn-winwrap { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.pcn-fbar { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; z-index: 3; }
+.pcn-fb { width: 44px; height: 44px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .2); background: rgba(11, 19, 32, .85); color: var(--pcn-text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .pcn-win--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; color: var(--pcn-dim); }
 .pcn-win--empty p { margin: 0; font-size: .9rem; }
 .pcn-empty-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }

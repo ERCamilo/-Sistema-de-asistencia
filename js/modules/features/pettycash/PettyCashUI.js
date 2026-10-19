@@ -46,6 +46,7 @@ import { createCameraDiagnostics } from './PettyCashCameraDiagnostics.js';
 import { receiptReviewState, checkReceipt, fixesFor } from './PettyCashReceiptChecks.js';
 import { movementReviewState, reviewFilterCounts, needsAttention } from './PettyCashReceiptReview.js';
 import { screenHTML } from './PettyCashScreen.js';
+import { receiptFileName, downloadReceipt, shareReceipt } from './PettyCashReceiptShare.js';
 import { receiptEditorHTML, editorViewState, EDITOR_FIELDS } from './PettyCashReceiptEditor.js';
 import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, centerEditorBox } from './PettyCashEditorUi.js';
 import { projectFiscal, projectFiscalFormHTML, readProjectFiscalForm } from './PettyCashProjectFiscal.js';
@@ -2279,6 +2280,27 @@ export function registerPettyCashGlobals() {
         if (changed) window.render?.();
     };
     // Al entrar a un dato que tiene recuadro en la foto, ese pasa a ser el activo.
+    // Descargar o compartir la foto que se está viendo.
+    const editorFile = () => {
+        const d = pc();
+        const mov = editingMovement();
+        const source = d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource;
+        return mov && source?.url ? { url: source.url, mime: source.mime || 'image/jpeg', name: receiptFileName(mov, source.mime || 'image/jpeg') } : null;
+    };
+    window.pcEditorDownload = async () => {
+        const file = editorFile();
+        if (!file) return;
+        const result = await downloadReceipt(file);
+        if (result.status === 'downloaded') window.showNotification?.(`Foto descargada (${result.name}).`, 'success');
+        else window.showNotification?.(result.message || 'No se pudo descargar la foto.', 'error');
+    };
+    window.pcEditorShare = async () => {
+        const file = editorFile();
+        if (!file) return;
+        const result = await shareReceipt(file);
+        if (result.status === 'downloaded') window.showNotification?.('Este navegador no permite compartir archivos: la foto se descargó para que la adjuntes desde tu app.', 'info');
+        else if (result.status === 'error') window.showNotification?.(result.message || 'No se pudo compartir la foto.', 'error');
+    };
     window.pcFilterState = (key) => {
         const valid = ['todos', 'revisar', 'respaldo', 'consumo', 'otra', 'leida'];
         if (!valid.includes(key)) return;

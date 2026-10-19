@@ -283,3 +283,24 @@ describe('navegación entre registros por revisar', () => {
         expect(document.querySelector('.pcn-head [data-app-fn="pcCancelMovementEdit"]')).not.toBeNull();
     });
 });
+
+describe('descargar y compartir la foto', () => {
+    const source = { url: 'blob:abc', mime: 'image/jpeg' };
+    test('con la foto cargada hay dos botones de icono sobre la imagen', () => {
+        render(gasto(), { source });
+        const bar = document.querySelector('[data-pcn-fbar]');
+        expect([...bar.querySelectorAll('button')].map((b) => [b.dataset.appFn, b.getAttribute('aria-label')])).toEqual([
+            ['pcEditorDownload', 'Descargar foto'], ['pcEditorShare', 'Compartir foto']
+        ]);
+    });
+    test('siguen disponibles con el periodo cerrado (solo leen la foto)', () => {
+        render(gasto(), { source, cerrada: true });
+        expect(document.querySelector('[data-pcn-fbar]')).not.toBeNull();
+    });
+    test('sin foto cargada no hay nada que descargar', () => {
+        render(gasto(), { source: null });
+        expect(document.querySelector('[data-pcn-fbar]')).toBeNull();
+        render(gasto({ hasReceipt: false, receiptStatus: null }));
+        expect(document.querySelector('[data-pcn-fbar]')).toBeNull();
+    });
+});
