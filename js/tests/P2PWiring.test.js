@@ -159,7 +159,9 @@ test('pairing QR markup uses a data image with responsive dimensions and useful 
 
 test('precache cubre el cierre estatico de dependencias del roster P2P',()=>{
   const sw=read('sw.js');
-  const shell=new Set([...sw.matchAll(/['"](\.\/[^'"]+\.js)['"]/g)].map(match=>match[1]));
+  expect(sw).toContain('SW_PRECACHE_MANIFEST');
+  const precache=sw+'\n'+read('sw-precache-manifest.js');
+  const shell=new Set([...precache.matchAll(/['"](\.\/[^'"]+\.js)['"]/g)].map(match=>match[1]));
   const queue=['js/modules/features/p2p/P2PRosterUI.js'];
   const visited=new Set();
   const missing=[];
@@ -169,7 +171,7 @@ test('precache cubre el cierre estatico de dependencias del roster P2P',()=>{
     visited.add(rel);
     if(!shell.has('./'+rel)) missing.push(rel);
     const source=read(rel);
-    for(const match of source.matchAll(/\bfrom\s+['"]([^'"]+\.js)['"]/g)){
+    for(const match of source.matchAll(/\b(?:from\s+|import\s*)['"]([^'"]+\.js)['"]/g)){
       if(!match[1].startsWith('.')) continue;
       const dep=path.normalize(path.join(path.dirname(rel),match[1])).replaceAll(path.sep,'/');
       if(!visited.has(dep)) queue.push(dep);
