@@ -66,7 +66,7 @@ describe('ids del formulario', () => {
         render(gasto(), { cerrada: true });
         for (const id of EDITOR_FIELD_IDS.filter((x) => x !== 'pce-receipt')) expect(document.getElementById(id).disabled).toBe(true);
         expect(document.querySelector('[data-app-fn="pcSaveMovementEdit"]')).toBeNull();
-        expect(document.querySelector('[data-app-fn="pcCancelMovementEdit"]').textContent).toContain('Cerrar');
+        expect(document.querySelector('.pcn-footer [data-app-fn="pcCancelMovementEdit"]').textContent).toContain('Cerrar');
     });
 });
 
@@ -260,5 +260,26 @@ describe('editorViewState', () => {
         expect(editorViewState(gasto({ ocrConfidence: { total: 0.9 } }), { context, ui: ui(), showConfidence: true }).secOpen).toBe(true);
         expect(editorViewState(gasto({ ocrConfidence: { total: 0.9 } }), { context, ui: ui(), showConfidence: false }).secOpen).toBe(false);
         expect(editorViewState(gasto(), { context, ui: ui({ more: false }) }).more).toBe(false);
+    });
+});
+
+describe('navegación entre registros por revisar', () => {
+    test('con más de uno en la cola muestra «n de N» y los botones anterior/siguiente', () => {
+        render(gasto(), { queue: { pos: 1, total: 4 } });
+        const nav = document.querySelector('[data-pcn-queue]');
+        expect(nav.textContent).toContain('2 de 4');
+        expect([...nav.querySelectorAll('button')].map((b) => [b.dataset.appFn, b.dataset.arg])).toEqual([['pcEditorQueue', '-1'], ['pcEditorQueue', '1']]);
+    });
+    test('fuera de la cola muestra «– de N»; con uno solo o ninguno no hay navegación', () => {
+        render(gasto(), { queue: { pos: -1, total: 3 } });
+        expect(document.querySelector('[data-pcn-queue]').textContent).toContain('– de 3');
+        render(gasto(), { queue: { pos: 0, total: 1 } });
+        expect(document.querySelector('[data-pcn-queue]')).toBeNull();
+        render(gasto());
+        expect(document.querySelector('[data-pcn-queue]')).toBeNull();
+    });
+    test('el botón de cerrar sigue siendo Cancelar/Cerrar del pie; la cabecera ofrece cerrar', () => {
+        render(gasto());
+        expect(document.querySelector('.pcn-head [data-app-fn="pcCancelMovementEdit"]')).not.toBeNull();
     });
 });

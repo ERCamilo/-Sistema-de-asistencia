@@ -69,6 +69,18 @@ function mergeDraft(mov, draft) {
     return draft && Object.keys(draft).length ? { ...mov, ...draft } : mov;
 }
 
+
+const CLOSE_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+function queueNavHTML(queue) {
+    if (!queue || !(queue.total > 1)) return '';
+    return `<div class="pcn-queue" data-pcn-queue>
+        <button type="button" class="pcn-icon-btn" data-app-fn="pcEditorQueue" data-arg="-1" aria-label="Registro anterior">‹</button>
+        <span>${queue.pos >= 0 ? queue.pos + 1 : '–'} de ${queue.total}</span>
+        <button type="button" class="pcn-icon-btn" data-app-fn="pcEditorQueue" data-arg="1" aria-label="Registro siguiente">›</button>
+    </div>`;
+}
+const closeButtonHTML = () => `<button type="button" class="pcn-icon-btn" data-app-fn="pcCancelMovementEdit" aria-label="Cerrar">${CLOSE_ICON}</button>`;
+
 // ── imagen ──────────────────────────────────────────────────────────────
 function fileInputs(disabled) {
     if (disabled) return '';
@@ -220,7 +232,7 @@ function footerHTML(mov, cerrada) {
 
 function reposicionHTML(mov, cerrada) {
     return `<section class="pcn-editor" data-pcn-editor>
-        <header class="pcn-head"><div><div class="pcn-title">Detalle de la reposición</div>${cerrada ? '<div class="pcn-sub">Periodo cerrado · solo lectura</div>' : ''}</div></header>
+        <header class="pcn-head"><div class="pcn-head-main"><div class="pcn-title">Detalle de la reposición</div>${cerrada ? '<div class="pcn-sub">Periodo cerrado · solo lectura</div>' : ''}</div>${closeButtonHTML()}</header>
         <div class="pcn-body"><div class="pcn-form">
             <div class="pcn-grid">
                 ${fieldHTML('pce-amount', 'Monto (RD$)', mov, { cerrada })}
@@ -248,10 +260,11 @@ export function editorViewState(movement, { context = {}, ui = {}, showConfidenc
 
 /**
  * @param {object} movement gasto o reposición guardados
- * @param {{cerrada?:boolean, context?:object, ui?:object, source?:object|null|undefined, showConfidence?:boolean}} options
+ * @param {{cerrada?:boolean, context?:object, ui?:object, source?:object|null|undefined, showConfidence?:boolean, queue?:{pos:number,total:number}|null}} options
+ *   queue: registros que piden atención; con más de uno se ofrece ir al anterior/siguiente
  *   source: undefined = cargando, null = no disponible, {url, mime, preview} = lista
  */
-export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui = {}, source, showConfidence = false } = {}) {
+export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui = {}, source, showConfidence = false, queue = null } = {}) {
     const view = { field: 'total', zoom: true, size: 1, more: null, itemsOpen: false, secOpen: null, draft: {}, ...ui };
     const mov = mergeDraft(movement, view.draft);
     if (mov.type !== 'gasto') return reposicionHTML(mov, cerrada);
@@ -292,6 +305,8 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
                 <div class="pcn-sub" data-pcn-status><span class="pcn-dot" style="background:${state.color}"></span>${state.label} · ${esc(review.issues[0]?.message || state.hint)}</div>
                 ${backup ? `<div class="pcn-sub" data-pcn-backup data-state="${backup.state}" title="${esc(backup.title)}">${backup.state === 'uploaded' ? '✓ Respaldado en la nube' : '⏳ Por subir · guardado en el teléfono'}</div>` : ''}
             </div>
+            ${queueNavHTML(queue)}
+            ${closeButtonHTML()}
         </header>
         <div class="pcn-body" onchange="window.pcEditorTouch?.()" onfocusin="window.pcEditorFocusIn?.(event)">
             ${viewerHTML(mov, { cerrada, ui: view, source })}

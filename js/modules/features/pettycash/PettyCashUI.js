@@ -44,7 +44,8 @@ import { createReceiptQueueProcessor } from './PettyCashReceiptProcessor.js';
 import { createReceiptCamera } from './PettyCashCamera.js';
 import { createCameraDiagnostics } from './PettyCashCameraDiagnostics.js';
 import { receiptReviewState, checkReceipt, fixesFor } from './PettyCashReceiptChecks.js';
-import { movementReviewState } from './PettyCashReceiptReview.js';
+import { movementReviewState, reviewFilterCounts, needsAttention } from './PettyCashReceiptReview.js';
+import { screenHTML } from './PettyCashScreen.js';
 import { receiptEditorHTML, editorViewState, EDITOR_FIELDS } from './PettyCashReceiptEditor.js';
 import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, centerEditorBox } from './PettyCashEditorUi.js';
 import { projectFiscal, projectFiscalFormHTML, readProjectFiscalForm } from './PettyCashProjectFiscal.js';
@@ -120,6 +121,8 @@ function _base() {
         movementSortDirection: 'desc',
         movementSearchQuery: '',
         movementVisibleCount: DEFAULT_PETTY_CASH_PAGE_SIZE,
+        reviewFirst: true,
+        screenFilter: 'todos',
         receiptSourcePickerOpen: false,
         form: null,
         periodForm: null,
@@ -141,7 +144,8 @@ function pc() {
             selectedProjectId: sel.selectedProjectId || null,
             selectedPeriodId: sel.selectedPeriodId || null,
             movementSortBy: sort.field,
-            movementSortDirection: sort.direction
+            movementSortDirection: sort.direction,
+            reviewFirst: sel.reviewFirst !== false
         };
     }
     return state.pettyCash;
@@ -154,7 +158,8 @@ function persist() {
             selectedProjectId: d.selectedProjectId,
             selectedPeriodId: d.selectedPeriodId,
             movementSortBy: d.movementSortBy,
-            movementSortDirection: d.movementSortDirection
+            movementSortDirection: d.movementSortDirection,
+            reviewFirst: d.reviewFirst !== false
         }));
     } catch { /* noop */ }
 }
@@ -989,7 +994,7 @@ export function PettyCashTab() {
     }
     const proj = currentProject();
     return `
-    <div class="pc-wrap" style="max-width:980px;margin:0 auto;padding:16px;color:#e2e8f0;">
+    <div class="pc-wrap" style="max-width:${newPettyCashScreen() ? 1280 : 980}px;margin:0 auto;padding:16px;color:#e2e8f0;">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
             <h2 style="margin:0;font-size:1.4rem;display:flex;align-items:center;gap:8px;">
                 ${icons.get('dollar', { size: 22 })} Caja Chica
@@ -1223,6 +1228,10 @@ function _periodPanel(period) {
     const periodForm = d.periodForm;
     const editMov = d.editMov ? movs.find(m => m.id === d.editMov) : null;
 
+    if (newPettyCashScreen()) {
+        return _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary: r, cerrada, editMov });
+    }
+
     return `
     <div style="background:#0f172a;border:1px solid #1e293b;border-radius:14px;padding:16px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
@@ -1291,6 +1300,91 @@ function _periodPanel(period) {
             <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
             ${cerrada ? '' : `<button type="button" data-app-fn="pcClosePeriod" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">🔒 Cerrar periodo</button>`}
         </div>
+    </div>`;
+}
+
+// ── pantalla nueva: saldo, estados y editor lateral (Caja chica renovada) ──
+/** Movimientos de un periodo ordenados como la lista, cada uno con su estado derivado. */
+function _periodStates(period) {
+    const d = pc();
+    const movs = movementsOfPeriod(d.movements, period.id);
+    const hidden = new Set(d.receiptQueueHiddenIds || []);
+    const visible = movs.filter((movement) => !hidden.has(movement.id) || !isEmptyReceiptPlaceholder(movement));
+    const project = d.projects.find((item) => item.id === period.projectId);
+    const context = { period, movements: movs, ...projectFiscal(project) };
+    return { movs, visible, context, keyOf: (movement) => movementReviewState(movement, context).key };
+}
+/** Ids de los registros que piden atención, en el orden de la lista. */
+function attentionQueueIds(period) {
+    if (!period) return [];
+    const d = pc();
+    const { visible, keyOf } = _periodStates(period);
+    const batchIds = [...(d.receiptBatchProgress?.queuedIds || []), ...(d.cameraBatchSession?.queuedIds || [])];
+    return sortPettyCashMovements(visible, { field: d.movementSortBy, direction: d.movementSortDirection }, { activeBatchIds: batchIds })
+        .filter((movement) => needsAttention(keyOf(movement))).map((movement) => movement.id);
+}
+
+function _periodHeaderHTML(period, cerrada) {
+    return `<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <div>
+            <div style="font-weight:700;font-size:1.05rem;display:flex;align-items:center;gap:8px;">
+                ${esc(period.label)} ${cerrada ? '<span style="font-size:.7rem;color:#fbbf24;">🔒 cerrada</span>' : ''}
+                <button type="button" data-app-fn="pcEditPeriod" title="Editar nombre / fechas" style="background:transparent;border:none;color:#64748b;cursor:pointer;font-size:.85rem;">✏️</button>
+                <button type="button" data-app-fn="pcDeletePeriod" title="Eliminar periodo" style="background:transparent;border:none;color:#64748b;cursor:pointer;font-size:.85rem;">🗑️</button>
+            </div>
+            <div style="font-size:.72rem;color:#64748b;margin-top:4px;">📅 Apertura: ${esc(formatPettyCashDate(period.openingDate))} · Cierre: ${esc(formatPettyCashDate(period.closingDate))}</div>
+        </div>
+    </div>`;
+}
+
+function _periodFooterHTML(cerrada) {
+    return `<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
+        ${cerrada ? '' : '<button type="button" data-app-fn="pcClosePeriod" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">🔒 Cerrar periodo</button>'}
+    </div>`;
+}
+
+function _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary, cerrada, editMov }) {
+    const d = pc();
+    const query = String(d.movementSearchQuery || '').slice(0, 120);
+    const searched = filterPettyCashMovements(visibleMovs, query);
+    const project = d.projects.find((item) => item.id === period.projectId);
+    const context = { period, movements: movs, ...projectFiscal(project) };
+    const sorted = sortPettyCashMovements(searched, { field: d.movementSortBy, direction: d.movementSortDirection }, { activeBatchIds: activeMovementBatchIds });
+    const all = sorted.map((movement) => ({ movement, key: movementReviewState(movement, context).key, duplicate: duplicatesByMovement.get(movement.id) || null }));
+    const counts = reviewFilterCounts(all);
+    const filter = Object.prototype.hasOwnProperty.call(counts, d.screenFilter) ? d.screenFilter : 'todos';
+    const filtered = filter === 'todos' ? all : all.filter((item) => item.key === filter);
+    const byId = new Map(filtered.map((item) => [item.movement.id, item]));
+    const page = paginatePettyCashMovements(filtered.map((item) => item.movement), d.movementVisibleCount);
+    const before = [
+        d.batchStatus ? `<div style="margin:10px 0;font-size:.85rem;color:#a78bfa;display:flex;align-items:center;gap:8px;">⏳ ${esc(d.batchStatus)}</div>` : '',
+        _receiptSourcePickerModal(d.receiptSourcePickerOpen),
+        _cameraBatchModal(d.cameraBatchSession),
+        d.periodForm ? _periodEditForm(period) : '',
+        cerrada && period.efectivoContado !== undefined && period.efectivoContado !== null ? _conciliacionBlock(period) : '',
+        d.form && !cerrada ? _movementForm(d.form) : ''
+    ].join('');
+    return `<div class="pcn-period">
+        ${_periodHeaderHTML(period, cerrada)}
+        ${screenHTML({
+            period: { label: period.label, cerrada },
+            summary,
+            cameraMode: state.settings?.newReceiptCamera === true ? 'camera' : 'native',
+            items: page.items.map((movement) => byId.get(movement.id)),
+            counts, filter, reviewFirst: d.reviewFirst !== false,
+            selectedId: editMov?.id || null,
+            editing: !!editMov,
+            editorHTML: editMov ? _movementEditForm(editMov, cerrada) : '',
+            slots: {
+                before,
+                search: _movementSearchControl(query),
+                sort: `${_duplicateSummary(searched, duplicatesByMovement)}${_movementSortControls(d, filtered.length, visibleMovs.length)}`
+            },
+            hasMore: page.hasMore,
+            moreLabel: `Mostrar 50 más · ${page.visible} de ${page.total}`
+        })}
+        ${_periodFooterHTML(cerrada)}
     </div>`;
 }
 
@@ -1450,7 +1544,12 @@ function _newMovementEditor(mov, cerrada) {
         context: editorContext(mov),
         ui: editorUi(),
         source: d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource,
-        showConfidence: state.settings?.pettyCashReadConfidence === true
+        showConfidence: state.settings?.pettyCashReadConfidence === true,
+        queue: (() => {
+            const period = d.periods.find((item) => item.id === mov.periodId);
+            const ids = attentionQueueIds(period);
+            return { pos: ids.indexOf(mov.id), total: ids.length };
+        })()
     });
 }
 
@@ -2180,6 +2279,28 @@ export function registerPettyCashGlobals() {
         if (changed) window.render?.();
     };
     // Al entrar a un dato que tiene recuadro en la foto, ese pasa a ser el activo.
+    window.pcFilterState = (key) => {
+        const valid = ['todos', 'revisar', 'respaldo', 'consumo', 'otra', 'leida'];
+        if (!valid.includes(key)) return;
+        pc().screenFilter = key;
+        window.render?.();
+    };
+    window.pcToggleReviewFirst = () => {
+        const d = pc();
+        d.reviewFirst = d.reviewFirst === false;
+        persist();
+        window.render?.();
+    };
+    // Ir al registro anterior/siguiente que pide atención (desde fuera de la cola salta al primero/último).
+    window.pcEditorQueue = (direction) => {
+        const mov = editingMovement();
+        const ids = attentionQueueIds(pc().periods.find((item) => item.id === mov?.periodId));
+        if (!ids.length) return;
+        const dir = Number(direction) < 0 ? -1 : 1;
+        const at = ids.indexOf(mov.id);
+        const next = at < 0 ? (dir > 0 ? 0 : ids.length - 1) : (at + dir + ids.length) % ids.length;
+        window.pcOpenMovement(ids[next]);
+    };
     window.pcEditorFocusIn = (event) => {
         const key = EDITOR_FIELDS[event?.target?.id]?.key;
         const mov = editingMovement();
@@ -2764,6 +2885,14 @@ export function registerPettyCashGlobals() {
             'Movimiento actualizado',
             mov.receiptStatus ? 'receipt-confirm' : 'manual'
         );
+        // Pantalla ancha: al guardar se abre el siguiente registro que pide atención.
+        const wide = typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 960px)').matches;
+        if (newPettyCashScreen() && wide) {
+            const ids = attentionQueueIds(pc().periods.find((item) => item.id === mov.periodId)).filter((id) => id !== mov.id);
+            const order = pc().movements.map((item) => item.id);
+            const next = ids.find((id) => order.indexOf(id) > order.indexOf(mov.id)) || ids[0];
+            if (next) window.pcOpenMovement(next);
+        }
         window.render?.();
         if (receiptReadyForBackup) {
             uploadPendingReceipts().catch((error) => console.warn('receipt backup after edit', error));
