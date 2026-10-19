@@ -11,7 +11,7 @@ export function defaultEditorUi() {
 
 /**
  * @param {object} ui estado actual (no se muta)
- * @param {'size'|'zoom'|'more'|'items'|'security'|'field'} name
+ * @param {'size'|'zoom'|'more'|'items'|'security'|'field'|'mark'} name
  * @param {*} [arg] dato activo para 'field'
  * @param {{more?:boolean, secOpen?:boolean}} [shown] lo que se está viendo ahora (las secciones en automático no guardan true/false)
  */
@@ -23,7 +23,8 @@ export function editorUiAction(ui, name, arg, shown = {}) {
         case 'items': next.itemsOpen = !ui.itemsOpen; break;
         case 'more': next.more = !shown.more; break;
         case 'security': next.secOpen = !shown.secOpen; break;
-        case 'field': next.field = arg; break;
+        case 'field': next.field = arg; next.mark = false; break;
+        case 'mark': next.mark = !ui.mark; break;
         default: break;
     }
     return next;

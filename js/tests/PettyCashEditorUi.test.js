@@ -30,7 +30,7 @@ describe('editorUiAction', () => {
     });
     test('elegir un dato lo vuelve el activo sin tocar lo demás', () => {
         const ui = { ...defaultEditorUi(), zoom: false, size: 2 };
-        expect(editorUiAction(ui, 'field', 'ncf')).toEqual({ ...ui, field: 'ncf' });
+        expect(editorUiAction(ui, 'field', 'ncf')).toEqual({ ...ui, field: 'ncf', mark: false });
     });
     test('una acción desconocida no cambia nada y no muta el estado anterior', () => {
         const ui = defaultEditorUi();
@@ -131,5 +131,20 @@ describe('fitEditorScreen', () => {
         el2.style.height = '500px';
         fitEditorScreen({ doc: document, win: { innerHeight: 900, scrollY: 0, matchMedia: () => ({ matches: true }) } });
         expect(el2.style.height).toBe('');
+    });
+});
+
+describe('marcar datos en la foto (editorUiAction)', () => {
+    test('«mark» entra y sale del modo de marcar', () => {
+        let ui = defaultEditorUi();
+        expect(ui.mark).toBeUndefined();
+        ui = editorUiAction(ui, 'mark');
+        expect(ui.mark).toBe(true);
+        ui = editorUiAction(ui, 'mark');
+        expect(ui.mark).toBe(false);
+    });
+    test('elegir otro dato sale del modo de marcar', () => {
+        const ui = editorUiAction({ ...defaultEditorUi(), mark: true }, 'field', 'ncf');
+        expect(ui).toMatchObject({ field: 'ncf', mark: false });
     });
 });

@@ -205,3 +205,57 @@ describe('guardar desde el editor nuevo', () => {
         expect(state.pettyCash.movements[0].itbisIncluido).toBe(false);
     });
 });
+
+describe('marcar la posición de un dato en la foto', () => {
+    beforeEach(async () => {
+        seed();
+        indexedDBService.getReceipt.mockResolvedValue({ originalBlob: new Blob(['x'], { type: 'image/jpeg' }), originalType: 'image/jpeg' });
+        window.pcOpenMovement('g1'); await flush(); window.render.mockClear();
+    });
+
+    test('pcEditorMark entra y sale del modo de marcar y repinta', () => {
+        window.pcEditorMark();
+        expect(state.pettyCash._editorUi.mark).toBe(true);
+        expect(document.querySelector('[data-pcn-stage]').dataset.edit).toBe('adjust');   // el total ya tenía recuadro del lector
+        window.pcEditorMark();
+        expect(state.pettyCash._editorUi.mark).toBe(false);
+    });
+
+    test('al soltar el recuadro se guarda en manualBoxes sin tocar el del lector ni los demás datos', async () => {
+        await window.pcEditorBoxCommit('cliente', [300, 50, 350, 600]);
+        const mov = state.pettyCash.movements[0];
+        expect(mov.manualBoxes).toEqual({ cliente: [300, 50, 350, 600] });
+        expect(mov.ocrBoxes).toEqual({ total: [790, 520, 850, 920] });
+        expect(mov.total).toBe(1098);
+        await window.pcEditorBoxCommit('total', [700, 500, 760, 900]);
+        expect(state.pettyCash.movements[0].manualBoxes).toEqual({ cliente: [300, 50, 350, 600], total: [700, 500, 760, 900] });
+    });
+    test('un recuadro mal formado no se guarda', async () => {
+        await window.pcEditorBoxCommit('total', [900, 500, 100, 900]);
+        await window.pcEditorBoxCommit('total', 'x');
+        expect(state.pettyCash.movements[0].manualBoxes).toBeUndefined();
+    });
+    test('lo escrito en el formulario no se pierde al guardar un recuadro', async () => {
+        document.getElementById('pce-tienda').value = 'Otro nombre';
+        await window.pcEditorBoxCommit('total', [700, 500, 760, 900]);
+        expect(document.getElementById('pce-tienda').value).toBe('Otro nombre');
+    });
+    test('quitar la marca vuelve al recuadro del lector y deja el resto', async () => {
+        await window.pcEditorBoxCommit('total', [700, 500, 760, 900]);
+        await window.pcEditorBoxCommit('cliente', [300, 50, 350, 600]);
+        await window.pcEditorBoxClear('total');
+        expect(state.pettyCash.movements[0].manualBoxes).toEqual({ cliente: [300, 50, 350, 600] });
+        await window.pcEditorBoxClear('cliente');
+        expect(state.pettyCash.movements[0].manualBoxes).toEqual({});
+        await expect(window.pcEditorBoxClear('nada')).resolves.toBeUndefined();
+    });
+    test('volver a leer la factura conserva lo marcado a mano', async () => {
+        const { rereadReceipt } = require('../modules/features/pettycash/PettyCashUI.js');
+        await window.pcEditorBoxCommit('cliente', [300, 50, 350, 600]);
+        indexedDBService.getReceipt.mockResolvedValue({ originalBlob: new Blob(['x']) });
+        indexedDBService.updateReceiptJob = jest.fn().mockResolvedValue({});
+        await rereadReceipt('g1', { process: jest.fn().mockResolvedValue() });
+        expect(state.pettyCash.movements[0].ocrBoxes).toBeUndefined();
+        expect(state.pettyCash.movements[0].manualBoxes).toEqual({ cliente: [300, 50, 350, 600] });
+    });
+});

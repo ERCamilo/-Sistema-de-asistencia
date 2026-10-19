@@ -345,3 +345,64 @@ describe('la ventana de la imagen se ajusta a lo que muestra', () => {
         expect(document.querySelector('[data-pcn-win]').dataset.box).toBe('true');
     });
 });
+
+describe('marcar la posición de un dato en la foto', () => {
+    const source = { url: 'blob:abc', mime: 'image/jpeg' };
+    const withUi = (over) => ui(over);
+
+    test('un dato sin recuadro ofrece «Marcar … en la foto»', () => {
+        render(gasto(), { source, ui: withUi({ field: 'total' }) });
+        const mark = document.querySelector('[data-app-fn="pcEditorMark"]');
+        expect(mark.textContent).toContain('Marcar «Total» en la foto');
+        expect(document.querySelector('[data-pcn-nobox]').textContent).toContain('Marcar');
+    });
+    test('también los datos que el lector nunca enmarca: comercio, cliente, descuento, propina, exento…', () => {
+        for (const field of ['paidTo', 'cliente', 'rncCliente', 'descuento', 'propina', 'exento']) {
+            render(gasto(), { source, ui: withUi({ field }) });
+            expect(document.querySelector('[data-app-fn="pcEditorMark"]')).not.toBeNull();
+        }
+    });
+    test('el recuadro del lector se puede ajustar; el puesto a mano se puede quitar', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] } }), { source });
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]').textContent).toContain('Ajustar recuadro');
+        expect(document.querySelector('[data-app-fn="pcEditorBoxClear"]')).toBeNull();
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] }, manualBoxes: { total: [700, 500, 760, 900] } }), { source });
+        const clear = document.querySelector('[data-app-fn="pcEditorBoxClear"]');
+        expect(clear.dataset.arg).toBe('total');
+        expect(clear.textContent).toContain('lector');   // vuelve al del lector
+        render(gasto({ manualBoxes: { total: [700, 500, 760, 900] } }), { source });
+        expect(document.querySelector('[data-app-fn="pcEditorBoxClear"]').textContent).toContain('Quitar');
+    });
+    test('el recuadro a mano se dibuja en lugar del del lector, y los chips incluyen los marcados a mano', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] }, manualBoxes: { total: [100, 200, 160, 800], cliente: [300, 50, 350, 600] } }), { source });
+        expect(document.querySelector('[data-pcn-box]').getAttribute('style')).toContain('left:20%');
+        expect([...document.querySelectorAll('[data-pcn-chip]')].map((c) => c.dataset.arg)).toEqual(['total', 'cliente']);
+    });
+    test('modo marcar sin recuadro: se puede trazar sobre la foto (completa, sin zoom) y se explica cómo', () => {
+        render(gasto(), { source, ui: withUi({ field: 'total', mark: true }) });
+        const stage = document.querySelector('[data-pcn-stage]');
+        expect(stage.dataset.edit).toBe('draw');
+        expect(stage.dataset.key).toBe('total');
+        expect(document.querySelector('[data-pcn-win]').dataset.zoom).toBe('false');
+        expect(document.querySelector('[data-pcn-mark-hint]').textContent).toContain('Arrastra');
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]').textContent).toContain('Listo');
+    });
+    test('modo marcar con recuadro: se puede mover y cambiar de tamaño', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] } }), { source, ui: withUi({ mark: true }) });
+        expect(document.querySelector('[data-pcn-stage]').dataset.edit).toBe('adjust');
+        expect(document.querySelector('[data-pcn-box] [data-pcn-handle]')).not.toBeNull();
+    });
+    test('fuera del modo marcar no hay manejadores ni se traza', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] } }), { source });
+        expect(document.querySelector('[data-pcn-stage]').dataset.edit).toBe('');
+        expect(document.querySelector('[data-pcn-handle]')).toBeNull();
+    });
+    test('con PDF, periodo cerrado o sin foto no se ofrece marcar', () => {
+        render(gasto(), { source: { url: 'x', mime: 'application/pdf', preview: 'data:image/png;base64,AA' } });
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]')).toBeNull();
+        render(gasto(), { source, cerrada: true });
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]')).toBeNull();
+        render(gasto(), { source: null });
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]')).toBeNull();
+    });
+});

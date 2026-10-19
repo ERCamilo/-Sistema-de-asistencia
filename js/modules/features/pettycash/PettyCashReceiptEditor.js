@@ -15,6 +15,7 @@
 import { fixesFor, receiptNotes } from './PettyCashReceiptChecks.js';
 import { RECEIPT_STATES, movementReviewState } from './PettyCashReceiptReview.js';
 import { formatPettyCashDate, receiptBackupState } from './PettyCashPresentation.js';
+import { effectiveBox, isValidBox } from './PettyCashBoxMath.js';
 
 /** id del campo → clave del gasto y tipo (lo usan el render y el guardado). */
 export const EDITOR_FIELDS = Object.freeze({
@@ -46,8 +47,10 @@ export const EDITOR_CATEGORIES = Object.freeze(['Materiales', 'Transporte', 'Com
 
 /** Datos que el lector enmarca en la foto, en el orden de los chips. */
 const BOX_FIELDS = Object.freeze([
-    ['rncEmisor', 'RNC emisor'], ['ncf', 'NCF'], ['date', 'Fecha'], ['subtotal', 'Subtotal'], ['itbis', 'ITBIS'], ['total', 'Total']
+    ['rncEmisor', 'RNC emisor'], ['ncf', 'NCF'], ['date', 'Fecha'], ['subtotal', 'Subtotal'], ['itbis', 'ITBIS'], ['total', 'Total'],
+    ['paidTo', 'Comercio'], ['cliente', 'Cliente'], ['rncCliente', 'RNC cliente'], ['descuento', 'Descuento'], ['propina', 'Propina'], ['exento', 'Exento']
 ]);
+const MARKABLE = new Set(BOX_FIELDS.map(([k]) => k));
 const LABELS = Object.freeze({
     paidTo: 'Comercio', rncEmisor: 'RNC emisor', ncf: 'NCF', date: 'Fecha', subtotal: 'Subtotal', itbis: 'ITBIS',
     propina: 'Propina', total: 'Total', descuento: 'Descuento', exento: 'Exento', cliente: 'Cliente', rncCliente: 'RNC del cliente',
@@ -104,26 +107,36 @@ function viewerHTML(mov, { cerrada, ui, source, extra = '' }) {
         </div>`;
     }
     const field = ui.field;
-    const box = mov.ocrBoxes?.[field];
+    const found = effectiveBox(mov, field);
     const isPdf = source?.mime === 'application/pdf';
-    const showBox = !isPdf && hasBox(box);
+    const showBox = !isPdf && !!found;
+    const canMark = !cerrada && !!source && !isPdf && MARKABLE.has(field);
+    const markOn = canMark && !!ui.mark;
+    const label = LABELS[field] || field;
     let stage;
     if (source === undefined) stage = '<p class="pcn-msg">Cargando comprobante…</p>';
     else if (!source) stage = '<p class="pcn-msg">Comprobante no disponible en este momento. Verifica la conexión.</p>';
     else {
         const src = isPdf ? (source.preview || '') : source.url;
-        const [y0, x0, y1, x1] = showBox ? box : [0, 0, 0, 0];
+        const [y0, x0, y1, x1] = showBox ? found.box : [0, 0, 0, 0];
         const zoomOn = ui.zoom && showBox;
         const width = zoomOn ? Math.min(260, Math.max(112, 100 / (((x1 - x0) / 1000) * 1.1))) : 100;
-        stage = `<div class="pcn-stage" style="width:${pct(width)}%">
-            ${src ? `<img class="pcn-img" src="${esc(src)}" alt="Foto de la factura">` : ''}
-            ${showBox ? `<div class="pcn-box" data-pcn-box style="left:${pct(x0 / 10)}%;top:${pct(y0 / 10)}%;width:${pct((x1 - x0) / 10)}%;height:${pct((y1 - y0) / 10)}%"><span class="pcn-tag">${esc(LABELS[field] || '')}</span></div>` : ''}
+        const edit = markOn ? (showBox ? 'adjust' : 'draw') : '';
+        stage = `<div class="pcn-stage" data-pcn-stage data-edit="${edit}" data-key="${esc(field)}" style="width:${pct(width)}%">
+            ${src ? `<img class="pcn-img" src="${esc(src)}" alt="Foto de la factura" draggable="false">` : ''}
+            ${showBox ? `<div class="pcn-box" data-pcn-box data-source="${found.source}" style="left:${pct(x0 / 10)}%;top:${pct(y0 / 10)}%;width:${pct((x1 - x0) / 10)}%;height:${pct((y1 - y0) / 10)}%"><span class="pcn-tag">${esc(label)}</span>${edit === 'adjust' ? '<i class="pcn-handle" data-pcn-handle></i>' : ''}</div>` : ''}
         </div>`;
     }
-    const chips = BOX_FIELDS.filter(([k]) => hasBox(mov.ocrBoxes?.[k]) && !isPdf).map(([k, label]) =>
-        `<button type="button" class="pcn-chip" data-pcn-chip data-app-fn="pcEditorField" data-arg="${k}" aria-pressed="${k === field}">${label}</button>`).join('');
-    const noBox = source && !showBox && !isPdf && field
-        ? `<p class="pcn-note" data-pcn-nobox>«${esc(LABELS[field] || field)}» no tiene recuadro del lector. Revisa la foto y escríbelo.</p>` : '';
+    const chips = BOX_FIELDS.filter(([k]) => !!effectiveBox(mov, k) && !isPdf).map(([k, name]) =>
+        `<button type="button" class="pcn-chip" data-pcn-chip data-app-fn="pcEditorField" data-arg="${k}" aria-pressed="${k === field}">${name}</button>`).join('');
+    const hasOcrBox = isValidBox(mov.ocrBoxes?.[field]);
+    const markButtons = canMark ? `
+            <button type="button" class="pcn-tool" data-app-fn="pcEditorMark">${markOn ? 'Listo' : (showBox ? 'Ajustar recuadro' : `Marcar «${esc(label)}» en la foto`)}</button>
+            ${found?.source === 'manual' ? `<button type="button" class="pcn-tool" data-app-fn="pcEditorBoxClear" data-arg="${esc(field)}">${hasOcrBox ? 'Volver al recuadro del lector' : 'Quitar mi marca'}</button>` : ''}` : '';
+    const markHint = markOn
+        ? `<p class="pcn-note" data-pcn-mark-hint>${showBox ? 'Arrastra el recuadro para moverlo, o su esquina para cambiarle el tamaño.' : `Arrastra sobre la foto para encerrar «${esc(label)}».`}</p>` : '';
+    const noBox = source && !showBox && !isPdf && field && !markOn
+        ? `<p class="pcn-note" data-pcn-nobox>«${esc(label)}» no tiene recuadro.${canMark ? ' Márcalo con «Marcar en la foto» o escríbelo.' : ' Revisa la foto y escríbelo.'}</p>` : '';
     return `<div class="pcn-view" data-pcn-view>
         <div class="pcn-winwrap">
             <div class="pcn-win" data-pcn-win data-size="${ui.size}" data-zoom="${!!(ui.zoom && showBox)}" data-box="${showBox}">${stage}</div>
@@ -137,9 +150,11 @@ function viewerHTML(mov, { cerrada, ui, source, extra = '' }) {
         <div class="pcn-tools">
             <button type="button" class="pcn-tool" data-app-fn="pcEditorSize">Imagen: ${WINDOW_SIZES[ui.size] || WINDOW_SIZES[1]}</button>
             ${showBox ? `<button type="button" class="pcn-tool" data-app-fn="pcEditorZoom">${ui.zoom ? 'Ver completa' : 'Ampliar'}</button>` : ''}
+            ${markButtons}
             <button type="button" class="pcn-tool" data-app-fn="pcViewReceipt" data-arg="${esc(mov.id)}">Ver comprobante</button>
             ${cerrada ? '' : `<button type="button" class="pcn-tool" data-app-fn="pcRescanReceipt" data-arg="${esc(mov.id)}">Reescanear</button>${fileInputs(false)}`}
         </div>
+        ${markHint}
         ${noBox}
         ${extra}
     </div>`;

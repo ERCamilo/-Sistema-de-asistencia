@@ -25,7 +25,7 @@
 .pcn-win[data-size="0"] { --h: 150px; } .pcn-win[data-size="0"][data-zoom="false"] { --h: 260px; }
 .pcn-win[data-size="2"] { --h: 400px; } .pcn-win[data-size="2"][data-zoom="false"] { --h: 520px; }
 .pcn-winwrap { position: relative; display: flex; flex-direction: column; flex: 0 0 auto; }
-.pcn-fbar { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; z-index: 3; }
+.pcn-fbar { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; z-index: 3; }
 .pcn-fb { width: 44px; height: 44px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .2); background: rgba(11, 19, 32, .85); color: var(--pcn-text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .pcn-win--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; color: var(--pcn-dim); }
 .pcn-win--empty p { margin: 0; font-size: .9rem; }
@@ -199,3 +199,11 @@ textarea.pcn-input { padding: 10px 12px; resize: vertical; }
     .pcn-screen[data-editing="true"] > .pcn-main { height: 100%; overflow-y: auto; padding-right: 6px; scrollbar-width: thin; overscroll-behavior: contain; }
     .pcn-screen[data-editing="true"] > .pcn-side { position: static; height: 100%; max-height: none; overflow-y: auto; scrollbar-width: thin; overscroll-behavior: contain; }
 }
+
+/* ── Marcar la posición de un dato ───────────────────────────────────────── */
+.pcn-stage[data-edit] { touch-action: none; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+.pcn-stage[data-edit="adjust"] .pcn-box { pointer-events: auto; cursor: move; }
+.pcn-box--draft { border-style: dashed; box-shadow: 0 0 0 9999px rgba(8, 14, 24, .35); }
+.pcn-box[data-source="manual"] { border-color: #a78bfa; }
+.pcn-box[data-source="manual"] .pcn-tag { background: #a78bfa; }
+.pcn-handle { position: absolute; right: -13px; bottom: -13px; width: 26px; height: 26px; border-radius: 8px; background: #22d3ee; border: 2px solid #081a24; cursor: nwse-resize; touch-action: none; pointer-events: auto; }

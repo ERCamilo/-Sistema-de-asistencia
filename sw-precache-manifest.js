@@ -184,6 +184,8 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/payroll/ProjectPayrollConfigStore.js",
     "./js/modules/features/payroll/ProjectPayrollUIRuntime.js",
     "./js/modules/features/payroll/SalaryConversion.js",
+    "./js/modules/features/pettycash/PettyCashBoxEditor.js",
+    "./js/modules/features/pettycash/PettyCashBoxMath.js",
     "./js/modules/features/pettycash/PettyCashCalc.js",
     "./js/modules/features/pettycash/PettyCashCamera.js",
     "./js/modules/features/pettycash/PettyCashCameraDiagnostics.js",

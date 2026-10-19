@@ -47,6 +47,8 @@ import { receiptReviewState, checkReceipt, fixesFor } from './PettyCashReceiptCh
 import { movementReviewState, reviewFilterCounts, needsAttention } from './PettyCashReceiptReview.js';
 import { screenHTML } from './PettyCashScreen.js';
 import { receiptFileName, downloadReceipt, shareReceipt } from './PettyCashReceiptShare.js';
+import { isValidBox } from './PettyCashBoxMath.js';
+import { attachBoxEditor } from './PettyCashBoxEditor.js';
 import { receiptEditorHTML, editorViewState, EDITOR_FIELDS } from './PettyCashReceiptEditor.js';
 import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, centerEditorBox, fitEditorScreen } from './PettyCashEditorUi.js';
 import { projectFiscal, projectFiscalFormHTML, readProjectFiscalForm } from './PettyCashProjectFiscal.js';
@@ -1575,6 +1577,8 @@ function repaintEditor() {
     }
 }
 let _editorResizeBound = false;
+let _boxEditorDetach = null;
+const EDITOR_BOX_KEYS = new Set(['rncEmisor', 'ncf', 'date', 'subtotal', 'itbis', 'total', 'paidTo', 'cliente', 'rncCliente', 'descuento', 'propina', 'exento']);
 function closeEditorState() {
     releaseEditorSource();
     pc()._editorUi = null;
@@ -2274,6 +2278,30 @@ export function registerPettyCashGlobals() {
     window.pcEditorMore = editorAct('more');
     window.pcEditorSecurity = editorAct('security');
     window.pcEditorField = editorAct('field');
+    window.pcEditorMark = editorAct('mark');
+    // Posición de un dato puesta a mano (manualBoxes): manda sobre la del lector y sobrevive a volver a leer la factura.
+    const saveManualBoxes = async (mov, manualBoxes) => {
+        const d = pc();
+        const draft = readEditorDraft(document);
+        await applyReceiptFix(mov.id, { patch: { manualBoxes } });
+        d._editorUi = { ...editorUi(), draft };
+        repaintEditor();
+    };
+    window.pcEditorBoxCommit = async (key, box) => {
+        const mov = editingMovement();
+        if (!mov || !isValidBox(box) || !EDITOR_BOX_KEYS.has(key)) return;
+        await saveManualBoxes(mov, { ...(mov.manualBoxes || {}), [key]: box.slice() });
+    };
+    window.pcEditorBoxClear = async (key) => {
+        const mov = editingMovement();
+        if (!mov || !mov.manualBoxes || !(key in mov.manualBoxes)) return;
+        const rest = { ...mov.manualBoxes };
+        delete rest[key];
+        await saveManualBoxes(mov, rest);
+    };
+    if (typeof document !== 'undefined' && !_boxEditorDetach) {
+        _boxEditorDetach = attachBoxEditor({ doc: document, onCommit: (key, box) => window.pcEditorBoxCommit?.(key, box) });
+    }
     window.pcEditorFocus = (id) => {
         const d = pc();
         const mov = editingMovement();
