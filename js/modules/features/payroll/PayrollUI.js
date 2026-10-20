@@ -3538,6 +3538,7 @@ function getSplitXExportData() {
                 end: view?.enabled ? view.period?.periodEnd : state.exportConfig?.periodEnd
             },
             currency: state.settings?.currency || 'DOP',
+            companyName: state.settings?.companyName,
             regularHoursPerDay: view?.enabled ? view.config?.regularHoursPerDay : state.settings?.regularHoursPerDay,
             projectId, projectName: view?.projectName,
             employees: scoped(state.employees), positions: scoped(state.positions), leaders: scoped(state.leaders)

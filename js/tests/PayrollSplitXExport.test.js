@@ -22,6 +22,20 @@ const row = () => ({
 });
 
 describe('Contrato enriquecido de exportación SplitX', () => {
+    test('el contexto identifica la empresa y nombra la nómina con las fechas civiles del período', () => {
+        const result = buildSplitXExport([row()], {
+            ...options(), companyName: '  Constructora Ejemplo  ',
+            period: { start: '2026-12-26', end: '2027-01-10' }
+        });
+        expect(result.context).toMatchObject({
+            companyName: 'Constructora Ejemplo',
+            payrollName: 'Nómina período 26/12/2026 - 10/01/2027',
+            period: { start: '2026-12-26', end: '2027-01-10' }
+        });
+        expect(result.employees[0].exportContext).toEqual(result.context);
+        expect(buildSplitXExport([row()], options()).context.companyName).toBe('');
+    });
+
     test('conserva íntegramente el contrato original y no usa ficha como nueva identidad estable', () => {
         const source = row(), context = options();
         const before = JSON.stringify({ source, context });

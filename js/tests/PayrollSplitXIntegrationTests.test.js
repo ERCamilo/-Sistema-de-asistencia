@@ -1,5 +1,7 @@
 import * as PayrollUI from '../modules/features/payroll/PayrollUI.js';
 import { stateManager } from '../modules/core/AppState.js';
+import { createLoan } from '../modules/features/loans/LoansService.js';
+import { buildPayrollLoanSelection, setPayrollLoanMode } from '../modules/features/payroll/PayrollLoans.js';
 
 describe('Payroll SplitX postMessage Integration', () => {
     let originalOpen;
@@ -73,9 +75,12 @@ describe('Payroll SplitX postMessage Integration', () => {
 
     test('manual JSON and postMessage export the same period, concepts, totals and proportional days', async () => {
         state.settings.regularHoursPerDay = 8;
+        state.settings.companyName = 'Constructora Ejemplo';
+        createLoan(state.employees[0], { principal: 3000, interestRate: 0, startDate: '2026-08-01', concept: 'Adelanto de ejemplo' });
+        state.exportConfig.payrollLoanSelection = setPayrollLoanMode(buildPayrollLoanSelection(state.employees), 'emp-1', 'custom', 100);
         calculatePayroll.mockReturnValue({
             brutoOriginal: 1000, bruto: 1000, bonuses: 0, deductions: 530, neto: 470,
-            breakdown: [{ positionId: 'P1', positionName: 'Albañil', regularHours: 4 }],
+            breakdown: [{ positionId: 'P1', positionName: 'Albañil', hourlyRate: 250, regularHours: 4 }],
             deductionBreakdown: [
                 { id: 'law', name: 'Descuento de ley', type: 'percentage', value: 3, appliedTo: 1000, amount: 30 },
                 { id: 'repair', name: 'Reparación equipo', type: 'fixed', value: 500, amount: 500 }
@@ -89,14 +94,24 @@ describe('Payroll SplitX postMessage Integration', () => {
         const payload = mockWindow.postMessage.mock.calls.find(c => c[0].type === 'SPLITX_IMPORT_PAYROLL')[0];
         expect(payload.employees).toEqual(copied);
         expect(payload.period).toEqual({ start: '2026-08-01', end: '2026-08-15' });
-        expect(payload.totals).toMatchObject({ employeeCount: 1, gross: 1000, deductions: 530, net: 470 });
+        expect(payload.companyName).toBe('Constructora Ejemplo');
+        expect(payload.payrollName).toBe('Nómina período 01/08/2026 - 15/08/2026');
+        expect(copied[0].exportContext.companyName).toBe(payload.companyName);
+        expect(copied[0].exportContext.payrollName).toBe(payload.payrollName);
+        expect(payload.totals).toMatchObject({ employeeCount: 1, gross: 1000, deductions: 530, loans: 100, net: 370 });
         expect(copied[0]).toMatchObject({ sourceEmployeeId: 'emp-1', employeeNumber: '1', workDays: { regular: 0.5, total: 0.5 } });
         expect(copied[0].deductionDetails.map(d => [d.concept, d.signedAmount])).toEqual([['Descuento de ley', -30], ['Reparación equipo', -500]]);
         expect(copied[0].exportContext.period).toEqual(payload.period);
+        expect(copied[0].positions[0].dailyRate).toBe(2000);
+        expect(copied[0].loanSummary).toMatchObject({ balanceBefore: 3000, deductionAmount: 100, projectedBalanceAfter: 2900, projectionAvailable: true });
+        expect(state.employees[0].loans[0].payments).toEqual([]);
         expect(payload).not.toHaveProperty('payrollId');
     });
 
     test('downloaded JSON preserves the array and includes the same context as clipboard JSON', () => {
+        state.settings.companyName = 'Empresa de archivo';
+        createLoan(state.employees[0], { principal: 3000, interestRate: 0, startDate: '2026-08-01', concept: 'Abono parcial' });
+        state.exportConfig.payrollLoanSelection = setPayrollLoanMode(buildPayrollLoanSelection(state.employees), 'emp-1', 'custom', 500);
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: jest.fn(() => Promise.resolve()) } });
         const originalBlob = window.Blob;
         const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
@@ -109,7 +124,8 @@ describe('Payroll SplitX postMessage Integration', () => {
             PayrollUI.copyExportJSON();
             PayrollUI.downloadExportJSON();
             expect(JSON.parse(file)).toEqual(JSON.parse(navigator.clipboard.writeText.mock.calls[0][0]));
-            expect(JSON.parse(file)[0].exportContext).toMatchObject({ period: { start: '2026-08-01', end: '2026-08-15' }, currency: 'DOP' });
+            expect(JSON.parse(file)[0].exportContext).toMatchObject({ period: { start: '2026-08-01', end: '2026-08-15' }, currency: 'DOP', companyName: 'Empresa de archivo', payrollName: 'Nómina período 01/08/2026 - 15/08/2026' });
+            expect(JSON.parse(file)[0].loanSummary).toMatchObject({ balanceBefore: 3000, deductionAmount: 500, projectedBalanceAfter: 2500 });
             expect(click).toHaveBeenCalledTimes(1);
         } finally {
             window.Blob = originalBlob;

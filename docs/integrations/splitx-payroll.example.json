@@ -2,18 +2,18 @@
   {
     "id": 1,
     "nombre": "Ana Ejemplo (Ref #001)",
-    "monto": 9700,
+    "monto": 9200,
     "bruto": 10000,
     "bonificaciones": 500,
     "descuentos": 800,
-    "prestamos": 0,
-    "prestamoCapital": 0,
+    "prestamos": 500,
+    "prestamoCapital": 500,
     "prestamoInteres": 0,
-    "saldoPendiente": 0,
+    "saldoPendiente": 3000,
     "loanDetails": {
-      "principal": 0,
+      "principal": 500,
       "interestAmount": 0,
-      "remainingBalance": 0
+      "remainingBalance": 3000
     },
     "sourceEmployeeId": "EMP-DEMO-1",
     "employeeNumber": "001",
@@ -38,7 +38,8 @@
           "holiday": 0,
           "restDay": 0,
           "total": 10
-        }
+        },
+        "dailyRate": 1000
       }
     ],
     "leaders": [
@@ -48,6 +49,30 @@
         "number": "10"
       }
     ],
+    "loanBreakdown": [
+      {
+        "loanId": "PRESTAMO-DEMO",
+        "concept": "Adelanto de salario",
+        "status": "proposed",
+        "balanceBefore": 3000,
+        "deductionAmount": 500,
+        "principalAmount": 500,
+        "interestAmount": 0,
+        "projectedBalanceAfter": 2500,
+        "currentBalance": 3000
+      }
+    ],
+    "loanSummary": {
+      "scope": "selected-loans",
+      "projectionAvailable": true,
+      "balanceBefore": 3000,
+      "deductionAmount": 500,
+      "principalAmount": 500,
+      "interestAmount": 0,
+      "projectedBalanceAfter": 2500,
+      "totalOutstandingBalance": 3000,
+      "projectedTotalOutstandingBalance": 2500
+    },
     "bonusDetails": [
       {
         "id": "asistencia",
@@ -83,6 +108,8 @@
         "start": "2026-10-01",
         "end": "2026-10-15"
       },
+      "companyName": "Constructora Ejemplo",
+      "payrollName": "Nómina período 01/10/2026 - 15/10/2026",
       "currency": "DOP",
       "hoursPerDay": 8,
       "projectId": "obra-centro",
@@ -92,8 +119,8 @@
         "gross": 10000,
         "bonuses": 500,
         "deductions": 800,
-        "loans": 0,
-        "net": 9700
+        "loans": 500,
+        "net": 9200
       }
     }
   }
