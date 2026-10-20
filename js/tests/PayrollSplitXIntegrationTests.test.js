@@ -7,8 +7,12 @@ describe('Payroll SplitX postMessage Integration', () => {
     let mockWindow;
     let state;
     let notifications;
+    let calculatePayroll;
 
     beforeEach(() => {
+        jest.useFakeTimers();
+        originalOpen = window.open;
+        originalShowNotification = window.showNotification;
         state = {
             employees: [
                 { id: 'emp-1', number: '1', name: 'Ana Perez', hourlyRate: 200, active: true }
@@ -39,8 +43,6 @@ describe('Payroll SplitX postMessage Integration', () => {
             closed: false
         };
 
-        originalOpen = window.open;
-        originalShowNotification = window.showNotification;
         window.open = jest.fn(() => mockWindow);
         window.PayrollUI = PayrollUI;
 
@@ -48,7 +50,7 @@ describe('Payroll SplitX postMessage Integration', () => {
             state,
             services: {
                 payroll: {
-                    calculateEmployeePayroll: jest.fn(() => ({
+                    calculateEmployeePayroll: calculatePayroll = jest.fn(() => ({
                         brutoOriginal: 1600,
                         bruto: 1600,
                         bonuses: 0,
@@ -62,9 +64,59 @@ describe('Payroll SplitX postMessage Integration', () => {
     });
 
     afterEach(() => {
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
         window.open = originalOpen;
         window.showNotification = originalShowNotification;
         jest.clearAllMocks();
+    });
+
+    test('manual JSON and postMessage export the same period, concepts, totals and proportional days', async () => {
+        state.settings.regularHoursPerDay = 8;
+        calculatePayroll.mockReturnValue({
+            brutoOriginal: 1000, bruto: 1000, bonuses: 0, deductions: 530, neto: 470,
+            breakdown: [{ positionId: 'P1', positionName: 'Albañil', regularHours: 4 }],
+            deductionBreakdown: [
+                { id: 'law', name: 'Descuento de ley', type: 'percentage', value: 3, appliedTo: 1000, amount: 30 },
+                { id: 'repair', name: 'Reparación equipo', type: 'fixed', value: 500, amount: 500 }
+            ]
+        });
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: jest.fn(() => Promise.resolve()) } });
+        PayrollUI.copyExportJSON();
+        const copied = JSON.parse(navigator.clipboard.writeText.mock.calls[0][0]);
+        PayrollUI.sendToSplitX();
+        window.dispatchEvent(new MessageEvent('message', { data: { type: 'SPLITX_READY' }, origin: 'https://splitx.erlin.do', source: mockWindow }));
+        const payload = mockWindow.postMessage.mock.calls.find(c => c[0].type === 'SPLITX_IMPORT_PAYROLL')[0];
+        expect(payload.employees).toEqual(copied);
+        expect(payload.period).toEqual({ start: '2026-08-01', end: '2026-08-15' });
+        expect(payload.totals).toMatchObject({ employeeCount: 1, gross: 1000, deductions: 530, net: 470 });
+        expect(copied[0]).toMatchObject({ sourceEmployeeId: 'emp-1', employeeNumber: '1', workDays: { regular: 0.5, total: 0.5 } });
+        expect(copied[0].deductionDetails.map(d => [d.concept, d.signedAmount])).toEqual([['Descuento de ley', -30], ['Reparación equipo', -500]]);
+        expect(copied[0].exportContext.period).toEqual(payload.period);
+        expect(payload).not.toHaveProperty('payrollId');
+    });
+
+    test('downloaded JSON preserves the array and includes the same context as clipboard JSON', () => {
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: jest.fn(() => Promise.resolve()) } });
+        const originalBlob = window.Blob;
+        const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+        const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+        let file;
+        window.Blob = jest.fn(parts => { file = parts.join(''); return {}; });
+        URL.createObjectURL = jest.fn(() => 'blob:synthetic');
+        URL.revokeObjectURL = jest.fn();
+        try {
+            PayrollUI.copyExportJSON();
+            PayrollUI.downloadExportJSON();
+            expect(JSON.parse(file)).toEqual(JSON.parse(navigator.clipboard.writeText.mock.calls[0][0]));
+            expect(JSON.parse(file)[0].exportContext).toMatchObject({ period: { start: '2026-08-01', end: '2026-08-15' }, currency: 'DOP' });
+            expect(click).toHaveBeenCalledTimes(1);
+        } finally {
+            window.Blob = originalBlob;
+            URL.createObjectURL = originalCreate;
+            URL.revokeObjectURL = originalRevoke;
+            click.mockRestore();
+        }
     });
 
     test('sendToSplitX opens splitx.erlin.do, sends initial SPLITX_PING and initiates listener', () => {

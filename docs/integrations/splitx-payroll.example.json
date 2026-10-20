@@ -1,0 +1,100 @@
+[
+  {
+    "id": 1,
+    "nombre": "Ana Ejemplo (Ref #001)",
+    "monto": 9700,
+    "bruto": 10000,
+    "bonificaciones": 500,
+    "descuentos": 800,
+    "prestamos": 0,
+    "prestamoCapital": 0,
+    "prestamoInteres": 0,
+    "saldoPendiente": 0,
+    "loanDetails": {
+      "principal": 0,
+      "interestAmount": 0,
+      "remainingBalance": 0
+    },
+    "sourceEmployeeId": "EMP-DEMO-1",
+    "employeeNumber": "001",
+    "employeeName": "Ana Ejemplo",
+    "workDays": {
+      "unit": "equivalent-day",
+      "regular": 10,
+      "overtime": 0,
+      "holiday": 0,
+      "restDay": 0,
+      "total": 10
+    },
+    "positions": [
+      {
+        "id": "PUESTO-DEMO",
+        "name": "Albañil",
+        "leaderId": "LIDER-DEMO",
+        "workDays": {
+          "unit": "equivalent-day",
+          "regular": 10,
+          "overtime": 0,
+          "holiday": 0,
+          "restDay": 0,
+          "total": 10
+        }
+      }
+    ],
+    "leaders": [
+      {
+        "id": "LIDER-DEMO",
+        "name": "Líder de ejemplo",
+        "number": "10"
+      }
+    ],
+    "bonusDetails": [
+      {
+        "id": "asistencia",
+        "concept": "Bono de asistencia",
+        "type": "fixed",
+        "value": 500,
+        "amount": 500,
+        "signedAmount": 500
+      }
+    ],
+    "deductionDetails": [
+      {
+        "id": "ley",
+        "concept": "Descuento de ley",
+        "type": "percentage",
+        "value": 3,
+        "amount": 300,
+        "signedAmount": -300,
+        "baseAmount": 10000
+      },
+      {
+        "id": "equipo",
+        "concept": "Reparación de equipo",
+        "type": "fixed",
+        "value": 500,
+        "amount": 500,
+        "signedAmount": -500
+      }
+    ],
+    "exportContext": {
+      "schema": "sa-splitx-payroll/v1",
+      "period": {
+        "start": "2026-10-01",
+        "end": "2026-10-15"
+      },
+      "currency": "DOP",
+      "hoursPerDay": 8,
+      "projectId": "obra-centro",
+      "projectName": "Obra Centro",
+      "totals": {
+        "employeeCount": 1,
+        "gross": 10000,
+        "bonuses": 500,
+        "deductions": 800,
+        "loans": 0,
+        "net": 9700
+      }
+    }
+  }
+]
