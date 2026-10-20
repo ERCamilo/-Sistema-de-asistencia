@@ -91,6 +91,8 @@ export function buildSplitXExport(rows, options) {
     const sum = field => employees.reduce((total, employee) => total + numeric(employee[field]), 0);
     const context = {
         schema: SCHEMA, period: { start: period.start, end: period.end },
+        companyName: text(options.companyName).trim(),
+        payrollName: `Nómina período ${period.start.split('-').reverse().join('/')} - ${period.end.split('-').reverse().join('/')}`,
         currency: options.currency || 'DOP', hoursPerDay,
         ...(options.projectId ? { projectId: text(options.projectId), projectName: text(options.projectName) } : {}),
         totals: {

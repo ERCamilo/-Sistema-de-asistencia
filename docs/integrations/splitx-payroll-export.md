@@ -14,6 +14,8 @@ Cada empleado incorpora `exportContext`, compartido por las filas del mismo list
 {
   "schema": "sa-splitx-payroll/v1",
   "period": { "start": "2026-10-01", "end": "2026-10-15" },
+  "companyName": "Constructora Ejemplo",
+  "payrollName": "Nómina período 01/10/2026 - 15/10/2026",
   "currency": "DOP",
   "hoursPerDay": 8,
   "projectId": "obra-centro",
@@ -30,6 +32,8 @@ Cada empleado incorpora `exportContext`, compartido por las filas del mismo list
 ```
 
 - `period.start/end`: fechas civiles `YYYY-MM-DD`, ambas incluidas. No son timestamps ni deben convertirse de zona horaria. Mostrar, por ejemplo, **01/10/2026 – 15/10/2026**.
+- `companyName`: nombre de empresa configurado en **Ajustes → General**, sin espacios exteriores. Se conserva separado del nombre de obra; si no está configurado, se exporta vacío.
+- `payrollName`: etiqueta lista para mostrar: **Nómina período 01/10/2026 - 15/10/2026**. Se deriva de las mismas fechas civiles validadas, conservando día/mes/año incluso al cambiar de año o zona horaria. En SplitX puede mostrarse debajo de `companyName`. Ambos campos se incluyen en cada `exportContext` del JSON manual y también en el nivel superior del mensaje del puente.
 - Se exporta el período revisado; no se añade un ID de nómina. **El período no identifica de forma única un envío**: una obra puede tener listados parciales, revisiones o correcciones del mismo período. No usarlo por sí solo para sobrescribir o deduplicar pagos.
 - `projectId`: solo en modo por obra. `projectName`: nombre de la vista cuando está disponible; puede estar vacío. No confundir nombre vacío con ausencia de ID de obra.
 - `totals`: exclusivamente las filas efectivamente exportadas, después del filtro de líder y las categorías seleccionadas. Un listado parcial no es el total de toda la obra. Las categorías desmarcadas tienen importe cero y arreglos de conceptos vacíos.
@@ -103,7 +107,7 @@ Los préstamos conservan su desglose anterior; no se agregan a `deductionDetails
 
 1. Aceptar los campos adicionales sin rechazar el formato anterior. En el arreglo manual, leer contexto de `employees[0].exportContext` cuando haya filas; en el puente, leerlo del nivel superior o de la primera fila.
 2. Validar que las filas comparten contexto/período/moneda/obra. Comparar cantidad y totales con las filas importadas; informar omisiones y rechazos.
-3. Mostrar período, obra cuando exista, ficha/nombre y total a distribuir. Incorporar días y puestos como información de consulta.
+3. Mostrar empresa (`companyName`), título de nómina (`payrollName`), obra cuando exista, ficha/nombre y total a distribuir. Incorporar días y puestos como información de consulta.
 4. Mostrar cada bonificación/descuento con concepto e importe y, si es porcentual, su porcentaje/base. Conservar `monto` como neto calculado por SA.
 5. Distinguir importación, preparación de distribución y pago efectivo. El período y `sourceEmployeeId` ayudan a conciliar, pero no sustituyen una política de reenvíos/correcciones.
 

@@ -19,3 +19,7 @@ Pruebas de jornadas distintas, fracciones, múltiples posiciones, conceptos porc
 ## Fuera de esta entrega
 
 Validación central del destino, bloqueo de envíos repetidos, confirmación count:0, recuperación de fallos y negociación/timeout del puente quedan para el siguiente bloque autorizado. Revisión del receptor SplitX y prueba real entre aplicaciones pendientes: este repositorio solo contiene SA.
+
+## Ampliación: empresa y etiqueta del período
+
+Exportar `companyName` desde Ajustes/General y `payrollName` como «Nómina período DD/MM/YYYY - DD/MM/YYYY». Conservar las fechas ISO por separado, el contrato anterior y la separación entre empresa y obra. Ambos campos deben coincidir en portapapeles, archivo y puente. La etiqueta se forma desde las fechas civiles, sin conversiones de zona horaria, y no constituye un ID de nómina.

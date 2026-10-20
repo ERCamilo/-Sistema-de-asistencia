@@ -166,7 +166,7 @@ describe('Nómina por obra con filtro de líder', () => {
         const rows = await exported();
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({ sourceEmployeeId: 'E2', employeeName: 'Beto Dos' });
-        expect(rows[0].exportContext).toMatchObject({ projectId: P, period: { start: '2026-03-01', end: '2026-03-15' }, totals: { employeeCount: 1, net: rows[0].monto } });
+        expect(rows[0].exportContext).toMatchObject({ companyName: 'SA', payrollName: 'Nómina período 01/03/2026 - 15/03/2026', projectId: P, period: { start: '2026-03-01', end: '2026-03-15' }, totals: { employeeCount: 1, net: rows[0].monto } });
         expect(rows[0].leaders.map(leader => leader.id)).toEqual(['L2']);
         expect(rows[0].positions.map(position => position.id)).toEqual(['POS-2']);
     });

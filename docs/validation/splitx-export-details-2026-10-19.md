@@ -15,3 +15,9 @@ Registros locales: `/workspace/.cloud-setup/splitx-export-{red,wiring-red,focuse
 La comprobación Chromium ejecuta el exportador, no el flujo completo del sitio SplitX. Las pruebas del puente simulan ventanas y respuestas; no se enviaron datos a un receptor externo. Falta adaptar/verificar SplitX y hacer una prueba real entre ambas aplicaciones. Se conserva el protocolo de transporte y sus limitaciones para una entrega posterior. El nombre de obra puede quedar vacío si la vista no lo proporciona; el ID y el período sí se exportan en modo por obra. Los líderes reflejan el catálogo al exportar, sin reconstruir un historial separado.
 
 No cambian pagos, cierres, cálculos salariales, datos persistidos, ni esquema de empleados/asistencia. Los importes originales siguen intactos. No se incorpora un ID de nómina; el período no basta por sí solo para resolver duplicados.
+
+## Ampliación de empresa y etiqueta del período
+
+Base `origin/main` c9c7518e, después de integrar #273. Se añadieron `companyName` desde Ajustes/General y `payrollName` con el formato «Nómina período DD/MM/YYYY - DD/MM/YYYY». Las comprobaciones de portapapeles/archivo/puente y modo por obra fallaron antes de conectarlos y pasaron después. También se verificó un período que cruza de año y una empresa sin configurar.
+
+Suite completa: **6.140 pruebas / 634 suites**, todas aprobadas, cero omitidas. Build de producción: 418 módulos, 3.023.846 bytes y 26 assets de precache. Guard de escrituras y precache fuente aprobados. Registros locales: `/workspace/.cloud-setup/splitx-company-{red,focused,full,build,state-guard}.log` y `splitx-company-jest.json`. La presentación de los nuevos campos en el receptor SplitX sigue pendiente de integración.
