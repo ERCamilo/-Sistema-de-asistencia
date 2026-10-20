@@ -179,6 +179,16 @@ describe('Nómina por obra con filtro de líder', () => {
         expect(rows[0].exportContext.hoursPerDay).toBe(4);
         expect(rows[0].workDays.regular).toBe(2);
         expect(rows[0].workDays.total).toBe(2);
+        expect(rows[0].positions[0].dailyRate).toBe(400);
+    });
+
+    test('la tarifa diaria exportada procede del sueldo individual aplicado por el cálculo de la obra', async () => {
+        stateManager.batchSetState(() => { state.employees[0].positionSalaries = { 'POS-1': 150 }; });
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        const rows = await exported();
+        expect(rows[0].positions[0]).toMatchObject({ id: 'POS-1', dailyRate: 1200, workDays: { total: 1 } });
+        expect(rows[1].positions[0].dailyRate).toBe(800);
+        expect(rows[0].bruto).toBe(1200);
     });
 
     test('dos descuentos reales conservan concepto, base porcentual y monto fijo hasta el JSON', async () => {

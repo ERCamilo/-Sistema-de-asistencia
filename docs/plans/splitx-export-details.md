@@ -23,3 +23,11 @@ Validación central del destino, bloqueo de envíos repetidos, confirmación cou
 ## Ampliación: empresa y etiqueta del período
 
 Exportar `companyName` desde Ajustes/General y `payrollName` como «Nómina período DD/MM/YYYY - DD/MM/YYYY». Conservar las fechas ISO por separado, el contrato anterior y la separación entre empresa y obra. Ambos campos deben coincidir en portapapeles, archivo y puente. La etiqueta se forma desde las fechas civiles, sin conversiones de zona horaria, y no constituye un ID de nómina.
+
+## Ampliación: tarifa diaria y abonos parciales
+
+- Añadir `positions[].dailyRate`: tarifa por hora registrada en el desglose de cálculo × jornada de la obra. Conservar tarifas individuales y puestos históricos; no inferir la tarifa del neto/días ni del catálogo actual. Si no hay tarifa aplicada disponible o hay varias distintas para el mismo puesto, exportar `null`.
+- Añadir `loanBreakdown`: concepto/ID, estado propuesto o ya registrado, deuda anterior, abono, reparto capital/interés y saldo proyectado. Consumir el reparto real del paso 4, incluidos «otro monto», «solo interés», cero, cuotas y préstamos seleccionados sin abono asignado.
+- Añadir `loanSummary`: totales de la selección y deuda vigente de todos los préstamos activos del empleado, claramente separados. La proyección requiere saldo previo y abonos no registrados. Si faltan datos, usar `null`/`projectionAvailable:false` sin inventar capital, interés o saldos. La deuda total es la del momento de exportación, no una reconstrucción al cierre del período.
+- En abonos ya registrados (`linked`), conservar `paymentId` y el saldo actual si está disponible; no generar otro descuento de deuda. Los nuevos datos son informativos y no cambian el neto ya calculado, pagos, cierres ni persistencia. Mantener los campos legacy intactos.
+- Verificar reparto real con varios préstamos, deudas no seleccionadas, categorías excluidas, períodos pagados y comparación de portapapeles/archivo/puente. Actualizar guía y ejemplo completo con un préstamo de 3.000, abono 500 y saldo proyectado 2.500; conservar los dos cargos y la empresa/período ya incorporados.

@@ -1,4 +1,5 @@
 import { toSplitXRows } from './PayrollLoans.js';
+import { getBalance, LOAN_STATUS, round2 } from '../loans/LoansService.js';
 
 const SCHEMA = 'sa-splitx-payroll/v1';
 const DAY_FIELDS = { regular: 'regularHours', overtime: 'overtimeHours', holiday: 'holidayHours', restDay: 'restDayHours' };
@@ -44,6 +45,12 @@ function adjustmentDetails(details, direction, label) {
     });
 }
 
+function appliedDailyRate(parts, hoursPerDay) {
+    if (parts.some(part => part.hourlyRate == null)) return null;
+    const rates = [...new Set(parts.map(part => numeric(part.hourlyRate)))];
+    return rates.length === 1 ? rates[0] * hoursPerDay : null;
+}
+
 function organization(source, options, hoursPerDay) {
     const employee = (options.employees || []).find(item => text(item.id) === text(source._employeeId));
     const worked = source._positionBreakdown || [];
@@ -58,10 +65,60 @@ function organization(source, options, hoursPerDay) {
         if (leader) leaders.set(text(leader.id), { id: text(leader.id), name: text(leader.name), number: text(leader.number) });
         return {
             id, name: text(parts[0]?.positionName || position?.name),
-            leaderId: leader ? text(leader.id) : null, workDays: equivalentDays(parts, hoursPerDay)
+            leaderId: leader ? text(leader.id) : null, workDays: equivalentDays(parts, hoursPerDay),
+            dailyRate: appliedDailyRate(parts, hoursPerDay)
         };
     });
     return { positions, leaders: [...leaders.values()] };
+}
+
+function loanExports(source, options) {
+    const employee = (options.employees || []).find(item => text(item.id) === text(source._employeeId));
+    const loans = Array.isArray(employee?.loans) ? employee.loans : null;
+    const optionalMoney = value => value == null ? null : round2(numeric(value));
+    const loanBreakdown = (source._loanDetails || []).map(detail => {
+        const recorded = detail.linked === true;
+        const loan = loans?.find(item => text(item.id) === text(detail.loanId));
+        const deductionAmount = round2(numeric(detail.selectedAmount));
+        const balanceBefore = recorded ? null : optionalMoney(detail.balance);
+        if (deductionAmount < 0 || (balanceBefore != null && balanceBefore + 0.005 < deductionAmount)) {
+            throw new Error('El abono de un préstamo supera su deuda o tiene un importe no válido.');
+        }
+        return {
+            loanId: text(detail.loanId), concept: text(loan?.concept || detail.concept) || 'Préstamo',
+            status: recorded ? 'recorded' : 'proposed',
+            ...(recorded ? { paymentId: text(detail.paymentId) } : {}),
+            balanceBefore, deductionAmount,
+            principalAmount: recorded ? null : optionalMoney(detail.capitalPart),
+            interestAmount: recorded ? null : optionalMoney(detail.interestPart),
+            projectedBalanceAfter: balanceBefore == null ? null : round2(balanceBefore - deductionAmount),
+            currentBalance: loan ? getBalance(loan) : null
+        };
+    });
+    const deductionAmount = round2(numeric(source._loans));
+    const sum = field => round2(loanBreakdown.reduce((total, detail) => total + numeric(detail[field]), 0));
+    if (loanBreakdown.length && Math.abs(sum('deductionAmount') - deductionAmount) > 0.005) {
+        throw new Error('El detalle de préstamos no coincide con el descuento de esta nómina.');
+    }
+    const complete = sum('deductionAmount') === deductionAmount;
+    const projectionAvailable = complete && loanBreakdown.every(detail => detail.status === 'proposed' && detail.balanceBefore != null)
+        && new Set(loanBreakdown.map(detail => detail.loanId)).size === loanBreakdown.length;
+    const totalOutstandingBalance = loans == null ? null : round2(loans
+        .filter(loan => loan.status === LOAN_STATUS.ACTIVE)
+        .reduce((total, loan) => total + getBalance(loan), 0));
+    const knownSum = field => complete && loanBreakdown.every(detail => detail[field] != null) ? sum(field) : null;
+    return {
+        loanBreakdown,
+        loanSummary: {
+            scope: 'selected-loans', projectionAvailable,
+            balanceBefore: projectionAvailable ? sum('balanceBefore') : null,
+            deductionAmount, principalAmount: knownSum('principalAmount'), interestAmount: knownSum('interestAmount'),
+            projectedBalanceAfter: projectionAvailable ? sum('projectedBalanceAfter') : null,
+            totalOutstandingBalance,
+            projectedTotalOutstandingBalance: projectionAvailable && totalOutstandingBalance != null && totalOutstandingBalance >= deductionAmount
+                ? round2(totalOutstandingBalance - deductionAmount) : null
+        }
+    };
 }
 
 /** Additive projection of the effective payroll preview; never records payments. */
@@ -84,6 +141,7 @@ export function buildSplitXExport(rows, options) {
             sourceEmployeeId: text(source._employeeId), employeeNumber: text(source._number),
             employeeName: text(source._employeeName), workDays: equivalentDays(breakdown, hoursPerDay),
             ...organization(source, options, hoursPerDay),
+            ...loanExports(source, options),
             bonusDetails: adjustmentDetails(source._bonusDetails, 1, 'Bonificación'),
             deductionDetails: adjustmentDetails(source._deductionDetails, -1, 'Descuento')
         };

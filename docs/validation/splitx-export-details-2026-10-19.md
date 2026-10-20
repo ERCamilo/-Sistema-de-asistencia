@@ -21,3 +21,14 @@ No cambian pagos, cierres, cálculos salariales, datos persistidos, ni esquema d
 Base `origin/main` c9c7518e, después de integrar #273. Se añadieron `companyName` desde Ajustes/General y `payrollName` con el formato «Nómina período DD/MM/YYYY - DD/MM/YYYY». Las comprobaciones de portapapeles/archivo/puente y modo por obra fallaron antes de conectarlos y pasaron después. También se verificó un período que cruza de año y una empresa sin configurar.
 
 Suite completa: **6.140 pruebas / 634 suites**, todas aprobadas, cero omitidas. Build de producción: 418 módulos, 3.023.846 bytes y 26 assets de precache. Guard de escrituras y precache fuente aprobados. Registros locales: `/workspace/.cloud-setup/splitx-company-{red,focused,full,build,state-guard}.log` y `splitx-company-jest.json`. La presentación de los nuevos campos en el receptor SplitX sigue pendiente de integración.
+
+## Ampliación del 20/10: tarifa diaria y préstamos
+
+- `positions[].dailyRate` procede de la tarifa aplicada en el desglose y la jornada de la obra. Pruebas: sueldo individual real de la obra, jornada distinta de la global, dos medias jornadas con distintas tarifas, posición histórica frente al catálogo actual y tarifa no disponible (`null`).
+- Se ejercitaron «todo», «solo interés», «otro monto», cero, límite de abono, cuotas y varios préstamos con pagos previos. Préstamos no seleccionados solo participan en la deuda total informativa. Las categorías desmarcadas no se descuentan. Abonos de períodos ya pagados se marcan `recorded`, conservan referencia y saldo actual y no generan una segunda proyección del pago.
+- El test del archivo descargado incluye un abono de 500 sobre 3.000; el de portapapeles/puente comprueba tarifa aplicada y los mismos datos de abono y saldo. Se mantiene el contrato base de `toSplitXRows` y se verifica que exportar no crea pagos ni modifica el registro de préstamos.
+- Pruebas nuevas antes de implementar: 13 fallos en los campos faltantes. Suite focal final: **52 pruebas**, aprobadas. Suite completa Node 20, dos workers: **6.156 pruebas / 635 suites**, aprobadas, cero omitidas.
+- Build: 418 módulos, 3.025.572 bytes y 26 assets. Guard de escrituras y precache fuente aprobados.
+- Chromium ejecutó el exportador real y generó el ejemplo actualizado: tarifa diaria 1.000, 10 jornadas, bruto 10.000, bonificación 500, descuentos 800, abono de préstamo 500, neto 9.200; deuda previa 3.000 → saldo proyectado 2.500. Se comprobó la igualdad de los datos canónicos antes/después. No se enviaron datos a SplitX.
+
+Registros locales: `/workspace/.cloud-setup/splitx-rates-loans-{red,focused,wiring,full,build,state-guard}.log`, `splitx-rates-loans-jest.json` y `splitx-rates-loans-chromium.json`. Sigue pendiente adaptar y probar el receptor SplitX. El reparto histórico y saldo anterior de abonos ya registrados no se reconstruye: se exportan como `null` cuando la vista no los proporciona, con proyección deshabilitada.
