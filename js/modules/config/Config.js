@@ -3,6 +3,8 @@
  * Aquí se almacenan las llaves de servicios externos y constantes de configuración.
  */
 
+import { APP_VERSION } from './AppVersion.js';
+
 export const firebaseConfig = {
     apiKey: "AIzaSyDF8sJaHAMx4mRqMWo_J6Cpd6_ZjIc4jYA",
     authDomain: "phoenix-asistencia-ab641.firebaseapp.com",
@@ -14,9 +16,8 @@ export const firebaseConfig = {
 };
 
 export const APP_CONFIG = {
-    // Lo sube el workflow «refresh PR build version» en cada cambio que entra a
-    // main (1.7.0 → 1.7.1 → …). No editar a mano el número de parche.
-    VERSION: "1.7.89",
+    // La versión y sus novedades se mantienen juntas en AppVersion.js.
+    VERSION: APP_VERSION,
     LAST_UPDATED: "2026-07-11",
     DATABASE_NAME: "attendance-app-db", // L2: coincide con el nombre real de la BD IndexedDB
     STORAGE_KEY: "asistencia-data",

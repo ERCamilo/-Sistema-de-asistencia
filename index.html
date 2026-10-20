@@ -89,6 +89,7 @@
     <link rel="stylesheet" href="css/voice-mvp.css">
     <link rel="stylesheet" href="css/pettycash-camera.css">
     <link rel="stylesheet" href="css/pettycash-screen.css">
+    <link rel="stylesheet" href="./css/app-updates.css">
 </head>
 
 <body>
@@ -148,70 +149,12 @@
         }
     </script>
 
-    <!-- 📱 Registro del Service Worker -->
+    <!-- Actualizar no recarga la pantalla: AppUpdates gestiona el consentimiento. -->
     <script type="module">
-        import { APP_CONFIG } from './js/modules/config/Config.js';
-        import { BUILD } from './js/modules/config/BuildInfo.js';
-        import { formatBuild } from './js/modules/utils/BuildVersion.js';
-
-        const queryWorkerVersion = (worker, timeoutMs = 2000) => new Promise((resolve) => {
-            if (!worker || typeof MessageChannel === 'undefined') return resolve(null);
-            const channel = new MessageChannel();
-            const timer = setTimeout(() => resolve(null), timeoutMs);
-            channel.port1.onmessage = (event) => {
-                clearTimeout(timer);
-                resolve(event?.data?.version || null);
-            };
-            try {
-                worker.postMessage('GET_VERSION', [channel.port2]);
-            } catch {
-                clearTimeout(timer);
-                resolve(null);
-            }
+        if ('serviceWorker' in navigator) window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' })
+                .then(registration => registration.update()).catch(error => console.warn('Service Worker:', error));
         });
-
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js', { scope: './' })
-                    .then((registration) => {
-                        console.log('✅ Service Worker registrado:', registration.scope);
-
-                        // Detectar actualizaciones
-                        registration.addEventListener('updatefound', () => {
-                            const newWorker = registration.installing;
-                            newWorker.addEventListener('statechange', async () => {
-                                if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
-                                    // Evitar molestar durante el onboarding
-                                    const isShowingOnboarding = !!document.getElementById('onboarding-preview-overlay');
-                                    if (isShowingOnboarding) return;
-
-                                    // Hay una nueva versión activa — ofrecer recargar
-                                    // con un botón en vez de pedir un F5 manual.
-                                    if (window.Notification) {
-                                        const availableBuild = await queryWorkerVersion(newWorker);
-                                        new window.Notification({
-                                            message: 'Nueva versión disponible.',
-                                            type: 'info',
-                                            variant: 'update',
-                                            position: 'top-center',
-                                            duration: 0,
-                                            updateInfo: {
-                                                appVersion: APP_CONFIG.VERSION,
-                                                currentBuild: formatBuild(BUILD).displayLocal,
-                                                availableBuild: formatBuild(availableBuild).displayLocal
-                                            },
-                                            actions: [{ label: 'Actualizar', onClick: () => window.location.reload() }]
-                                        }).show();
-                                    }
-                                }
-                            });
-                        });
-                    })
-                    .catch((error) => {
-                        console.warn('⚠️ Service Worker no registrado:', error);
-                    });
-            });
-        }
     </script>
 </body>
 

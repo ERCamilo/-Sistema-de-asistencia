@@ -32,6 +32,13 @@ if [ -n "$STAGED_JS" ]; then
     fi
 fi
 
+# El catálogo se genera explícitamente con npm run build; no incorporar cambios
+# sin preparar de AppVersion al índice desde el hook.
+if ! node scripts/release-manifest.cjs --check --staged; then
+    echo "  Ejecuta npm run build y prepara app-release.json junto con AppVersion.js."
+    exit 1
+fi
+
 SW_FILE="sw.js"
 
 # ── 1. Skip if sw.js doesn't exist ───────────────────────────────────────────

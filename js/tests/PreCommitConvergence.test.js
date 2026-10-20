@@ -25,6 +25,9 @@ describe('pre-commit build preparation', () => {
         fs.mkdirSync(path.join(repo, 'scripts'));
         fs.mkdirSync(path.join(repo, 'js', 'modules', 'config'), { recursive: true });
         fs.copyFileSync(hookSource, path.join(repo, '.githooks', 'pre-commit'));
+        for (const rel of ['scripts/release-manifest.cjs', 'js/modules/config/AppVersion.js', 'app-release.json']) {
+            fs.copyFileSync(path.join(projectRoot, rel), path.join(repo, rel));
+        }
         fs.copyFileSync(path.join(projectRoot, 'scripts', 'check-state-writes.mjs'), path.join(repo, 'scripts', 'check-state-writes.mjs'));
         fs.writeFileSync(path.join(repo, 'scripts', 'state-writes-baseline.json'), '{}\n');
         fs.writeFileSync(path.join(repo, 'sw.js'), "const CACHE_VERSION = '2026.0101.000000';\n");
@@ -76,4 +79,11 @@ describe('pre-commit build preparation', () => {
         expect(fs.readFileSync(swPath)).toEqual(workingBefore[0]);
         expect(fs.readFileSync(buildPath)).toEqual(workingBefore[1]);
     });
+    test('rechaza un catálogo preparado que no coincide con la política sin alterar el índice', () => {
+        fs.writeFileSync(path.join(repo, 'app-release.json'), '{}'); git(repo, 'add', 'app-release.json');
+        const before = git(repo, 'write-tree');
+        expect(() => execFileSync(shell(), ['.githooks/pre-commit'], { cwd: repo, stdio: 'pipe' })).toThrow();
+        expect(git(repo, 'write-tree')).toBe(before);
+    });
+
 });

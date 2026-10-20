@@ -95,6 +95,7 @@ function collectPrecacheAssets(root) {
         }
     }
 
+    if (fs.existsSync(path.join(root, 'app-release.json'))) assets.add('./app-release.json');
     return [...assets].sort();
 }
 

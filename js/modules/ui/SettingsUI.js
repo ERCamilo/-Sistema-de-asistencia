@@ -1,3 +1,4 @@
+import { openWhatsNew, checkAppUpdates } from './AppUpdates.js';
 import { DateUtils } from '../utils/DateUtils.js';
 import icons from './IconSystem.js';
 import { state, stateManager } from '../core/AppState.js';
@@ -41,6 +42,8 @@ export { SyncCard, refreshDeviceSettingsDiagnostics } from './settings/SettingsD
 const versionTapper = createVersionTapper();
 
 const _SETTINGS_ACTION_MAP = {
+    'whats-new': () => openWhatsNew(),
+    'check-app-updates': () => checkAppUpdates(),
     'version-tap': () => {
         const result = versionTapper.tap();
         const message = versionTapMessage(result);
@@ -610,7 +613,7 @@ export function SettingsTab() {
                     <div class="stg-footer">
                         <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;">
                             <span>${icons.get('info', { size: 12 })}</span>
-                            <button type="button" class="stg-version-tap" data-settings-action="version-tap" aria-label="Versión ${APP_CONFIG.VERSION}"><strong>Versión ${APP_CONFIG.VERSION}</strong></button>
+                            <button type="button" class="stg-version-tap" data-settings-action="version-tap" aria-label="Versión ${APP_CONFIG.VERSION}"><strong>Versión ${APP_CONFIG.VERSION}</strong></button><div class="app-release-actions"><button type="button" class="btn btn-secondary" data-settings-action="whats-new">Novedades</button><button type="button" class="btn btn-primary" data-settings-action="check-app-updates">Buscar actualizaciones</button></div><p id="app-update-status" role="status" aria-live="polite"></p>
                             <span style="opacity: 0.5;">·</span>
                             <span title="Versión del Service Worker (caché PWA)">
                                 SW <strong>${state.swVersion || '…'}</strong>

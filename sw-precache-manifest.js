@@ -3,6 +3,8 @@
 // Same-origin assets reachable from index.html at boot; sw.js precaches
 // them on install so the app can start offline right after a deploy.
 self.SW_PRECACHE_MANIFEST = [
+    "./app-release.json",
+    "./css/app-updates.css",
     "./css/attendance_ui.css",
     "./css/employee_profile.css?v=2",
     "./css/header.css",
@@ -40,6 +42,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/components/TooltipComponent.js",
     "./js/modules/components/VirtualScroll.js",
     "./js/modules/components/helpTexts.js",
+    "./js/modules/config/AppVersion.js",
     "./js/modules/config/BuildInfo.js",
     "./js/modules/config/Config.js",
     "./js/modules/config/FeatureFlags.js",
@@ -277,6 +280,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/weather/adapters/WeatherApiAdapter.js",
     "./js/modules/features/weather/index.js",
     "./js/modules/services/AppImageClient.js",
+    "./js/modules/services/AppUpdateManager.js",
     "./js/modules/services/AttendanceCachePruner.js",
     "./js/modules/services/AttendanceCleanup.js",
     "./js/modules/services/AttendanceCleanupRunner.js",
@@ -364,6 +368,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/services/SyncWatermark.js",
     "./js/modules/services/ValidationService.js",
     "./js/modules/services/index.js",
+    "./js/modules/ui/AppUpdates.js",
     "./js/modules/ui/AttendanceHandlers.js",
     "./js/modules/ui/AttendanceUI.js",
     "./js/modules/ui/BackToTop.js",

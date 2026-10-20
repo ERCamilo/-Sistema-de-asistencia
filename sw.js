@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.1020.011048'
+const CACHE_VERSION = '2026.1020.111733'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // Grafo completo de módulos de arranque, generado por scripts/sw-precache.cjs
@@ -309,6 +309,8 @@ self.addEventListener('activate', (event) => {
 // ─────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
+
+    if (url.origin === self.location.origin && url.pathname.endsWith('/app-release.json') && url.searchParams.has('__incoming')) return;
 
     // 1) Ignorar requests que no sean GET
     if (event.request.method !== 'GET') return;
