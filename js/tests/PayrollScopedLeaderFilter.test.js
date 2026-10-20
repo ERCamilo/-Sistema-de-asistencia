@@ -161,6 +161,45 @@ describe('Nómina por obra con filtro de líder', () => {
         expect(net(before) - net(after)).toBeCloseTo(400);
     });
 
+    test('el contexto y los totales pertenecen solo al listado del líder exportado', async () => {
+        PayrollUI.setLeaderFilter('L2');
+        const rows = await exported();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ sourceEmployeeId: 'E2', employeeName: 'Beto Dos' });
+        expect(rows[0].exportContext).toMatchObject({ projectId: P, period: { start: '2026-03-01', end: '2026-03-15' }, totals: { employeeCount: 1, net: rows[0].monto } });
+        expect(rows[0].leaders.map(leader => leader.id)).toEqual(['L2']);
+        expect(rows[0].positions.map(position => position.id)).toEqual(['POS-2']);
+    });
+
+    test('los días usan la jornada de la obra aunque la configuración global tenga otra', async () => {
+        stateManager.batchSetState(() => { state.settings.regularHoursPerDay = 16; });
+        await runtime.saveConfig({ regularHoursPerDay: 4 });
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        const rows = await exported();
+        expect(rows[0].exportContext.hoursPerDay).toBe(4);
+        expect(rows[0].workDays.regular).toBe(2);
+        expect(rows[0].workDays.total).toBe(2);
+    });
+
+    test('dos descuentos reales conservan concepto, base porcentual y monto fijo hasta el JSON', async () => {
+        stateManager.batchSetState(() => {
+            state.exportConfig.deductions = [
+                { id: 'law', name: 'Descuento de ley', type: 'percentage', value: 3, scope: 'global', projectId: P },
+                { id: 'repair', name: 'Reparación de equipo', type: 'fixed', value: 500, scope: 'global', projectId: P }
+            ];
+        });
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        const rows = await exported();
+        expect(rows[0].deductionDetails).toEqual([
+            expect.objectContaining({ concept: 'Descuento de ley', type: 'percentage', value: 3, baseAmount: rows[0].bruto, amount: rows[0].bruto * 0.03 }),
+            expect.objectContaining({ concept: 'Reparación de equipo', type: 'fixed', amount: 500, signedAmount: -500 })
+        ]);
+        PayrollUI.togglePayrollPreviewCategory('deductions', false);
+        const without = await exported();
+        expect(without[0].deductionDetails).toEqual([]);
+        expect(without[0].exportContext.totals.deductions).toBe(0);
+    });
+
     test('el detalle de un empleado se despliega y se pliega', () => {
         PayrollUI.setPayrollGuideStep('review');
         PayrollUI.togglePayrollReviewDetail('E1|bonuses');

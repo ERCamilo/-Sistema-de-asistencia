@@ -21,9 +21,9 @@ import {
     getPayrollLoanMode,
     PAYROLL_LOAN_MODE,
     summarizePayrollLoans,
-    togglePayrollLoan,
-    toSplitXRows
+    togglePayrollLoan
 } from './PayrollLoans.js';
+import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import {
     buildPayrollPreviewFingerprint,
@@ -3526,7 +3526,26 @@ function getSplitXExportData() {
         }
         return null;
     }
-    return toSplitXRows(previewRows);
+    const state = getState();
+    const view = getScopedPayrollView();
+    const projectId = view?.enabled ? view.projectId : null;
+    const scope = projectId ? { ...captureEntityProjectScope(), enabled: true, projectId } : null;
+    const scoped = collection => (collection || []).filter(item => !scope || entityInScope(item, scope));
+    try {
+        return buildSplitXExport(previewRows, {
+            period: {
+                start: view?.enabled ? view.period?.periodStart : state.exportConfig?.periodStart,
+                end: view?.enabled ? view.period?.periodEnd : state.exportConfig?.periodEnd
+            },
+            currency: state.settings?.currency || 'DOP',
+            regularHoursPerDay: view?.enabled ? view.config?.regularHoursPerDay : state.settings?.regularHoursPerDay,
+            projectId, projectName: view?.projectName,
+            employees: scoped(state.employees), positions: scoped(state.positions), leaders: scoped(state.leaders)
+        }).employees;
+    } catch (error) {
+        window.showNotification?.(`❌ No se puede exportar: ${error.message}`, 'error');
+        return null;
+    }
 }
 
 export function copyExportJSON() {
@@ -3797,7 +3816,6 @@ export function sendToSplitX(targetUrl) {
     if (!data || data.length === 0) return null;
 
     const state = getState();
-    const scopedView = getScopedPayrollView();
     const resolvedTargetUrl = targetUrl || state?.settings?.splitxUrl || 'https://splitx.erlin.do';
     let targetOrigin;
     try {
@@ -3805,16 +3823,6 @@ export function sendToSplitX(targetUrl) {
     } catch {
         targetOrigin = 'https://splitx.erlin.do';
     }
-
-    const currency = state?.settings?.currency || 'DOP';
-    const period = {
-        start: scopedView?.enabled
-            ? (scopedView.period?.periodStart || null)
-            : (state?.exportConfig?.periodStart || null),
-        end: scopedView?.enabled
-            ? (scopedView.period?.periodEnd || null)
-            : (state?.exportConfig?.periodEnd || null)
-    };
 
     const transferId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
         ? crypto.randomUUID()
@@ -3826,9 +3834,7 @@ export function sendToSplitX(targetUrl) {
         source: 'Sistema-de-Asistencia',
         version: '1.0',
         timestamp: new Date().toISOString(),
-        currency,
-        period,
-        ...(scopedView?.enabled && scopedView?.projectId ? { projectId: scopedView.projectId, projectName: scopedView.projectName } : {}),
+        ...data[0].exportContext,
         employees: data,
         data: data,
         payroll: data,
