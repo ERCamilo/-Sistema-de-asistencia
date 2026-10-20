@@ -160,3 +160,7 @@ URLs de los webhooks de caja chica.
 
 Software propietario — Todos los derechos reservados. © 2026 Erlin Camilo.
 Ver [`LICENSE`](LICENSE).
+
+### Versiones y novedades
+
+Cada entrega visible actualiza `APP_VERSION` y la entrada superior de `CHANGELOG` en `js/modules/config/AppVersion.js`. Ejecuta `npm run build` y `npm run sw:precache`; el hook/CI sellan el build del service worker. Consulta [la guía de novedades y actualización](docs/sistema-de-novedades.md).

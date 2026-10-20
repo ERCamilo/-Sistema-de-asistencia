@@ -1,0 +1,24 @@
+{
+  "version": "1.7.90",
+  "changelog": [
+    {
+      "version": "1.7.90",
+      "date": "2026-10-20",
+      "title": "Novedades y actualizaciones a tu ritmo",
+      "items": [
+        "Consulta las mejoras de cada versión desde Ajustes.",
+        "Elige cuándo actualizar sin interrumpir tu trabajo.",
+        "Busca actualizaciones y revisa sus novedades antes de instalarlas."
+      ]
+    },
+    {
+      "version": "1.7.89",
+      "date": "2026-10-20",
+      "title": "Exportaciones a SplitX más completas",
+      "items": [
+        "Exporta empresa, período, días y tarifas por puesto.",
+        "Consulta abonos de préstamos y saldos proyectados por separado."
+      ]
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { startAppUpdates } from './modules/ui/AppUpdates.js';
 import { readPayrollClosuresForBackup, payrollClosureRestoreOptions } from './modules/features/payroll/PayrollClosureBackup.js';
 import { beginFullImportIsolation, endFullImportIsolation, resumeSuspendedSaveOptions, beginLocalDataWipe } from './modules/services/PersistenceService.js';
 import { installCrossTabDatasetGuard } from './modules/services/CrossTabDatasetGuard.js';
@@ -7923,6 +7924,7 @@ function _initOutgoingConflictGuard() {
         // el default existe antes de que cualquier código post-hydrate pregunte
         // por el proyecto activo.
         await initProjectsInfrastructure();
+        startAppUpdates();
         // La cuenta existente ya tiene roster local: mostrar su asignación
         // pendiente antes del primer render, aunque M2 tenga un marker viejo.
         await refreshProjectReconciliationSnapshot();

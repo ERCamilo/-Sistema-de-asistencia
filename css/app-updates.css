@@ -1,0 +1,10 @@
+.release-modal .modal-body { max-height: 65dvh; overflow-y: auto; }
+.release-notes { color: var(--stg-text-primary, #f8fafc); overflow-wrap: anywhere; }
+.release-notes h3 { font-size: 1.05rem; margin-bottom: .25rem; }
+.release-notes p { color: var(--stg-text-secondary, #94a3b8); line-height: 1.5; }
+.release-notes li { margin: .65rem 0; line-height: 1.5; }
+.release-notes section + section { border-top: 1px solid var(--stg-border, #334155); padding-top: .5rem; margin-top: 1rem; }
+.release-modal button { min-height: 44px; white-space: normal; }
+.app-release-actions { display: flex; gap: .7rem; flex-wrap: wrap; margin-top: 1rem; }
+.app-release-actions button { min-height: 44px; }
+#app-update-status { line-height: 1.5; }
