@@ -45,6 +45,10 @@ function show(kind, releases, version, close, apply) {
         ]
     });
     modal.open(); modal.element.id = kind === 'news' ? 'whats-new-modal' : 'update-modal';
+    const body = modal.element.querySelector('.modal-body');
+    body.tabIndex = 0;
+    body.setAttribute('role', 'region');
+    body.setAttribute('aria-label', kind === 'news' ? 'Novedades de las versiones' : 'Detalles de la actualización');
     modal.element.classList.add('release-modal'); return true;
 }
 async function refreshWorker() {
