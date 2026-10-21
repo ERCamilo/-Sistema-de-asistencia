@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const ROOT = path.resolve(__dirname, '..');
+let phase = 'inicio de Chromium';
 const styles = [...fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="(css\/[^"]+)"/g)].map(m => `<link rel="stylesheet" href="/${m[1]}">`).join('');
 const names = fs.readFileSync(path.join(ROOT, 'js/modules/data/firebase.js'), 'utf8').match(/export\s*\{([\s\S]*?)\}/)[1].replace(/\/\/[^\n]*/g, '').split(',').map(n => n.trim()).filter(Boolean);
 const stub = names.map(n => n === 'auth' ? 'export const auth={currentUser:null};' : `export const ${n}=()=>{};`).join('\n');
@@ -53,6 +54,7 @@ window.draw();window.ready=true;
   for(const width of [1440,1024,820,640,390,320]) {
    await page.setViewport({width,height:900});
    for(const profile of [true,false]) {
+    phase = `vínculo ${width}px, perfil ${profile}`;
     await page.evaluate(profile=>window.draw('consolidation',profile),profile);
     await page.waitForFunction(()=>document.querySelectorAll('.mini-attendance-review-overlay').length===1);
     await page.waitForSelector('[data-mini-unresolved-identity]');
@@ -99,20 +101,21 @@ window.draw();window.ready=true;
    }
   }
   for(const width of [1440,390,320]) {
+   phase = `editor individual ${width}px`;
    await page.setViewport({width,height:900});await page.evaluate(()=>window.draw('paste'));
    await page.waitForFunction(()=>document.querySelectorAll('.mini-attendance-review-overlay').length===1);
    await page.waitForSelector('.mini-import-connected-view-sa-comparison');
-   await page.click('[data-mini-action="review-text-detail"]');
+   await page.locator('[data-mini-action="review-text-detail"]').click();
    await page.waitForSelector('.mini-import-individual-review');
    assert.equal(await page.$('.mini-import-connected-view-sa-comparison'),null);
    await page.$eval('[data-mini-position-normal]',el=>{el.value='9';el.dispatchEvent(new Event('input',{bubbles:true}));});
    assert.equal(await page.$eval('[data-mini-action="confirm-unit"]',el=>el.disabled),false);
-   await page.click('[data-mini-action="confirm-unit"]');
+   await page.locator('[data-mini-action="confirm-unit"]').click();
    await page.waitForSelector('[data-mini-adjusted-allocation]');
    assert.ok((await page.$eval('[data-mini-adjusted-allocation]',el=>el.textContent)).includes('9h'));
-   await page.click('[data-mini-action="review-text-detail"]');
+   await page.locator('[data-mini-action="review-text-detail"]').click();
    await page.waitForSelector('.mini-import-individual-review');
-   await page.click('[data-mini-action="back-review"]');
+   await page.locator('[data-mini-action="back-review"]').click();
    await page.waitForSelector('.mini-import-connected-view-sa-comparison');
    const size=await page.$eval('[data-modal-container]',el=>({width:el.clientWidth,scroll:el.scrollWidth}));
    assert.ok(size.scroll<=size.width+1,`Texto desborda a ${width}: ${JSON.stringify(size)}`);
@@ -125,4 +128,9 @@ window.draw();window.ready=true;
   }
   assert.deepEqual(errors,[],'Errores de ejecución');
  } finally {await browser?.close();await new Promise(resolve=>server.close(resolve));}
-})().catch(error=>{console.error(error);process.exitCode=1;});
+})().catch(error=>{
+ console.error(error);
+ const detail=`${phase}: ${error.stack||error.message}`.replace(/%/g,'%25').replace(/\r/g,'%0D').replace(/\n/g,'%0A');
+ console.error('::error title=Mini review layout::'+detail);
+ process.exitCode=1;
+});
