@@ -31,6 +31,10 @@ export class MiniTextComparisonAdapter {
             displayNumber: model.employee?.number || model.occurrences[0]?.number || '',
             normalHours: model.allocation.normalHours,
             overtimeHours: model.allocation.overtimeHours,
+            adjustedAllocation: model.confirmed && model.decision?.action === 'use_imported' &&
+                (model.appliedAllocation.normalHours !== model.allocation.normalHours ||
+                    model.appliedAllocation.overtimeHours !== model.allocation.overtimeHours)
+                ? model.appliedAllocation : null,
             sourceStatus: 'present',
             sources: model.occurrences.map(row => ({
                 deviceId: 'Texto pegado', number: row.number, name: row.name,

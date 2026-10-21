@@ -112,7 +112,7 @@ test('compare: several positions retain the detailed allocation editor', () => {
     const { modal, host } = paste({ report: '002. Luis Garcia *8h*' });
     click(host, 'review-text-detail');
     expect(host.querySelectorAll('[data-mini-position-allocation]')).toHaveLength(2);
-    for (const [id, hours] of [['p1', 3], ['p2', 5]]) {
+    for (const [id, hours] of [['p1', 3], ['p2', 6]]) {
         const row = host.querySelector(`[data-mini-position-allocation="${id}"]`);
         const input = row.querySelector('[data-mini-position-normal]');
         input.value = hours; input.dispatchEvent(new Event('input'));
@@ -120,9 +120,11 @@ test('compare: several positions retain the detailed allocation editor', () => {
     confirmDetail(host);
     expect(modal.conflictPlan.rows[0].positionAllocations).toEqual([
         { positionId: 'p1', normalHours: 3, overtimeHours: 0 },
-        { positionId: 'p2', normalHours: 5, overtimeHours: 0 }
+        { positionId: 'p2', normalHours: 6, overtimeHours: 0 }
     ]);
     expect(host.querySelector('.mini-import-connected-view-sa-comparison')).not.toBeNull();
+    expect(host.querySelector('[data-mini-adjusted-allocation]').textContent).toContain('9h');
+    expect(modal.draft.rows[0].sourceRow.totalHours).toBe(8);
 });
 
 test('compare: split normal/overtime allocation is preserved and errors allow retry', async () => {

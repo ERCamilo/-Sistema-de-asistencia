@@ -3397,6 +3397,11 @@ export class MiniAttendanceImportModal {
                             detail.classList.add('mini-import-action-secondary');
                             detail.addEventListener('click', () => this.openIndividualReview([item.textReviewKey]));
                             rowEl.append(detail);
+                            if (item.adjustedAllocation) {
+                                rowEl.append(element('p', `Se aplicará en SA: ${this.formatConnectedHours(
+                                    item.adjustedAllocation.normalHours, item.adjustedAllocation.overtimeHours
+                                )}`, { className: 'mini-import-help', dataset: { miniAdjustedAllocation: '' } }));
+                            }
                         }
 
                         if (dayState && dayState.conflictPlan && !item.needsDetailedReview) {
