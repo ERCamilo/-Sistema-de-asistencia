@@ -68,3 +68,59 @@ test('una propuesta local (nacida de la asistencia) conserva su marca y se reuti
  expect(again.id).toBe(entry.id);expect((await store.list()).filter(e=>e.id===entry.id)).toHaveLength(1);
  expect((await store.stage({...payload,proposalId:'proposal-2'},{peerId:'peer-1',scope})).local).toBeUndefined();
 });
+
+describe('una sola actividad por integración de personal', () => {
+ let activities, activityStore;
+ beforeEach(() => {
+  activities = new Map();
+  activityStore = {
+   recordActivity: jest.fn(entry => { activities.set(entry.id, { ...activities.get(entry.id), ...entry }); return activities.get(entry.id); }),
+   updateActivity: jest.fn((id, patch) => { activities.set(id, { ...activities.get(id), ...patch }); return activities.get(id); })
+  };
+  store.activityStore = activityStore;
+ });
+ const three = { ...payload, employees: [1, 2, 3].map(n => ({ ...payload.employees[0], miniLocalId: `mini-${n}`, number: String(n), name: `Emp ${n}` })) };
+
+ test('recibir N empleados registra una actividad con el conteo; reenviar no la duplica', async () => {
+  await store.stage(three, { peerId: 'peer-1', peerName: 'Mini A', scope });
+  await store.stage({ ...three, requestId: 'request-2' }, { peerId: 'peer-1', peerName: 'Mini A', scope });
+  expect(activities.size).toBe(1);
+  const [activity] = [...activities.values()];
+  expect(activity).toMatchObject({ kind: 'roster', status: 'pending', peerName: 'Mini A', saProjectId: 'P-1' });
+  expect(activity.summary).toContain('3 empleados');
+ });
+
+ test('aceptar actualiza esa misma actividad con cuántos se integraron', async () => {
+  const entry = await store.stage(three, { peerId: 'peer-1', scope });
+  const decisions = [{ miniLocalId: 'mini-1', action: 'create' }, { miniLocalId: 'mini-2', action: 'create' }, { miniLocalId: 'mini-3', action: 'pending' }];
+  await store.accept(entry.id, decisions, { scope, hoursPerDay: 8, version: intakeReviewVersion(model, scope, 8) });
+  expect(activities.size).toBe(1);
+  const [activity] = [...activities.values()];
+  expect(activity.status).toBe('partial');expect(activity.summary).toContain('2 de 3');
+  await store.accept(entry.id, [{ miniLocalId: 'mini-1', action: 'link', employeeId: model.employees[0].id }, { miniLocalId: 'mini-2', action: 'link', employeeId: model.employees[1].id }, { miniLocalId: 'mini-3', action: 'create' }], { scope, hoursPerDay: 8, version: intakeReviewVersion(model, scope, 8) });
+  expect([...activities.values()][0]).toMatchObject({ status: 'success' });expect([...activities.values()][0].summary).toContain('3 de 3');
+ });
+
+ test('un fallo del registro de actividad no impide guardar el personal', async () => {
+  activityStore.recordActivity.mockImplementation(() => { throw new Error('storage full'); });
+  const entry = await store.stage(three, { peerId: 'peer-1', scope });
+  expect((await store.list())).toHaveLength(1);expect(entry.status).toBe('pending');
+ });
+
+ test('una propuesta local nueva reemplaza a la pendiente anterior del mismo origen y reutiliza la actividad', async () => {
+  await store.stage(three, { peerId: 'attendance:texto', scope, local: true });
+  const two = { ...three, proposalId: 'proposal-2', employees: three.employees.slice(0, 2) };
+  await store.stage(two, { peerId: 'attendance:texto', scope, local: true });
+  const items = await store.list();
+  expect(items).toHaveLength(1);expect(items[0].payload.proposalId).toBe('proposal-2');
+  expect(activities.size).toBe(1);expect([...activities.values()][0].summary).toContain('2 empleados');
+ });
+
+ test('el reemplazo no toca propuestas de un Mini conectado ni de otro origen', async () => {
+  await store.stage(three, { peerId: 'peer-1', scope });
+  await store.stage({ ...three, proposalId: 'proposal-t' }, { peerId: 'attendance:texto', scope, local: true });
+  await store.stage({ ...three, proposalId: 'proposal-t2' }, { peerId: 'attendance:texto', scope, local: true });
+  expect((await store.list()).map(e => e.peerId).sort()).toEqual(['attendance:texto', 'peer-1']);
+  expect(activities.size).toBe(2);
+ });
+});

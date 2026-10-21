@@ -5,6 +5,8 @@ import { getLocalOwnerUid } from '../../services/LocalDataOwner.js';
 import { saveApplicationData, isLocalDataWipeInProgress } from '../../services/PersistenceService.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { peekEntityScope } from '../projects/ProjectContext.js';
+import { recordIntakeActivity } from './MiniEmployeeIntakeActivity.js';
+import { p2pActivityStore } from './P2PActivityStore.js';
 import { buildEmployeeIntakePlan, intakeReviewVersion, proposalContract } from './MiniEmployeeIntake.js';
 
 export function currentIntakeOwner() { const local=getLocalOwnerUid(), signedIn=globalThis.currentUser?.uid; if(local&&signedIn&&local!==signedIn)throw new Error('La cuenta no corresponde a los datos de este dispositivo.'); return String(signedIn || local || 'local-device'); }
@@ -19,9 +21,9 @@ const merge = (stored,current) => {
 const publish = plan => stateManager.setState({ employees:merge(state.employees,plan.employees), positions:merge(state.positions,plan.positions) });
 
 export class MiniEmployeeIntakeStore {
-    constructor({dbService=indexedDBService,readState=()=>state,readOwner=currentIntakeOwner,readScope=peekEntityScope,readHours,publish:emit=publish,onCommitted=()=>saveApplicationData({immediate:true}),createId}={}) {
+    constructor({dbService=indexedDBService,readState=()=>state,readOwner=currentIntakeOwner,readScope=peekEntityScope,readHours,publish:emit=publish,onCommitted=()=>saveApplicationData({immediate:true}),createId,activityStore=p2pActivityStore}={}) {
         this.readHours=readHours || (()=>Number(getActivePayrollSettings(readState())?.regularHoursPerDay)||8);
-        Object.assign(this,{dbService,readState,readOwner,readScope,publish:emit,onCommitted,createId});
+        Object.assign(this,{dbService,readState,readOwner,readScope,publish:emit,onCommitted,createId,activityStore});
     }
     assertContext(owner,projectId) {
         if(this.readOwner()!==owner || isLocalDataWipeInProgress() || this.dbService._isDatasetEpochStale?.()) throw new Error('La cuenta o los datos cambiaron. Vuelve a abrir la revisión.');
@@ -39,23 +41,29 @@ export class MiniEmployeeIntakeStore {
         if(!peerId || peerId.length>128 || !scope.enabled || scope.projectId!==payload.saProjectId) throw new Error('Mini u obra de destino inválidos.');
         await this.dbService.init(); this.assertContext(owner,payload.saProjectId);
         const id=entryId(peerId,payload), serialized=JSON.stringify({...payload,requestId:undefined});
-        return this.transaction(['settings'],(tx,resolve,abort)=>{
+        let created=false;
+        const staged=await this.transaction(['settings'],(tx,resolve,abort)=>{
             const settings=tx.objectStore('settings'), request=settings.get(keyFor(owner));
             request.onsuccess=()=>{try{
                 this.assertContext(owner,payload.saProjectId);
                 const ledger=request.result || {key:keyFor(owner),items:[],links:{}};
                 const previous=ledger.items.find(e=>e.id===id);
                 if(previous) {if(JSON.stringify({...previous.payload,requestId:undefined})!==serialized) throw new Error('La propuesta repetida tiene otro contenido.');resolve(previous);return;}
-                if(ledger.items.filter(e=>e.status==='pending').length>=12) throw new Error('La bandeja de personal está llena. Revisa las propuestas pendientes antes de recibir más.');
+                // A new proposal from pasted text/attendance replaces the pending one of the same origin.
+                const superseded=e=>local&&e.local&&e.status==='pending'&&e.peerId===peerId&&e.payload.saProjectId===payload.saProjectId;
+                const kept=ledger.items.filter(e=>!superseded(e));
+                if(kept.filter(e=>e.status==='pending').length>=12) throw new Error('La bandeja de personal está llena. Revisa las propuestas pendientes antes de recibir más.');
                 const entry={id,peerId,peerName,payload,status:'pending',receivedAt:Date.now(),mappings:[],...(local?{local:true}:{})};
-                ledger.items=[...ledger.items.filter(e=>e.status==='pending'),...ledger.items.filter(e=>e.status!=='pending').slice(-60),entry];
-                settings.put(ledger);resolve(entry);
+                ledger.items=[...kept.filter(e=>e.status==='pending'),...kept.filter(e=>e.status!=='pending').slice(-60),entry];
+                settings.put(ledger);created=true;resolve(entry);
             }catch(error){abort(error);}};
         });
+        if(created)recordIntakeActivity(staged,{activityStore:this.activityStore});
+        return staged;
     }
     async accept(id,decisions,{scope,hoursPerDay,version}) {
         const owner=this.readOwner();await this.dbService.init();this.assertContext(owner,scope.projectId);
-        let applied=null;
+        let applied=null, settled=null;
         const output=await this.transaction(['settings','employees','positions'],(tx,resolve,abort)=>{
             const requests=[tx.objectStore('settings').get(keyFor(owner)),tx.objectStore('employees').getAll(),tx.objectStore('positions').getAll()];let remaining=requests.length;
             requests.forEach(request=>{request.onsuccess=()=>{if(--remaining)return;try{
@@ -80,7 +88,7 @@ export class MiniEmployeeIntakeStore {
                 const result=proposalContract.validateResult({schema:'mini-roster-result/v1',proposalId:entry.payload.proposalId,saProjectId:scope.projectId,mappings:[...previous.values()]},entry.payload);
                 entry.mappings=result.mappings;entry.result=result;
                 entry.status=result.mappings.length===entry.payload.employees.length?'resolved':'pending';
-                entry.updatedAt=Date.now();
+                entry.updatedAt=Date.now();settled=entry;
                 result.mappings.forEach(m=>{ledger.links[linkId(entry.peerId,scope.projectId,m.miniLocalId)]=m;});
                 applied.employees.forEach(e=>tx.objectStore('employees').put(e));
                 applied.positions.forEach(p=>tx.objectStore('positions').put(p));
@@ -91,6 +99,7 @@ export class MiniEmployeeIntakeStore {
         if(applied) {
             this.publish(applied);
             eventBus.emit('mini-employee-intake:accepted',{peerId:JSON.parse(id)[0],saProjectId:scope.projectId,mappings:output.result.mappings});
+            if(settled)recordIntakeActivity(settled,{activityStore:this.activityStore});
             try { await this.onCommitted(); } catch(error) {output.syncWarning=String(error?.message||error);}
             this.assertContext(owner,scope.projectId);
         }
@@ -102,7 +111,7 @@ export class MiniEmployeeIntakeStore {
     }
     async discard(id,scope) {
         const owner=this.readOwner();await this.dbService.init();this.assertContext(owner,scope.projectId);
-        return this.transaction(['settings'],(tx,resolve,abort)=>{
+        const discarded=await this.transaction(['settings'],(tx,resolve,abort)=>{
             const settings=tx.objectStore('settings'),request=settings.get(keyFor(owner));
             request.onsuccess=()=>{try{
                 this.assertContext(owner,scope.projectId);
@@ -111,6 +120,8 @@ export class MiniEmployeeIntakeStore {
                 entry.status='discarded';entry.updatedAt=Date.now();settings.put(ledger);resolve(entry);
             }catch(error){abort(error);}};
         });
+        recordIntakeActivity(discarded,{activityStore:this.activityStore});
+        return discarded;
     }
     transaction(stores,work) {
         return new Promise((resolve,reject)=>{
