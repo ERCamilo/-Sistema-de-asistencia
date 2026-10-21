@@ -1,3 +1,6 @@
+import { loanDataKey } from './LoanDataKey.js';
+import { readLoanEmployee } from './LoanChronology.js';
+import { isFinancialLoan, isPayrollLoanPayment } from './LoanReadPolicy.js';
 /**
  * 📒 LoanPortfolio — cifras de la pantalla principal de Préstamos.
  *
@@ -24,29 +27,26 @@ import { findConsolidations, undoConsolidation, consolidationUndoOrder } from '.
 import { planLoanBackfill, applyLoanBackfill } from './LoanDataBackfill.js';
 
 const MONTHS_LONG = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-const counts = loan => loan && loan.status !== LOAN_STATUS.WRITTEN_OFF;
+const counts = isFinancialLoan;
 
 let _cache = { key: null, value: null };
 
 /** Firma de los datos de préstamos: cualquier abono, refinanciamiento o cambio la cambia (para cachés). */
 export function loanDataSignature(employees = []) {
-    return employees.map(emp => [emp.id, emp.updatedAt, emp.active, (emp.loans || []).map(loan => [
-        loan.id, loan.updatedAt, loan.status, loan.principal, loan.dueDate,
-        (loan.payments || []).map(p => [p.id, p.amount, p.voided]), (loan.refinancings || []).map(r => [r.id, r.interestAmount, r.voided])
-    ])]);
+    return loanDataKey(employees);
 }
 
 /** Copia de los empleados con consolidaciones deshechas y datos completados (solo para mostrar). */
 export function prepareLoanEmployees(employees = [], payPeriod = null) {
     const needsUndo = employees.some(emp => findConsolidations(emp).length);
     const needsFill = planLoanBackfill(employees, payPeriod).total > 0;
-    if (!needsUndo && !needsFill) return { employees, virtual: false };
+    if (!needsUndo && !needsFill) return { employees: employees.map(readLoanEmployee), virtual: false };
     const key = JSON.stringify([payPeriod, loanDataSignature(employees)]);
     if (_cache.key === key) return _cache.value;
     const copy = JSON.parse(JSON.stringify(employees));
     for (const emp of copy) for (const c of consolidationUndoOrder(emp)) undoConsolidation(emp, c.loan.id, { at: 0, projectScope: { enabled: false } });
     applyLoanBackfill(copy, payPeriod, { at: 0 });
-    const value = { employees: copy, virtual: true, undone: needsUndo, filled: needsFill };
+    const value = { employees: copy.map(readLoanEmployee), virtual: true, undone: needsUndo, filled: needsFill };
     _cache = { key, value };
     return value;
 }
@@ -67,7 +67,10 @@ export function computePortfolioSummary(employees = []) {
     let inactiveDebt = 0, inactivePeople = 0;
     let firstPayment = null;
     const ranking = [];
-    for (const emp of employees) {
+    const undatedClosures = [];
+    const unexplainedClosures = [];
+    for (const rawEmployee of employees) {
+        const emp = readLoanEmployee(rawEmployee);
         const summary = getAccountSummary(emp);
         if (summary.balance > 0.004) {
             people++;
@@ -99,28 +102,26 @@ export function computePortfolioSummary(employees = []) {
             let loanInterestBack = 0;
             for (const p of loan.payments || []) {
                 if (p.voided || p.adjustment) continue;
-                const viaNomina = p.origin === 'payroll' || p.source === 'payroll' || Boolean(p.payrollClosureId);
+                const viaNomina = isPayrollLoanPayment(p);
                 if (viaNomina) viaPayroll += Number(p.amount || 0); else viaDirect += Number(p.amount || 0);
             }
             for (const r of loan.refinancings || []) if (!r.voided) { interestTotal += Number(r.interestAmount || 0); refiTotal += Number(r.interestAmount || 0); }
-            for (const step of replayLoan(loan).steps) {
-                if (step.kind === 'payment') {
-                    capitalBack += -step.delta.capital;
-                    interestBack += -step.delta.interest;
-                    loanInterestBack += -step.delta.interest;
-                    excess += step.excess || 0;
-                    paidAll += -(step.delta.capital + step.delta.interest) + (step.excess || 0);
-                    if (!firstPayment || step.date < firstPayment) firstPayment = step.date;
-                } else if (step.kind === 'adjustment') {
-                    capitalBack -= step.delta.capital;
-                    interestBack -= Math.max(0, step.delta.interest);
-                    loanInterestBack -= Math.max(0, step.delta.interest);
-                    paidAll -= step.delta.capital + Math.max(0, step.delta.interest);
-                } else if (step.kind === 'settled') {
-                    forgiven += -(step.delta.capital + step.delta.interest);
-                    forgivenInterest += -step.delta.interest;
-                }
+            const replay = replayLoan(loan);
+            if (replay.closure?.undated) undatedClosures.push({ employeeId: emp.id, loanId: loan.id, number: loan.number });
+            if (replay.closure && !loan.closure?.reason) unexplainedClosures.push({
+                employeeId: emp.id, loanId: loan.id, number: loan.number,
+                amount: round2(replay.closure.capital + replay.closure.interest)
+            });
+            capitalBack += replay.collected.capital;
+            interestBack += replay.collected.interest;
+            loanInterestBack = replay.collected.interest;
+            excess += replay.credit;
+            paidAll += (loan.payments || []).filter(p=>!p.voided).reduce((t,p)=>t+Number(p.amount||0),0);
+            if (replay.closure) {
+                forgiven += replay.closure.capital;
+                forgivenInterest += replay.closure.interest;
             }
+            for (const step of replay.steps) if (step.kind === 'payment' && (!firstPayment || step.date < firstPayment)) firstPayment=step.date;
             // Estimado: los abonos cubren primero el interés inicial y después el de refinanciamientos.
             collectedInit += Math.min(Math.max(0, loanInterestBack), initInt);
         }
@@ -128,6 +129,8 @@ export function computePortfolioSummary(employees = []) {
     ranking.sort((a, b) => b.balance - a.balance);
     const balance = round2(capital + interest);
     return {
+        undatedClosures,
+        unexplainedClosures,
         porCobrar: {
             total: balance, capital: round2(capital), interest: round2(interest),
             interestInitial: round2(interest - refiPending), interestRefi: round2(refiPending),
@@ -152,7 +155,7 @@ export function computePortfolioSummary(employees = []) {
 
 /** Cambio de lo que deben en el mes de `today` (saldo hoy − saldo al empezar el mes). */
 export function computeMonthChange(employees = [], today) {
-    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).filter(counts).map(loan => ({ employeeId: emp.id, loan }))));
+    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))), { financialOnly: true });
     const monthStart = `${today.slice(0, 7)}-01`;
     const before = timeline.days.filter(d => d.date < monthStart).at(-1)?.result || 0;
     const now = timeline.days.filter(d => d.date <= today).at(-1)?.result || 0;

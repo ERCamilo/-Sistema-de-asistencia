@@ -1,3 +1,4 @@
+import { isFinancialLoan, isPayrollLoanPayment } from './LoanReadPolicy.js';
 /**
  * 📤 LoanExportPanel — botón y panel «Exportar» de la pantalla principal de
  * Préstamos (maqueta): formato (Excel o PDF), rango (mes, periodo de nómina o
@@ -115,7 +116,8 @@ export function ExportPanel(model) {
             <div><span>− Abonos aplicados a la deuda (${p.nPays})</span><b class="is-pay">${M(p.paid)}</b></div>
             ${p.closed > 0.004 ? `<div><span>− Cerrados o ajustes</span><b>${M(p.closed)}</b></div>` : ''}
             <div class="is-tot"><span>Saldo al terminar</span><b>${M(p.end)}</b></div>
-            ${p.excess > 0.004 ? `<div><span>Pagado de más en el rango</span><b class="is-bad">${M(p.excess)}</b></div>` : ''}
+            <div><span>Dinero recibido en el rango</span><b>${M(p.received)}</b></div>
+            ${p.excess > 0.004 ? `<div><span>Crédito generado en el rango</span><b class="is-bad">${M(p.excess)}</b></div>` : ''}
             ${p.any ? '' : '<div><span>Sin movimientos en este rango.</span></div>'}
         </div></div>
         <div class="lp-xp__go"><span>Se exporta la obra activa${model.prepared?.virtual ? ', leída como en esta pantalla (consolidaciones deshechas y datos completados)' : ''}.</span>
@@ -158,7 +160,7 @@ function collectEarnings(employees, payPeriod, today, count = 6) {
             const sum = k => (r.breakdown || []).reduce((t, b) => t + Number(b[k] || 0), 0);
             const elapsed = Math.round((Date.parse(end) - Date.parse(p.start)) / 86_400_000) + 1;
             const deducted = loans.reduce((t, l) => t + (l.payments || []).filter(x => !x.voided && !x.adjustment
-                && (x.origin === 'payroll' || x.source === 'payroll' || x.payrollClosureId)
+                && isPayrollLoanPayment(x)
                 && (x.payrollPeriodEnd ? x.payrollPeriodEnd === p.end : x.date >= p.end && x.date <= p.payDate))
                 .reduce((a, x) => a + Number(x.amount || 0), 0), 0);
             return {
@@ -232,12 +234,14 @@ async function toPdf(data, parts, { projectName: obra, today }) {
     };
     if (parts.resumen) {
         const rs = data.sheets.resumen;
-        const flow = rs.slice(4, 16).filter(r => r.length);
-        const cart = rs.slice(17).filter(r => r.length);
+        const split = rs.findIndex(row => String(row[0] || '').startsWith('Cartera al '));
+        const flow = rs.slice(4, split).filter(r => r.length);
+        const cart = rs.slice(split).filter(r => r.length);
         table('Cómo cambió el saldo', flow, { table: { tableWidth: (W - margin * 2) / 2 - 8 } });
+        const flowBottom = y;
         y = 76;
         doc.autoTable({ startY: y + 20, head: [cart[0]], body: cart.slice(1).map(r => [r[0], moneyText(r[1])]), margin: { left: W / 2 + 8, right: margin }, styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [30, 37, 43] } });
-        y = Math.max(doc.lastAutoTable.finalY, y) + 22;
+        y = Math.max(doc.lastAutoTable.finalY, flowBottom) + 22;
     }
     if (parts.historial && data.periods.length) {
         room(230);
@@ -264,8 +268,16 @@ async function toPdf(data, parts, { projectName: obra, today }) {
         table('Por periodo', [['Periodo', 'Venía de antes', 'Prestado (con interés)', 'Refinanciado', 'Cobrado', 'Saldo al cerrar'], ...data.periods.map(p => [p.label, p.open, p.lent, p.refi, p.paid, p.end])], { plain: [0] });
     }
     if (parts.empleados) table('Por empleado', data.sheets.empleados, { plain: [0, 1, 2, 3, 9] });
-    if (parts.prestamos) table('Por préstamo', data.sheets.prestamos, { plain: [0, 1, 2, 3, 5, 7, 11, 12] });
-    if (parts.movimientos) table('Movimientos del rango', data.sheets.movimientos, { plain: [0, 1, 2, 3, 4, 8] });
+    if (parts.prestamos) table('Por préstamo', data.sheets.prestamos, { plain: [0, 1, 2, 3, 5, 7, 11, 12, 13] });
+    if (parts.movimientos) {
+        table('Movimientos del rango · aplicación en la fecha del movimiento', data.sheets.movimientos.map(row => row.slice(0,9)), { plain: [0, 1, 2, 3, 4, 8] });
+        const allocation = data.sheets.movimientos.filter((row,index)=>index === 0 || row[4] === 'Abono')
+            .map(row=>[...row.slice(0,4), ...row.slice(9,14)]);
+        table('Aplicación al corte actual y asignación conservada al registrar', allocation, {plain:[0,1,2,3]});
+        const credits = data.sheets.movimientos.filter((row,index) => index === 0 || row.slice(14).some(value => Number(value) > .004))
+            .map(row => [...row.slice(0,4), ...row.slice(14)]);
+        table('Crédito en ajustes de nómina', credits, {plain:[0,1,2,3]});
+    }
     return doc.output('blob');
 }
 

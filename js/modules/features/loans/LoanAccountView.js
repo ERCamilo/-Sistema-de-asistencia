@@ -1,3 +1,4 @@
+import { readLoanEmployee } from './LoanChronology.js';
 /**
  * 🧾 LoanAccountView — ficha de préstamos del empleado como «cuenta» (fase B).
  *
@@ -14,7 +15,7 @@ import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import {
-    LOAN_STATUS, INSTALLMENT_MODE, getBalance, getEmployeePeriodSalary, getActiveLoanTerms, round2
+    LOAN_STATUS, INSTALLMENT_MODE, getBalance, getTotalDue, getEmployeePeriodSalary, getActiveLoanTerms, round2
 } from './LoansService.js';
 import { replayLoan } from './LoanTimeline.js';
 import {
@@ -74,16 +75,8 @@ export function closedPeriodEnds() {
 
 /** Interés y capital ya pagados del préstamo (reproduciendo sus movimientos). */
 export function loanPaidSplit(loan) {
-    let interest = 0;
-    let capital = 0;
-    for (const step of replayLoan(loan).steps) {
-        if (step.kind === 'payment' || step.kind === 'adjustment') {
-            if (step.kind === 'adjustment' && step.delta.interest < 0 && step.delta.capital === 0) continue; // devuelve un refinanciamiento
-            interest -= step.delta.interest;
-            capital -= step.delta.capital;
-        }
-    }
-    return { interest: round2(Math.max(0, interest)), capital: round2(Math.max(0, capital)) };
+    const paid = replayLoan(loan).collected;
+    return { interest:round2(paid.interest),capital:round2(paid.capital) };
 }
 
 /** Fechas con movimientos (las mismas que recorre el historial del saldo). */
@@ -97,7 +90,7 @@ function bar(parts, { big = false } = {}) {
     const pct = Math.round(paid / total * 100);
     return `<div class="la-bar${big ? ' la-bar--big' : ''}" role="img" aria-label="Pagado ${pct} %">
         <div class="la-bar__track">${parts.filter(p => p.value > 0).map(p => `<i class="la-c-${p.tone}" style="width:${(p.value / total * 100).toFixed(3)}%" title="${escapeAttr(p.label)} ${M(p.value, 0)}"></i>`).join('')}</div>
-        <div class="la-bar__legend">${parts.map(p => `<span><i class="la-c-${p.tone}"></i>${escapeHTML(p.label)} <b>${M(p.value, 0)}</b></span>`).join('')}<span class="la-bar__pct">${pct} % pagado</span></div>
+        <div class="la-bar__legend">${parts.map(p => `<span><i class="la-c-${p.tone}"></i>${escapeHTML(p.label)} <b>${M(p.value, 0)}</b></span>`).join('')}<span class="la-bar__pct">${pct} % pagado${big ? ' · préstamos abiertos' : ''}</span></div>
     </div>`;
 }
 
@@ -121,6 +114,7 @@ function originPill(origin) {
 // ─── Ficha ───────────────────────────────────────────────────────────────────
 
 export function LoanAccountDetail(emp) {
+    emp = readLoanEmployee(emp);
     const ui = accountUi();
     const today = getDateKey(new Date());
     const periods = getAccountPayPeriods(today);
@@ -169,7 +163,7 @@ export function LoanAccountDetail(emp) {
                 ${historyDays ? `<button type="button" class="la-link la-hub__hist" data-app-fn="toggleLoanHistory" data-arg="${escapeAttr(historyScope)}" aria-expanded="${historyOpen}">${historyOpen ? '▾ Ocultar historial' : `▸ Ver historial (${historyDays})`}</button>` : ''}
             </div>
             <div class="la-hub__facts">
-                <div><span>Próxima nómina${next ? ' · pago ' + dm(next.payDate) : ''}</span><b>${M(nextAmount)}</b><small class="${!agreement && salary > 0 && nextAmount > salary * 0.6 ? 'la-t-bad' : ''}">${agreement ? 'según el acuerdo' : salary > 0 ? `${Math.round(nextAmount / salary * 100)} % de lo que gana` : 'sin sueldo calculado'}</small></div>
+                <div><span>Vence para nómina${next ? ' · pago ' + dm(next.payDate) : ''}</span><b>${M(nextAmount)}</b><small class="${!agreement && salary > 0 && nextAmount > salary * 0.6 ? 'la-t-bad' : ''}">${agreement ? 'según el acuerdo' : salary > 0 ? `${Math.round(nextAmount / salary * 100)} % de lo que gana` : 'sin sueldo calculado'}</small></div>
                 <div><span>Gana por periodo</span><b>${salary > 0 ? '≈' + M(salary, 0) : '—'}</b><small>cálculo de Nómina</small></div>
                 <div><span>Último abono</span><b>${lastPay ? M(lastPay.amount, 0) : '—'}</b><small>${lastPay ? `${dmy(lastPay.date)} · ${lastPay.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'a la cuenta' : lastPay.parts.length === 1 ? 'préstamo #' + lastPay.parts[0].number : lastPay.parts.length + ' préstamos'}` : ''}</small></div>
             </div>
@@ -218,12 +212,14 @@ function LoanRow(emp, loan, numbers, payDates, today, isOpen) {
     const active = loan.status === LOAN_STATUS.ACTIVE;
     const pending = active ? getLoanPending(loan) : { capital: 0, interest: 0, balance: getBalance(loan) };
     const paid = loanPaidSplit(loan);
+    const unexplainedClosure = replayLoan(loan).closure;
     const lock = getLoanLock(loan);
     const due = getLoanDueDate(loan);
     const miss = active ? countMissedPayDates(loan, payDates, today, { graceDays: VENCIDO_GRACE_DAYS }) : 0;
     const refis = (loan.refinancings || []).filter(r => !r.voided && !r.adjustment);
     const refiTotal = round2(refis.reduce((t, r) => t + Number(r.interestAmount || 0), 0));
-    const initInterest = terms.interestIncluded ? 0 : round2(terms.principal * terms.interestRate / 100);
+    const originalTerms = getActiveLoanTerms({ ...loan, refinancings: [] });
+    const initInterest = originalTerms.interestIncluded ? 0 : round2(originalTerms.principal * originalTerms.interestRate / 100);
     const pills = [
         miss >= 2 ? `<span class="la-pill la-pill--bad">Vencido · ${miss} nóminas</span>` : miss === 1 ? `<span class="la-pill la-pill--warn">Vencido ${dm(due)}</span>`
             : active && due === today ? '<span class="la-pill la-pill--int">Se cobra hoy</span>'
@@ -238,24 +234,25 @@ function LoanRow(emp, loan, numbers, payDates, today, isOpen) {
             : loan.status === LOAN_STATUS.WRITTEN_OFF ? '<span class="la-pill la-pill--bad">Anulado</span>' : ''
     ].join('');
     const acts = getAccountMovements(emp).filter(m => (m.loanId === loan.id) || (m.parts || []).some(p => p.loanId === loan.id));
-    const visibleActs = acts.filter(m => accountUi().showVoid || !m.voided);
+    const visibleActs = acts.filter(m => accountUi().showVoid || !((m.parts || []).find(p=>p.loanId===loan.id)?.voided ?? m.voided));
     return `
     <div class="la-row${active ? '' : ' is-closed'}${isOpen ? ' is-open' : ''}">
         <div class="la-row__head" role="button" tabindex="0" data-app-fn="laToggleLoan" data-arg="${escapeAttr(loan.id)}" aria-expanded="${isOpen}">
             <span class="la-idx">#${n}</span>
             <div class="la-row__title"><b>${escapeHTML(loan.concept || 'Préstamo')} · ${dmy(terms.startDate)}</b>${pills}
-                <small>${M(terms.principal, 0)} al ${terms.interestRate} % · total ${M(terms.principal + initInterest + refiTotal, 0)} · ${active ? (due ? `cobro nómina del ${dm(due)}` : 'sin nómina de cobro guardada') : `pagado ${M(paid.interest + paid.capital, 0)}`}</small></div>
+                <small>${M(originalTerms.principal)} · tasa inicial ${originalTerms.interestRate} % · total con refinanciamientos ${M(getTotalDue(loan))} · ${active ? (due ? `cobro nómina del ${dm(due)}` : 'sin nómina de cobro guardada') : `pagado ${M(paid.interest + paid.capital, 0)}`}</small></div>
             <div class="la-row__amt"><b>${M(active ? pending.balance : 0)}</b><small>${paid.interest + paid.capital > 0 ? `pagado ${M(paid.interest + paid.capital, 0)}` : 'sin abonos'}</small></div>
             <span class="la-chev" aria-hidden="true">${isOpen ? '▴' : '▾'}</span>
         </div>
         ${isOpen ? `
         <div class="la-row__body">
             <span class="la-own">Detalle del préstamo #${n}</span>
+            ${unexplainedClosure && !loan.closure?.reason ? `<p class="la-t-warn" role="note">Cierre con saldo sin motivo: ${M(unexplainedClosure.capital + unexplainedClosure.interest)}. No es un pago registrado; revisa la evidencia antes de corregirlo.</p>` : ''}
             ${splitBar(paid, pending)}
             <div class="la-kv">
                 <div><span>Capital</span><b>${M(terms.principal, 0)}</b></div>
-                <div><span>Interés</span><b>${M(initInterest, 0)}</b></div>
-                <div><span>Refinanciado</span><b class="la-t-refi">${M(refiTotal, 0)}</b></div>
+                <div><span>Interés inicial</span><b>${M(initInterest)}</b></div>
+                <div><span>Interés refinanciado</span><b class="la-t-refi">${M(refiTotal)}</b></div>
                 <div><span>Pagado</span><b class="la-t-pay">${M(paid.interest + paid.capital, 0)}</b></div>
                 <div><span>Capital pend.</span><b class="la-t-cap">${M(pending.capital, 0)}</b></div>
                 <div><span>Saldo</span><b>${M(pending.balance, 0)}</b></div>
@@ -307,7 +304,7 @@ export function movementKey(m) {
 
 function movementText(m, loanId) {
     const part = loanId ? (m.parts || []).find(p => p.loanId === loanId) : null;
-    const splitTxt = p => `${p.interest ? M(p.interest, 0) + ' interés' : ''}${p.interest && p.capital ? ' · ' : ''}${p.capital ? M(p.capital, 0) + ' capital' : ''}`;
+    const splitTxt = p => [p.interest ? M(p.interest) + ' interés' : '', p.capital ? M(p.capital) + ' capital' : '', p.credit ? M(p.credit) + ' crédito pendiente' : ''].filter(Boolean).join(' · ');
     switch (m.kind) {
     case 'loan':
         // Al crearse: cuánto es capital (azul) y cuánto interés (amarillo).
@@ -317,14 +314,14 @@ function movementText(m, loanId) {
         };
     case 'payment': {
         const parts = m.parts.filter(p => m.voided || !p.voided);
-        const title = part && m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Parte del abono a la cuenta' : m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Abono a la cuenta' : `Abono al préstamo #${parts[0]?.number ?? ''}`;
+        const title = part && m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Parte del abono a la cuenta' : m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Abono a la cuenta' : part ? `Abono aplicado al préstamo #${part.number}` : m.accountTxId && parts.length > 1 ? 'Abono repartido entre préstamos' : `Abono al préstamo #${parts[0]?.number ?? ''}`;
         const sub = part ? (m.origin === MOVEMENT_ORIGIN.ACCOUNT ? `abono total ${M(m.amount)} en ${parts.length} préstamos` : splitTxt(part))
             : parts.map(p => `#${p.number} ${M(p.amount, 0)}`).join(' · ');
         return { title, sub, amount: '−' + M(part ? part.amount : m.amount), tone: 'pay', detail: part && m.origin === MOVEMENT_ORIGIN.ACCOUNT ? splitTxt(part) : '' };
     }
     case 'refinancing': {
         const parts = m.parts.filter(p => m.voided || !p.voided);
-        const title = part && m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Parte del refinanciamiento de la cuenta' : m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Refinanciamiento de la cuenta' : `Refinanciamiento del préstamo #${parts[0]?.number ?? ''}`;
+        const title = part && m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Parte del refinanciamiento de la cuenta' : m.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'Refinanciamiento de la cuenta' : part ? `Refinanciamiento del préstamo #${part.number}` : m.accountTxId && parts.length > 1 ? 'Refinanciamiento repartido' : `Refinanciamiento del préstamo #${parts[0]?.number ?? ''}`;
         const why = m.reason ? REFINANCE_REASON_LABEL[m.reason] || m.reason : '';
         const sub = [why, part ? '' : parts.map(p => `#${p.number} +${M(p.amount, 0)}`).join(' · '), m.nextDueDate ? `pasa a la nómina del ${dm(m.nextDueDate)}` : ''].filter(Boolean).join(' · ');
         return { title, sub, amount: '+' + M(part ? part.amount : m.amount), tone: 'refi' };
@@ -378,13 +375,17 @@ function MovementRow(m, { loanId = null } = {}) {
     const where = loanId ? `L${loanId}` : 'acc';
     const t = movementText(m, loanId);
     const isPayRefi = m.kind === 'payment' || m.kind === 'refinancing' || m.kind === 'adjustment';
-    const canVoid = !m.voided && !m.adjustedBy && m.kind !== 'loan';
+    const part = loanId ? (m.parts || []).find(p=>p.loanId===loanId) : null;
+    const shownVoided = part?.voided ?? m.voided;
+    const canVoid = !shownVoided && !m.adjustedBy && !part?.adjustedBy && m.kind !== 'loan';
+    const recorded = part?.recordedAllocation;
+    const changedSplit = recorded && (Math.abs(Number(recorded.capital)-part.capital)>.004 || Math.abs(Number(recorded.interest)-part.interest)>.004);
     const asking = ui.ask === `${key}#${where}`;
     return `
-    <div class="la-mv${m.voided ? ' is-void' : ''}">
+    <div class="la-mv${shownVoided ? ' is-void' : ''}">
         <span class="la-dot la-c-${t.tone}"></span>
-        <div class="la-mv__w"><b>${escapeHTML(t.title)}</b>${isPayRefi ? originPill(m.origin) : ''}${m.lock ? `<span class="la-pill" title="Está en un cierre de nómina">🔒 cierre</span>` : ''}${m.adjustedBy ? '<span class="la-pill la-pill--warn">ajustado</span>' : ''}${m.closureFix ? '<span class="la-pill la-pill--warn">quitado del cierre</span>' : ''}${(m.parts || []).some(p => p.needsReview) ? '<span class="la-pill la-pill--warn" title="Fuera de los días de pago: revísalo en la pantalla principal de Préstamos">revisar</span>' : ''}${m.voided ? '<span class="la-pill la-pill--bad">anulado</span>' : ''}
-            <small>${dmy(m.date)}${t.sub ? ' · ' + escapeHTML(t.sub) : ''}${m.closureFix ? ` · motivo: ${escapeHTML(m.closureFix.reason)} · saldo ${M(m.closureFix.before.accountBalance, 0)} → ${M(m.closureFix.after.accountBalance, 0)}` : ''}${m.note && isPayRefi ? ' · ' + escapeHTML(m.note) : ''}</small></div>
+        <div class="la-mv__w"><b>${escapeHTML(t.title)}</b>${isPayRefi ? originPill(m.origin) : ''}${m.lock ? `<span class="la-pill" title="Está en un cierre de nómina">🔒 cierre</span>` : ''}${m.adjustedBy ? '<span class="la-pill la-pill--warn">ajustado</span>' : ''}${m.closureFix ? '<span class="la-pill la-pill--warn">quitado del cierre</span>' : ''}${(m.parts || []).some(p => p.needsReview) ? '<span class="la-pill la-pill--warn" title="Fuera de los días de pago: revísalo en la pantalla principal de Préstamos">revisar</span>' : ''}${shownVoided ? '<span class="la-pill la-pill--bad">anulado</span>' : ''}
+            <small>${dmy(m.date)}${t.sub ? ' · ' + escapeHTML(t.sub) : ''}${m.closureFix ? ` · motivo: ${escapeHTML(m.closureFix.reason)} · saldo ${M(m.closureFix.before.accountBalance, 0)} → ${M(m.closureFix.after.accountBalance, 0)}` : ''}${m.note && isPayRefi ? ' · ' + escapeHTML(m.note) : ''}</small>${changedSplit ? `<small class="la-recorded-split">Aplicación al corte actual · al registrar: ${M(recorded.interest)} interés / ${M(recorded.capital)} capital</small>` : ''}</div>
         <div class="la-mv__a la-t-${t.tone}">${escapeHTML(t.amount)}${t.detailHtml ? `<small>${t.detailHtml}</small>` : t.detail ? `<small>${escapeHTML(t.detail)}</small>` : ''}</div>
         ${canVoid ? `<button type="button" class="la-x" data-app-fn="laAsk" data-arg="${escapeAttr(key)}" data-arg2="${escapeAttr(where)}" aria-label="Anular este movimiento" title="Anular">✕</button>` : '<span></span>'}
         ${asking ? ConfirmBox(m, key) : ''}
@@ -394,10 +395,13 @@ function MovementRow(m, { loanId = null } = {}) {
 function ConfirmBox(m, key) {
     const ui = accountUi();
     const today = getDateKey(new Date());
+    const targets = (m.parts || []).filter(part => !part.voided);
+    const scopeNotice = m.accountTxId
+        ? `<p>Transacción completa: <b>${M(targets.reduce((sum,part)=>sum+Number(part.amount||0),0))}</b> · préstamos ${targets.map(part=>`#${part.number}`).join(', ')}. La corrección afecta a todas estas partes.</p>` : '';
     if ((m.kind === 'payment' || m.kind === 'refinancing') && m.lock) {
         const open = nextPayPeriod(getAccountPayPeriods(today).filter(p => !closedPeriodEnds().has(p.end)), today);
         const what = m.kind === 'payment' ? 'abono' : 'refinanciamiento';
-        return `<div class="la-confirm la-confirm--lock">
+        return `<div class="la-confirm la-confirm--lock">${scopeNotice}
             <span>🔒 Este ${what} está en un <b>cierre de nómina</b>. El cierre no se toca; elige cómo corregirlo:</span>
             <div class="la-fix"><b>1 · Ajuste en la nómina abierta${open ? ` (${escapeHTML(open.short)})` : ''}</b>
                 <small>Se registra un movimiento nuevo que devuelve exactamente lo que este ${what} tocó. Lo posterior no se vuelve a repartir.</small>
@@ -409,12 +413,14 @@ function ConfirmBox(m, key) {
             <div class="la-fix__row"><button type="button" class="la-btn la-btn--sm la-btn--ghost" data-app-fn="laCancelAsk">Cancelar</button></div>
         </div>`;
     }
+    const targetTotal = round2(targets.reduce((total,p)=>total+p.amount,0));
+    const targetNumbers = [...new Set(targets.map(p=>'#'+p.number))].join(', ');
     const later = m.kind === 'payment' || m.kind === 'refinancing' || m.kind === 'adjustment';
     const msg = m.kind === 'agreement' ? 'Se cancela el acuerdo: Nómina vuelve a cobrar lo que vence.'
         : m.kind === 'edit' ? 'Se deshace la corrección y vuelven los datos anteriores del préstamo (solo la última corrección).'
         : m.kind === 'close' ? `El préstamo #${m.number} vuelve a quedar abierto con su saldo.`
         : m.kind === 'adjustment' ? 'Se quita el ajuste: el movimiento original vuelve a contar.'
-        : m.origin === MOVEMENT_ORIGIN.ACCOUNT ? `Vino de la cuenta y tocó ${m.parts.filter(p => !p.voided).length} préstamos: se anula en todos.`
+        : m.accountTxId ? `Se anula la transacción completa de ${M(targetTotal)}: ${targetNumbers}. Afecta a ${targets.length} préstamo${targets.length===1?'':'s'}.`
         : 'Se anula solo en este préstamo.';
     const label = m.kind === 'agreement' ? 'Cancelar acuerdo' : m.kind === 'edit' || m.kind === 'close' ? 'Deshacer' : m.kind === 'adjustment' ? 'Quitar ajuste' : 'Anular';
     return `<div class="la-confirm"><span>${escapeHTML(msg)}${later ? ' No está en un cierre: los abonos a la cuenta posteriores se vuelven a repartir.' : ''}</span>

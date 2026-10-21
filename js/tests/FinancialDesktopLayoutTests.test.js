@@ -756,8 +756,8 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('class="loans-overview__summary lp-aside"');
         expect(html).toContain('Resumen de cartera');
         expect(html).toContain('class="lp-mobile"');
-        expect(html).toContain('Por cobrar');
-        expect(html).toContain('Interés ganado');
-        expect(html).toContain('Prestado');
+        expect(html).toContain('Saldo actual');
+        expect(html).toContain('Interés cobrado');
+        expect(html).toContain('Capital entregado');
     });
 });
