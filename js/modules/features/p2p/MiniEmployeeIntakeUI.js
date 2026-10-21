@@ -53,7 +53,7 @@ export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},proje
                     ${choice.action==='create'&&candidates.length?`<label class="sa-mini-intake-check"><input type="checkbox" data-intake-different="${i}" ${choice.confirmDifferent?'checked':''}><span>Son personas distintas; revisé la coincidencia</span></label>`:''}`:''}
                     </div></details>`;
             }).join('')}</div>
-            <div class="sa-p2p-actions">${entry.status==='pending'?`<button type="button" class="btn btn-primary" data-intake-accept>Aceptar personal revisado</button><button type="button" class="btn btn-secondary" data-intake-duplicates>Resolver duplicados en SA</button><button type="button" class="btn btn-secondary" data-intake-discard>Descartar propuesta</button>`:`<button type="button" class="btn btn-primary" data-intake-done>Volver a conexiones</button>`}</div>
+            <div class="sa-p2p-actions">${entry.status==='pending'?`<button type="button" class="btn btn-primary" data-intake-accept>Aceptar personal revisado</button><button type="button" class="btn btn-secondary" data-intake-duplicates>Resolver duplicados en SA</button><button type="button" class="btn btn-secondary" data-intake-discard>Descartar propuesta</button>`:`<button type="button" class="btn btn-primary" data-intake-done>${entry.local?'Volver a la asistencia':'Volver a conexiones'}</button>`}</div>
             ${entry.status==='pending'?'<p>Descartar conserva los empleados que ya aceptaste.</p>':''}
         </section>`);
         host.querySelector('[data-intake-back]').onclick=()=>{if(!saving)onBack();};
@@ -78,10 +78,11 @@ export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},proje
             const currentScope=await resolveScope();if(currentScope.projectId!==scope.projectId)throw new Error('La obra cambió. Vuelve a revisar.');
             const outcome=await store.accept(entry.id,choices.map(({accepted,...choice})=>choice),{scope,hoursPerDay:hours,version});
             entry.mappings=outcome.result.mappings;entry.status=entry.mappings.length===entry.payload.employees.length?'resolved':'pending';
-            const sent=sendResult(entry.peerId,outcome.result);
+            // A proposal built from attendance is unknown to Mini, so there is nobody to answer.
+            const sent=entry.local?false:sendResult(entry.peerId,outcome.result);
             await renderEmployeeIntakeReview(host,entry,{onBack,projectName,store,readState,resolveScope,sendResult,readOwner});
             const updatedMessage=host.querySelector('[data-intake-message]');
-            updatedMessage.textContent=`${outcome.result.mappings.length} empleados aceptados en SA. ${sent?'Respuesta enviada a Mini.':'Vuelve a enviar la propuesta desde Mini para recuperar los vínculos.'}${outcome.syncWarning?' La sincronización con la nube sigue pendiente.':''}`;
+            updatedMessage.textContent=`${outcome.result.mappings.length} empleados aceptados en SA. ${entry.local?'Las asistencias de esos empleados ya quedaron vinculadas en la revisión de asistencia.':sent?'Respuesta enviada a Mini.':'Vuelve a enviar la propuesta desde Mini para recuperar los vínculos.'}${outcome.syncWarning?' La sincronización con la nube sigue pendiente.':''}`;
         }catch(error){
             try{if(readOwner()!==owner||(await resolveScope()).projectId!==scope.projectId){host.replaceChildren();onBack();return;}}catch(_){host.replaceChildren();onBack();return;}
             render();host.querySelector('[data-intake-message]').textContent=error.message||'No se pudo aceptar. Tus cambios siguen en esta revisión.';host.querySelector('[data-intake-accept]').disabled=false;

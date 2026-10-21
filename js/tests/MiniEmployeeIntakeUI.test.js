@@ -35,3 +35,13 @@ test('una propuesta aceptada muestra el resultado y ofrece volver a conexiones',
  await open();expect(host.querySelector('[data-intake-accept]')).toBeNull();expect(host.querySelector('[data-intake-discard]')).toBeNull();
  expect(host.querySelector('[data-intake-done]').textContent).toContain('Volver');expect(host.querySelector('[data-intake-message]').textContent).toContain('aceptado');
 });
+test('una propuesta local acepta sin enviar nada a Mini y ofrece volver a la asistencia',async()=>{
+ entry.local=true;const sendResult=jest.fn(()=>true);
+ store.accept.mockResolvedValue({result:{mappings:[{miniLocalId:'m-1',saEmployeeId:'e-9'}]}});
+ await renderEmployeeIntakeReview(host,entry,{store,readState:()=>model,resolveScope:async()=>scope,readOwner:()=> 'owner-1',sendResult});
+ host.querySelector('[data-intake-accept]').click();await new Promise(r=>setTimeout(r,0));
+ expect(sendResult).not.toHaveBeenCalled();
+ const message=host.querySelector('[data-intake-message]').textContent;
+ expect(message).toContain('1 empleados aceptados');expect(message).toContain('asistencia');expect(message).not.toContain('Vuelve a enviar');
+ expect(host.querySelector('[data-intake-done]').textContent).toContain('asistencia');
+});
