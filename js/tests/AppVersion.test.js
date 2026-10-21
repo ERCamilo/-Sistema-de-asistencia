@@ -44,3 +44,17 @@ test('rechaza catálogos incompletos, versiones incoherentes o cadenas sin lími
   assert.equal(policy.isReleaseManifest({ ...good, changelog: [] }), false);
   assert.equal(policy.isReleaseManifest({ ...good, changelog: [{ ...policy.CHANGELOG[0], items: ['x'.repeat(501)] }] }), false);
 });
+
+
+test('cada entrega de la app aumenta versión, añade novedades propias y conserva el historial', () => {
+  const old = { version: '1.9.0', changelog: [{ version: '1.9.0', date: '2026-10-20', title: 'Anterior', items: ['Mejora anterior'] }] };
+  const current = { version: '1.10.0', changelog: [{ version: '1.10.0', date: '2026-10-21', title: 'Actualización', items: ['Corregimos la búsqueda de actualizaciones.'] }, ...old.changelog] };
+  assert.deepEqual(policy.getReleaseErrors(old, current, true), []);
+  assert.match(policy.getReleaseErrors(old, old, true).join(' '), /versión.*mayor/i);
+  assert.match(policy.getReleaseErrors(old, { ...current, changelog: old.changelog }, true).join(' '), /catálogo|novedades/i);
+  assert.match(policy.getReleaseErrors(old, { ...current, changelog: [{ ...current.changelog[0], items: ['   '] }, ...old.changelog] }, true).join(' '), /novedades/i);
+  assert.match(policy.getReleaseErrors(old, { ...current, changelog: [{ ...current.changelog[0], items: old.changelog[0].items }, ...old.changelog] }, true).join(' '), /novedades.*propias/i);
+  assert.match(policy.getReleaseErrors(old, { ...current, changelog: current.changelog.slice(0, 1) }, true).join(' '), /historial/i);
+  assert.deepEqual(policy.getReleaseErrors(old, old, false), []);
+  assert.deepEqual(policy.getReleaseErrors(null, current, true), []);
+});

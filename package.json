@@ -22,6 +22,7 @@
     "build": "node scripts/release-manifest.cjs && node scripts/build.cjs",
     "test:settings-layout": "node scripts/check-settings-layout.cjs",
     "test:photo-viewer": "node scripts/check-photo-viewer.cjs",
-    "test:app-updates": "node scripts/check-app-updates.cjs"
+    "test:app-updates": "node scripts/check-app-updates.cjs",
+    "test:release": "node scripts/release-manifest.cjs --check --release"
   }
 }

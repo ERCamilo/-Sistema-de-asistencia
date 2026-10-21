@@ -1,6 +1,16 @@
 {
-  "version": "1.7.90",
+  "version": "1.7.91",
   "changelog": [
+    {
+      "version": "1.7.91",
+      "date": "2026-10-21",
+      "title": "Actualizaciones y novedades confiables",
+      "items": [
+        "Vuelve a recibir avisos de actualización y consultar las novedades de cada entrega.",
+        "Importa empleados y salarios diarios desde los reportes de Mini y WhatsApp.",
+        "Mejoras en el historial de préstamos y al restaurar respaldos en otro dispositivo."
+      ]
+    },
     {
       "version": "1.7.90",
       "date": "2026-10-20",

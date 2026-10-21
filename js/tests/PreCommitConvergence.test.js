@@ -49,6 +49,15 @@ describe('pre-commit build preparation', () => {
     });
 
     test('generate/stage then run again preserves the exact staged tree and diff', () => {
+        const previous = JSON.parse(fs.readFileSync(path.join(repo, 'app-release.json'), 'utf8'));
+        const next = previous.version.replace(/\d+$/, patch => String(Number(patch) + 1));
+        const entry = { version: next, date: '2026-10-21', title: 'Prueba del hook', items: ['Nuevo contenido para esta entrega.'] };
+        const versionPath = path.join(repo, 'js/modules/config/AppVersion.js');
+        fs.writeFileSync(versionPath, fs.readFileSync(versionPath, 'utf8')
+            .replace(/const APP_VERSION = '[^']+'/, `const APP_VERSION = '${next}'`)
+            .replace('const CHANGELOG = [', 'const CHANGELOG = [' + JSON.stringify(entry) + ','));
+        fs.writeFileSync(path.join(repo, 'app-release.json'), JSON.stringify({ version: next, changelog: [entry, ...previous.changelog] }, null, 2) + '\n');
+        git(repo, 'add', 'js/modules/config/AppVersion.js', 'app-release.json');
         fs.appendFileSync(path.join(repo, 'index.html'), '<main>candidate</main>\n');
         git(repo, 'add', 'index.html');
 

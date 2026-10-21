@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.90';
+const APP_VERSION = '1.7.91';
 const CHANGELOG = [
+    {"version": "1.7.91", "date": "2026-10-21", "title": "Actualizaciones y novedades confiables", "items": ["Vuelve a recibir avisos de actualización y consultar las novedades de cada entrega.", "Importa empleados y salarios diarios desde los reportes de Mini y WhatsApp.", "Mejoras en el historial de préstamos y al restaurar respaldos en otro dispositivo."]},
     { version: '1.7.90', date: '2026-10-20', title: 'Novedades y actualizaciones a tu ritmo', items: ['Consulta las mejoras de cada versión desde Ajustes.', 'Elige cuándo actualizar sin interrumpir tu trabajo.', 'Busca actualizaciones y revisa sus novedades antes de instalarlas.'] },
     { version: '1.7.89', date: '2026-10-20', title: 'Exportaciones a SplitX más completas', items: ['Exporta empresa, período, días y tarifas por puesto.', 'Consulta abonos de préstamos y saldos proyectados por separado.'] }
 ];
@@ -45,4 +46,19 @@ function isReleaseManifest(value) {
         && entry.items.every(item => typeof item === 'string' && item.length > 0 && item.length <= 500));
 }
 
-export { APP_VERSION, CHANGELOG, CHECK_INTERVAL_MS, compareVersions, getUnseenReleases, shouldPromptForUpdate, shouldCheckForUpdate, isReleaseManifest };
+function getReleaseErrors(previous, current, runtimeChanged) {
+    if (!isReleaseManifest(current) || !current.changelog.every(entry => entry.title.trim() && entry.items.every(item => item.trim())))
+        return ['El catálogo debe contener una versión válida y novedades con título e ítems no vacíos.'];
+    if (!runtimeChanged || previous === null) return [];
+    if (!isReleaseManifest(previous)) return ['No se pudo validar el catálogo de la versión base.'];
+    const errors = [];
+    if (compareVersions(current.version, previous.version) <= 0)
+        errors.push(`Los cambios de la aplicación requieren una versión mayor que ${previous.version}.`);
+    if (JSON.stringify(current.changelog[0].items.map(item => item.trim())) === JSON.stringify(previous.changelog[0].items.map(item => item.trim())))
+        errors.push('Añade novedades propias de esta entrega; no reutilices las de la versión anterior.');
+    if (previous.changelog.some(entry => !current.changelog.some(saved => saved.version === entry.version && JSON.stringify(saved) === JSON.stringify(entry))))
+        errors.push('Conserva el historial publicado y añade las novedades arriba.');
+    return errors;
+}
+
+export { getReleaseErrors, APP_VERSION, CHANGELOG, CHECK_INTERVAL_MS, compareVersions, getUnseenReleases, shouldPromptForUpdate, shouldCheckForUpdate, isReleaseManifest };

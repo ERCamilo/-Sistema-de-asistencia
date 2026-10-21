@@ -164,3 +164,5 @@ Ver [`LICENSE`](LICENSE).
 ### Versiones y novedades
 
 Cada entrega visible actualiza `APP_VERSION` y la entrada superior de `CHANGELOG` en `js/modules/config/AppVersion.js`. Ejecuta `npm run build` y `npm run sw:precache`; el hook/CI sellan el build del service worker. Consulta [la guía de novedades y actualización](docs/sistema-de-novedades.md).
+
+- Antes de publicar una entrega de runtime, la versión debe superar la base de main y tener novedades propias. Los hooks de commit/push y la CI ejecutan `scripts/release-manifest.cjs --check --release`; no se debe omitir este control ni reutilizar las notas anteriores. Documentos/tests y sellos de build están exentos.
