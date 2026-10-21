@@ -140,3 +140,21 @@ test('una propuesta local abierta desde SA P2P vuelve a esa pantalla y no habla 
  expect(host.querySelector('[data-intake-done]').textContent).toContain('Volver a personal por revisar');
  expect(host.querySelector('[data-intake-message]').textContent).not.toContain('asistencia');
 });
+
+test('atajo: mismo número y nombre parecido se asocia desde la lista sin abrir el asistente',async()=>{
+ model.employees=[emp('e-1','1','Ana Mora'),emp('e-2','2','Otra')];
+ store.accept.mockResolvedValue({result:{mappings:[{miniLocalId:'m-1',saEmployeeId:'e-1'}]}});
+ await open();
+ expect(host.querySelector('[data-intake-quick="0"]').textContent).toContain('Ana Mora');
+ click('[data-intake-quick="0"]');
+ expect(host.querySelector('[data-intake-summary]').textContent).toContain('Asociar con Ana Mora');
+ expect(host.querySelector('[data-intake-quick="0"]')).toBeNull();
+ click('[data-intake-accept]');await tick();await tick();
+ expect(store.accept.mock.calls[0][1][0]).toMatchObject({action:'link',employeeId:'e-1'});
+ expect(aliasStore.record).toHaveBeenCalledWith(expect.objectContaining({rawNumber:'1',rawName:'Ana',targetEmployeeId:'e-1'}),{allowReplace:true,actorUid:'owner-1'});
+});
+
+test('sin atajo cuando el nombre no se parece',async()=>{
+ model.employees=[emp('e-1','1','Luis Mora')];
+ await open();expect(host.querySelector('[data-intake-quick="0"]')).toBeNull();
+});

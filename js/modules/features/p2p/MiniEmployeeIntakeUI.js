@@ -7,7 +7,7 @@ import { DOMDiff } from '../../utils/DOMDiff.js';
 import { intakeSuggestions, intakeReviewVersion } from './MiniEmployeeIntake.js';
 import { miniEmployeeIntakeStore, currentIntakeOwner } from './MiniEmployeeIntakeStore.js';
 import { sendEmployeeIntakeResult } from './MiniEmployeeIntakeBridge.js';
-import { buildCandidateLists, positionDailySuggestion, stepsFor, aliasRecordsForLinks } from './MiniEmployeeIntakeSteps.js';
+import { buildCandidateLists, positionDailySuggestion, stepsFor, aliasRecordsForLinks, aliasRecordsForMappings, quickMatch } from './MiniEmployeeIntakeSteps.js';
 import { EmployeePositionPickerModal } from '../../ui/modals/EmployeePositionPickerModal.js';
 import { miniAttendanceAliasStore } from '../../services/MiniAttendanceAliasStore.js';
 
@@ -77,13 +77,13 @@ export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},proje
             <p>Elige qué hacer con cada empleado. Los cambios se aplican al aceptar. Jornada de SA: ${hours} horas.</p>
             <div class="sa-p2p-status" data-intake-message role="status">${entry.status==='resolved'?`${entry.mappings.length} empleados aceptados en SA.`:entry.status==='discarded'?'Propuesta descartada. Prepara un nuevo envío desde Mini.':undecided===choices.length?'Toca «Resolver» en cada empleado para decidir.':''}</div>
             <div class="sa-p2p-peer-list sa-mini-intake-list">${choices.map((choice,i)=>{
-                const source=sourceOf(i), similar=choice.accepted?0:buildCandidateLists(source,employees,scope).similar.length;
+                const source=sourceOf(i), similar=choice.accepted?0:buildCandidateLists(source,employees,scope).similar.length, quick=!choice.accepted&&!choice.action?quickMatch(source,employees,scope):null;
                 const ready=['create','link'].includes(choice.action)&&!choice.accepted;
                 return `<div class="sa-p2p-peer-row ${choice.accepted||ready?'is-online':''}" data-intake-row="${i}"><div class="sa-p2p-peer-avatar ${choice.accepted||ready?'is-online':''}">${icon(choice.accepted?'check':'user')}</div>
                     <div class="sa-p2p-peer-copy"><div class="sa-p2p-peer-header-line"><strong>${esc(source.name)}</strong>${similar&&!ready?'<span class="sa-p2p-peer-type">Posible coincidencia</span>':''}</div>
                     <div class="sa-p2p-peer-meta">Ficha ${esc(source.number)} · ${esc(source.position||'Sin puesto')} · ${source.dailySalary===null?'Sin salario':`${money(source.dailySalary)} por día`}</div>
                     <div class="sa-p2p-peer-meta" data-intake-summary>${esc(summary(choice))}</div></div>
-                    <div class="sa-p2p-device-actions">${choice.accepted?'':button(choice.action?'Cambiar':'Resolver',`data-intake-open="${i}"`,choice.action?'secondary':'primary')}</div></div>`;
+                    <div class="sa-p2p-device-actions">${quick?button(`Asociar con ${esc(quick.name)}`,`data-intake-quick="${i}"`,'primary'):''}${choice.accepted?'':button(choice.action?'Cambiar':'Resolver',`data-intake-open="${i}"`,choice.action||quick?'secondary':'primary')}</div></div>`;
             }).join('')}</div>
             <div class="sa-p2p-actions">${entry.status==='pending'?`${button('Aceptar personal revisado','data-intake-accept','primary')}${button('Resolver duplicados en SA','data-intake-duplicates','secondary')}${button('Descartar propuesta','data-intake-discard','secondary')}`:button(doneLabel||(fromAttendance?'Volver a la asistencia':'Volver a conexiones'),'data-intake-done','primary')}</div>
             ${entry.status==='pending'?'<p class="sa-p2p-footnote">Descartar conserva los empleados que ya aceptaste.</p>':''}
@@ -117,10 +117,10 @@ export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},proje
     const stepConfirm=(i)=>{
         const choice=choices[i], source=sourceOf(i), target=employeeOf(choice);
         if(!target)return `${wizardHead(stepsFor(choice),'confirm')}<div class="sa-p2p-status is-error">El empleado elegido ya no está disponible.</div>`;
-        const existing=existingFields(target), paused=target.active===false, remember=String(source.number)!==String(target.number);
+        const existing=existingFields(target), paused=target.active===false, remember=aliasRecordsForMappings(entry,[{miniLocalId:source.miniLocalId,saEmployeeId:target.id}],employees,owner,scope.projectId).length>0;
         return `${wizardHead(stepsFor(choice),'confirm')}<div><h3>Confirmar asociación</h3><p>${esc(source.name)} (ficha ${esc(source.number)}) → ${esc(target.name)} (ficha ${esc(target.number)})</p></div>
             <div class="sa-p2p-status"><strong>${esc(existing.name)}</strong><br><span>Puesto: ${esc(existing.position||'Sin puesto')} · ${existing.dailySalary?`${money(existing.dailySalary)} por día`:'Sin salario'}</span></div>
-            ${remember?`<div class="sa-p2p-status" data-intake-remember>Mini usa la ficha ${esc(source.number)} y este empleado tiene la ${esc(target.number)}. Se recordará esta asociación para próximas importaciones.</div>`:''}
+            ${remember?`<div class="sa-p2p-status" data-intake-remember>Mini lo registra como «${esc(source.name)}», ficha ${esc(source.number)}; en SA es «${esc(target.name)}», ficha ${esc(target.number)}. Se recordará esta asociación para próximas importaciones.</div>`:''}
             ${paused?`<div class="sa-p2p-status is-warning" data-intake-paused>Este empleado está pausado. Debes reactivarlo para vincularlo.</div><label class="sa-mini-intake-check"><input type="checkbox" data-intake-reactivate ${choice.reactivate?'checked':''}><span>Reactivar a ${esc(target.name)}</span></label>`:''}
             <label class="sa-mini-intake-check"><input type="checkbox" data-intake-update ${choice.update?'checked':''}><span>Actualizar su ficha con los datos de Mini</span></label>
             ${choice.update?`${input(i,'name','Nombre')}${input(i,'number','Número de ficha')}${input(i,'dailySalary','Salario por día','number')}${input(i,'phone','Teléfono (opcional)','tel')}${input(i,'email','Correo (opcional)','email')}${positionControl(i)}`:''}
@@ -174,6 +174,12 @@ export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},proje
 
     const bindList=()=>{
         host.querySelector('[data-intake-back]').onclick=()=>{if(!saving)onBack();};
+        host.querySelectorAll('[data-intake-quick]').forEach(el=>el.onclick=()=>{
+            const i=Number(el.dataset.intakeQuick), match=quickMatch(sourceOf(i),employees,scope);
+            if(!match)return;
+            Object.assign(choices[i],{action:'link',employeeId:match.id,update:false,reactivate:false,positionId:'',fields:{...sourceOf(i),...existingFields(match)}});
+            render();
+        });
         const done=host.querySelector('[data-intake-done]');if(done)done.onclick=onBack;
         const duplicates=host.querySelector('[data-intake-duplicates]');if(duplicates)duplicates.onclick=()=>globalThis.startMaintenanceWizard?.();
         const discard=host.querySelector('[data-intake-discard]');if(discard)discard.onclick=async()=>{if(saving)return;saving=true;try{await store.discard(entry.id,scope);onBack();}catch(error){messageText(error.message);}finally{saving=false;}};
@@ -230,7 +236,12 @@ export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},proje
             const decisions=choices.map(({accepted,salaryMode,...choice})=>({...choice,action:choice.action||'pending'}));
             const outcome=await store.accept(entry.id,decisions,{scope,hoursPerDay:hours,version});
             let aliasWarning=false;
-            try{for(const record of aliasRecordsForLinks(entry,decisions.filter((d,i)=>!choices[i].accepted),employees,owner,scope.projectId))await aliasStore.record(record,{allowReplace:true,actorUid:owner});}catch(_){aliasWarning=true;}
+            try{
+                const records=aliasRecordsForLinks(entry,decisions.filter((d,i)=>!choices[i].accepted),employees,owner,scope.projectId);
+                // The same person resolved in other origins is remembered under that origin's scope too.
+                (outcome.autoResolved||[]).forEach(({entry:other,added})=>records.push(...aliasRecordsForMappings(other,added,employees,owner,scope.projectId)));
+                for(const record of records)await aliasStore.record(record,{allowReplace:true,actorUid:owner});
+            }catch(_){aliasWarning=true;}
             entry.mappings=outcome.result.mappings;entry.status=entry.mappings.length===entry.payload.employees.length?'resolved':'pending';
             // A proposal built from attendance is unknown to Mini, so there is nobody to answer.
             const sent=entry.local?false:sendResult(entry.peerId,outcome.result);
