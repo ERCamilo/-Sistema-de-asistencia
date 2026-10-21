@@ -24,6 +24,9 @@ export function hasEmployeeProfile(source) {
     return Boolean(clean(source.positionName, 80)) || Number.isFinite(source.dailySalary);
 }
 
+/** Peer id used for rows that come from pasted WhatsApp text (no Mini connection). */
+export const TEXT_ATTENDANCE_PEER_ID = `${ATTENDANCE_PROPOSAL_PEER_PREFIX}texto`;
+
 /** The Mini peer when known; a stable synthetic id for pasted/imported submissions. */
 export function attendanceProposalPeerId(source) {
     const peer = clean(source?.sourcePeerId, MAX_ID_LENGTH).replace(/\s/g, '');
@@ -117,4 +120,38 @@ export function buildAttendanceEmployeeProposals(items, { saProjectId, now = Dat
         groups.push({ peerId, peerName: group.peerName, proposal, itemIds: kept.flatMap(entry => entry.itemIds) });
     }
     return { groups, skipped };
+}
+
+/**
+ * The WhatsApp text has no Mini ids, so an employee is identified by number and
+ * name (case, accents and spacing ignored). Stable for the same person in the text.
+ */
+export function textRowLocalId(number, name) {
+    const key = clean(name, 120).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    return `text-${clean(number, 32).replace(/\s/g, '')}-${hash(key)}`;
+}
+
+/**
+ * Draft rows of a pasted text as attendance items, so they go through the same
+ * proposal builder. The text carries neither salary nor (for single-position
+ * employees) position: both stay empty for the review to complete.
+ * @param {Array<{sourceIndex: number, rawNumber: string, rawName: string, rawPosition?: string}>} rows
+ * @param {{workDate?: string}} [options]
+ */
+export function attendanceItemsFromDraftRows(rows, { workDate = '' } = {}) {
+    const capturedAt = /^\d{4}-\d{2}-\d{2}$/.test(workDate) ? `${workDate}T00:00:00.000Z` : '';
+    return (rows || []).map(row => ({
+        id: `draft-${row.sourceIndex}`,
+        saEmployeeId: null,
+        sources: [{
+            miniLocalId: textRowLocalId(row.rawNumber, row.rawName),
+            number: row.rawNumber,
+            name: row.rawName,
+            ...(row.rawPosition ? { positionName: row.rawPosition } : {}),
+            workDate,
+            capturedAt,
+            rawDeviceId: 'texto',
+            deviceId: 'Texto pegado de Mini'
+        }]
+    }));
 }

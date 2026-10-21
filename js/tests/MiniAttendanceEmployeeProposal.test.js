@@ -1,7 +1,10 @@
 import {
     attendanceProposalPeerId,
+    attendanceItemsFromDraftRows,
     hasEmployeeProfile,
-    buildAttendanceEmployeeProposals
+    buildAttendanceEmployeeProposals,
+    textRowLocalId,
+    TEXT_ATTENDANCE_PEER_ID
 } from '../modules/features/attendance/MiniAttendanceEmployeeProposal.js';
 
 const PROJECT = 'PRJ-OBRA-1';
@@ -137,5 +140,45 @@ describe('MiniAttendanceEmployeeProposal — unlinked attendance rows to an empl
         const { groups, skipped } = build(many);
         expect(groups[0].proposal.employees).toHaveLength(500);
         expect(skipped.some(s => s.reason === 'too_many')).toBe(true);
+    });
+});
+
+describe('MiniAttendanceEmployeeProposal — rows from pasted WhatsApp text', () => {
+    const rows = [
+        { sourceIndex: 0, rawNumber: '007', rawName: 'Pedro Nuevo' },
+        { sourceIndex: 1, rawNumber: '8', rawName: 'Luis Gómez', rawPosition: 'Plomero' }
+    ];
+    const fromText = (extra = {}) => buildAttendanceEmployeeProposals(attendanceItemsFromDraftRows(rows, { workDate: '2026-10-20' }), { saProjectId: PROJECT, now: NOW, ...extra });
+
+    test('the text carries no salary and usually no position: they stay empty for the review', () => {
+        const [group] = fromText().groups;
+        expect(group.peerId).toBe(TEXT_ATTENDANCE_PEER_ID);
+        expect(group.peerName).toBe('Texto pegado de Mini');
+        expect(group.proposal.employees).toEqual([
+            { miniLocalId: textRowLocalId('007', 'Pedro Nuevo'), number: '007', name: 'Pedro Nuevo', position: '', dailySalary: null, phone: '', email: '' },
+            { miniLocalId: textRowLocalId('8', 'Luis Gómez'), number: '8', name: 'Luis Gómez', position: 'Plomero', dailySalary: null, phone: '', email: '' }
+        ]);
+        expect(group.itemIds).toEqual(['draft-0', 'draft-1']);
+    });
+
+    test('is deterministic, so pressing the button twice reuses the staged proposal', () => {
+        const first = fromText().groups[0].proposal;
+        const second = fromText({ now: NOW + 3600000 }).groups[0].proposal;
+        expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+        expect(first.generatedAt).toBe('2026-10-20T00:00:00.000Z');
+    });
+
+    test('the local id follows number and name, ignoring case, accents and spacing', () => {
+        expect(textRowLocalId('7', 'Pedro Pérez')).toBe(textRowLocalId('7', '  pedro  perez '));
+        expect(textRowLocalId('7', 'Pedro Pérez')).not.toBe(textRowLocalId('7', 'Pedro Gómez'));
+        expect(textRowLocalId('7', 'Pedro')).not.toBe(textRowLocalId('8', 'Pedro'));
+        expect(textRowLocalId('7', 'Pedro')).not.toMatch(/\s/);
+    });
+
+    test('a number that is not numeric is reported as skipped, not proposed', () => {
+        const items = attendanceItemsFromDraftRows([{ sourceIndex: 3, rawNumber: 'A1', rawName: 'Raro' }], { workDate: '2026-10-20' });
+        const { groups, skipped } = buildAttendanceEmployeeProposals(items, { saProjectId: PROJECT, now: NOW });
+        expect(groups).toEqual([]);
+        expect(skipped).toEqual([{ itemId: 'draft-3', reason: 'invalid_number' }]);
     });
 });

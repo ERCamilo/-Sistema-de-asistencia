@@ -1,4 +1,4 @@
-import { buildAttendanceEmployeeProposals } from '../modules/features/attendance/MiniAttendanceEmployeeProposal.js';
+import { attendanceItemsFromDraftRows, buildAttendanceEmployeeProposals, textRowLocalId } from '../modules/features/attendance/MiniAttendanceEmployeeProposal.js';
 import { buildEmployeeIntakePlan } from '../modules/features/p2p/MiniEmployeeIntake.js';
 
 // End to end with the real intake rules: what Mini reports with the attendance can
@@ -52,4 +52,15 @@ test('falta de sueldo o puesto en Mini no se inventa: SA exige completarlo antes
     expect(() => buildEmployeeIntakePlan(bare, [{ miniLocalId: 'u7', action: 'create' }], context)).toThrow(/puesto y salario/i);
     const completed = buildEmployeeIntakePlan(bare, [{ miniLocalId: 'u7', action: 'create', fields: { position: 'Peón', dailySalary: 900 } }], context);
     expect(completed.employees[0].positionSalaries['pos-new']).toBe(112.5);
+});
+
+test('texto pegado: la ficha y el nombre vienen del texto; el sueldo y el puesto se completan en la revisión', () => {
+    const items = attendanceItemsFromDraftRows([{ sourceIndex: 0, rawNumber: '12', rawName: 'Juan Texto' }], { workDate: '2026-10-20' });
+    const textProposal = buildAttendanceEmployeeProposals(items, { saProjectId: PROJECT }).groups[0].proposal;
+    const miniLocalId = textRowLocalId('12', 'Juan Texto');
+    expect(() => buildEmployeeIntakePlan(textProposal, [{ miniLocalId, action: 'create' }], context)).toThrow(/puesto y salario/i);
+    const plan = buildEmployeeIntakePlan(textProposal, [{ miniLocalId, action: 'create', fields: { position: 'Peón', dailySalary: 800 } }], context);
+    expect(plan.employees[0]).toMatchObject({ number: '12', name: 'Juan Texto', projectId: PROJECT });
+    expect(plan.employees[0].positionSalaries['pos-new']).toBe(100);
+    expect(plan.mappings[0]).toMatchObject({ miniLocalId, saEmployeeId: 'emp-new' });
 });

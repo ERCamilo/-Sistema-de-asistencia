@@ -36,9 +36,12 @@ import {
 import { P2P_SUCCESS_EVENTS, signalP2PSuccess } from '../../features/p2p/P2PSuccessFeedback.js';
 import { confirmMiniImportDates } from '../../features/attendance/MiniImportDateGuard.js';
 import {
+    TEXT_ATTENDANCE_PEER_ID,
+    attendanceItemsFromDraftRows,
     attendanceProposalPeerId,
     buildAttendanceEmployeeProposals,
-    hasEmployeeProfile
+    hasEmployeeProfile,
+    textRowLocalId
 } from '../../features/attendance/MiniAttendanceEmployeeProposal.js';
 
 let nextControlId = 1;
@@ -667,7 +670,9 @@ export class MiniAttendanceImportModal {
         this.modal.open();
         this.mount(content);
         this._employeeIntakeSubscription=eventBus.on('mini-employee-intake:accepted', async ({peerId,saProjectId,mappings})=>{
-            if(!this.host?.isConnected || !this.multiDayResolver || this.saProjectId!==saProjectId)return;
+            if(!this.host?.isConnected || this.saProjectId!==saProjectId)return;
+            if(peerId===TEXT_ATTENDANCE_PEER_ID){if(this.draft)this.linkDraftRowsToAcceptedEmployees(mappings);return;}
+            if(!this.multiDayResolver)return;
             this.employees=state.employees;this.positions=state.positions;
             this.multiDayResolver.employees=this.employees;this.multiDayResolver.positions=this.positions;
             for(const item of [...this.multiDayResolver.items]) {
@@ -2045,26 +2050,96 @@ export class MiniAttendanceImportModal {
     getAttendanceProfileGroup(item) {
         const source = this.getConnectedIdentitySource(item);
         if (!hasEmployeeProfile(source)) return null;
+        if (!this.saProjectId) return null;
         const known = Array.isArray(this.multiDayResolver?.items) ? this.multiDayResolver.items : [];
         const items = known.includes(item) ? known : [...known, item];
         const peerId = attendanceProposalPeerId(source);
-        const { groups } = buildAttendanceEmployeeProposals(items, { saProjectId: this.saProjectId });
-        const group = groups.find(candidate => candidate.peerId === peerId);
-        return group && group.itemIds.includes(item.id) ? group : null;
+        try {
+            const { groups } = buildAttendanceEmployeeProposals(items, { saProjectId: this.saProjectId });
+            const group = groups.find(candidate => candidate.peerId === peerId);
+            return group && group.itemIds.includes(item.id) ? group : null;
+        } catch (error) {
+            // Runs while rendering: an optional shortcut must never break the screen.
+            console.warn('No se pudo preparar la propuesta de personal:', error);
+            return null;
+        }
+    }
+
+    async stageAndReviewEmployeeProposal(group) {
+        const deps = this.employeeIntakeDeps || await loadEmployeeIntakeDependencies();
+        const scope = await deps.resolveScope();
+        const entry = await deps.store.stage(group.proposal, { peerId: group.peerId, peerName: group.peerName, scope, local: true });
+        await deps.openReview(entry, { saProjectId: this.saProjectId });
     }
 
     async openEmployeeIntakeFromAttendance(item) {
         try {
             const group = this.getAttendanceProfileGroup(item);
             if (!group) throw new Error('Esta asistencia no trae ficha numérica y nombre para proponer el empleado.');
-            const deps = this.employeeIntakeDeps || await loadEmployeeIntakeDependencies();
-            const scope = await deps.resolveScope();
-            const entry = await deps.store.stage(group.proposal, { peerId: group.peerId, peerName: group.peerName, scope, local: true });
-            await deps.openReview(entry, { saProjectId: this.saProjectId });
+            await this.stageAndReviewEmployeeProposal(group);
         } catch (error) {
             console.warn('No se pudo preparar el personal desde la asistencia:', error);
             window.showNotification?.(error?.message || 'No se pudo preparar el personal desde la asistencia.', 'error');
         }
+    }
+
+    // Pasted WhatsApp text: every row still without a match, proposed together. The
+    // text has no salary (and no position for single-position employees), so the
+    // review asks for them before creating anything.
+    getTextProfileGroup(model) {
+        if (!this.draft || !this.saProjectId || !model?.canIgnore || model.isInactive) return null;
+        const rows = this.draft.rows
+            .map((row, sourceIndex) => ({ row, sourceIndex }))
+            .filter(({ row }) => row.match?.status === 'unmatched' && !row.excluded && !row.inactiveIdentity)
+            .map(({ row, sourceIndex }) => ({ sourceIndex, ...row.sourceRow }));
+        try {
+            const items = attendanceItemsFromDraftRows(rows, { workDate: this.draft.confirmedDate || '' });
+            const { groups } = buildAttendanceEmployeeProposals(items, { saProjectId: this.saProjectId });
+            const group = groups.find(candidate => candidate.peerId === TEXT_ATTENDANCE_PEER_ID);
+            const own = new Set((model.sourceIndexes || []).map(index => `draft-${index}`));
+            return group && group.itemIds.some(id => own.has(id)) ? group : null;
+        } catch (error) {
+            // Runs while rendering: an optional shortcut must never break the screen.
+            console.warn('No se pudo preparar la propuesta de personal:', error);
+            return null;
+        }
+    }
+
+    async openEmployeeIntakeFromText(model) {
+        try {
+            const group = this.getTextProfileGroup(model);
+            if (!group) throw new Error('Esta fila no trae una ficha numérica y un nombre para proponer el empleado.');
+            await this.stageAndReviewEmployeeProposal(group);
+        } catch (error) {
+            console.warn('No se pudo preparar el personal desde el texto:', error);
+            window.showNotification?.(error?.message || 'No se pudo preparar el personal desde el texto.', 'error');
+        }
+    }
+
+    // After the intake is accepted: put the employees in the draft roster and confirm the
+    // match of their rows. Hours stay unapproved so the user still reviews them.
+    linkDraftRowsToAcceptedEmployees(mappings) {
+        this.employees = state.employees;
+        this.positions = state.positions;
+        const byLocalId = new Map((mappings || []).map(mapping => [mapping.miniLocalId, mapping.saEmployeeId]));
+        let linked = 0;
+        this.draft.rows.forEach((row, sourceIndex) => {
+            if (row.excluded || row.match?.status !== 'unmatched') return;
+            const employeeId = byLocalId.get(textRowLocalId(row.sourceRow.rawNumber, row.sourceRow.rawName));
+            const employee = employeeId && this.employees.find(candidate => candidate.id === employeeId);
+            if (!employee) return;
+            try {
+                this.draft = reactivateMiniAttendanceDraftEmployee(this.draft, employee);
+                this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, { employeeId, approved: false });
+                linked += 1;
+            } catch (error) {
+                console.warn('No se pudo vincular una fila del texto con el empleado aceptado:', error);
+            }
+        });
+        if (!linked) return;
+        this.resetApplyState();
+        this.rebuildConflictPlan();
+        if (this.host?.isConnected) this.render();
     }
 
     buildConnectedIdentityControls(item) {
@@ -5874,6 +5949,17 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-unit-actions'
         });
         actions.append(confirm, ignore);
+        const textGroup = model.confirmed ? null : this.getTextProfileGroup(model);
+        if (textGroup) {
+            const count = textGroup.proposal.employees.length;
+            const createFromText = actionButton(
+                count > 1 ? `Crear o vincular empleado (${count} sin coincidencia)` : 'Crear o vincular empleado',
+                'create-from-text'
+            );
+            createFromText.classList.add('mini-import-action-secondary');
+            createFromText.addEventListener('click', () => this.openEmployeeIntakeFromText(model));
+            actions.append(createFromText);
+        }
 
         if (model.isInactive) {
             const inactiveBanner = element('div', null, {
