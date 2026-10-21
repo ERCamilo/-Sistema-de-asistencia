@@ -402,21 +402,22 @@ export function SettingsGeneralTab(context) {
                         </button>
                     </div>
                     <fieldset class="stg-choice-fieldset" style="margin-top: 12px;">
-                        <legend>Revisión de Mini conectados</legend>
+                        <legend>Revisión de asistencia de Mini</legend>
+                        <p class="settings-help">Se aplica al texto pegado y a los Mini conectados.</p>
                         <div class="stg-choice-group">
                             <label class="stg-choice-option ${state.settings.miniConnectedReviewMode !== 'compare' ? 'is-selected' : ''}">
                                 <input type="radio"
                                        name="miniConnectedReviewMode"
                                        value="daily"
                                        ${state.settings.miniConnectedReviewMode !== 'compare' ? 'checked' : ''}>
-                                <span>Día por día, como el texto pegado</span>
+                                <span>Revisión guiada por empleado</span>
                             </label>
                             <label class="stg-choice-option ${state.settings.miniConnectedReviewMode === 'compare' ? 'is-selected' : ''}">
                                 <input type="radio"
                                        name="miniConnectedReviewMode"
                                        value="compare"
                                        ${state.settings.miniConnectedReviewMode === 'compare' ? 'checked' : ''}>
-                                <span>Comparar con SA (todos los días juntos)</span>
+                                <span>Comparar con SA en una lista</span>
                             </label>
                         </div>
                     </fieldset>

@@ -66,6 +66,11 @@ jobs:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: npm run test:settings-layout
 
+      - name: Mini attendance review in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: npm run test:mini-review-layout
+
       - name: Photo viewer recovery in Chromium
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
