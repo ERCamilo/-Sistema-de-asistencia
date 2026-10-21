@@ -1,6 +1,16 @@
 {
-  "version": "1.7.93",
+  "version": "1.7.94",
   "changelog": [
+    {
+      "version": "1.7.94",
+      "date": "2026-10-21",
+      "title": "Tus obras, de un vistazo",
+      "items": [
+        "Abre el menú de obras desde su nombre en el encabezado.",
+        "Consulta empleados, posiciones, préstamos y otros registros por obra.",
+        "Borra obras vacías con confirmación y comprobación de datos antes de guardar."
+      ]
+    },
     {
       "version": "1.7.93",
       "date": "2026-10-21",

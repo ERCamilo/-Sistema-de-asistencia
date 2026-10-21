@@ -5,6 +5,9 @@ import { getEntityScope, setActiveProjectId } from './ProjectContext.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
+import { state } from '../../core/AppState.js';
+import { readProjectUsageData, summarizeProjectUsage, deleteEmptyProject, protectedProjectIds } from './ProjectUsage.js';
+import { isFullImportIsolationInProgress, isProjectRepairIsolationInProgress } from '../../services/PersistenceService.js';
 
 export const PROJECT_SETUP_NAME_MAX_LENGTH = 80;
 
@@ -96,6 +99,24 @@ export class ProjectSetupService {
             ...state,
             stats
         };
+    }
+
+    async getProjectUsage(projects) {
+        const protectedIds = protectedProjectIds();
+        const usage = summarizeProjectUsage(projects, await readProjectUsageData({ idb: this.store.db }), { liveState: state, defaultProjectId: protectedIds.defaultProjectId });
+        for (const project of projects) {
+            usage[project.id].deleteReason = project.id === protectedIds.activeProjectId ? 'Cambia a otra obra para borrarla.'
+                : project.id === protectedIds.defaultProjectId ? 'La obra inicial se conserva.' : '';
+        }
+        return usage;
+    }
+
+    async deleteEmptyProject(projectId) {
+        if (!this.flags.isEnabled()) throw new Error('Proyectos no está activado.');
+        if (isFullImportIsolationInProgress() || isProjectRepairIsolationInProgress()) throw new Error('Espera a que termine la restauración o reparación de datos.');
+        const deleted = await deleteEmptyProject(projectId, { idb: this.store.db, getLiveState: () => state });
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('projects:setup-changed', { detail: { projectId, deleted: true } }));
+        return deleted;
     }
 
     async activate({ uid = null } = {}) {
