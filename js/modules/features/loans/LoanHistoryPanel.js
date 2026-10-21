@@ -115,6 +115,8 @@ function renderChart(days, selected, scope) {
     const kind = dominantKind(selected);
     const px = x(selected.date) / W * 100;
     const py = y(selected.result) / H * 100;
+    const edge = narrow ? (px >= 50 ? 'end' : 'start') : px > 75 ? 'end' : px < 25 ? 'start' : null;
+    const anchor = edge === 'end' ? 'right:8px' : edge === 'start' ? 'left:8px' : `left:${px}%`;
     const extra = new Set(selected.items.map(item => item.kind)).size - 1;
     return `
         <div class="loan-history-chart">
@@ -128,7 +130,7 @@ function renderChart(days, selected, scope) {
                 ${marks}
                 ${ticks}
             </svg>
-            <div class="loan-history-callout ${KINDS[kind].css}${py < 34 ? ' is-below' : ''}" style="left:${Math.min(88, Math.max(12, px))}%;top:${py}%">
+            <div class="loan-history-callout ${KINDS[kind].css}${edge ? ' is-edge' : ''}${py < 34 ? ' is-below' : ''}" style="${anchor};top:${py}%">
                 <b>${KINDS[kind].label}${extra > 0 ? ` +${extra}` : ''}</b>${shortDate(selected.date)}<br><span>${formatCurrency(selected.result)}</span>
             </div>
         </div>`;
