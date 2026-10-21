@@ -5,7 +5,7 @@
 1. Abre Ajustes. La versión instalada aparece junto a **Novedades** y **Buscar actualizaciones**.
 2. **Novedades** permite consultar el historial en cualquier momento, incluso sin conexión.
 3. Una versión publicada más reciente muestra sus mejoras y ofrece **Actualizar ahora** o **Más tarde**. Al posponerla puedes seguir trabajando; no se vuelve a ofrecer automáticamente esa misma versión. El botón de búsqueda permite recuperarla.
-4. Al pulsar **Actualizar ahora**, la aplicación comprueba el guardado local y la activación del service worker antes de recargar. Si falla, permanece abierta y permite reintentar. Cierra/guarda las ediciones abiertas antes de actualizar.
+4. Al pulsar **Actualizar ahora**, la aplicación comprueba el guardado local y la activación del service worker y la renovación de los archivos de la aplicación antes de recargar. Si falla, permanece abierta y permite reintentar. Cierra/guarda las ediciones abiertas antes de actualizar.
 5. Tras recargar se muestran las novedades que aún no habías visto. Cerrar ese diálogo las marca como vistas. Atrás cierra el diálogo mediante el gestor de navegación existente.
 
 La primera instalación no muestra un aviso de actualización ni novedades pendientes. La búsqueda automática consulta como máximo cada 30 minutos mientras la página está visible, además de comprobar cuando un nuevo worker toma el control o vuelve la conexión. La búsqueda manual omite el intervalo. Sin conexión o con un catálogo inválido nunca se afirma que la app esté actualizada.
@@ -54,3 +54,24 @@ node scripts/release-manifest.cjs --check --release --base origin/main --head HE
 ```
 
 `npm run test:release` revisa el estado local contra `origin/main`. No cambia versiones ni inventa novedades automáticamente. Si falla, corrige la fuente de versión/historial, ejecuta `npm run build`, prepara los archivos generados y vuelve a intentar. El hook sella el caché al commitear.
+
+
+## Renovación al pulsar Actualizar ahora
+
+El guardado local termina antes de empezar la descarga. El worker activo recibe
+`REFRESH_APP_SHELL` por `MessageChannel`, descarga todos los recursos precacheados
+con una URL única (`__v`) y `cache: reload`, y solo entonces reemplaza su caché
+de aplicación y elimina las entradas obsoletas de ese mismo caché. Si falla una
+descarga o llega HTML en lugar de JavaScript/CSS, conserva el caché anterior y
+permite reintentar. No borra IndexedDB, localStorage ni cachés ajenos (fotos o
+tutoriales guardados). La página espera la confirmación del worker para recargar,
+aunque este ya estuviera activo y `registration.update()` no detecte cambios.
+
+Las pruebas de navegador contaminan el caché del worker activo con la versión
+anterior y comprueban la recuperación, la aparición de novedades y la
+conservación de datos. Las pruebas unitarias verifican el orden guardar/renovar/
+recargar, los errores de descarga y la cancelación mientras se guarda.
+
+La recarga inmediata usa durante un minuto el shell recién renovado. Esto evita
+que una URL canónica todavía antigua del CDN sobrescriba los archivos verificados
+antes de completar el arranque. Después se recupera la estrategia de red habitual.

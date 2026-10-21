@@ -40,13 +40,19 @@ function createReleaseManager(options) {
             return;
         applying = true;
         const generation = ++applyGeneration;
+        let saved = false;
         try {
+            options.status('Guardando datos…');
             await options.beforeReload();
-            if (generation === applyGeneration)
-                options.reload();
+            if (generation !== applyGeneration) return;
+            saved = true;
+            options.status('Descargando actualización…');
+            await options.prepareUpdate?.();
+            if (generation === applyGeneration) { options.status('Reiniciando aplicación…'); options.reload(); }
         }
         catch (_) {
-            options.status('No se pudo actualizar. Guarda o cierra tus cambios y vuelve a intentarlo.');
+            options.status(saved ? 'No se pudo actualizar. Revisa tu conexión y vuelve a intentarlo; tus datos se conservan.'
+                : 'No se pudo actualizar. Guarda o cierra tus cambios y vuelve a intentarlo.');
         }
         finally {
             applying = false;

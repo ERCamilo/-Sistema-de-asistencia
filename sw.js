@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.1021.150741'
+const CACHE_VERSION = '2026.1021.153049'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // Grafo completo de módulos de arranque, generado por scripts/sw-precache.cjs
@@ -233,6 +233,48 @@ const PRECACHE_URLS = [...new Set([
     ...(self.SW_PRECACHE_MANIFEST || [])
 ])];
 
+// Refresh the app shell without deleting user media or other caches.
+let refreshedUntil = 0, refreshedCache = '';
+async function getFreshShellResponse(request, storage, cacheName, now = Date.now()) {
+  if (cacheName !== refreshedCache || now >= refreshedUntil) return undefined;
+  return (await storage.open(cacheName)).match(request, { ignoreSearch: request.mode === 'navigate' });
+}
+async function refreshAppShell(options) {
+  const scope = new URL(options.scope);
+  const urls = [...new Set(options.assets.map(asset => {
+    const url = new URL(asset, scope);
+    if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) throw new Error('Asset outside app scope');
+    return url.href;
+  }))];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 60000);
+  const stamp = options.stamp ?? Date.now();
+  try {
+    // Download everything before changing a working offline cache.
+    const responses = await Promise.all(urls.map(async canonical => {
+      const fresh = new URL(canonical); fresh.searchParams.set('__v', String(stamp));
+      const fetchAsset = options.fetcher;
+      const response = await fetchAsset(fresh.href, { cache: 'reload', credentials: 'same-origin', signal: controller.signal });
+      if (!response.ok) throw new Error('Shell download failed: ' + canonical);
+      const type = response.headers.get('Content-Type') || '';
+      if ((fresh.pathname.endsWith('.js') && !/(?:java|ecma)script/i.test(type)) ||
+          (fresh.pathname.endsWith('.css') && !/text\/css/i.test(type))) throw new Error('Invalid shell content: ' + canonical);
+      await response.clone().arrayBuffer();
+      return response;
+    }));
+    const cache = await options.storage.open(options.cacheName);
+    for (let i = 0; i < urls.length; i++) await cache.put(urls[i], responses[i]);
+    const keep = new Set(urls);
+    for (const request of await cache.keys()) if (!keep.has(request.url)) await cache.delete(request);
+    // Keep this reload on the verified shell, even if the CDN's canonical URL is stale.
+    refreshedCache = options.cacheName; refreshedUntil = Date.now() + 60000;
+    return urls.length;
+  } catch (error) {
+    controller.abort();
+    throw error;
+  } finally { clearTimeout(timer); }
+}
+
 // CDNs externos (se cachean en runtime, no en precache)
 const CDN_HOSTS = [
     'fonts.googleapis.com',
@@ -412,6 +454,8 @@ function markNetworkDegraded() {
  * modo degradado, donde las siguientes peticiones salen del caché al instante.
  */
 async function networkFirstWithDeadline(request, event, init) {
+    const fresh = await getFreshShellResponse(request, caches, CACHE_NAME);
+    if (fresh) return fresh;
     const cached = await caches.match(request);
 
     if (cached && Date.now() < networkDegradedUntil) {
@@ -504,6 +548,16 @@ async function staleWhileRevalidate(request) {
 // MENSAJES: Comunicación con la app
 // ─────────────────────────────────────────────
 self.addEventListener('message', (event) => {
+    if (event.data?.type === 'REFRESH_APP_SHELL' && event.ports[0]) {
+        const port = event.ports[0];
+        event.waitUntil(refreshAppShell({
+            assets: PRECACHE_URLS, scope: self.registration.scope, cacheName: CACHE_NAME, storage: caches, fetcher: fetch
+        }).then(updated => port.postMessage({ ok: true, updated })).catch(error => {
+            console.error('[SW] No se pudo renovar la aplicación', error);
+            port.postMessage({ ok: false });
+        }));
+    }
+
     if (event.data === 'SKIP_WAITING') {
         self.skipWaiting();
     }
