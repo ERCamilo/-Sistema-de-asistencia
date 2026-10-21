@@ -3,7 +3,7 @@
   background: rgba(2, 6, 23, .78) !important;
   padding: 18px !important;
 }
-.sa-p2p-shell {
+.sa-p2p-shell, .sa-mini-intake {
   --p2p-bg: oklch(0.185 0.012 245);
   --p2p-panel: oklch(0.228 0.013 245);
   --p2p-panel-2: oklch(0.268 0.014 245);
@@ -18,6 +18,8 @@
   --p2p-warn: oklch(0.820 0.110 78);
   --p2p-bad: oklch(0.680 0.160 25);
   --p2p-qr-bg: white;
+}
+.sa-p2p-shell {
   width: min(720px, 100%);
   max-height: min(90dvh, 820px);
   overflow: hidden;
@@ -174,15 +176,24 @@ button.sa-p2p-capability:hover { background:var(--p2p-hover); }
 .sa-p2p-activity-details { flex:none;min-height:44px;padding:0 10px;border:1px solid var(--p2p-border);border-radius:8px;background:transparent;color:var(--p2p-dim);font-size:11px;font-weight:600;cursor:pointer; }
 .sa-p2p-activity-popup { margin-top:8px;padding:8px;border:1px solid var(--p2p-border);border-radius:8px;background:var(--p2p-panel);font-size:11px;color:var(--p2p-dim); }
 @media (prefers-reduced-motion: reduce) { .sa-p2p-badge,.sa-p2p-activity-status { transition:none !important;animation:none !important; } }
-.sa-mini-intake-card {border:1px solid var(--border);background:var(--panel-2);border-radius:12px;margin:12px 0;overflow:hidden;}
-.sa-mini-intake-card > summary {padding:14px;min-height:44px;cursor:pointer;overflow-wrap:anywhere;}
-.sa-mini-intake-card > summary span {display:block;color:var(--text-dim);font-size:.85rem;margin-top:6px;}
-.sa-mini-intake-fields {padding:14px;display:grid;gap:12px;}
-.sa-mini-intake-check {display:flex;align-items:center;gap:12px;min-height:44px;}
-.sa-mini-intake-check input {width:22px;height:22px;flex-shrink:0;}
-.sa-mini-intake button,.sa-mini-intake input:not([type="checkbox"]),.sa-mini-intake select {min-height:44px;max-width:100%;box-sizing:border-box;}
-.sa-mini-intake .sa-p2p-field input,.sa-mini-intake .sa-p2p-field select {width:100%;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;}
-.sa-mini-intake .sa-p2p-actions {flex-wrap:wrap;}
+.sa-mini-intake { padding:14px;border-radius:14px;background:var(--p2p-panel);color:var(--p2p-text);font-family:'IBM Plex Sans', system-ui, sans-serif; }
+.sa-mini-intake-options { display:grid;gap:8px; }
+.sa-mini-intake-option { width:100%;cursor:pointer; }
+.sa-mini-intake-option .sa-p2p-capability-copy strong,.sa-mini-intake-option .sa-p2p-capability-copy small { white-space:normal;overflow:visible;text-overflow:clip; }
+.sa-mini-intake-target { width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer; }
+.sa-mini-intake-target[hidden] { display:none; }
+.sa-mini-intake-target:hover { background:var(--p2p-hover); }
+.sa-mini-intake-check { display:flex;align-items:center;gap:12px;min-height:44px;color:var(--p2p-dim);font-size:13px; }
+.sa-mini-intake-check input { width:22px;height:22px;flex-shrink:0;accent-color:var(--p2p-accent); }
+.sa-mini-intake button,.sa-mini-intake input:not([type="checkbox"]):not([type="radio"]),.sa-mini-intake select { min-height:44px;max-width:100%;box-sizing:border-box; }
+.sa-mini-intake .sa-p2p-field > span { font-size:12px;color:var(--p2p-dim);font-weight:600; }
+.sa-mini-intake .sa-p2p-field input { width:100%; }
+.sa-mini-intake .sa-p2p-peer-row { grid-template-columns:36px minmax(0,1fr) auto; }
+.sa-mini-intake .sa-p2p-peer-copy { cursor:default; }
+.sa-mini-intake-target .sa-p2p-peer-copy { cursor:pointer;display:grid; }
+.sa-mini-intake .sa-p2p-peer-meta { white-space:normal; }
 @media (max-width:520px) {
-  .sa-mini-intake .sa-p2p-actions {display:grid;grid-template-columns:1fr;gap:10px;}
+  .sa-mini-intake .sa-p2p-actions { display:grid;grid-template-columns:1fr;gap:10px; }
+  .sa-mini-intake .sa-p2p-peer-row { grid-template-columns:36px minmax(0,1fr); }
+  .sa-mini-intake .sa-p2p-device-actions { grid-column:1 / -1;justify-content:flex-end; }
 }

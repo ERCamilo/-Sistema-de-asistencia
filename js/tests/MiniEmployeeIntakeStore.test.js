@@ -68,3 +68,127 @@ test('una propuesta local (nacida de la asistencia) conserva su marca y se reuti
  expect(again.id).toBe(entry.id);expect((await store.list()).filter(e=>e.id===entry.id)).toHaveLength(1);
  expect((await store.stage({...payload,proposalId:'proposal-2'},{peerId:'peer-1',scope})).local).toBeUndefined();
 });
+
+describe('una sola actividad por integración de personal', () => {
+ let activities, activityStore;
+ beforeEach(() => {
+  activities = new Map();
+  activityStore = {
+   recordActivity: jest.fn(entry => { activities.set(entry.id, { ...activities.get(entry.id), ...entry }); return activities.get(entry.id); }),
+   updateActivity: jest.fn((id, patch) => { activities.set(id, { ...activities.get(id), ...patch }); return activities.get(id); })
+  };
+  store.activityStore = activityStore;
+ });
+ const three = { ...payload, employees: [1, 2, 3].map(n => ({ ...payload.employees[0], miniLocalId: `mini-${n}`, number: String(n), name: `Emp ${n}` })) };
+
+ test('recibir N empleados registra una actividad con el conteo; reenviar no la duplica', async () => {
+  await store.stage(three, { peerId: 'peer-1', peerName: 'Mini A', scope });
+  await store.stage({ ...three, requestId: 'request-2' }, { peerId: 'peer-1', peerName: 'Mini A', scope });
+  expect(activities.size).toBe(1);
+  const [activity] = [...activities.values()];
+  expect(activity).toMatchObject({ kind: 'roster', status: 'pending', peerName: 'Mini A', saProjectId: 'P-1' });
+  expect(activity.summary).toContain('3 empleados');
+ });
+
+ test('aceptar actualiza esa misma actividad con cuántos se integraron', async () => {
+  const entry = await store.stage(three, { peerId: 'peer-1', scope });
+  const decisions = [{ miniLocalId: 'mini-1', action: 'create' }, { miniLocalId: 'mini-2', action: 'create' }, { miniLocalId: 'mini-3', action: 'pending' }];
+  await store.accept(entry.id, decisions, { scope, hoursPerDay: 8, version: intakeReviewVersion(model, scope, 8) });
+  expect(activities.size).toBe(1);
+  const [activity] = [...activities.values()];
+  expect(activity.status).toBe('partial');expect(activity.summary).toContain('2 de 3');
+  await store.accept(entry.id, [{ miniLocalId: 'mini-1', action: 'link', employeeId: model.employees[0].id }, { miniLocalId: 'mini-2', action: 'link', employeeId: model.employees[1].id }, { miniLocalId: 'mini-3', action: 'create' }], { scope, hoursPerDay: 8, version: intakeReviewVersion(model, scope, 8) });
+  expect([...activities.values()][0]).toMatchObject({ status: 'success' });expect([...activities.values()][0].summary).toContain('3 de 3');
+ });
+
+ test('un fallo del registro de actividad no impide guardar el personal', async () => {
+  activityStore.recordActivity.mockImplementation(() => { throw new Error('storage full'); });
+  const entry = await store.stage(three, { peerId: 'peer-1', scope });
+  expect((await store.list())).toHaveLength(1);expect(entry.status).toBe('pending');
+ });
+
+ test('una propuesta local nueva reemplaza a la pendiente anterior del mismo origen y reutiliza la actividad', async () => {
+  await store.stage(three, { peerId: 'attendance:texto', scope, local: true });
+  const two = { ...three, proposalId: 'proposal-2', employees: three.employees.slice(0, 2) };
+  await store.stage(two, { peerId: 'attendance:texto', scope, local: true });
+  const items = await store.list();
+  expect(items).toHaveLength(1);expect(items[0].payload.proposalId).toBe('proposal-2');
+  expect(activities.size).toBe(1);expect([...activities.values()][0].summary).toContain('2 empleados');
+ });
+
+ test('el reemplazo no toca propuestas de un Mini conectado ni de otro origen', async () => {
+  await store.stage(three, { peerId: 'peer-1', scope });
+  await store.stage({ ...three, proposalId: 'proposal-t' }, { peerId: 'attendance:texto', scope, local: true });
+  await store.stage({ ...three, proposalId: 'proposal-t2' }, { peerId: 'attendance:texto', scope, local: true });
+  expect((await store.list()).map(e => e.peerId).sort()).toEqual(['attendance:texto', 'peer-1']);
+  expect(activities.size).toBe(2);
+ });
+});
+
+describe('un empleado resuelto en un origen se resuelve en los demás donde se repite', () => {
+ const rowOf = (id, number, name) => ({ ...payload.employees[0], miniLocalId: id, number, name });
+ const proposal = (proposalId, rows) => ({ ...payload, proposalId, requestId: `req-${proposalId}`, employees: rows });
+ const accept = (entry, decisions) => store.accept(entry.id, decisions, { scope, hoursPerDay: 8, version: intakeReviewVersion(model, scope, 8) });
+
+ test('crear en un Mini marca resuelto al mismo empleado (ficha y nombre) en otro Mini y en el texto', async () => {
+  const a = await store.stage(proposal('pa', [rowOf('a1', '1', 'Ana Pérez'), rowOf('a2', '2', 'Beto')]), { peerId: 'peer-A', scope });
+  const b = await store.stage(proposal('pb', [rowOf('b1', '1', 'ana perez'), rowOf('b3', '3', 'Carla')]), { peerId: 'peer-B', scope });
+  const t = await store.stage(proposal('pt', [rowOf('t1', '1', 'Pérez Ana')]), { peerId: 'attendance:texto', scope, local: true });
+  const outcome = await accept(a, [{ miniLocalId: 'a1', action: 'create' }, { miniLocalId: 'a2', action: 'pending' }]);
+  const created = outcome.result.mappings[0].saEmployeeId;
+  const items = await store.list();
+  const byId = Object.fromEntries(items.map(e => [e.id, e]));
+  expect(byId[b.id].mappings.map(m => [m.miniLocalId, m.saEmployeeId])).toEqual([['b1', created]]);
+  expect(byId[b.id].status).toBe('pending');
+  expect(byId[b.id].result.mappings).toHaveLength(1);
+  expect(byId[t.id].status).toBe('resolved');
+  expect(outcome.autoResolved.map(x => x.entry.id).sort()).toEqual([b.id, t.id].sort());
+  expect(await store.linksFor('peer-B', 'P-1')).toHaveProperty('b1');
+ });
+
+ test('no cruza personas con la misma ficha pero otro nombre', async () => {
+  const a = await store.stage(proposal('pa', [rowOf('a1', '1', 'Ana')]), { peerId: 'peer-A', scope });
+  const b = await store.stage(proposal('pb', [rowOf('b1', '1', 'Otra Persona')]), { peerId: 'peer-B', scope });
+  const outcome = await accept(a, [{ miniLocalId: 'a1', action: 'create' }]);
+  expect(outcome.autoResolved).toEqual([]);
+  expect((await store.list()).find(e => e.id === b.id).mappings).toEqual([]);
+ });
+
+ test('al vincular a un empleado con otra ficha también se resuelve la misma fila de otro Mini', async () => {
+  model.employees.push({ id: 'e-40', number: '40', name: 'Ana M', projectId: 'P-1' });
+  const a = await store.stage(proposal('pa', [rowOf('a1', '4', 'Ana M')]), { peerId: 'peer-A', scope });
+  const b = await store.stage(proposal('pb', [rowOf('b1', '4', 'Ana M')]), { peerId: 'peer-B', scope });
+  await accept(a, [{ miniLocalId: 'a1', action: 'link', employeeId: 'e-40' }]);
+  const stored = (await store.list()).find(e => e.id === b.id);
+  expect(stored.mappings[0]).toMatchObject({ miniLocalId: 'b1', saEmployeeId: 'e-40' });
+  expect(stored.status).toBe('resolved');
+ });
+
+ test('un fallo al validar el resultado de otro origen no impide aceptar el actual', async () => {
+  const a = await store.stage(proposal('pa', [rowOf('a1', '1', 'Ana')]), { peerId: 'peer-A', scope });
+  await store.stage(proposal('pb', [rowOf('b1', '1', 'Ana'), rowOf('b2', '1', 'Ana')]), { peerId: 'peer-B', scope });
+  const outcome = await accept(a, [{ miniLocalId: 'a1', action: 'create' }]);
+  expect(outcome.result.mappings).toHaveLength(1);
+ });
+});
+
+describe('vínculo recordado cuyo empleado ya no existe', () => {
+ const accept = (entry, decisions) => store.accept(entry.id, decisions, { scope, hoursPerDay: 8, version: intakeReviewVersion(model, scope, 8) });
+
+ test('permite volver a crear a la persona si su empleado de SA fue borrado', async () => {
+  const first = await store.stage(payload, { peerId: 'peer-1', scope });
+  const created = (await accept(first, [{ miniLocalId: 'mini-1', action: 'create' }])).result.mappings[0].saEmployeeId;
+  model.employees = model.employees.map(e => e.id === created ? { ...e, deletedAt: Date.now(), updatedAt: Date.now() + 1000 } : e);
+  const again = await store.stage({ ...payload, proposalId: 'proposal-2', requestId: 'request-2' }, { peerId: 'peer-1', scope });
+  const outcome = await accept(again, [{ miniLocalId: 'mini-1', action: 'create' }]);
+  expect(outcome.result.mappings[0].saEmployeeId).not.toBe(created);
+  expect(await store.linksFor('peer-1', 'P-1')).toMatchObject({ 'mini-1': { saEmployeeId: outcome.result.mappings[0].saEmployeeId } });
+ });
+
+ test('un vínculo vigente sigue impidiendo crear un duplicado', async () => {
+  const first = await store.stage(payload, { peerId: 'peer-1', scope });
+  await accept(first, [{ miniLocalId: 'mini-1', action: 'create' }]);
+  const again = await store.stage({ ...payload, proposalId: 'proposal-2', requestId: 'request-2' }, { peerId: 'peer-1', scope });
+  await expect(accept(again, [{ miniLocalId: 'mini-1', action: 'create' }])).rejects.toThrow(/ya está vinculado/);
+ });
+});
