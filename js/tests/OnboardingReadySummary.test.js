@@ -1,7 +1,29 @@
-import { readySection, renderOnboarding } from '../modules/ui/onboarding/OnboardingView.js';
-import { defaultState } from '../modules/ui/onboarding/OnboardingCore.js';
+import { readySection, projectSection, renderOnboarding } from '../modules/ui/onboarding/OnboardingView.js';
+import { defaultState, saveProgress, restoreProgress } from '../modules/ui/onboarding/OnboardingCore.js';
 
 describe('Onboarding ready summary', () => {
+    test('confirmación lista obras recuperadas y aclara que el nombre no crea otra obra', () => {
+        const html = projectSection({
+            ...defaultState(), phase: 'project', source: 'backup', projectName: 'Obra Sur',
+            recoveredProjects: [{ id: 'A', name: 'Torre Norte' }, { id: 'B', name: 'Obra Sur' }]
+        });
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        expect(host.querySelector('[data-od-id="od-recovered-projects"]').textContent).toContain('Torre Norte');
+        expect(host.querySelector('#f-project-confirm').value).toBe('Obra Sur');
+        expect(host.textContent).toContain('Cambiar el nombre conserva la obra y sus datos');
+    });
+
+    test('la recarga programada tras restaurar conserva los nombres de las obras en la confirmación', () => {
+        const state = { ...defaultState(), phase: 'project', source: 'backup', projectName: 'Obra Sur',
+            recoveredProjects: [{ id: 'A', name: 'Torre Norte' }, { id: 'B', name: 'Obra Sur' }] };
+        saveProgress(localStorage, state);
+        const resumed = restoreProgress(localStorage, defaultState());
+        expect(resumed.phase).toBe('project');
+        expect(resumed.recoveredProjects).toEqual(state.recoveredProjects);
+        expect(projectSection(resumed)).toContain('Torre Norte');
+        localStorage.removeItem('onboarding-pos');
+    });
     test('renders restored company, positions and employees from the completed action summary', () => {
         const html = readySection({
             source: 'backup',
