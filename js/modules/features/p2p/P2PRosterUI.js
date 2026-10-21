@@ -1,5 +1,7 @@
 import { state } from '../../core/AppState.js';
 import { miniEmployeeIntakeStore } from './MiniEmployeeIntakeStore.js';
+import { groupIntakeEntries, summarizeIntakeGroups, intakeGroupKey } from './MiniEmployeeIntakeGroups.js';
+import { renderIntakeHub } from './MiniEmployeeIntakeHub.js';
 import { requestMiniEmployees } from './MiniEmployeeIntakeBridge.js';
 import { renderEmployeeIntakeReview } from './MiniEmployeeIntakeUI.js';
 import { eventBus } from '../../core/Events.js';
@@ -90,7 +92,8 @@ export function getPendingP2PActivityCount() {
 
 export async function getPendingP2PReviewCount(peerId = null) {
   let personal=0;
-  try { personal=(await miniEmployeeIntakeStore.list()).filter(e=>e.status==='pending'&&(!peerId||e.peerId===peerId)).length; } catch (_) {}
+  // Every pending proposal is one notification: the groups are inside it.
+  try { personal=groupIntakeEntries(await miniEmployeeIntakeStore.list()).filter(g=>!peerId||g.key===intakeGroupKey({peerId})).length?1:0; } catch (_) {}
   try {
     const provider = window.getSaP2PPendingReviewCount;
     if (typeof provider !== 'function') return personal;
@@ -116,7 +119,7 @@ export async function getActionablePendingReviewCountsByPeer() {
     }
   } catch (_) {}
   try {
-    for(const entry of await miniEmployeeIntakeStore.list())if(entry.status==='pending')counts.set(entry.peerId,(counts.get(entry.peerId)||0)+1);
+    for(const group of groupIntakeEntries(await miniEmployeeIntakeStore.list()))if(group.kind==='mini')counts.set(group.key,(counts.get(group.key)||0)+1);
   } catch (_) {}
   return counts;
 }
@@ -551,8 +554,8 @@ async function renderHome() {
 
   const selfPresentation = resolveSaSelfPresentationName(projectState, self);
   const pairingGate = getNewPairingProjectGate(projectState);
-  let personalEntries=[];
-  try {personalEntries=(await miniEmployeeIntakeStore.list()).filter(e=>e.status==='pending');} catch (_) {}
+  let intakeSummary={text:''};
+  try {intakeSummary=summarizeIntakeGroups(groupIntakeEntries(await miniEmployeeIntakeStore.list(),{projectId:projectState.activeProjectId}));} catch (_) {}
   setBodyHtml(`
     <section class="sa-p2p-capabilities-wrap" aria-labelledby="sa-p2p-capabilities-title">
       <h3 id="sa-p2p-capabilities-title" class="sa-p2p-section-label">Capacidades</h3>
@@ -570,7 +573,7 @@ async function renderHome() {
       </div>
       <div class="sa-p2p-peer-list">${peerRows}</div>
     </section>
-    ${personalEntries.length?`<section class="sa-p2p-step"><h3>Personal recibido para revisar</h3>${personalEntries.map(e=>`<div class="sa-p2p-peer-row"><span>${esc(e.peerName||'Mini')} · ${e.payload.employees.length} empleados${e.payload.saProjectId!==projectState.activeProjectId?' · Cambia a la obra de destino':''}</span>${button('Revisar',`data-review-mini-employees="${esc(e.id)}" ${e.payload.saProjectId!==projectState.activeProjectId?'disabled':''}`,'primary')}</div>`).join('')}</section>`:''}
+    ${intakeSummary.text?`<section class="sa-p2p-step"><div class="sa-p2p-peer-row is-online" data-intake-notification><div class="sa-p2p-peer-avatar is-online">${p2pIcon('mini', 18)}</div><div class="sa-p2p-peer-copy"><div class="sa-p2p-peer-header-line"><strong>Personal recibido</strong></div><div class="sa-p2p-peer-meta">${esc(intakeSummary.text)}</div></div><div class="sa-p2p-device-actions">${button('Revisar','data-review-intake-hub','primary')}</div></div></section>`:''}
     ${pairingGate ? '<div class="sa-p2p-status is-warning">SA se presenta con el nombre del proyecto activo. Configura el proyecto para vincular un Mini.</div>' : ''}
     <div>${button('Vincular Mini', 'data-new-pair aria-label="Vincular un nuevo Mini por QR o código"', 'primary', 'link')}</div>
     <p class="sa-p2p-footnote">Vincular sólo crea una relación segura entre dispositivos. Ningún dato se importa o modifica automáticamente.</p>`);
@@ -598,9 +601,7 @@ async function renderHome() {
     btn.disabled=true;
     try {notify('Confirma el envío de personal en Mini.','info');const entry=await requestMiniEmployees(btn.dataset.receiveEmployees);await showEmployeeIntake(entry,projectState);} catch(error){notify(error.message,'error');if(btn.isConnected)btn.disabled=false;}
   }));
-  body().querySelectorAll('[data-review-mini-employees]').forEach(btn=>btn.addEventListener('click',async()=>{
-    try{const entry=(await miniEmployeeIntakeStore.list()).find(e=>e.id===btn.dataset.reviewMiniEmployees);if(entry)await showEmployeeIntake(entry,projectState);}catch(error){notify(error.message,'error');}
-  }));
+  body().querySelector('[data-review-intake-hub]')?.addEventListener('click',()=>{showEmployeeIntakeHub(projectState).catch(error=>notify(error.message,'error'));});
   body().querySelectorAll('[data-unlink-peer]').forEach(btn => btn.addEventListener('click', async () => {
     const peerId = btn.dataset.unlinkPeer;
     const peer = peers.find(item => String(item.peerId) === String(peerId));
@@ -913,6 +914,16 @@ export function registerP2PRosterGlobals() {
   }
 }
 
-async function showEmployeeIntake(entry,projectState) {
-  await renderEmployeeIntakeReview(body(),entry,{projectName:projectState.activeProject?.name || '',onBack:()=>{scheduleSaP2PHeaderRefresh();renderHome();}});
+async function showEmployeeIntake(entry,projectState,{onBack}={}) {
+  const back=onBack||(()=>{scheduleSaP2PHeaderRefresh();renderHome();});
+  await renderEmployeeIntakeReview(body(),entry,{projectName:projectState.activeProject?.name || '',onBack:()=>{scheduleSaP2PHeaderRefresh();back();}});
+}
+
+// Single entry point for every pending proposal: one group per Mini and one for pasted text.
+async function showEmployeeIntakeHub(projectState) {
+  const groups=groupIntakeEntries(await miniEmployeeIntakeStore.list(),{projectId:projectState.activeProjectId});
+  if(!groups.length){await renderHome();return;}
+  const showHub=()=>showEmployeeIntakeHub(projectState).catch(()=>renderHome());
+  renderIntakeHub(body(),{groups,projectName:projectState.activeProject?.name || '',onBack:()=>renderHome(),
+    onOpenEntry:entry=>showEmployeeIntake(entry,projectState,{onBack:showHub}).catch(error=>notify(error.message,'error'))});
 }

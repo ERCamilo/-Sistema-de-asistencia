@@ -120,3 +120,14 @@ test('una propuesta local acepta sin enviar nada a Mini y ofrece volver a la asi
  expect(message).toContain('1 empleados aceptados');expect(message).toContain('asistencia');expect(message).not.toContain('Vuelve a enviar');
  expect(host.querySelector('[data-intake-done]').textContent).toContain('asistencia');
 });
+
+test('al aceptar avisa de los repetidos resueltos en otros orígenes y responde a cada Mini',async()=>{
+ model.employees=[emp('e-9','9','Ana')];const sendResult=jest.fn(()=>true);
+ store.accept.mockResolvedValue({result:{mappings:[{miniLocalId:'m-1',saEmployeeId:'e-9'}]},autoResolved:[
+  {entry:{peerId:'mini-2',result:{proposalId:'x'},local:false},added:[{miniLocalId:'b1'}]},
+  {entry:{peerId:'attendance:texto',result:{proposalId:'y'},local:true},added:[{miniLocalId:'t1'},{miniLocalId:'t2'}]}]});
+ await open({sendResult});click('[data-intake-open="0"]');click('[data-intake-action="link"]');click('[data-intake-all-list] [data-intake-target="e-9"]');click('[data-intake-finish]');
+ click('[data-intake-accept]');await tick();await tick();
+ expect(sendResult).toHaveBeenCalledWith('mini-1',expect.anything());expect(sendResult).toHaveBeenCalledWith('mini-2',{proposalId:'x'});expect(sendResult).not.toHaveBeenCalledWith('attendance:texto',expect.anything());
+ expect(host.querySelector('[data-intake-message]').textContent).toContain('3 empleados repetidos en otros orígenes');
+});

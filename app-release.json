@@ -10,7 +10,9 @@
         "Al asociar, ves primero los empleados parecidos y debajo la lista completa por ficha, con pausados.",
         "Al crear, eliges el puesto con el mismo selector de Personal y puedes usar el sueldo del puesto.",
         "Recuerda las asociaciones a otra ficha para próximas importaciones de asistencia.",
-        "Cada integración de personal queda como una sola actividad con el número de empleados."
+        "Cada integración de personal queda como una sola actividad con el número de empleados.",
+        "Todo el personal por revisar aparece en un solo aviso, dividido por Mini y por texto pegado.",
+        "Si resuelves a un empleado repetido en otro Mini o en el texto, también queda resuelto allí."
       ]
     },
     {

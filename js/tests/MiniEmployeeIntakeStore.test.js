@@ -124,3 +124,50 @@ describe('una sola actividad por integración de personal', () => {
   expect(activities.size).toBe(2);
  });
 });
+
+describe('un empleado resuelto en un origen se resuelve en los demás donde se repite', () => {
+ const rowOf = (id, number, name) => ({ ...payload.employees[0], miniLocalId: id, number, name });
+ const proposal = (proposalId, rows) => ({ ...payload, proposalId, requestId: `req-${proposalId}`, employees: rows });
+ const accept = (entry, decisions) => store.accept(entry.id, decisions, { scope, hoursPerDay: 8, version: intakeReviewVersion(model, scope, 8) });
+
+ test('crear en un Mini marca resuelto al mismo empleado (ficha y nombre) en otro Mini y en el texto', async () => {
+  const a = await store.stage(proposal('pa', [rowOf('a1', '1', 'Ana Pérez'), rowOf('a2', '2', 'Beto')]), { peerId: 'peer-A', scope });
+  const b = await store.stage(proposal('pb', [rowOf('b1', '1', 'ana perez'), rowOf('b3', '3', 'Carla')]), { peerId: 'peer-B', scope });
+  const t = await store.stage(proposal('pt', [rowOf('t1', '1', 'Pérez Ana')]), { peerId: 'attendance:texto', scope, local: true });
+  const outcome = await accept(a, [{ miniLocalId: 'a1', action: 'create' }, { miniLocalId: 'a2', action: 'pending' }]);
+  const created = outcome.result.mappings[0].saEmployeeId;
+  const items = await store.list();
+  const byId = Object.fromEntries(items.map(e => [e.id, e]));
+  expect(byId[b.id].mappings.map(m => [m.miniLocalId, m.saEmployeeId])).toEqual([['b1', created]]);
+  expect(byId[b.id].status).toBe('pending');
+  expect(byId[b.id].result.mappings).toHaveLength(1);
+  expect(byId[t.id].status).toBe('resolved');
+  expect(outcome.autoResolved.map(x => x.entry.id).sort()).toEqual([b.id, t.id].sort());
+  expect(await store.linksFor('peer-B', 'P-1')).toHaveProperty('b1');
+ });
+
+ test('no cruza personas con la misma ficha pero otro nombre', async () => {
+  const a = await store.stage(proposal('pa', [rowOf('a1', '1', 'Ana')]), { peerId: 'peer-A', scope });
+  const b = await store.stage(proposal('pb', [rowOf('b1', '1', 'Otra Persona')]), { peerId: 'peer-B', scope });
+  const outcome = await accept(a, [{ miniLocalId: 'a1', action: 'create' }]);
+  expect(outcome.autoResolved).toEqual([]);
+  expect((await store.list()).find(e => e.id === b.id).mappings).toEqual([]);
+ });
+
+ test('al vincular a un empleado con otra ficha también se resuelve la misma fila de otro Mini', async () => {
+  model.employees.push({ id: 'e-40', number: '40', name: 'Ana M', projectId: 'P-1' });
+  const a = await store.stage(proposal('pa', [rowOf('a1', '4', 'Ana M')]), { peerId: 'peer-A', scope });
+  const b = await store.stage(proposal('pb', [rowOf('b1', '4', 'Ana M')]), { peerId: 'peer-B', scope });
+  await accept(a, [{ miniLocalId: 'a1', action: 'link', employeeId: 'e-40' }]);
+  const stored = (await store.list()).find(e => e.id === b.id);
+  expect(stored.mappings[0]).toMatchObject({ miniLocalId: 'b1', saEmployeeId: 'e-40' });
+  expect(stored.status).toBe('resolved');
+ });
+
+ test('un fallo al validar el resultado de otro origen no impide aceptar el actual', async () => {
+  const a = await store.stage(proposal('pa', [rowOf('a1', '1', 'Ana')]), { peerId: 'peer-A', scope });
+  await store.stage(proposal('pb', [rowOf('b1', '1', 'Ana'), rowOf('b2', '1', 'Ana')]), { peerId: 'peer-B', scope });
+  const outcome = await accept(a, [{ miniLocalId: 'a1', action: 'create' }]);
+  expect(outcome.result.mappings).toHaveLength(1);
+ });
+});

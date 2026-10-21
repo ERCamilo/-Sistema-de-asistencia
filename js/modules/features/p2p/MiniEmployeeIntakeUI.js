@@ -232,8 +232,12 @@ export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},proje
             entry.mappings=outcome.result.mappings;entry.status=entry.mappings.length===entry.payload.employees.length?'resolved':'pending';
             // A proposal built from attendance is unknown to Mini, so there is nobody to answer.
             const sent=entry.local?false:sendResult(entry.peerId,outcome.result);
+            // The same person sent by another origin is resolved there too; Mini recovers it on resend if offline.
+            const repeated=outcome.autoResolved||[];
+            repeated.forEach(({entry:other})=>{if(!other.local)sendResult(other.peerId,other.result);});
+            const repeatedCount=repeated.reduce((total,item)=>total+item.added.length,0);
             await renderEmployeeIntakeReview(host,entry,{onBack,projectName,store,readState,resolveScope,sendResult,readOwner,aliasStore,openPositionPicker});
-            messageText(`${outcome.result.mappings.length} empleados aceptados en SA. ${entry.local?'Las asistencias de esos empleados ya quedaron vinculadas en la revisión de asistencia.':sent?'Respuesta enviada a Mini.':'Vuelve a enviar la propuesta desde Mini para recuperar los vínculos.'}${outcome.syncWarning?' La sincronización con la nube sigue pendiente.':''}${aliasWarning?' No se pudo recordar una asociación para próximas importaciones.':''}`);
+            messageText(`${outcome.result.mappings.length} empleados aceptados en SA. ${entry.local?'Las asistencias de esos empleados ya quedaron vinculadas en la revisión de asistencia.':sent?'Respuesta enviada a Mini.':'Vuelve a enviar la propuesta desde Mini para recuperar los vínculos.'}${outcome.syncWarning?' La sincronización con la nube sigue pendiente.':''}${repeatedCount?` También se resolvió${repeatedCount===1?'':'ron'} ${repeatedCount} empleado${repeatedCount===1?'':'s'} repetido${repeatedCount===1?'':'s'} en otros orígenes.`:''}${aliasWarning?' No se pudo recordar una asociación para próximas importaciones.':''}`);
         }catch(error){
             try{if(readOwner()!==owner||(await resolveScope()).projectId!==scope.projectId){host.replaceChildren();onBack();return;}}catch(_){host.replaceChildren();onBack();return;}
             render();messageText(error.message||'No se pudo aceptar. Tus cambios siguen en esta revisión.');host.querySelector('[data-intake-accept]').disabled=false;

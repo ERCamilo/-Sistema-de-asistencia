@@ -5,6 +5,7 @@ import { getLocalOwnerUid } from '../../services/LocalDataOwner.js';
 import { saveApplicationData, isLocalDataWipeInProgress } from '../../services/PersistenceService.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { peekEntityScope } from '../projects/ProjectContext.js';
+import { resolveRepeatedEmployees } from './MiniEmployeeIntakeRepeated.js';
 import { recordIntakeActivity } from './MiniEmployeeIntakeActivity.js';
 import { p2pActivityStore } from './P2PActivityStore.js';
 import { buildEmployeeIntakePlan, intakeReviewVersion, proposalContract } from './MiniEmployeeIntake.js';
@@ -63,7 +64,7 @@ export class MiniEmployeeIntakeStore {
     }
     async accept(id,decisions,{scope,hoursPerDay,version}) {
         const owner=this.readOwner();await this.dbService.init();this.assertContext(owner,scope.projectId);
-        let applied=null, settled=null;
+        let applied=null, settled=null, repeated=[];
         const output=await this.transaction(['settings','employees','positions'],(tx,resolve,abort)=>{
             const requests=[tx.objectStore('settings').get(keyFor(owner)),tx.objectStore('employees').getAll(),tx.objectStore('positions').getAll()];let remaining=requests.length;
             requests.forEach(request=>{request.onsuccess=()=>{if(--remaining)return;try{
@@ -90,9 +91,10 @@ export class MiniEmployeeIntakeStore {
                 entry.status=result.mappings.length===entry.payload.employees.length?'resolved':'pending';
                 entry.updatedAt=Date.now();settled=entry;
                 result.mappings.forEach(m=>{ledger.links[linkId(entry.peerId,scope.projectId,m.miniLocalId)]=m;});
+                repeated=resolveRepeatedEmployees(ledger,entry,applied.mappings,linkId);
                 applied.employees.forEach(e=>tx.objectStore('employees').put(e));
                 applied.positions.forEach(p=>tx.objectStore('positions').put(p));
-                tx.objectStore('settings').put(ledger);resolve({result,replayed:false});
+                tx.objectStore('settings').put(ledger);resolve({result,replayed:false,autoResolved:repeated});
             }catch(error){abort(error);}};});
         });
         this.assertContext(owner,scope.projectId);
@@ -100,6 +102,10 @@ export class MiniEmployeeIntakeStore {
             this.publish(applied);
             eventBus.emit('mini-employee-intake:accepted',{peerId:JSON.parse(id)[0],saProjectId:scope.projectId,mappings:output.result.mappings});
             if(settled)recordIntakeActivity(settled,{activityStore:this.activityStore});
+            for(const {entry:other,added} of output.autoResolved||[]){
+                recordIntakeActivity(other,{activityStore:this.activityStore});
+                eventBus.emit('mini-employee-intake:accepted',{peerId:other.peerId,saProjectId:scope.projectId,mappings:added});
+            }
             try { await this.onCommitted(); } catch(error) {output.syncWarning=String(error?.message||error);}
             this.assertContext(owner,scope.projectId);
         }
