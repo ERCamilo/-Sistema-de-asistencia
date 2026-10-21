@@ -246,7 +246,7 @@
    interés amarillo, refinanciamiento morado, pagos verde, avisos rojo. */
 .is-portfolio {
     --lp-surface: #1e252b; --lp-surface-2: #1a2025; --lp-app: #171d22; --lp-line: #2a3239; --lp-line-2: #363f47;
-    --lp-text: #ebeef0; --lp-dim: #a2abb3; --lp-faint: #6f7a84;
+    --lp-text: #ebeef0; --lp-dim: #a2abb3; --lp-faint: #abb6bf;
     --lp-accent: #ffc61a; --lp-on-accent: #1c1503; --lp-accent-soft: rgba(255, 198, 26, .15); --lp-accent-2: rgba(255, 198, 26, .55);
     --la-cap: #1fb6ff; --la-int: #ffc61a; --la-refi: #a855f7; --la-pay: #10d98a; --la-bad: #ef4444;
     --la-surface: var(--lp-surface); --la-surface-2: var(--lp-surface-2); --la-app: var(--lp-app);
@@ -556,3 +556,43 @@
     .lp-cr-stats span:nth-child(3) { border-left: 0; }
     .lp-cr-stats span:nth-child(n+3) { border-top: 1px solid var(--lp-line); }
 }
+
+/* Loan audit: readable figures, native period navigation and a mobile balance bridge. */
+.is-portfolio button, .la button { min-height: 44px; }
+.is-portfolio button:focus-visible, .la button:focus-visible, .loan-history select:focus-visible {
+    outline: 2px solid var(--accent, #1fb6ff); outline-offset: 2px;
+}
+.lp-tip > button { min-width: 44px; min-height: 44px; background: var(--lp-surface-2); color: var(--lp-text); }
+.lp-who { grid-template-columns: minmax(0, 1fr) auto; padding: 8px 0; }
+.lp-who__name { overflow-wrap: anywhere; }
+.lp-who__name small { display: block; color: var(--lp-faint); }
+.lp-who__bar { grid-column: 1 / -1; grid-row: 2; }
+.lp-who > b { grid-column: 2; grid-row: 1; }
+.lp-who em, .lp-tag { background: var(--lp-line-2); border: 0; color: var(--lp-text); }
+.lp-sort button[aria-pressed="true"], .lp-xp__fmt button[aria-pressed="true"], .lp-fbtn[aria-expanded="true"] {
+    background: var(--lp-accent); color: var(--lp-on-accent);
+}
+.loan-history__nav select { width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: var(--la-text, #f1f5f9); background: var(--la-surface-2, #172033); border: 1px solid var(--la-line, #334155); border-radius: 8px; }
+.loan-history-chart__label { fill: #aeb9c3; font-size: 12px; }
+.loan-history__chart-head small, .loan-history__snapshot-head small,
+.loan-history__col > small, .loan-history__change > div > small { color: #aeb9c3; }
+.la-recorded-split { color: var(--la-warn); }
+.la-x, .lp-cr-tog { min-width: 44px; min-height: 44px; }
+.lp-cr-pill.is-neutral { background: #363f47; color: #ebeef0; }
+.lf-bridge__steps { display: none; list-style: none; padding: 0; margin: 0; }
+.lf-bridge__steps li { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--la-line, #334155); font-size: .85rem; }
+.lf-bridge__steps li > span { display: flex; gap: 8px; align-items: center; }
+.lf-bridge__steps i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.lf-bridge__steps b { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lf-bridge__steps .is-total { background: var(--la-surface-2, #172033); padding: 12px 8px; border-radius: 8px; font-weight: 700; }
+@media (max-width: 700px) {
+    .lf-bridge__steps { display: block; }
+    .lf-bridge__chart { display: none; }
+    .loan-history__nav { grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; }
+    .loan-history__nav > button { padding: 6px; font-size: .75rem; }
+    .lf-bridge { padding-inline: 10px; }
+}
+
+.lp-mcard[aria-expanded="true"] { background: var(--lp-accent); color: var(--lp-on-accent); }
+.lp-mcard[aria-expanded="true"] .lp-card__t, .lp-mcard[aria-expanded="true"] .lp-card__big,
+.lp-mcard[aria-expanded="true"] small { color: var(--lp-on-accent); }

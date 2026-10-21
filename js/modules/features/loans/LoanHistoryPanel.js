@@ -56,13 +56,18 @@ const longDate = iso => { const p = parts(iso); return `${p.wd} ${p.d} ${MONTHS[
 const compact = n => (Math.abs(n) >= 1000 ? `$${(n / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })}k` : `$${Math.round(n)}`);
 const dominantKind = day => PRIORITY.find(kind => day.items.some(item => item.kind === kind)) || 'payment';
 
-function daysInRange(days, range) {
+function rangeStart(range) {
     const months = HISTORY_RANGES.find(([key]) => key === range)?.[1] || 0;
-    if (!months || days.length === 0) return days;
-    const cut = new Date(`${days.at(-1).date}T00:00:00Z`);
-    cut.setUTCMonth(cut.getUTCMonth() - months);
-    const from = cut.toISOString().slice(0, 10);
-    return days.filter(day => day.date >= from);
+    if (!months) return null;
+    const cut = new Date(`${getDateKey(new Date())}T00:00:00Z`);
+    cut.setUTCDate(1);
+    cut.setUTCMonth(cut.getUTCMonth() - months + 1);
+    return cut.toISOString().slice(0, 10);
+}
+
+function daysInRange(days, range) {
+    const from = rangeStart(range);
+    return from ? days.filter(day => day.date >= from) : days;
 }
 
 function chartWidth() {
@@ -113,7 +118,7 @@ function renderChart(days, selected, scope) {
     const extra = new Set(selected.items.map(item => item.kind)).size - 1;
     return `
         <div class="loan-history-chart">
-            <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolución del saldo: total y capital">
+            <svg viewBox="0 0 ${W} ${H}" role="group" aria-label="Evolución del saldo: total y capital">
                 <defs><linearGradient id="loan-history-fill-${escapeAttr(scope)}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#06b6d4" stop-opacity=".40"/><stop offset="1" stop-color="#06b6d4" stop-opacity=".02"/></linearGradient></defs>
                 ${grid}
                 <path d="${total} ${base}" fill="url(#loan-history-fill-${escapeAttr(scope)})"/>
@@ -177,9 +182,10 @@ function describeChanges(day, mode, nameById) {
  * @param {Array} args.employees  empleados (ya filtrados por obra) cuyos préstamos entran
  */
 export function renderLoanHistoryPanel({ scope, mode = 'general', employees = [], embedded = false, defaults = null, variant = null } = {}) {
-    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))));
+    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))), { financialOnly: true });
     const all = timeline.days;
-    if (all.length === 0) return '';
+    const warning = timeline.undatedClosures.length ? `<p class="lf-note" role="note">Historial incompleto: ${timeline.undatedClosures.length} cierre(s) con saldo sin fecha. Estos préstamos se excluyen de la evolución; revisa sus cierres.</p>` : '';
+    if (all.length === 0) return warning;
     // defaults: cómo se abre la primera vez (la pantalla principal lo abre en «Por periodo»).
     const panel = panelState(scope, defaults);
     const { totals } = timeline;
@@ -225,8 +231,8 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
         <section class="loan-history is-open${embedded ? ' is-embedded' : ''}${portfolio ? ' is-portfolio-hist' : ''}" data-loan-history="${scopeArg}">
             ${embedded ? '' : summary}
             <div class="loan-history__body">
-                ${viewTabs}
-                ${portfolio ? '' : `<div class="loan-history__ranges" role="group" aria-label="Periodo">
+                ${warning}${viewTabs}
+                ${`<div class="loan-history__ranges" role="group" aria-label="Periodo">
                     ${HISTORY_RANGES.map(([key]) => `<button type="button" data-app-fn="setLoanHistoryRange" data-arg="${scopeArg}" data-arg2="${key}" aria-pressed="${panel.range === key}">${key}</button>`).join('')}
                 </div>`}
                 ${renderFlowSection(panel, scope, employees, all, portfolio)}
@@ -235,6 +241,7 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
     }
 
     const days = daysInRange(all, panel.range);
+    if (!days.length) return `<section class="loan-history is-open" data-loan-history="${scopeArg}">${embedded ? '' : summary}<div class="loan-history__body">${warning}${viewTabs}<p class="lf-note">Sin movimientos en este rango. <button type="button" data-app-fn="setLoanHistoryRange" data-arg="${scopeArg}" data-arg2="Todo">Ver todo el historial</button></p></div></section>`;
     let selected = days.find(day => day.date === panel.date) || days.at(-1);
     if (panel.step) {
         const index = Math.min(days.length - 1, Math.max(0, days.indexOf(selected) + panel.step));
@@ -255,7 +262,7 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
         <section class="loan-history is-open${embedded ? ' is-embedded' : ''}${portfolio ? ' is-portfolio-hist' : ''}" data-loan-history="${scopeArg}">
             ${embedded ? '' : summary}
             <div class="loan-history__body">
-                ${viewTabs}
+                ${warning}${viewTabs}
                 <div class="loan-history__ranges" role="group" aria-label="Periodo">
                     ${HISTORY_RANGES.map(([key]) => `<button type="button" data-app-fn="setLoanHistoryRange" data-arg="${scopeArg}" data-arg2="${key}" aria-pressed="${panel.range === key}">${key}</button>`).join('')}
                 </div>
@@ -295,7 +302,7 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
                                     <span class="loan-history__icon" aria-hidden="true">${change.amount < 0 ? '−' : '+'}</span>
                                     <div><strong>${change.amount < 0 ? '−' : '+'}${formatCurrency(Math.abs(change.amount))}</strong><span>${escapeHTML(change.label)}</span>${change.detail ? `<small>${change.detail}</small>` : ''}</div>
                                 </div>`).join('')}
-                            ${excess > 0.01 ? `<div class="loan-history__excess">Abono repetido: ${formatCurrency(excess)} no baja el saldo.</div>` : ''}
+                            ${excess > 0.01 ? `<div class="loan-history__excess">Crédito generado: ${formatCurrency(excess)} no se aplicó al saldo ese día; puede cubrir cargos posteriores.</div>` : ''}
                         </div>
                         <div class="loan-history__arrow" aria-hidden="true">›</div>
                         <div class="loan-history__col is-after"><h5>Después</h5><small>${shortDate(selected.date)}</small><div class="loan-history__amount">${formatCurrency(selected.result)}</div>
@@ -319,8 +326,7 @@ function renderFlowSection(panel, scope, employees, allDays, portfolio = false) 
     if (kind === 'period' && !(Number(payPeriod?.periodLength) > 0)) {
         return '<p class="lf-note">Configura el periodo de Nómina para ver la vista por periodo.</p>';
     }
-    const visible = portfolio ? allDays : daysInRange(allDays, panel.range);
-    const from = (visible[0] || allDays[0]).date;
+    const from = rangeStart(panel.range) || allDays[0].date;
     const buckets = buildFlowBuckets(kind, { from, to: today, payPeriod });
     if (!buckets.length) return '';
     const flows = computeLoanFlows(employees.flatMap(emp => emp.loans || []), buckets);
@@ -328,19 +334,26 @@ function renderFlowSection(panel, scope, employees, allDays, portfolio = false) 
     const active = o => o.nNew || o.nRefi || o.payOld + o.paySame + o.excess + o.gift + o.adjustUp + o.adjustDown > 0.004;
     const selected = buckets.some(b => b.key === panel.bucket) ? panel.bucket
         : ([...buckets].reverse().find(b => active(flows.get(b.key))) || buckets.at(-1)).key;
+    panel.bucket = selected;
     const bucket = buckets.find(b => b.key === selected);
+    const index = buckets.indexOf(bucket);
+    const navigation = `<div class="loan-history__nav">
+        <button type="button" data-app-fn="selectLoanHistoryBucket" data-arg="${escapeAttr(scope)}" data-arg2="${escapeAttr(buckets[index-1]?.key || '')}" ${index===0?'disabled':''}>Anterior</button>
+        <select aria-label="Elegir mes o periodo" onchange="selectLoanHistoryBucket('${escapeAttr(scope)}',this.value)">${buckets.map(b=>`<option value="${escapeAttr(b.key)}" ${b.key===selected?'selected':''}>${escapeHTML(b.long)}</option>`).join('')}</select>
+        <button type="button" data-app-fn="selectLoanHistoryBucket" data-arg="${escapeAttr(scope)}" data-arg2="${escapeAttr(buckets[index+1]?.key || '')}" ${index===buckets.length-1?'disabled':''}>Siguiente</button>
+    </div>`;
     const what = kind === 'period' ? 'periodo' : 'mes';
     const chart = `${renderFlowLegend()}
         <div class="lf-plot">${renderFlowChart({ scope, buckets, flows, selected, today, closedEnds: closedPeriodEndsOf(employees) })}</div>`;
     // Al tocar una barra: el puente de ese periodo y, plegada, la tabla con todo el desglose.
     const detail = `${renderFlowBridge({ bucket, flow: flows.get(selected), today })}
         <details class="lf-more"><summary>Ver el desglose en tabla</summary>${renderFlowPanel({ kind, bucket, flow: flows.get(selected), buckets, today })}</details>`;
-    const note = `La barra izquierda es todo lo que se debía durante el ${what} (lo que venía más lo nuevo), no el saldo; la línea punteada es lo que quedaban debiendo al cerrar cada ${what}. ${kind === 'period' ? 'Periodos de pago según el calendario de Nómina, calculados también hacia atrás.' : 'El interés es el de los préstamos nuevos del mes más el de los refinanciamientos de ese mes.'} Toca una barra para ver su puente.`;
-    if (portfolio) return `${chart}${detail}<p class="lf-foot">${note}</p>`;
+    const note = `Rango ${panel.range === 'Todo' ? 'histórico completo' : panel.range + ' hasta hoy'}. Valores del gráfico aproximados; detalle con centavos. La barra izquierda es todo lo que se debía durante el ${what} (lo que venía más lo nuevo), no el saldo; la línea punteada es lo que quedaban debiendo al cerrar cada ${what}. ${kind === 'period' ? 'Periodos de pago según el calendario de Nómina, calculados también hacia atrás.' : 'El interés es el de los préstamos nuevos del mes más el de los refinanciamientos de ese mes.'} Toca una barra para ver su puente.`;
+    if (portfolio) return `<p class="lf-foot">${note}</p>${navigation}${detail}<details class="lf-more"><summary>Comparar todos los periodos</summary>${chart}</details>`;
     return `
         <div class="loan-history__chart-card lf-card">
             <div class="loan-history__chart-head"><div><h4><span aria-hidden="true">📊</span> ${kind === 'period' ? 'Por periodo de nómina' : 'Por mes'}</h4><small>${note}</small></div></div>
-            ${chart}
+            ${navigation}${chart}
         </div>
         ${detail}`;
 }

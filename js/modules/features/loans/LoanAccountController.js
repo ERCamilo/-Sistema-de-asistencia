@@ -1,3 +1,4 @@
+import { loanDataKey } from './LoanDataKey.js';
 /**
  * 🧾 LoanAccountController — acciones de la ficha «cuenta de préstamos».
  *
@@ -104,7 +105,7 @@ function act(fn, announce, after = view => { view.modal = null; view.ask = null;
 export function laSetTab(tab) { update(view => { view.tab = tab === 'mov' ? 'mov' : 'loans'; view.ask = null; }); }
 export function laToggleLoan(loanId) { update(view => { view.open = { ...(view.open || {}), [loanId]: !view.open?.[loanId] }; }); }
 export function laToggleShowVoid() { update(view => { view.showVoid = !view.showVoid; }); }
-export function laAsk(key, where) { update(view => { const id = `${key}#${where}`; view.ask = view.ask === id ? null : id; view.fixWhy = ''; }); }
+export function laAsk(key, where) { update(view => { const id = `${key}#${where}`; view.ask = view.ask === id ? null : id; view.askRevision = selectedEmployee() ? loanDataKey([selectedEmployee()]) : null; view.fixWhy = ''; }); }
 export function laCancelAsk() { update(view => { view.ask = null; view.fixWhy = ''; }); }
 export function laFixWhy(value) { update(view => { view.fixWhy = String(value || ''); }, { redraw: false }); }
 export function laClose() { update(view => { view.modal = null; }); }
@@ -300,14 +301,23 @@ function refFromKey(key) {
     return null;
 }
 
+function assertConfirmationCurrent(emp) {
+    if (ui().askRevision && ui().askRevision !== loanDataKey([emp])) {
+        throw new Error('Los movimientos cambiaron. Cierra y vuelve a revisar la confirmación.');
+    }
+}
+
 export function laVoid(key) {
     const [kind, a, b] = String(key).split('|');
-    if (kind === 'edit') return act(emp => undoLoanEdit(emp, a, b, options()), 'Corrección deshecha');
-    if (kind === 'close') return act(emp => undoLoanClosure(emp, a, options()), 'Cierre deshecho: el préstamo volvió a abrirse');
-    if (kind === 'agr') return act(emp => cancelLoanAgreement(emp, a, options()), 'Acuerdo cancelado');
+    if (kind === 'edit') return act(emp => { assertConfirmationCurrent(emp); return undoLoanEdit(emp, a, b, options()); }, 'Corrección deshecha');
+    if (kind === 'close') return act(emp => { assertConfirmationCurrent(emp); return undoLoanClosure(emp, a, options()); }, 'Cierre deshecho: el préstamo volvió a abrirse');
+    if (kind === 'agr') return act(emp => { assertConfirmationCurrent(emp); return cancelLoanAgreement(emp, a, options()); }, 'Acuerdo cancelado');
     const ref = refFromKey(key);
     if (!ref) return null;
-    return act(emp => voidAccountMovement(emp, ref, options()),
+    return act(emp => {
+        assertConfirmationCurrent(emp);
+        return voidAccountMovement(emp, ref, options());
+    },
         r => `Movimiento anulado${r.reallocated?.length ? `; se volvieron a repartir ${r.reallocated.length} abono(s) posteriores` : ''}`);
 }
 
@@ -316,10 +326,10 @@ export function laAdjust(key, date) {
     if (!ref) return null;
     const today = getDateKey(new Date());
     const period = getAccountPayPeriods(today).find(p => p.payDate === date);
-    return act(emp => voidAccountMovement(emp, ref, options({
+    return act(emp => { assertConfirmationCurrent(emp); return voidAccountMovement(emp, ref, options({
         mode: VOID_MODE.ADJUST, date: date || today, reason: ui().fixWhy || '',
         payrollPeriodStart: period?.start, payrollPeriodEnd: period?.end
-    })), 'Ajuste creado; el cierre no cambió');
+    })); }, 'Ajuste creado; el cierre no cambió');
 }
 
 export function laFix(key) {
@@ -327,7 +337,7 @@ export function laFix(key) {
     if (!ref) return null;
     const reason = String(ui().fixWhy || '').trim();
     if (reason.length < 3) { alertMsg('Escribe el motivo para corregir el cierre'); return null; }
-    return act(emp => voidAccountMovement(emp, ref, options({ mode: VOID_MODE.FIX_CLOSURE, reason })),
+    return act(emp => { assertConfirmationCurrent(emp); return voidAccountMovement(emp, ref, options({ mode: VOID_MODE.FIX_CLOSURE, reason })); },
         r => `Cierre corregido: saldo ${Number(r.before).toFixed(2)} → ${Number(r.after).toFixed(2)}`);
 }
 

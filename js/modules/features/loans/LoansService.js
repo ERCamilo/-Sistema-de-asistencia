@@ -26,6 +26,7 @@
 
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { getRemainingCapital } from './LoanTimeline.js';
+import { readLoanEmployee } from './LoanChronology.js';
 import { recordNestedTombstone } from '../../services/NestedTombstones.js';
 import { ProjectScopedGateError } from '../../config/TandaBGate.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
@@ -507,7 +508,8 @@ export function refinanceLoan(emp, loanId, params = {}, options = {}) {
 
     const createsReplacement = params.replacement !== false && params.installmentCount != null && Number(params.installmentCount) > 0;
     const basis = Object.values(REFINANCE_BASES).includes(params.basis) ? params.basis : REFINANCE_BASES.BALANCE;
-    const baseAmount = refinanceBaseAmount(loan, basis, balance);
+    const readLoan = readLoanEmployee(emp).loans.find(item => item.id === loanId);
+    const baseAmount = refinanceBaseAmount(readLoan, basis, balance);
     const rate = basis === REFINANCE_BASES.PENDING ? 0 : Number(params.interestRate);
     const interestAmount = round2(baseAmount * rate / 100);
 
@@ -737,7 +739,9 @@ export function getTotalDue(loan) {
     const principal = terms.principal;
     const rate = terms.interestRate;
     const interest = terms.interestIncluded ? 0 : (principal * rate / 100);
-    return round2(principal + interest + getRefinanceInterest(loan));
+    // A replacement records its exact agreed total; its rate may use another base.
+    const agreed = terms.totalDue == null ? NaN : Number(terms.totalDue);
+    return round2((Number.isFinite(agreed) && agreed >= 0 ? agreed : principal + interest) + getRefinanceInterest(loan));
 }
 
 /** Total interest added by all NON-VOIDED refinancing events on this loan. */
@@ -1066,7 +1070,8 @@ export function getEmployeesWithOnlyInactiveLoans(state) {
         
         const totalDue = round2(allLoans.reduce((s, l) => s + getTotalDue(l), 0));
         const totalPaid = round2(allLoans.reduce((s, l) => s + getPaidAmount(l), 0));
-        const totalBalance = round2(allLoans.reduce((s, l) => s + getBalance(l), 0));
+        // Closed accounts have no active debt; a residual needs closure review.
+        const totalBalance = 0;
 
         const { lastLoanDate, lastAssignedDate, lastPaymentDate } = summarizeLoanDates(allLoans);
         
@@ -1109,7 +1114,7 @@ export function getIndividualLoanRecords(state, filterView = 'active') {
             if (filterView === 'settled' && loan.status !== LOAN_STATUS.PAID && getBalance(loan) > 0.01) continue;
             if (filterView === 'all' && loan.status === LOAN_STATUS.WRITTEN_OFF) continue;
 
-            const balance = getBalance(loan);
+            const balance = loan.status === LOAN_STATUS.ACTIVE ? getBalance(loan) : 0;
             const totalDue = getTotalDue(loan);
             const totalPaid = getPaidAmount(loan);
             const lastLoanDate = getLoanLatestActivityDate(loan);
@@ -1242,7 +1247,9 @@ export function filterEmployeeLoans(employees, { search = '', amountFilter = 'al
 /** Get the interest amount of a single loan. */
 export function getInterestAmount(loan) {
     const terms = getActiveLoanTerms(loan);
-    return terms.interestIncluded ? 0 : round2(terms.principal * terms.interestRate / 100);
+    if (terms.interestIncluded) return 0;
+    const agreed = terms.interestAmount == null ? NaN : Number(terms.interestAmount);
+    return round2(Number.isFinite(agreed) && agreed >= 0 ? agreed : terms.principal * terms.interestRate / 100);
 }
 
 /** Sum of interest for all currently active loans. */

@@ -168,6 +168,7 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
             upsert(target.refinancings, {
                 id: convId(key, target.id), date, basis: REFINANCE_BASES.PENDING, baseAmount: 0, interestRate: 0, interestAmount: value,
                 note, reason: CONSOLIDATION_REASON, origin: MOVEMENT_ORIGIN.ACCOUNT, accountTxId: extra.txId || null,
+                ...(extra.effectiveAt ? { effectiveAt: extra.effectiveAt } : {}),
                 convertedFrom: extra.convertedFrom || null, createdBy: by, createdAt: at, updatedAt: at, voided: false, voidedAt: null, voidedBy: null, voidReason: null
             });
             if (target.status !== LOAN_STATUS.ACTIVE && getBalance(target) > 0.01) { target.status = LOAN_STATUS.ACTIVE; target.closedAt = null; }
@@ -187,7 +188,7 @@ export function undoConsolidation(emp, consolidatedLoanId, { by = null, at = Dat
     for (const event of events) {
         const original = event.item;
         if (event.kind === 'refi') {
-            movedInterest += addCharge(Number(original.interestAmount || 0), original.date, original.note || 'Refinanciamiento de la consolidación', { txId: convId(original.id), convertedFrom: { loanId: cons.id, refinancingId: original.id } }, original.id);
+            movedInterest += addCharge(Number(original.interestAmount || 0), original.date, original.note || 'Refinanciamiento de la consolidación', { txId: convId(original.id), effectiveAt: original.effectiveAt || original.createdAt, convertedFrom: { loanId: cons.id, refinancingId: original.id } }, original.id);
             original.voided = true; original.voidedAt = at; original.voidedBy = by; original.voidReason = 'consolidation-undone'; original.updatedAt = at;
             continue;
         }

@@ -1,3 +1,5 @@
+import { readLoanChronology } from './LoanChronology.js';
+import { isFinancialLoan } from './LoanReadPolicy.js';
 /**
  * 📊 LoanFlowChart — «Por mes» y «Por periodo» del historial de préstamos.
  *
@@ -74,9 +76,10 @@ export function computeLoanFlows(loans = [], buckets = []) {
     if (!buckets.length) return out;
     const bucketOf = date => buckets.find(b => b.start <= date && date <= b.end) || null;
     const steps = [];
-    for (const loan of loans) {
-        if (!loan || loan.status === LOAN_STATUS.WRITTEN_OFF) continue;
+    for (const loan of readLoanChronology(loans)) {
+        if (!isFinancialLoan(loan)) continue;
         const replay = replayLoan(loan);
+        if (replay.closure?.undated) continue;
         const born = replay.steps.find(s => s.kind === 'loan')?.date || loan.startDate || '';
         for (const step of replay.steps) steps.push({ ...step, born, bornKey: bucketOf(born)?.key || null });
     }
@@ -85,11 +88,13 @@ export function computeLoanFlows(loans = [], buckets = []) {
         const old = step => step.born < bucket.start;
         let open = 0;
         let end = 0;
+        let oldEnd = 0;
         const refinanced = new Set();
         for (const step of steps) {
             const value = step.delta.capital + step.delta.interest;
             if (step.date < bucket.start) open += value;
             if (step.date <= bucket.end) end += value;
+            if (step.date <= bucket.end && old(step)) oldEnd += value;
             if (step.date < bucket.start || step.date > bucket.end) continue;
             if (step.kind === 'loan') {
                 o.newCap += step.delta.capital; o.newInt += step.delta.interest; o.nNew++;
@@ -121,7 +126,7 @@ export function computeLoanFlows(loans = [], buckets = []) {
         }
         o.open = open;
         o.end = end;
-        o.missing = Math.max(0, open + o.refiIntOld - o.giftOld - o.payOld);
+        o.missing = Math.max(0, oldEnd);
         for (const key of Object.keys(o)) {
             if (typeof o[key] === 'number') o[key] = round2(o[key]);
             else if (o[key] && typeof o[key] === 'object') for (const k of Object.keys(o[key])) o[key][k] = round2(o[key][k]);
@@ -169,7 +174,7 @@ export function renderFlowChart({ scope, buckets, flows, selected, today, closed
     let g = '<defs><pattern id="lf-stripe" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(16,217,138,.16)"></rect><rect width="2.6" height="6" fill="#10d98a"></rect></pattern>'
         + '<pattern id="lf-stripe-adj" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(251,146,60,.16)"></rect><rect width="2.6" height="6" fill="#fb923c"></rect></pattern></defs>';
     for (let v = 0; v <= max; v += step) {
-        g += `<line x1="${Lp}" x2="${W - Rp}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"></line><text x="${Lp - 6}" y="${y(v) + 4}" fill="#7c858d" font-size="10" text-anchor="end">${v >= 1000 ? `${round2(v / 1000)}k` : v}</text>`;
+        g += `<line x1="${Lp}" x2="${W - Rp}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"></line><text x="${Lp - 6}" y="${y(v) + 4}" fill="#aeb9c3" font-size="12" text-anchor="end">${v >= 1000 ? `${round2(v / 1000)}k` : v}</text>`;
     }
     const labelEvery = Math.ceil(buckets.length / 12);
     const points = [];
@@ -190,13 +195,13 @@ export function renderFlowChart({ scope, buckets, flows, selected, today, closed
         };
         // Una sola vista (la «1» de la maqueta): el interés siempre separado.
         stack(cx - bw - 2, [[o.open, COLOR.carry, 'venía de antes'], [o.newCap, COLOR.cap, 'capital prestado'], [o.newInt, COLOR.int, 'interés al prestar'], [o.refiInt + o.adjustUp, COLOR.refi, 'interés por refinanciar']]);
-        stack(cx + 2, [[o.payInt, COLOR.payInt, 'cobrado: interés'], [o.payCap, COLOR.pay, 'cobrado: capital'], [o.excess, 'url(#lf-stripe)', 'pagado de más (posible error)'], [o.adjustDown, 'url(#lf-stripe-adj)', 'ajuste de nómina cerrada']]);
+        stack(cx + 2, [[o.payInt, COLOR.payInt, 'cobrado: interés'], [o.payCap, COLOR.pay, 'cobrado: capital'], [o.excess, 'url(#lf-stripe)', 'crédito generado'], [o.adjustDown, 'url(#lf-stripe-adj)', 'ajuste de nómina cerrada']]);
         points.push([cx, y(Math.max(0, o.end)), o.end, b]);
         if (i % labelEvery === 0 || isSel) {
-            g += `<text x="${cx}" y="${H - 15}" fill="${isSel ? '#ebeef0' : '#a2abb3'}" font-size="${buckets.length > 8 ? 9 : 10.5}" font-weight="${isSel ? 700 : 400}" text-anchor="middle">${escapeHTML(b.label)}</text>`;
+            g += `<text x="${cx}" y="${H - 15}" fill="${isSel ? '#ebeef0' : '#a2abb3'}" font-size="12" font-weight="${isSel ? 700 : 400}" text-anchor="middle">${escapeHTML(b.label)}</text>`;
         }
-        if (closed || current) g += `<text x="${cx}" y="${H - 4}" fill="#7c858d" font-size="8.5" text-anchor="middle">${current ? 'en curso' : 'cerrado'}</text>`;
-        g += `<rect class="lf-hit" x="${Lp + cw * i}" y="0" width="${cw}" height="${H}" fill="transparent" data-app-fn="selectLoanHistoryBucket" data-arg="${scopeArg}" data-arg2="${escapeAttr(b.key)}" role="button" aria-label="${escapeAttr(b.long)}"><title>${escapeHTML(b.long)}: toca para ver el detalle</title></rect>`;
+        if (closed || current) g += `<text x="${cx}" y="${H - 4}" fill="#aeb9c3" font-size="12" text-anchor="middle">${current ? 'en curso' : 'cerrado'}</text>`;
+        g += `<rect class="lf-hit" x="${Lp + cw * i}" y="0" width="${cw}" height="${H}" fill="transparent" data-app-fn="selectLoanHistoryBucket" data-arg="${scopeArg}" data-arg2="${escapeAttr(b.key)}" role="button" tabindex="-1" aria-label="${escapeAttr(b.long)}"><title>${escapeHTML(b.long)}: toca para ver el detalle</title></rect>`;
     });
     // Saldo al cerrar cada periodo (lo que deben): la altura de las barras es todo lo que
     // se debía durante el periodo, no el saldo.
@@ -204,14 +209,14 @@ export function renderFlowChart({ scope, buckets, flows, selected, today, closed
         g += `<polyline points="${points.map(([px, py]) => `${px.toFixed(1)},${py.toFixed(1)}`).join(' ')}" fill="none" stroke="${COLOR.balance}" stroke-width="1.5" stroke-dasharray="4 3" opacity=".85" pointer-events="none"></polyline>`;
         for (const [px, py, v, b] of points) g += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3" fill="${COLOR.balance}" pointer-events="none"><title>${escapeHTML(b.label)} · saldo al cerrar ${M0(v)}</title></circle>`;
     }
-    return `<svg class="lf-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Lo que se debía, lo cobrado y el saldo al cerrar cada periodo">${g}</svg>`;
+    return `<svg class="lf-chart" viewBox="0 0 ${W} ${H}" role="group" aria-label="Lo que se debía, lo cobrado y el saldo al cerrar cada periodo">${g}</svg>`;
 }
 
 export function renderFlowLegend() {
     const item = (bg, text) => `<span><i style="background:${bg}"></i>${escapeHTML(text)}</span>`;
     const striped = 'repeating-linear-gradient(45deg,#10d98a 0 2px,rgba(16,217,138,.2) 2px 5px)';
     const line = `<span class="lf-legend__line"><i style="background:none;border-top:2px dashed ${COLOR.balance};height:0;border-radius:0"></i>Saldo al cerrar (lo que deben)</span>`;
-    return `<div class="lf-legend">${[item(COLOR.carry, 'Venía de antes'), item(COLOR.cap, 'Capital prestado'), item(COLOR.int, 'Interés al prestar'), item(COLOR.refi, 'Interés por refinanciar'), item(COLOR.payInt, 'Cobrado: interés'), item(COLOR.pay, 'Cobrado: capital'), item(striped, 'Pagado de más (posible error)'), line].join('')}</div>`;
+    return `<div class="lf-legend">${[item(COLOR.carry, 'Venía de antes'), item(COLOR.cap, 'Capital prestado'), item(COLOR.int, 'Interés al prestar'), item(COLOR.refi, 'Interés por refinanciar'), item(COLOR.payInt, 'Cobrado: interés'), item(COLOR.pay, 'Cobrado: capital'), item(striped, 'Crédito generado'), line].join('')}</div>`;
 }
 
 /**
@@ -229,7 +234,7 @@ export function renderFlowBridge({ bucket, flow: o, today }) {
         ['− Cobrado: interés', -o.payInt, COLOR.payInt],
         ['− Cobrado: capital', -o.payCap, COLOR.pay]
     ];
-    if (o.gift + o.adjustDown > 0.004) steps.push(['− Perdonado o ajustes', -(o.gift + o.adjustDown), '#6f7a84']);
+    if (o.gift + o.adjustDown > 0.004) steps.push(['− Cierres o ajustes', -(o.gift + o.adjustDown), '#6f7a84']);
     let acc = 0;
     let peak = 0;
     const bars = steps.map(([label, v, color, base]) => {
@@ -246,23 +251,24 @@ export function renderFlowBridge({ bucket, flow: o, today }) {
     const cw = (W - Lp - Rp) / bars.length;
     const bw = Math.min(54, cw * 0.62);
     let g = '';
-    for (let v = 0; v <= max; v += step) g += `<line x1="${Lp}" x2="${W - Rp}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"></line><text x="${Lp - 6}" y="${y(v) + 4}" fill="#7c858d" font-size="10" text-anchor="end">${v >= 1000 ? `${round2(v / 1000)}k` : v}</text>`;
+    for (let v = 0; v <= max; v += step) g += `<line x1="${Lp}" x2="${W - Rp}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"></line><text x="${Lp - 6}" y="${y(v) + 4}" fill="#aeb9c3" font-size="12" text-anchor="end">${v >= 1000 ? `${round2(v / 1000)}k` : v}</text>`;
     bars.forEach((b, i) => {
         const cx = Lp + cw * i + cw / 2;
         const lo = Math.min(b.from, b.to);
         const hi = Math.max(b.from, b.to);
         g += `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(hi).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5, y(lo) - y(hi)).toFixed(1)}" fill="${b.end ? 'none' : b.color}" stroke="${b.end ? COLOR.balance : 'none'}" stroke-width="1.5" rx="2"><title>${escapeHTML(b.label)} ${M0(Math.abs(b.v))}</title></rect>`;
         if (i < bars.length - 1) g += `<line x1="${(cx + bw / 2).toFixed(1)}" x2="${(cx + cw - bw / 2).toFixed(1)}" y1="${y(b.to).toFixed(1)}" y2="${y(b.to).toFixed(1)}" stroke="#7c858d" stroke-dasharray="2 2"></line>`;
-        g += `<text x="${cx}" y="${(y(hi) - 5).toFixed(1)}" fill="#ebeef0" font-size="10" font-weight="600" text-anchor="middle">${b.v < 0 ? '−' : ''}${M0(Math.abs(b.v))}</text>`;
+        g += `<text x="${cx}" y="${(y(hi) - 5).toFixed(1)}" fill="#ebeef0" font-size="12" font-weight="600" text-anchor="middle">${b.v < 0 ? '−' : ''}${M0(Math.abs(b.v))}</text>`;
         const words = b.label.split(' ');
         const mid = Math.ceil(words.length / 2);
-        g += `<text x="${cx}" y="${H - 24}" fill="#a2abb3" font-size="9.5" text-anchor="middle">${escapeHTML(words.slice(0, mid).join(' '))}</text><text x="${cx}" y="${H - 12}" fill="#a2abb3" font-size="9.5" text-anchor="middle">${escapeHTML(words.slice(mid).join(' '))}</text>`;
+        g += `<text x="${cx}" y="${H - 24}" fill="#a2abb3" font-size="12" text-anchor="middle">${escapeHTML(words.slice(0, mid).join(' '))}</text><text x="${cx}" y="${H - 12}" fill="#a2abb3" font-size="12" text-anchor="middle">${escapeHTML(words.slice(mid).join(' '))}</text>`;
     });
     const paid = round2(o.payInt + o.payCap);
     return `<div class="lf-bridge">
         <div class="lf-bridge__t"><b>${escapeHTML(bucket.long)}${current ? ' · en curso' : ''}</b><small>datos al ${today.slice(8, 10)}/${today.slice(5, 7)}/${today.slice(0, 4)}</small></div>
-        <div class="lf-plot"><svg class="lf-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cómo se llegó al saldo en ${escapeAttr(bucket.long)}">${g}</svg></div>
-        <p class="lf-bridge__s">Empezó en <b>${M0(o.open)}</b>, entraron <b>${M0(o.newCap + o.newInt + o.refiInt + o.adjustUp)}</b>, se cobraron <b>${M0(paid)}</b>${o.excess > 0.004 ? ` (más ${M0(o.excess)} pagados de más)` : ''} y ${current ? 'hoy deben' : 'quedaron'} <b>${M0(o.end)}</b>.</p>
+        <ol class="lf-bridge__steps">${bars.map(b=>`<li${b.end?' class="is-total"':''}><span><i style="background:${b.color}"></i>${escapeHTML(b.label)}</span><b>${b.v<0?'−':''}${formatCurrency(Math.abs(b.v))}</b></li>`).join('')}</ol>
+        <div class="lf-plot lf-bridge__chart"><svg class="lf-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cómo se llegó al saldo en ${escapeAttr(bucket.long)}">${g}</svg></div>
+        <p class="lf-bridge__s">Empezó en <b>${formatCurrency(o.open)}</b>, se aplicaron cargos por <b>${formatCurrency(o.newCap + o.newInt + o.refiInt + o.adjustUp)}</b>, se aplicaron pagos por <b>${formatCurrency(paid)}</b>${o.excess > 0.004 ? ` (más ${formatCurrency(o.excess)} de crédito generado)` : ''} y ${current ? 'hoy deben' : 'quedaron'} <b>${formatCurrency(o.end)}</b>.</p>
     </div>`;
 }
 
@@ -289,13 +295,13 @@ export function renderFlowPanel({ kind, bucket, flow: o, buckets, today }) {
             ${r('transparent', 'Total que se debía', formatCurrency(o.open + o.newCap + o.newInt + o.refiInt + o.adjustUp), ' is-tot')}
         </div>
         <div><h5>Lo que pasó</h5>
-            ${r('#10d98a', 'Cobrado', (o.payOld + o.paySame > 0.004 ? '−' : '') + formatCurrency(o.payOld + o.paySame))}
+            ${r('#10d98a', 'Pagos aplicados al saldo', (o.payOld + o.paySame > 0.004 ? '−' : '') + formatCurrency(o.payOld + o.paySame))}
             ${r('#0a8f5b', 'a interés', formatCurrency(o.payInt), ' is-sub2')}${r('#10d98a', 'a capital', formatCurrency(o.payCap), ' is-sub2')}
             ${o.payOld + o.paySame > 0.004 ? `<div class="lf-r is-sub"><span>por préstamos…</span><b></b></div>${from(o.payFrom, false)}` : ''}
-            ${o.excess > 0.004 ? r('repeating-linear-gradient(45deg,#10d98a 0 2px,rgba(16,217,138,.2) 2px 5px)', 'Pagado de más: posible error (abono repetido); no baja la deuda', formatCurrency(o.excess)) : ''}
+            ${o.excess > 0.004 ? r('repeating-linear-gradient(45deg,#10d98a 0 2px,rgba(16,217,138,.2) 2px 5px)', 'Crédito generado en el periodo; no aplicado al saldo', formatCurrency(o.excess)) : ''}
             ${o.adjustDown > 0.004 ? r('#fb923c', 'Ajustes que bajan la deuda', '−' + formatCurrency(o.adjustDown)) : ''}
             ${o.gift > 0.004 ? r('#78838d', 'Perdonado o cerrado con saldo', '−' + formatCurrency(o.gift)) : ''}
-            ${r(COLOR.missing, `${current ? 'Falta' : 'Faltó'} por cobrar de lo que venía`, formatCurrency(o.missing))}
+            ${r(COLOR.missing, `Saldo pendiente de préstamos anteriores`, formatCurrency(o.missing))}
             ${r('transparent', current ? 'Saldo hoy' : 'Quedó al cerrar', formatCurrency(o.end), ' is-tot')}
         </div>
     </div>`;

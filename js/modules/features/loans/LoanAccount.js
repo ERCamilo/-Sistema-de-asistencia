@@ -1,3 +1,4 @@
+import { readLoanEmployee } from './LoanChronology.js';
 /**
  * 🧾 LoanAccount — la «cuenta de préstamos» de un empleado en una obra.
  *
@@ -246,6 +247,7 @@ function accountLoans(emp, options = {}) {
  * número, interés y capital pendientes, y la nómina en que se cobran.
  */
 export function getAccountSummary(emp, options = {}) {
+    emp = readLoanEmployee(emp);
     const all = accountLoans(emp, options);
     const numbers = getLoanNumbers(emp?.loans || []);
     const loans = all
@@ -321,7 +323,7 @@ export function recordAccountPayment(emp, params = {}, options = {}) {
 /** Abono hecho en un solo préstamo: guarda su reparto y el origen «directo». */
 export function recordDirectPayment(emp, loanId, params = {}, options = {}) {
     const loan = findLoan(emp, loanId);
-    const pending = getLoanPending(loan);
+    const pending = getLoanPending(findLoan(readLoanEmployee(emp), loanId));
     const amount = round2(Number(params.amount));
     const interest = round2(Math.min(amount, pending.interest));
     const part = { loanId: loan.id, amount, interest, capital: round2(Math.max(0, amount - interest)) };
@@ -394,6 +396,12 @@ export function getPaymentSplit(loan, payment) {
     const step = replayLoan(loan).steps.find(s => s.kind === 'payment' && String(s.id) === String(payment?.id));
     if (!step) return { interest: 0, capital: round2(Number(payment?.amount || 0)) };
     return { interest: round2(-step.delta.interest), capital: round2(-step.delta.capital) };
+}
+
+/** Current application; original allocation remains available for audit/reversal. */
+export function getCurrentPaymentSplit(loan, payment) {
+    const app = replayLoan(loan).applications[String(payment?.id)];
+    return app ? { interest:round2(app.interest),capital:round2(app.capital),credit:round2(app.credit) } : getPaymentSplit(loan,payment);
 }
 
 function accountBalance(emp, options) {
@@ -749,6 +757,7 @@ function originOf(item) {
  * con motivo y acuerdos. Incluye los anulados (voided: true).
  */
 export function getAccountMovements(emp, options = {}) {
+    emp = readLoanEmployee(emp);
     const numbers = getLoanNumbers(emp?.loans || []);
     const out = [];
     const groups = new Map();
@@ -767,8 +776,9 @@ export function getAccountMovements(emp, options = {}) {
                 at: Number(payment.recordedAt) || 0, origin: originOf(payment), note: payment.note || '',
                 accountTxId: payment.accountTxId || null
             });
-            const split = isAdj ? { interest: payment.adjustment.interest, capital: payment.adjustment.capital } : getPaymentSplit(loan, payment);
-            g.parts.push({ loanId: loan.id, number, itemId: payment.id, amount: Number(payment.amount || 0), ...split, voided: !!payment.voided, needsReview: !!payment.needsReview, voidReason: payment.voidReason || null, lock: getMovementLock(payment, options), adjustedBy: payment.adjustedBy || null, closureFix: payment.closureFix || null, adjustment: payment.adjustment || null });
+            const split = isAdj ? { interest: payment.adjustment.interest, capital: payment.adjustment.capital } : getCurrentPaymentSplit(loan, payment);
+            const recordedAllocation = payment.allocation ? { ...payment.allocation } : null;
+            g.parts.push({ recordedAllocation, loanId: loan.id, number, itemId: payment.id, amount: Number(payment.amount || 0), ...split, voided: !!payment.voided, needsReview: !!payment.needsReview, voidReason: payment.voidReason || null, lock: getMovementLock(payment, options), adjustedBy: payment.adjustedBy || null, closureFix: payment.closureFix || null, adjustment: payment.adjustment || null });
         }
         for (const event of loan.refinancings || []) {
             const isAdj = !!event.adjustment;

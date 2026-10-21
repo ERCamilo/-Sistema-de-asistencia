@@ -1,3 +1,5 @@
+import { readLoanEmployee } from './LoanChronology.js';
+import { isFinancialLoan, isPayrollLoanPayment } from './LoanReadPolicy.js';
 /**
  * 📤 LoanExport — datos para exportar Préstamos a Excel o PDF (maqueta «Exportar»).
  *
@@ -17,7 +19,7 @@
 
 import { LOAN_STATUS, round2, getActiveLoanTerms, getPaidAmount } from './LoansService.js';
 import { replayLoan, buildTimeline } from './LoanTimeline.js';
-import { getAccountSummary } from './LoanAccount.js';
+import { getAccountSummary, getLoanDueDate } from './LoanAccount.js';
 import { buildFlowBuckets, computeLoanFlows } from './LoanFlowChart.js';
 import { buildPayPeriods } from './LoanPayPeriods.js';
 import { computePortfolioSummary } from './LoanPortfolio.js';
@@ -78,7 +80,7 @@ export function resolveExportRange(choice = {}, { payPeriod = null, today, first
     return { from: `${ym}-01`, to: end < today ? end : today, label: `${MONTHS_LONG[m - 1]} ${y}`, file: `${MONTHS_LONG[m - 1]} ${y}` };
 }
 
-const counted = (loan, includeVoided) => loan && (includeVoided || loan.status !== LOAN_STATUS.WRITTEN_OFF);
+const counted = (loan, includeVoided) => loan && (includeVoided || isFinancialLoan(loan));
 
 /** Cómo cambió el saldo en el rango (vista previa y primera parte del resumen). */
 export function exportPreview(employees = [], { from, to }) {
@@ -86,9 +88,11 @@ export function exportPreview(employees = [], { from, to }) {
     const bucket = { key: 'r', start: from, end: to };
     const o = computeLoanFlows(loans, [bucket]).get('r');
     let nPays = 0;
+    let received = 0;
     let nRefi = 0;
     for (const loan of loans) {
         if (!counted(loan, false)) continue;
+        for (const p of loan.payments || []) if (!p.voided && p.date >= from && p.date <= to) received += Number(p.amount || 0);
         for (const s of replayLoan(loan).steps) {
             if (s.date < from || s.date > to) continue;
             if (s.kind === 'payment') nPays++;
@@ -97,6 +101,7 @@ export function exportPreview(employees = [], { from, to }) {
     }
     const paid = round2(o.payInt + o.payCap);
     return {
+        received: round2(received),
         start: o.open, newLoans: round2(o.newCap + o.newInt), newCapital: o.newCap, newInterest: o.newInt, nLoans: o.nNew,
         refi: round2(o.refiInt + o.adjustUp), nRefi, paid, paidInterest: o.payInt, paidCapital: o.payCap, nPays,
         closed: round2(o.gift + o.adjustDown), end: o.end, excess: o.excess,
@@ -107,7 +112,7 @@ export function exportPreview(employees = [], { from, to }) {
 function paymentOrigin(loan, id) {
     const p = (loan.payments || []).find(x => x.id === id);
     if (!p) return '';
-    return p.origin === 'payroll' || p.source === 'payroll' || p.payrollClosureId ? 'Nómina' : 'Directo';
+    return isPayrollLoanPayment(p) ? 'Nómina' : 'Directo';
 }
 
 /**
@@ -115,6 +120,7 @@ function paymentOrigin(loan, id) {
  * @returns {{ range, preview, summary, sheets: Record<string, Array<Array<string|number>>> }}
  */
 export function buildLoanExport(employees = [], { range, includeVoided = false, today, projectName = '', payPeriod = null } = {}) {
+    employees = employees.map(readLoanEmployee);
     const { from, to } = range;
     const preview = exportPreview(employees, range);
     const summary = computePortfolioSummary(employees);
@@ -136,14 +142,15 @@ export function buildLoanExport(employees = [], { range, includeVoided = false, 
         ['    a capital', preview.paidCapital],
         ['− Cerrados o ajustes', preview.closed],
         ['Saldo al terminar', preview.end],
-        ['Pagado de más en el rango (posible error)', preview.excess],
+        ['Dinero recibido en el rango', preview.received],
+        ['Crédito generado en el rango (puede haberse aplicado después)', preview.excess],
         [],
         [`Cartera al ${dmy(today)}`, 'Monto'],
         ['Por cobrar', summary.porCobrar.total],
         ['    capital', summary.porCobrar.capital],
         ['    interés', summary.porCobrar.interest],
-        ['Interés ganado', summary.interesGanado.collected],
-        ['Interés total (ganado + por cobrar)', summary.interesGanado.total],
+        ['Interés cobrado', summary.interesGanado.collected],
+        ['Interés cobrado + pendiente', summary.interesGanado.total],
         ['Cobrado', summary.cobrado.total],
         ['    descontado en nómina', summary.cobrado.payroll],
         ['    abonado directamente', summary.cobrado.direct],
@@ -151,9 +158,10 @@ export function buildLoanExport(employees = [], { range, includeVoided = false, 
         ['    ya devuelto', summary.prestado.returned]
     ];
 
-    const empRows = [['Nº', 'Empleado', 'Estado', 'Préstamos abiertos', 'Capital', 'Interés', 'Saldo', 'Prestado en el rango', 'Cobrado en el rango', 'Último movimiento']];
-    const loanRows = [['Nº', 'Empleado', 'Préstamo', 'Fecha', 'Capital', 'Tasa %', 'Interés inicial', 'Refinanciamientos', 'Interés por refinanciar', 'Pagado', 'Saldo', 'Nómina de cobro', 'Estado']];
-    const movRows = [['Fecha', 'Nº', 'Empleado', 'Préstamo', 'Movimiento', 'Monto', 'Capital', 'Interés', 'Origen']];
+    if (summary.undatedClosures?.length) sheets.resumen.push([], ['Advertencia', `${summary.undatedClosures.length} cierre(s) con saldo sin fecha: evolución incompleta; no se inventan pagos ni fechas.`]);
+    const empRows = [['Nº', 'Empleado', 'Estado', 'Préstamos abiertos', 'Capital', 'Interés', 'Saldo', 'Prestado en el rango', 'Pagos aplicados al saldo en el rango', 'Último movimiento']];
+    const loanRows = [['Nº', 'Empleado', 'Préstamo', 'Fecha', 'Capital', 'Tasa %', 'Interés inicial', 'Refinanciamientos', 'Interés por refinanciar', 'Pagado', 'Saldo', 'Cobro vigente', 'Cobro original', 'Estado']];
+    const movRows = [['Fecha', 'Nº', 'Empleado', 'Préstamo', 'Movimiento', 'Monto', 'Capital aplicado ese día', 'Interés aplicado ese día', 'Canal', 'Capital aplicado al corte actual', 'Interés aplicado al corte actual', 'Crédito pendiente al corte actual', 'Capital al registrar', 'Interés al registrar']];
     for (const emp of employees) {
         const loans = (emp.loans || []).filter(l => counted(l, includeVoided));
         if (!loans.length) continue;
@@ -165,15 +173,15 @@ export function buildLoanExport(employees = [], { range, includeVoided = false, 
             const voided = loan.status === LOAN_STATUS.WRITTEN_OFF;
             const terms = getActiveLoanTerms({ ...loan, refinancings: [] });
             const refis = (loan.refinancings || []).filter(r => !r.voided && !r.adjustment);
-            const steps = voided ? [] : replayLoan(loan).steps;
-            const lastStep = steps.at(-1);
+            const replay = voided ? null : replayLoan(loan);
+            const steps = replay?.steps || [];
             loanRows.push([
                 emp.number ?? '', emp.name || '', loan.number ? `#${loan.number}` : (loan.concept || ''), dmy(loan.startDate),
                 round2(Number(terms.principal || 0)), Number(terms.interestRate || 0),
                 terms.interestIncluded ? 0 : round2(terms.principal * terms.interestRate / 100),
                 refis.length, round2(refis.reduce((t, r) => t + Number(r.interestAmount || 0), 0)),
-                getPaidAmount(loan), voided ? 0 : round2(lastStep ? lastStep.capitalAfter + lastStep.interestAfter : 0),
-                dmy(loan.dueDate), voided ? 'Anulado' : loan.status === LOAN_STATUS.ACTIVE ? 'Abierto' : 'Saldado'
+                getPaidAmount(loan), replay?.balance || 0,
+                dmy(getLoanDueDate(loan)), dmy(loan.dueDate), voided ? 'Anulado' : loan.status === LOAN_STATUS.ACTIVE ? 'Abierto' : 'Saldado'
             ]);
             for (const s of steps) {
                 if (s.date > last) last = s.date;
@@ -181,11 +189,15 @@ export function buildLoanExport(employees = [], { range, includeVoided = false, 
                 const value = round2(s.delta.capital + s.delta.interest);
                 if (s.kind === 'loan') lentIn += value;
                 if (s.kind === 'payment') paidIn += -value;
+                const payment = s.kind === 'payment' ? (loan.payments || []).find(p=>p.id === s.id) : null;
+                const application = payment ? replay.applications[String(s.id)] : null;
                 const amount = s.kind === 'payment' ? round2(-value + (s.excess || 0)) : Math.abs(value);
                 movRows.push([
                     dmy(s.date), emp.number ?? '', emp.name || '', loan.number ? `#${loan.number}` : '', KIND_LABEL[s.kind] || s.kind,
                     amount, round2(Math.abs(s.delta.capital)), round2(Math.abs(s.delta.interest)),
-                    s.kind === 'payment' ? paymentOrigin(loan, s.id) : ''
+                    s.kind === 'payment' ? paymentOrigin(loan, s.id) : '',
+                    application?.capital ?? '', application?.interest ?? '', application?.credit ?? '',
+                    payment?.allocation?.capital ?? '', payment?.allocation?.interest ?? ''
                 ]);
             }
         }
@@ -199,7 +211,7 @@ export function buildLoanExport(employees = [], { range, includeVoided = false, 
     sheets.movimientos = movRows;
 
     // Historial: saldo día por día (con el día anterior al rango como punto de partida).
-    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).filter(l => counted(l, false)).map(loan => ({ employeeId: emp.id, loan }))));
+    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))), { financialOnly: true });
     const before = timeline.days.filter(d => d.date < from).at(-1);
     sheets.historial = [['Fecha', 'Capital', 'Interés', 'Saldo'],
         ...(before ? [[`${dmy(before.date)} (antes del rango)`, before.capital, before.interest, before.result]] : []),
