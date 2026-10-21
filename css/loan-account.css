@@ -584,16 +584,15 @@
 .la-recorded-split { color: var(--la-warn); }
 .la-x, .lp-cr-tog { min-width: 44px; min-height: 44px; }
 .lp-cr-pill.is-neutral { background: #363f47; color: #ebeef0; }
-.lf-bridge__steps { display: none; list-style: none; padding: 0; margin: 0; }
-.lf-bridge__steps li { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--la-line, #334155); font-size: .85rem; }
-.lf-bridge__steps li > span { display: flex; gap: 8px; align-items: center; }
-.lf-bridge__steps i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
-.lf-bridge__steps b { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.lf-bridge__steps .is-total { background: var(--la-surface-2, #172033); padding: 12px 8px; border-radius: 8px; font-weight: 700; }
+.lf-scroll-hint { display: none; margin: 0; font-size: .75rem; color: var(--la-dim, #cbd5e1); }
+.loan-history__nav.is-total { grid-template-columns: minmax(0, 1fr); }
+.lf-bridge, .lf-card, .lf-plot { min-width: 0; }
+.lf-bridge__chart { overflow-x: auto; overscroll-behavior-x: contain; direction: rtl; }
+.lf-bridge__chart svg { min-width: 42.5rem; direction: ltr; }
+.lf-more summary { min-height: 44px; padding: 10px 0; box-sizing: border-box; }
 @media (max-width: 700px) {
-    .lf-bridge__steps { display: block; }
-    .lf-bridge__chart { display: none; }
-    .loan-history__nav { grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; }
+    .lf-scroll-hint { display: block; }
+    .loan-history__nav:not(.is-total) { grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; }
     .loan-history__nav > button { padding: 6px; font-size: .75rem; }
     .lf-bridge { padding-inline: 10px; }
 }

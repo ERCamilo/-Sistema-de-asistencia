@@ -4,8 +4,9 @@
     {
       "version": "1.7.97",
       "date": "2026-10-21",
-      "title": "Ganancias del período y actualización de la aplicación",
+      "title": "Préstamos más claros y actualización de la aplicación",
       "items": [
+        "Consulta los gráficos de préstamos por mes y por período también en móvil, y elige el acumulado de todo el historial.",
         "Actualizar ahora renueva los archivos de la aplicación y reinicia conservando tus datos. En caso de error puedes reintentar.",
         "Consulta en la ficha de préstamos cuánto lleva ganado cada empleado en el período actual, según su asistencia hasta hoy.",
         "Distingue el bruto acumulado de la estimación del período completo y consulta las fechas correspondientes."

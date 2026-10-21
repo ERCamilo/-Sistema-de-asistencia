@@ -80,3 +80,8 @@ jobs:
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: npm run test:app-updates
+
+      - name: Loan history charts in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: npm run test:loan-history-layout
