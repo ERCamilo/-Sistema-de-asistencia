@@ -6284,7 +6284,7 @@ window.createFirebaseSnapshot = async function (type = 'auto', reason = null) {
 /**
  * 🛠️ Aplica los datos de un backup al estado actual y guarda localmente
  */
-async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
+async function applyBackupData(importedData, { pettyCashCloud = 'none', onProjectChoiceRetry = null } = {}) {
     let previous = null, suspendedSaveOptions = null, isolationActive = false, durableCommitted = false;
     try {
         const data = importedData.data;
@@ -6388,7 +6388,7 @@ async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
         }
         if (isolationActive) endFullImportIsolation({ commit: false });
         if (!durableCommitted) resumeSuspendedSaveOptions(suspendedSaveOptions);
-        if (handleRestoreProjectChoiceRequired(error)) {
+        if (handleRestoreProjectChoiceRequired(error, onProjectChoiceRetry)) {
             showNotification('Hay datos sin obra asignada. Elige una obra para continuar la restauración.', 'warning');
             return false;
         }
@@ -6397,6 +6397,18 @@ async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
         showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');
         return false;
     }
+}
+
+// Reanudar después de elegir obra conserva la acción de restauración original
+// (incluidos el aislamiento local y el hook de éxito del onboarding).
+async function restoreBackupWithProjectChoice(importedData, options, onRestored) {
+    const ok = await applyBackupData(importedData, {
+        ...options,
+        onProjectChoiceRetry: data => restoreBackupWithProjectChoice({ ...importedData, data }, options, onRestored)
+    });
+    if (!ok) return false;
+    await onRestored();
+    return true;
 }
 
 /**
@@ -6609,10 +6621,11 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                     // M2: sin sesión no hay cuenta a la que subir. Nada se encola y
                     // el próximo inicio de sesión pide decidir (DetachedRestoreGuard).
                     const detached = !window.currentUser;
-                    if (!await applyBackupData(importedData, detached ? {} : { pettyCashCloud: 'merge' })) return;
-                    if (detached) markDetachedRestoreAfterApply(importedData, null);
-                    if (onSuccess) onSuccess();
-                    setTimeout(() => location.reload(), 1200);
+                    await restoreBackupWithProjectChoice(importedData, detached ? {} : { pettyCashCloud: 'merge' }, async () => {
+                        if (detached) markDetachedRestoreAfterApply(importedData, null);
+                        if (onSuccess) onSuccess();
+                        setTimeout(() => location.reload(), 1200);
+                    });
                 },
 
                 // Opción 2: Desconectar y Restaurar (Evitar impacto en nube antigua)
@@ -6620,57 +6633,58 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                     const previousUid = window.currentUser?.uid || null;
                     await FirebaseService.logout();
                     window.currentUser = null;
-                    if (!await applyBackupData(importedData)) return;
-                    // M2: al volver a iniciar sesión se pregunta antes de sincronizar.
-                    markDetachedRestoreAfterApply(importedData, previousUid);
-                    if (onSuccess) onSuccess();
-                    showNotification('🚶 Sesión cerrada y backup restaurado localmente', 'info');
-                    setTimeout(() => location.reload(), 1200);
+                    await restoreBackupWithProjectChoice(importedData, {}, async () => {
+                        // M2: al volver a iniciar sesión se pregunta antes de sincronizar.
+                        markDetachedRestoreAfterApply(importedData, previousUid);
+                        if (onSuccess) onSuccess();
+                        showNotification('🚶 Sesión cerrada y backup restaurado localmente', 'info');
+                        setTimeout(() => location.reload(), 1200);
+                    });
                 },
 
                 // Opción 3: Reemplazo Total de la Nube
                 onReplaceCloudRestore: async () => {
                     // 1. Aplicar localmente primero
-                    const ok = await applyBackupData(importedData, { pettyCashCloud: 'replace' });
-                    if (!ok) return;
-                    // Datos ya restaurados en el dispositivo aunque la nube falle después.
-                    if (onSuccess) onSuccess();
+                    await restoreBackupWithProjectChoice(importedData, { pettyCashCloud: 'replace' }, async () => {
+                        // Datos ya restaurados en el dispositivo aunque la nube falle después.
+                        if (onSuccess) onSuccess();
 
-                    // 2. Bloquear UI para proceso crítico
-                    const syncLoader = document.createElement('div');
-                    syncLoader.innerHTML = `
-                        <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.98); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10050; color:white; font-family:sans-serif; gap:25px;">
-                            <div class="sync-spinner" style="width:60px; height:60px; border:6px solid rgba(255,255,255,0.05); border-top:6px solid #ef4444; border-radius:50%; animation: spin 1s linear infinite;"></div>
-                            <div style="text-align:center;">
-                                <div style="font-weight:800; font-size:1.4rem; color:#f1f5f9; margin-bottom:8px;">🔥 REEMPLAZANDO NUBE...</div>
-                                <div style="color:#94a3b8; font-size:0.95rem; max-width:300px; line-height:1.5;">Estamos borrando los datos antiguos y subiendo tu backup. No cierres esta ventana.</div>
-                            </div>
-                            <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
-                        </div>`;
-                    document.body.appendChild(syncLoader);
+                        // 2. Bloquear UI para proceso crítico
+                        const syncLoader = document.createElement('div');
+                        syncLoader.innerHTML = `
+                            <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.98); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10050; color:white; font-family:sans-serif; gap:25px;">
+                                <div class="sync-spinner" style="width:60px; height:60px; border:6px solid rgba(255,255,255,0.05); border-top:6px solid #ef4444; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                                <div style="text-align:center;">
+                                    <div style="font-weight:800; font-size:1.4rem; color:#f1f5f9; margin-bottom:8px;">🔥 REEMPLAZANDO NUBE...</div>
+                                    <div style="color:#94a3b8; font-size:0.95rem; max-width:300px; line-height:1.5;">Estamos borrando los datos antiguos y subiendo tu backup. No cierres esta ventana.</div>
+                                </div>
+                                <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+                            </div>`;
+                        document.body.appendChild(syncLoader);
 
-                    // 3. Reemplazo del dataset principal (Modo Espejo). DataOps congela el
-                    // estado antes de borrar (los listeners vaciaban state.employees),
-                    // crea el snapshot de seguridad, purga pendientes y borra SOLO las
-                    // colecciones principales. Caja Chica ya quedó encolada arriba:
-                    // antes se borraba en la nube y nunca se volvía a subir.
-                    let result;
-                    try {
-                        debug.log('☁️ Iniciando limpieza espejo en la nube...');
-                        result = await replaceCloudWithLocal();
-                    } catch (err) {
-                        result = { ok: false, reason: 'unexpected', error: err };
-                    }
-                    if (result?.ok) {
-                        showNotification('🚀 Nube actualizada con éxito', 'success');
-                        // 🔄 Refrescar tras éxito
-                        setTimeout(() => location.reload(), 1000);
-                    } else {
-                        console.error('Error sincronizando nube tras backup:', result?.reason, result?.error);
-                        showNotification('⚠️ Error al actualizar nube, pero los datos locales están guardados.', 'warning');
-                        if (syncLoader) syncLoader.remove();
-                        render();
-                    }
+                        // 3. Reemplazo del dataset principal (Modo Espejo). DataOps congela el
+                        // estado antes de borrar (los listeners vaciaban state.employees),
+                        // crea el snapshot de seguridad, purga pendientes y borra SOLO las
+                        // colecciones principales. Caja Chica ya quedó encolada arriba:
+                        // antes se borraba en la nube y nunca se volvía a subir.
+                        let result;
+                        try {
+                            debug.log('☁️ Iniciando limpieza espejo en la nube...');
+                            result = await replaceCloudWithLocal();
+                        } catch (err) {
+                            result = { ok: false, reason: 'unexpected', error: err };
+                        }
+                        if (result?.ok) {
+                            showNotification('🚀 Nube actualizada con éxito', 'success');
+                            // 🔄 Refrescar tras éxito
+                            setTimeout(() => location.reload(), 1000);
+                        } else {
+                            console.error('Error sincronizando nube tras backup:', result?.reason, result?.error);
+                            showNotification('⚠️ Error al actualizar nube, pero los datos locales están guardados.', 'warning');
+                            if (syncLoader) syncLoader.remove();
+                            render();
+                        }
+                    });
                 }
             }, { projectDiagnostics });
 

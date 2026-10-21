@@ -19,27 +19,34 @@ describe('restauración FILE: caja chica y reemplazo de nube', () => {
     test('restaurar local con sesión encola la caja chica en fusión; sin sesión no encola y marca (M2)', () => {
         const body = callbackBody('onLocalRestore');
         expect(body).toMatch(/const detached = !window\.currentUser;/);
-        expect(body).toMatch(/applyBackupData\(importedData, detached \? \{\} : \{ pettyCashCloud: 'merge' \}\)/);
+        expect(body).toMatch(/restoreBackupWithProjectChoice\(importedData, detached \? \{\} : \{ pettyCashCloud: 'merge' \}, async/);
         expect(body).toMatch(/if \(detached\) markDetachedRestoreAfterApply\(importedData, null\);/);
     });
 
     test('desconectar y restaurar no encola nada y deja la marca para el próximo inicio de sesión (M2)', () => {
         const body = callbackBody('onDisconnectRestore');
-        expect(body).toMatch(/applyBackupData\(importedData\)/);
+        expect(body).toMatch(/restoreBackupWithProjectChoice\(importedData, \{\}, async/);
         expect(body).not.toMatch(/pettyCashCloud/);
         expect(body.indexOf('markDetachedRestoreAfterApply(importedData, previousUid)'))
-            .toBeGreaterThan(body.indexOf('applyBackupData(importedData)'));
+            .toBeGreaterThan(body.indexOf('restoreBackupWithProjectChoice(importedData'));
     });
 
     test('reemplazar nube usa DataOps y ya no borra Caja Chica sin volver a subirla', () => {
         const body = callbackBody('onReplaceCloudRestore');
-        expect(body).toMatch(/applyBackupData\(importedData, \{ pettyCashCloud: 'replace' \}\)/);
+        expect(body).toMatch(/restoreBackupWithProjectChoice\(importedData, \{ pettyCashCloud: 'replace' \}, async/);
         expect(body).toMatch(/replaceCloudWithLocal\(\)/);
         // El flujo viejo: deleteCloudData() sin acotar (borraba projects/cashPeriods/pettyCash)
         // y subía el state vivo, que los listeners podían vaciar tras el borrado.
         expect(body).not.toMatch(/deleteCloudData\(/);
         expect(body).not.toMatch(/saveFullState\(state\)/);
         expect(body).toMatch(/result\?\.ok/);
+    });
+
+    test('reanudar una elección de obra conserva las opciones y ejecuta éxito solo al guardar', () => {
+        const body = SRC.match(/async function restoreBackupWithProjectChoice[\s\S]*?\n\}/)[0];
+        expect(body).toMatch(/applyBackupData\(importedData, \{\s*\.\.\.options,/);
+        expect(body).toMatch(/onProjectChoiceRetry: data => restoreBackupWithProjectChoice\(\{ \.\.\.importedData, data \}, options, onRestored\)/);
+        expect(body.indexOf('if (!ok) return false;')).toBeLessThan(body.indexOf('await onRestored()'));
     });
 
     test('applyBackupData encola solo tras aplicar la caja chica en local', () => {

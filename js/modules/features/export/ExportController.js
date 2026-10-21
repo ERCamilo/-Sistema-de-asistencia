@@ -63,9 +63,12 @@ import {
     peekEntityScope,
     replaceEntityScope
 } from '../projects/EntityProjectScope.js';
-import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { isProjectsEnabled, setProjectsEnabled } from '../../config/FeatureFlags.js';
 import { projectStore } from '../projects/ProjectStore.js';
-import { defaultProjectService } from '../projects/DefaultProject.js';
+import { defaultProjectService, DEFAULT_PROJECT_NAME } from '../projects/DefaultProject.js';
+import { Project, PROJECT_STATUS } from '../projects/Project.js';
+import { firstAvailableProjectName } from '../projects/ProjectNames.js';
+import { createDefaultConfig } from '../payroll/ProjectPayrollConfig.js';
 // R07 A1: pure ownership-reconciliation domain. ExportController only wires
 // the preflight; classify/plan logic lives in the domain module (no
 // reimplementation here).
@@ -203,9 +206,14 @@ export async function requestFullImportProjectChoice(targetProjectId) {
     if (!valid) {
         return { ok: false, reason: 'El proyecto elegido no está en el respaldo importado.' };
     }
-    const data = clonePendingImportData(pendingFullImport.data);
-    const assignedRecords = bindUnscopedRecordsToProject(data, targetId, pendingFullImport.validProjects);
-    const ok = await applyFullImport({ data });
+    const pending = pendingFullImport;
+    const data = clonePendingImportData(pending.data);
+    const assignedRecords = bindUnscopedRecordsToProject(data, targetId, pending.validProjects);
+    // Una restauración de archivo conserva su destino local/desconectado/nube
+    // y sus hooks de onboarding; nunca se convierte en un import FULL cloud.
+    const ok = pending.retryRestore
+        ? await pending.retryRestore(data)
+        : await applyFullImport({ data });
     if (!ok) {
         return { ok: false, reason: 'La asignación es válida, pero la importación no pudo guardarse. Puedes reintentar sin pegar el respaldo otra vez.' };
     }
@@ -746,8 +754,8 @@ function sentinelReconciliationError(where, sentinelId) {
     return error;
 }
 
-function prepareProjectSurfaceForFullImport(data) {
-    if (!isProjectsEnabled() || !backupCarriesProjectSurface(data)) return null;
+function prepareProjectSurfaceForFullImport(data, { fileRestore = false } = {}) {
+    if ((!fileRestore && !isProjectsEnabled()) || !backupCarriesProjectSurface(data)) return null;
 
     const projects = Array.isArray(data?.projects) ? data.projects.map(project => ({ ...project })) : [];
     if (projects.length === 0) {
@@ -822,13 +830,48 @@ function commitProjectSurfacePointers(projectSurface, previousPointers = null) {
 }
 
 /**
- * Restaurar desde archivo usa el mismo contrato de obras que FULL: adopta el
- * catálogo y la config de nómina del respaldo, valida los projectId explícitos
- * y asigna los datos sin obra. Proyectos OFF ⇒ null (restauración legacy).
+ * Un archivo es autocontenido: su catálogo se recupera también en un equipo
+ * nuevo con Proyectos OFF. El preflight no escribe IDB, flags ni punteros;
+ * todo el catálogo/config/dataset se confirma en la misma transacción.
  */
 export async function prepareRestoreProjectSurface(data) {
     assertProjectRepairAllowed();
-    return prepareFullImportProjectPreflight(data);
+    if (backupCarriesProjectSurface(data)) {
+        const surface = prepareProjectSurfaceForFullImport(data, { fileRestore: true });
+        const binding = reconcileUnscopedRecordsForSurface(data, surface.projects, surface.incomingScope.defaultProjectId);
+        if (binding.assignedRecords > 0) surface.legacyBinding = binding;
+        return surface;
+    }
+
+    // Respaldo antiguo: preparar una obra real sin invocar ensureDefaultProject
+    // (que escribiría antes del commit). Reutilizar el default local válido.
+    const projects = await projectStore.listAll();
+    const ids = new Set(projects.map(project => project.id));
+    for (const id of collectExplicitProjectIds(data)) {
+        if (!ids.has(id)) {
+            throw new Error(`El backup referencia un projectId inexistente: "${id}". Falta el catálogo de obras; vuelve a exportarlo desde el dispositivo de origen.`);
+        }
+    }
+    const previous = readRestoreProjectPointers();
+    let target = projects.find(project => project.id === previous.defaultProjectId && project.status === PROJECT_STATUS.ACTIVE)
+        || projects.find(project => project.status === PROJECT_STATUS.ACTIVE);
+    const resolvedExisting = !!target;
+    if (!target) {
+        target = Project.create({ name: firstAvailableProjectName(DEFAULT_PROJECT_NAME, projects) }).toJSON();
+        projects.push(target);
+    }
+    const configs = await projectStore.db.getAll('projectPayrollConfigs');
+    const config = createDefaultConfig(target.id, data?.settings);
+    if (data?.dayHoursConfig && typeof data.dayHoursConfig === 'object') {
+        config.dayHours = clonePendingImportData(data.dayHoursConfig);
+    }
+    const assignedRecords = bindUnscopedRecordsToProject(data, target.id, projects);
+    return {
+        projects,
+        projectPayrollConfigs: [...configs.filter(item => item.projectId !== target.id), config],
+        incomingScope: { enabled: true, projectId: target.id, defaultProjectId: target.id },
+        legacyBinding: { projectId: target.id, assignedRecords, resolvedExisting }
+    };
 }
 
 export function readRestoreProjectPointers() {
@@ -839,16 +882,20 @@ export function readRestoreProjectPointers() {
 }
 
 export function commitRestoredProjectSurface(projectSurface, previousPointers = null) {
+    if (!projectSurface?.incomingScope) return;
+    setProjectsEnabled(true);
     commitProjectSurfacePointers(projectSurface, previousPointers);
 }
 
 /**
  * Si el respaldo necesita elegir obra, deja el payload pendiente y abre la
- * misma elección que FULL (al elegir, se completa como importación FULL).
+ * misma elección que FULL. El callback conserva el flujo original del archivo
+ * al reintentar; los callers sin callback mantienen la compatibilidad FULL.
  * @returns {boolean} true si el error era una elección de obra pendiente.
  */
-export function handleRestoreProjectChoiceRequired(error) {
+export function handleRestoreProjectChoiceRequired(error, retryRestore = null) {
     if (error?.reconciliation?.reason !== 'MULTIPLE_VALID_PROJECTS_WITH_UNSCOPED_RECORDS') return false;
+    if (pendingFullImport && typeof retryRestore === 'function') pendingFullImport.retryRestore = retryRestore;
     rememberFullImportReconciliation(error);
     return true;
 }
