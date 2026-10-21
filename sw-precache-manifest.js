@@ -255,6 +255,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/projects/ProjectRegistry.js",
     "./js/modules/features/projects/ProjectSetupService.js",
     "./js/modules/features/projects/ProjectStore.js",
+    "./js/modules/features/projects/ProjectUsage.js",
     "./js/modules/features/projects/ProjectsBoot.js",
     "./js/modules/features/projects/ProjectsUI.js",
     "./js/modules/features/stats/EmployeeStatsService.js",

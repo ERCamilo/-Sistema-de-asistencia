@@ -15,6 +15,7 @@ export function findProjectNameConflict(name, projects = [], { excludeId = null 
     if (!key) return null;
     const excluded = excludeId == null ? null : String(excludeId);
     return (projects || []).find(project => project
+        && project.deletedAt == null
         && (excluded == null || String(project.id) !== excluded)
         && projectNameKey(project.name) === key) || null;
 }

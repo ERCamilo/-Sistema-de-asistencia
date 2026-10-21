@@ -34,7 +34,8 @@ export async function mutateProjectCatalog(idb, build) {
 /** Conserva IDs y datos; los nombres provisionales jamás se publican. */
 export function stageProjectNameConflicts(projects, { incomingIds = [], incomingSource = 'cloud' } = {}) {
     const incoming = new Set(incomingIds);
-    const rows = projects.map(row => ({ ...row, metadata: row.metadata ? { ...row.metadata } : undefined }));
+    const deleted = projects.filter(row => row.deletedAt != null);
+    const rows = projects.filter(row => row.deletedAt == null).map(row => ({ ...row, metadata: row.metadata ? { ...row.metadata } : undefined }));
     const requested = row => row.metadata?.nameConflict?.requestedName || row.name;
     rows.sort((a, b) => Number(!!a.metadata?.nameConflict) - Number(!!b.metadata?.nameConflict)
         || Number(incoming.has(a.id)) - Number(incoming.has(b.id))
@@ -57,11 +58,11 @@ export function stageProjectNameConflicts(projects, { incomingIds = [], incoming
         }
         used.push(row);
     }
-    return rows;
+    return [...rows, ...deleted];
 }
 
 export async function getProjectNameConflicts({ idb = indexedDBService } = {}) {
-    return (await idb.getAll('projects') || []).filter(row => row.metadata?.nameConflict);
+    return (await idb.getAll('projects') || []).filter(row => row.deletedAt == null && row.metadata?.nameConflict);
 }
 
 export async function prepareStoredProjectNameConflicts({ idb = indexedDBService } = {}) {
@@ -69,7 +70,7 @@ export async function prepareStoredProjectNameConflicts({ idb = indexedDBService
         const staged = stageProjectNameConflicts(rows);
         const before = new Map(rows.map(row => [row.id, JSON.stringify(row)]));
         return { writes: staged.filter(row => JSON.stringify(row) !== before.get(row.id)),
-            result: staged.filter(row => row.metadata?.nameConflict) };
+            result: staged.filter(row => row.deletedAt == null && row.metadata?.nameConflict) };
     });
 }
 
@@ -79,7 +80,7 @@ export async function resolveProjectNameConflict(projectId, value, { idb = index
     return mutateProjectCatalog(idb, rows => {
         const current = rows.find(row => row.id === projectId);
         const pending = current?.metadata?.nameConflict;
-        if (!pending || (expectedConflict && JSON.stringify(pending) !== JSON.stringify(expectedConflict))) {
+        if (current?.deletedAt != null || !pending || (expectedConflict && JSON.stringify(pending) !== JSON.stringify(expectedConflict))) {
             throw new Error('El conflicto cambió. Vuelve a revisarlo antes de guardar.');
         }
         const duplicate = findProjectNameConflict(name, rows, { excludeId: projectId });

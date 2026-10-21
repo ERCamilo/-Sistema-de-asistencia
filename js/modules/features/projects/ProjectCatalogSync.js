@@ -38,8 +38,10 @@ import { ACTIVE_PROJECT_LS_KEY } from './ProjectContext.js';
 import { projectNameKey } from './ProjectNames.js';
 import { createDefaultConfig, cloneConfig } from '../payroll/ProjectPayrollConfig.js';
 import { mutateProjectCatalog, stageProjectNameConflicts, PROJECT_NAME_CONFLICT_EVENT } from './ProjectNameConflicts.js';
+import { readProjectUsageData, summarizeProjectUsage, protectDeletedProjects } from './ProjectUsage.js';
+import { state } from '../../core/AppState.js';
 
-const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion'];
+const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt'];
 const PAYROLL_CONFIG_STORE = 'projectPayrollConfigs';
 
 let _lastDuplicates = [];
@@ -86,6 +88,9 @@ export function planCatalogMerge(localList = [], remoteList = [], { excludeIds =
         const theirs = remote.get(id);
         if (!theirs) { publish.push(toCatalogDoc(mine)); continue; }
         if (!mine) { storeLocal.push({ ...toCatalogDoc(theirs) }); continue; }
+        // Un cliente atrasado no revive una eliminación confirmada.
+        if (mine.deletedAt != null && theirs.deletedAt == null) { publish.push(toCatalogDoc(mine)); continue; }
+        if (theirs.deletedAt != null && mine.deletedAt == null) { storeLocal.push({ ...mine, ...toCatalogDoc(theirs) }); continue; }
         const mineAt = Number(mine.updatedAt) || 0;
         const theirsAt = Number(theirs.updatedAt) || 0;
         if (theirsAt > mineAt) storeLocal.push({ ...mine, ...toCatalogDoc(theirs) });
@@ -139,7 +144,7 @@ function announceConfig(config) {
 export function findCatalogNameDuplicates(projects = []) {
     const groups = new Map();
     for (const project of projects) {
-        if (!isCatalogProject(project)) continue;
+        if (!isCatalogProject(project) || project.deletedAt != null) continue;
         const key = projectNameKey(project.name);
         if (!key) continue;
         if (!groups.has(key)) groups.set(key, []);
@@ -192,7 +197,7 @@ export async function removeEmptyAdoptionLeftovers({ idb = indexedDBService } = 
     for (const id of adoptionLegacyIds()) {
         let project = null;
         try { project = await idb.get('projects', id); } catch (_) { continue; }
-        if (!project) continue;
+        if (!project || project.deletedAt != null) continue;
         if (await projectHasLocalData(id, { idb })) continue;
         try {
             await idb.delete('projects', id);
@@ -242,6 +247,10 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
     const removed = await removeEmptyAdoptionLeftovers({ idb });
     const leftovers = new Set(adoptionLegacyIds());
     const localList = await idb.getAll('projects');
+    let deletionUsage = {};
+    if ([...(localList || []), ...remoteList].some(row => row.deletedAt != null)) {
+        deletionUsage = summarizeProjectUsage([...(localList || []), ...remoteList], await readProjectUsageData({ idb }), { liveState: state });
+    }
     // Una obra «legacy» vacía que no esté en la nube nunca se publica.
     const excludeIds = [];
     for (const project of localList || []) {
@@ -252,9 +261,10 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
     // Releer dentro del commit: una creación/renombrado en otra pestaña no
     // puede colarse entre la validación de nombres y la escritura del catálogo.
     const plan = await mutateProjectCatalog(idb, current => {
-        const merge = planCatalogMerge(current, remoteList, { excludeIds });
-        const byId = new Map(current.map(row => [row.id, row]));
-        for (const row of merge.storeLocal) {
+        const protectedCurrent = protectDeletedProjects(current, deletionUsage);
+        const merge = planCatalogMerge(protectedCurrent, remoteList, { excludeIds });
+        const byId = new Map(protectedCurrent.map(row => [row.id, row]));
+        for (const row of protectDeletedProjects(merge.storeLocal, deletionUsage)) {
             const incoming = { ...row };
             if (incoming.metadata?.nameConflict) {
                 incoming.metadata = { ...incoming.metadata };
@@ -265,7 +275,7 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
         const final = stageProjectNameConflicts([...byId.values()], { incomingIds: merge.storeLocal.map(row => row.id) });
         const before = new Map(current.map(row => [row.id, JSON.stringify(row)]));
         const writes = final.filter(row => JSON.stringify(row) !== before.get(row.id));
-        const pendingIds = new Set(final.filter(row => row.metadata?.nameConflict).map(row => row.id));
+        const pendingIds = new Set(final.filter(row => row.deletedAt == null && (row.metadata?.nameConflict || row.metadata?.deletionConflict)).map(row => row.id));
         return { writes, result: { ...merge,
             changed: writes.map(row => row.id),
             publish: merge.publish.filter(row => !pendingIds.has(row.id))
@@ -273,6 +283,7 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
         } };
     });
     for (const project of plan.storeLocal) {
+        if (project.deletedAt != null) continue;
         await seedPayrollConfig(trimId(project.id), { idb });
     }
     let published = 0;
@@ -292,6 +303,7 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
     let configsReceived = 0;
     let configsPublished = 0;
     for (const project of finalList || []) {
+        if (project.deletedAt != null) continue;
         const id = trimId(project?.id);
         if (!id || excluded.has(id)) continue;
         let local = null;
@@ -304,7 +316,7 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
             await idb.update(PAYROLL_CONFIG_STORE, incoming);
             announceConfig(incoming);
             configsReceived++;
-        } else if (action === 'publish' && !project.metadata?.nameConflict) {
+        } else if (action === 'publish' && !project.metadata?.nameConflict && !project.metadata?.deletionConflict) {
             try {
                 await writeDoc(catalogDoc(uid, id), { id, payrollConfig: toConfigDoc(local) }, { merge: true });
                 configsPublished++;
@@ -319,7 +331,7 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
     if (_lastDuplicates.length) {
         console.warn('⚠️ Obras con el mismo nombre:', _lastDuplicates.map(group => group.map(item => `${item.name} (${item.id})`).join(' = ')).join('; '));
     }
-    if ((finalList || []).some(row => row.metadata?.nameConflict)) {
+    if ((finalList || []).some(row => row.deletedAt == null && row.metadata?.nameConflict)) {
         try { window.dispatchEvent(new CustomEvent(PROJECT_NAME_CONFLICT_EVENT)); } catch (_) { /* sin UI */ }
     }
     if (plan.changed.length || removed.length) {

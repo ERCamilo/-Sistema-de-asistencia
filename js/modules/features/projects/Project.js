@@ -60,6 +60,7 @@ export class Project {
         if (Object.prototype.hasOwnProperty.call(data, 'startDate')) this.startDate = data.startDate;
         if (Object.prototype.hasOwnProperty.call(data, 'endDate')) this.endDate = data.endDate;
         if (Object.prototype.hasOwnProperty.call(data, 'createdBy')) this.createdBy = data.createdBy;
+        if (Object.prototype.hasOwnProperty.call(data, 'deletedAt')) this.deletedAt = data.deletedAt;
         if (Object.prototype.hasOwnProperty.call(data, 'metadata')) this.metadata = cloneMetadata(data.metadata);
     }
 
@@ -124,7 +125,7 @@ export class Project {
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
         };
-        for (const key of ['closedAt', 'archivedAt', 'startDate', 'endDate', 'createdBy', 'metadata']) {
+        for (const key of ['closedAt', 'archivedAt', 'startDate', 'endDate', 'createdBy', 'deletedAt', 'metadata']) {
             if (Object.prototype.hasOwnProperty.call(this, key)) json[key] = this[key];
         }
         return json;
