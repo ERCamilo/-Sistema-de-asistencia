@@ -3393,7 +3393,7 @@ export class MiniAttendanceImportModal {
 
                         // 3. Existing SA conflict
                         if (this.textComparison) {
-                            const detail = actionButton(item.needsDetailedReview && !item.confirmed ? 'Resolver en detalle' : 'Revisar en detalle', 'review-text-detail', dayState?.status === 'applied');
+                            const detail = actionButton(item.confirmed ? 'Modificar selección' : item.needsDetailedReview ? 'Resolver en detalle' : 'Revisar en detalle', 'review-text-detail', dayState?.status === 'applied');
                             detail.classList.add('mini-import-action-secondary');
                             detail.addEventListener('click', () => this.openIndividualReview([item.textReviewKey]));
                             rowEl.append(detail);
@@ -4599,6 +4599,19 @@ export class MiniAttendanceImportModal {
     }
 
     openIndividualReview(keys) {
+        if (['pending', 'success'].includes(this.applyStatus)) return;
+        const indexes = new Set(keys.flatMap(key => String(key).split('-').map(Number)));
+        const confirmed = this.buildReviewView().items.filter(item => item.confirmed &&
+            item.sourceIndexes.some(index => indexes.has(index)));
+        // Reopening an accepted selection starts an edit. Preserve its allocations
+        // and SA/Mini decision, but require confirmation of the edited values.
+        confirmed.forEach(item => item.sourceIndexes.forEach(index => {
+            this.draft = reviewMiniAttendanceDraftRow(this.draft, index, { approved: false });
+        }));
+        if (confirmed.length) {
+            this.resetApplyState();
+            this.rebuildConflictPlan();
+        }
         this.reviewStep = 'individual';
         this.individualReviewKeys = [...new Set(keys)];
         this.individualReviewMode = this.individualReviewKeys.length === 1 ? 'single' : 'queue';

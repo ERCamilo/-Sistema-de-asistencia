@@ -185,3 +185,16 @@ test('compare: canceling the date warning writes nothing and does not repeat the
     expect(applyPlan).not.toHaveBeenCalled();
     expect(modal.applyStatus).toBe('idle');
 });
+
+test('compare: an already accepted row can be edited individually and reconfirmed before applying', async () => {
+    const { modal, host, applyPlan } = paste();
+    expect(modal.buildReviewView().items[0].confirmed).toBe(true);
+    click(host, 'review-text-detail');
+    const hours = host.querySelector('[data-mini-position-normal]');
+    hours.value = '9'; hours.dispatchEvent(new Event('input'));
+    confirmDetail(host);
+    expect(host.querySelector('[data-mini-adjusted-allocation]').textContent).toContain('9h');
+    click(host, 'apply-day'); await tick();
+    expect(applyPlan.mock.calls[0][0].writes[0].record.hoursWorked).toBe(9);
+    expect(modal.draft.rows[0].sourceRow.totalHours).toBe(8);
+});
