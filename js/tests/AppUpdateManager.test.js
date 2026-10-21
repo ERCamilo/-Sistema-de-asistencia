@@ -74,3 +74,31 @@ test('una búsqueda manual que coincide con la automática conserva su respuesta
   finish({}); await Promise.all([automatic, manual]);
   assert.equal(fetches, 1); assert.match(messages.at(-1) || '', /No se pudo consultar/);
 });
+
+test('guarda, renueva el shell y solo entonces recarga; un fallo permite reintentar', async () => {
+  const calls = []; let fail = true;
+  const manager = createReleaseManager({
+    policy: { ...base, APP_VERSION: '1.9.0' }, prefix: 'refresh', read: () => null, write() {},
+    now: () => 1000, online: () => true, fetchRelease: async () => ({ version: '1.10.0', changelog: releases }),
+    canShow: () => true, show: () => true, status() {},
+    beforeReload: async () => { calls.push('save'); },
+    prepareUpdate: async () => { calls.push('refresh'); if (fail) throw new Error('network'); },
+    reload: () => calls.push('reload')
+  });
+  await manager.check(true); await manager.apply();
+  assert.deepEqual(calls, ['save', 'refresh']);
+  fail = false; await manager.apply();
+  assert.deepEqual(calls, ['save', 'refresh', 'save', 'refresh', 'reload']);
+});
+test('cancelar durante el guardado tampoco modifica el caché', async () => {
+  let finish, close, refreshes = 0, reloads = 0;
+  const manager = createReleaseManager({
+    policy: { ...base, APP_VERSION: '1.9.0' }, prefix: 'cancel-refresh', read: () => null, write() {},
+    now: () => 1000, online: () => true, fetchRelease: async () => ({ version: '1.10.0', changelog: releases }),
+    canShow: () => true, show: (_, entries, version, onClose) => { close = onClose; return true; }, status() {},
+    beforeReload: () => new Promise(resolve => { finish = resolve; }),
+    prepareUpdate: async () => { refreshes++; }, reload: () => reloads++
+  });
+  await manager.check(true); const pending = manager.apply(); close(); finish(); await pending;
+  assert.equal(refreshes, 0); assert.equal(reloads, 0);
+});

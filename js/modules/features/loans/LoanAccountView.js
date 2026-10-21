@@ -12,8 +12,9 @@ import { readLoanEmployee } from './LoanChronology.js';
 import { state } from '../../core/AppState.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
-import { getDateKey } from '../../utils/DateUtils.js';
+import { getDateKey, parseDate } from '../../utils/DateUtils.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
+import { computeAttendanceDetailEarnings } from '../attendance/AttendanceDetailEarnings.js';
 import {
     LOAN_STATUS, INSTALLMENT_MODE, getBalance, getTotalDue, getEmployeePeriodSalary, getActiveLoanTerms, round2
 } from './LoansService.js';
@@ -113,6 +114,19 @@ function originPill(origin) {
 
 // ─── Ficha ───────────────────────────────────────────────────────────────────
 
+function currentPeriodEarnings(emp, period, today) {
+    if (!period) return { available: false };
+    // Payroll's project snapshot only needs this employee and these days, not
+    // the entire attendance history on every account/modal redraw.
+    const attendance = {};
+    for (let date = parseDate(period.start); getDateKey(date) <= today; date.setDate(date.getDate() + 1)) {
+        const key = `${emp.id}-${getDateKey(date)}`;
+        const record = state.attendance?.[key];
+        if (record && record.deletedAt == null) attendance[key] = record;
+    }
+    return computeAttendanceDetailEarnings({ ...state, employees: [emp], attendance }, emp.id, period.start, today);
+}
+
 export function LoanAccountDetail(emp) {
     emp = readLoanEmployee(emp);
     const ui = accountUi();
@@ -123,6 +137,10 @@ export function LoanAccountDetail(emp) {
     const summary = getAccountSummary(emp);
     const agreement = getActiveLoanAgreement(emp);
     const salary = getEmployeePeriodSalary(emp, null, state);
+    // The current working period can differ from the next period being paid.
+    // Stop at today so attendance entered ahead of time never counts as earned.
+    const currentPeriod = periods.find(period => period.start <= today && today <= period.end);
+    const earned = currentPeriodEarnings(emp, currentPeriod, today);
     const paid = summary.loans.reduce((acc, item) => {
         const split = loanPaidSplit(item.loan);
         return { interest: acc.interest + split.interest, capital: acc.capital + split.capital };
@@ -164,7 +182,12 @@ export function LoanAccountDetail(emp) {
             </div>
             <div class="la-hub__facts">
                 <div><span>Vence para nómina${next ? ' · pago ' + dm(next.payDate) : ''}</span><b>${M(nextAmount)}</b><small class="${!agreement && salary > 0 && nextAmount > salary * 0.6 ? 'la-t-bad' : ''}">${agreement ? 'según el acuerdo' : salary > 0 ? `${Math.round(nextAmount / salary * 100)} % de lo que gana` : 'sin sueldo calculado'}</small></div>
-                <div><span>Gana por periodo</span><b>${salary > 0 ? '≈' + M(salary, 0) : '—'}</b><small>cálculo de Nómina</small></div>
+                <div data-loan-earnings><span>Gana por periodo</span><b>${salary > 0 ? '≈' + M(salary, 0) : '—'}</b><small>cálculo de Nómina</small>
+                    <span class="la-hub__earned-label">Ganado en el período actual</span>
+                    <b data-loan-current-earned>${earned.available ? M(earned.gross) : '—'}</b>
+                    <small>${currentPeriod ? `${dm(currentPeriod.start)} – ${dm(currentPeriod.end)} · hasta ${dm(today)}` : 'Configura el período en Ajustes'}</small>
+                    ${currentPeriod ? `<small>${earned.available ? 'Bruto por asistencia' : 'Cálculo no disponible'}</small>` : ''}
+                </div>
                 <div><span>Último abono</span><b>${lastPay ? M(lastPay.amount, 0) : '—'}</b><small>${lastPay ? `${dmy(lastPay.date)} · ${lastPay.origin === MOVEMENT_ORIGIN.ACCOUNT ? 'a la cuenta' : lastPay.parts.length === 1 ? 'préstamo #' + lastPay.parts[0].number : lastPay.parts.length + ' préstamos'}` : ''}</small></div>
             </div>
             ${historyOpen ? `<div class="la-hub__history">${renderLoanHistoryPanel({ scope: historyScope, mode: 'employee', employees: [emp], embedded: true })}</div>` : ''}
