@@ -10,6 +10,7 @@ import { ensureCanonicalProject } from '../modules/features/projects/ProjectRegi
 import { runTransaction } from '../modules/data/firebase.js';
 import { registerProjectSetupGlobals } from '../modules/features/projects/ProjectsUI.js';
 import { projectSetupService } from '../modules/features/projects/ProjectSetupService.js';
+import mockedIDB from '../modules/services/IndexedDBService.js';
 
 if (!globalThis.structuredClone) globalThis.structuredClone = value => JSON.parse(JSON.stringify(value));
 const project = (id, name, updatedAt = 10, extra = {}) => ({ id, name, status: 'active', createdAt: 1, updatedAt, schemaVersion: 1, ...extra });
@@ -207,5 +208,23 @@ describe('nombres únicos y resolución durable de conflictos', () => {
         await waitFor(() => !document.querySelector('[role="dialog"]'));
         expect((await db.get('projects', 'B')).name).toBe('Torre Sur');
         expect(await getProjectNameConflicts({ idb: db })).toEqual([]);
+    });
+
+    test('la revisión automática espera a app:ready y respeta un onboarding abierto', async () => {
+        for (const row of stageProjectNameConflicts([project('C', 'Obra nueva'), project('D', 'OBRA NUEVA')])) await db.update('projects', row);
+        const read = jest.spyOn(mockedIDB, 'getAll').mockImplementation((...args) => db.getAll(...args));
+        try {
+            window.dispatchEvent(new CustomEvent('projects:name-conflicts'));
+            await new Promise(resolve => setTimeout(resolve, 5));
+            expect(document.querySelector('#project-name-conflict-modal')).toBeNull();
+            document.body.innerHTML = '<div role="dialog" id="onboarding-test">Configurando</div>';
+            window.dispatchEvent(new CustomEvent('app:ready'));
+            await new Promise(resolve => setTimeout(resolve, 5));
+            expect(document.querySelector('#project-name-conflict-modal')).toBeNull();
+            document.getElementById('onboarding-test').remove();
+            window.dispatchEvent(new CustomEvent('projects:name-conflicts'));
+            await waitFor(() => !!document.querySelector('#project-name-conflict-modal input'));
+            document.querySelector('[data-conflict-close]').click();
+        } finally { read.mockRestore(); }
     });
 });

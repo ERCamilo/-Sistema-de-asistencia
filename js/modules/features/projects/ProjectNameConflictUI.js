@@ -7,6 +7,7 @@ import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 const ID = 'project-name-conflict-modal';
 let opening = null;
 let lastPrompted = '';
+let appReady = false;
 const fingerprint = rows => rows.map(row => `${row.id}:${JSON.stringify(row.metadata.nameConflict)}`).sort().join('|');
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
@@ -92,12 +93,16 @@ async function mount(idb) {
 // No interrumpir otro formulario. El pendiente queda guardado y se puede
 // retomar desde Ajustes → Proyectos o desde la tarjeta de la obra.
 if (typeof window !== 'undefined') {
-    window.addEventListener(PROJECT_NAME_CONFLICT_EVENT, async () => {
-        if (!isProjectsEnabled() || document.querySelector('[role="dialog"]')) return;
+    const reviewPending = async () => {
+        if (!appReady || !isProjectsEnabled() || document.querySelector('[role="dialog"]')) return;
         try {
             const rows = await getProjectNameConflicts();
             if (!rows.length || fingerprint(rows) === lastPrompted || document.querySelector('[role="dialog"]')) return;
             await openProjectNameConflicts();
         } catch (error) { console.warn('No se pudo abrir la revisión de nombres:', error.message); }
-    });
+    };
+    window.addEventListener(PROJECT_NAME_CONFLICT_EVENT, reviewPending);
+    // app:ready ocurre después de abrir el onboarding si corresponde.
+    // Evita superponer el resolutor a la restauración/arranque inicial.
+    window.addEventListener('app:ready', () => { appReady = true; void reviewPending(); });
 }
