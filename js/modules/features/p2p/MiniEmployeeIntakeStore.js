@@ -33,7 +33,8 @@ export class MiniEmployeeIntakeStore {
         return await this.dbService.get('settings',keyFor(this.readOwner())) || {key:keyFor(this.readOwner()),items:[],links:{}};
     }
     async list() { return (await this.readLedger()).items || []; }
-    async stage(raw,{peerId,peerName='',scope}) {
+    // `local` marks a proposal SA built from attendance rows: Mini never saw its proposalId.
+    async stage(raw,{peerId,peerName='',scope,local=false}) {
         const payload=proposalContract.validateProposal(raw), owner=this.readOwner();
         if(!peerId || peerId.length>128 || !scope.enabled || scope.projectId!==payload.saProjectId) throw new Error('Mini u obra de destino inválidos.');
         await this.dbService.init(); this.assertContext(owner,payload.saProjectId);
@@ -46,7 +47,7 @@ export class MiniEmployeeIntakeStore {
                 const previous=ledger.items.find(e=>e.id===id);
                 if(previous) {if(JSON.stringify({...previous.payload,requestId:undefined})!==serialized) throw new Error('La propuesta repetida tiene otro contenido.');resolve(previous);return;}
                 if(ledger.items.filter(e=>e.status==='pending').length>=12) throw new Error('La bandeja de personal está llena. Revisa las propuestas pendientes antes de recibir más.');
-                const entry={id,peerId,peerName,payload,status:'pending',receivedAt:Date.now(),mappings:[]};
+                const entry={id,peerId,peerName,payload,status:'pending',receivedAt:Date.now(),mappings:[],...(local?{local:true}:{})};
                 ledger.items=[...ledger.items.filter(e=>e.status==='pending'),...ledger.items.filter(e=>e.status!=='pending').slice(-60),entry];
                 settings.put(ledger);resolve(entry);
             }catch(error){abort(error);}};
