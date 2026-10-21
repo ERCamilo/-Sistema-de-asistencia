@@ -1,5 +1,5 @@
 import {
-    buildCandidateLists, positionDailySuggestion, stepsFor, intakeAliasScope, aliasRecordsForLinks
+    buildCandidateLists, positionDailySuggestion, stepsFor, intakeAliasScope, aliasRecordsForLinks, aliasRecordsForMappings, quickMatch
 } from '../modules/features/p2p/MiniEmployeeIntakeSteps.js';
 
 const scope = { enabled: true, projectId: 'P-1' };
@@ -42,16 +42,40 @@ describe('alias de vínculos', () => {
         expect(intakeAliasScope({ peerId: 'attendance:texto' }, 'owner', 'P-1')).toEqual({ ownerUid: 'owner', siteId: 'sa-current-site', sourceId: 'mini-whatsapp' });
         expect(intakeAliasScope({ peerId: 'attendance:otro' }, 'owner', 'P-1')).toBeNull();
     });
-    test('solo se guardan vínculos a un empleado con otra ficha', () => {
+    test('se guardan los vínculos a una ficha con otro número u otro nombre', () => {
         const entry = { peerId: 'mini-1', payload: { employees: [
-            { miniLocalId: 'm1', number: '4', name: 'Ana' }, { miniLocalId: 'm2', number: '8', name: 'Luis' }, { miniLocalId: 'm3', number: '9', name: 'Eva' }
+            { miniLocalId: 'm1', number: '4', name: 'Ana' }, { miniLocalId: 'm2', number: '8', name: 'Luis' }, { miniLocalId: 'm3', number: '9', name: 'Eva' },
+            { miniLocalId: 'm4', number: '5', name: 'Pedro' }
         ] } };
-        const decisions = [{ miniLocalId: 'm1', action: 'link', employeeId: 'e1' }, { miniLocalId: 'm2', action: 'link', employeeId: 'e2' }, { miniLocalId: 'm3', action: 'create' }];
-        const employees = [emp('e1', '40', 'Ana M'), emp('e2', '8', 'Luis')];
+        const decisions = [{ miniLocalId: 'm1', action: 'link', employeeId: 'e1' }, { miniLocalId: 'm2', action: 'link', employeeId: 'e2' }, { miniLocalId: 'm3', action: 'create' }, { miniLocalId: 'm4', action: 'link', employeeId: 'e4' }];
+        const employees = [emp('e1', '40', 'Ana M'), emp('e2', '8', 'Luis'), emp('e4', '5', 'Pedro Pérez')];
         const records = aliasRecordsForLinks(entry, decisions, employees, 'owner', 'P-1');
+        const scope = { ownerUid: 'owner', siteId: 'P-1', sourceId: 'peer:mini-1' };
+        expect(records).toEqual([
+            { scope, rawNumber: '4', rawName: 'Ana', targetEmployeeId: 'e1', targetNumberSnapshot: '40', targetNameSnapshot: 'Ana M' },
+            { scope, rawNumber: '5', rawName: 'Pedro', targetEmployeeId: 'e4', targetNumberSnapshot: '5', targetNameSnapshot: 'Pedro Pérez' }
+        ]);
+    });
+    test('los repetidos resueltos en otro origen se recuerdan en el scope de ese origen', () => {
+        const other = { peerId: 'mini-2', payload: { employees: [{ miniLocalId: 'x1', number: '4', name: 'Ana' }] } };
+        const records = aliasRecordsForMappings(other, [{ miniLocalId: 'x1', saEmployeeId: 'e1' }], [emp('e1', '40', 'Ana M')], 'owner', 'P-1');
         expect(records).toEqual([{
-            scope: { ownerUid: 'owner', siteId: 'P-1', sourceId: 'peer:mini-1' }, rawNumber: '4', rawName: 'Ana',
+            scope: { ownerUid: 'owner', siteId: 'P-1', sourceId: 'peer:mini-2' }, rawNumber: '4', rawName: 'Ana',
             targetEmployeeId: 'e1', targetNumberSnapshot: '40', targetNameSnapshot: 'Ana M'
         }]);
+    });
+});
+
+describe('asociación rápida', () => {
+    const scope = { enabled: true, projectId: 'P-1' };
+    const row = { number: '7', name: 'Ana Pérez' };
+    test('un único empleado activo con el mismo número y nombre parecido', () => {
+        expect(quickMatch(row, [emp('e1', '7', 'ana perez'), emp('e2', '8', 'Ana Pérez')], scope).id).toBe('e1');
+        expect(quickMatch(row, [emp('e1', '7', 'Ana Perez G')], scope).id).toBe('e1');
+    });
+    test('no hay atajo con otro nombre, pausado o ambiguo', () => {
+        expect(quickMatch(row, [emp('e1', '7', 'Luis Mora')], scope)).toBeNull();
+        expect(quickMatch(row, [emp('e1', '7', 'Ana Pérez', { active: false })], scope)).toBeNull();
+        expect(quickMatch(row, [emp('e1', '7', 'Ana Pérez'), emp('e2', '07', 'Ana Pérez')], scope)).toBeNull();
     });
 });
