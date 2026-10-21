@@ -35,6 +35,14 @@ import {
 } from '../../features/attendance/MultiDayAttendanceResolver.js';
 import { P2P_SUCCESS_EVENTS, signalP2PSuccess } from '../../features/p2p/P2PSuccessFeedback.js';
 import { confirmMiniImportDates } from '../../features/attendance/MiniImportDateGuard.js';
+import {
+    TEXT_ATTENDANCE_PEER_ID,
+    attendanceItemsFromDraftRows,
+    attendanceProposalPeerId,
+    buildAttendanceEmployeeProposals,
+    hasEmployeeProfile,
+    textRowLocalId
+} from '../../features/attendance/MiniAttendanceEmployeeProposal.js';
 
 let nextControlId = 1;
 
@@ -69,6 +77,31 @@ function element(tag, text = null, attributes = {}) {
         else node.setAttribute(name, value);
     }
     return node;
+}
+
+// Loaded on demand: the intake store and review are only needed when SA creates or
+// links an employee from the profile (salary and position) that Mini reported.
+async function loadEmployeeIntakeDependencies() {
+    const [{ miniEmployeeIntakeStore }, { renderEmployeeIntakeReview }, { getEntityScope }] = await Promise.all([
+        import('../../features/p2p/MiniEmployeeIntakeStore.js'),
+        import('../../features/p2p/MiniEmployeeIntakeUI.js'),
+        import('../../features/projects/ProjectContext.js')
+    ]);
+    return {
+        store: miniEmployeeIntakeStore,
+        resolveScope: getEntityScope,
+        async openReview(entry) {
+            const content = document.createElement('div');
+            const review = new Modal({ title: 'Personal de Mini', size: 'large', content });
+            review.open();
+            try {
+                await renderEmployeeIntakeReview(content, entry, { onBack: () => review.close() });
+            } catch (error) {
+                review.close();
+                throw error;
+            }
+        }
+    };
 }
 
 function actionButton(text, action, disabled = false) {
@@ -637,12 +670,14 @@ export class MiniAttendanceImportModal {
         this.modal.open();
         this.mount(content);
         this._employeeIntakeSubscription=eventBus.on('mini-employee-intake:accepted', async ({peerId,saProjectId,mappings})=>{
-            if(!this.host?.isConnected || !this.multiDayResolver || this.saProjectId!==saProjectId)return;
+            if(!this.host?.isConnected || this.saProjectId!==saProjectId)return;
+            if(peerId===TEXT_ATTENDANCE_PEER_ID){if(this.draft)this.linkDraftRowsToAcceptedEmployees(mappings);return;}
+            if(!this.multiDayResolver)return;
             this.employees=state.employees;this.positions=state.positions;
             this.multiDayResolver.employees=this.employees;this.multiDayResolver.positions=this.positions;
             for(const item of [...this.multiDayResolver.items]) {
                 if(item.saEmployeeId || item.excluded)continue;
-                const source=item.sources?.find(s=>s.sourcePeerId===peerId);
+                const source=item.sources?.find(s=>attendanceProposalPeerId(s)===peerId);
                 const mapping=source&&mappings.find(m=>m.miniLocalId===source.miniLocalId);
                 if(!mapping)continue;
                 try {this.multiDayResolver.resolveItemIdentity(item.id,mapping.saEmployeeId);await this.rememberConnectedIdentity(item,mapping.saEmployeeId);}catch(error){console.warn('No se pudo actualizar el vínculo del empleado en revisión:',error);}
@@ -2010,6 +2045,103 @@ export class MiniAttendanceImportModal {
         });
     }
 
+    // Unlinked employees of the same Mini that SA can propose together, when this row
+    // carries the salary or position Mini reported with the attendance.
+    getAttendanceProfileGroup(item) {
+        const source = this.getConnectedIdentitySource(item);
+        if (!hasEmployeeProfile(source)) return null;
+        if (!this.saProjectId) return null;
+        const known = Array.isArray(this.multiDayResolver?.items) ? this.multiDayResolver.items : [];
+        const items = known.includes(item) ? known : [...known, item];
+        const peerId = attendanceProposalPeerId(source);
+        try {
+            const { groups } = buildAttendanceEmployeeProposals(items, { saProjectId: this.saProjectId });
+            const group = groups.find(candidate => candidate.peerId === peerId);
+            return group && group.itemIds.includes(item.id) ? group : null;
+        } catch (error) {
+            // Runs while rendering: an optional shortcut must never break the screen.
+            console.warn('No se pudo preparar la propuesta de personal:', error);
+            return null;
+        }
+    }
+
+    async stageAndReviewEmployeeProposal(group) {
+        const deps = this.employeeIntakeDeps || await loadEmployeeIntakeDependencies();
+        const scope = await deps.resolveScope();
+        const entry = await deps.store.stage(group.proposal, { peerId: group.peerId, peerName: group.peerName, scope, local: true });
+        await deps.openReview(entry, { saProjectId: this.saProjectId });
+    }
+
+    async openEmployeeIntakeFromAttendance(item) {
+        try {
+            const group = this.getAttendanceProfileGroup(item);
+            if (!group) throw new Error('Esta asistencia no trae ficha numérica y nombre para proponer el empleado.');
+            await this.stageAndReviewEmployeeProposal(group);
+        } catch (error) {
+            console.warn('No se pudo preparar el personal desde la asistencia:', error);
+            window.showNotification?.(error?.message || 'No se pudo preparar el personal desde la asistencia.', 'error');
+        }
+    }
+
+    // Pasted WhatsApp text: every row still without a match, proposed together. The
+    // text has no salary (and no position for single-position employees), so the
+    // review asks for them before creating anything.
+    getTextProfileGroup(model) {
+        if (!this.draft || !this.saProjectId || !model?.canIgnore || model.isInactive) return null;
+        const rows = this.draft.rows
+            .map((row, sourceIndex) => ({ row, sourceIndex }))
+            .filter(({ row }) => row.match?.status === 'unmatched' && !row.excluded && !row.inactiveIdentity)
+            .map(({ row, sourceIndex }) => ({ sourceIndex, ...row.sourceRow }));
+        try {
+            const items = attendanceItemsFromDraftRows(rows, { workDate: this.draft.confirmedDate || '' });
+            const { groups } = buildAttendanceEmployeeProposals(items, { saProjectId: this.saProjectId });
+            const group = groups.find(candidate => candidate.peerId === TEXT_ATTENDANCE_PEER_ID);
+            const own = new Set((model.sourceIndexes || []).map(index => `draft-${index}`));
+            return group && group.itemIds.some(id => own.has(id)) ? group : null;
+        } catch (error) {
+            // Runs while rendering: an optional shortcut must never break the screen.
+            console.warn('No se pudo preparar la propuesta de personal:', error);
+            return null;
+        }
+    }
+
+    async openEmployeeIntakeFromText(model) {
+        try {
+            const group = this.getTextProfileGroup(model);
+            if (!group) throw new Error('Esta fila no trae una ficha numérica y un nombre para proponer el empleado.');
+            await this.stageAndReviewEmployeeProposal(group);
+        } catch (error) {
+            console.warn('No se pudo preparar el personal desde el texto:', error);
+            window.showNotification?.(error?.message || 'No se pudo preparar el personal desde el texto.', 'error');
+        }
+    }
+
+    // After the intake is accepted: put the employees in the draft roster and confirm the
+    // match of their rows. Hours stay unapproved so the user still reviews them.
+    linkDraftRowsToAcceptedEmployees(mappings) {
+        this.employees = state.employees;
+        this.positions = state.positions;
+        const byLocalId = new Map((mappings || []).map(mapping => [mapping.miniLocalId, mapping.saEmployeeId]));
+        let linked = 0;
+        this.draft.rows.forEach((row, sourceIndex) => {
+            if (row.excluded || row.match?.status !== 'unmatched') return;
+            const employeeId = byLocalId.get(textRowLocalId(row.sourceRow.rawNumber, row.sourceRow.rawName));
+            const employee = employeeId && this.employees.find(candidate => candidate.id === employeeId);
+            if (!employee) return;
+            try {
+                this.draft = reactivateMiniAttendanceDraftEmployee(this.draft, employee);
+                this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, { employeeId, approved: false });
+                linked += 1;
+            } catch (error) {
+                console.warn('No se pudo vincular una fila del texto con el empleado aceptado:', error);
+            }
+        });
+        if (!linked) return;
+        this.resetApplyState();
+        this.rebuildConflictPlan();
+        if (this.host?.isConnected) this.render();
+    }
+
     buildConnectedIdentityControls(item) {
         const resolveIdentityEl = element('div', null, {
             className: 'mini-identity-resolve-row',
@@ -2181,6 +2313,17 @@ export class MiniAttendanceImportModal {
 
         picker.append(trigger, panel, empSelect);
         resolveIdentityEl.append(ignoreBtn, picker, linkBtn);
+        const profileGroup = this.getAttendanceProfileGroup(item);
+        if (profileGroup) {
+            const count = profileGroup.proposal.employees.length;
+            const createBtn = actionButton(
+                count > 1 ? `Crear o vincular con los datos de Mini (${count} empleados)` : 'Crear o vincular con los datos de Mini',
+                'create-from-attendance'
+            );
+            createBtn.classList.add('mini-import-action-secondary');
+            createBtn.addEventListener('click', () => this.openEmployeeIntakeFromAttendance(item));
+            resolveIdentityEl.append(createBtn);
+        }
         const registerBtn=actionButton('Registrar empleado desde Mini','register-mini-employee');
         registerBtn.classList.add('mini-import-action-secondary');
         registerBtn.addEventListener('click',async()=>{
@@ -5806,6 +5949,17 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-unit-actions'
         });
         actions.append(confirm, ignore);
+        const textGroup = model.confirmed ? null : this.getTextProfileGroup(model);
+        if (textGroup) {
+            const count = textGroup.proposal.employees.length;
+            const createFromText = actionButton(
+                count > 1 ? `Crear o vincular empleado (${count} sin coincidencia)` : 'Crear o vincular empleado',
+                'create-from-text'
+            );
+            createFromText.classList.add('mini-import-action-secondary');
+            createFromText.addEventListener('click', () => this.openEmployeeIntakeFromText(model));
+            actions.append(createFromText);
+        }
 
         if (model.isInactive) {
             const inactiveBanner = element('div', null, {

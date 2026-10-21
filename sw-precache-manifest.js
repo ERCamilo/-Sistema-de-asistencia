@@ -70,6 +70,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/attendance/AttendanceSubmissionVersioning.js",
     "./js/modules/features/attendance/HolidayService.js",
     "./js/modules/features/attendance/MiniAttendanceDraft.js",
+    "./js/modules/features/attendance/MiniAttendanceEmployeeProposal.js",
     "./js/modules/features/attendance/MiniAttendanceImportService.js",
     "./js/modules/features/attendance/MiniAttendanceParser.js",
     "./js/modules/features/attendance/MiniImportDateGuard.js",

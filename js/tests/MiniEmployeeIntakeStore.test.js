@@ -61,3 +61,10 @@ test('una ficha ocupada en otra pestaña bloquea el alta sin dejar un puesto par
  await expect(store.accept(entry.id,[{miniLocalId:'mini-1',action:'create'}],{scope,hoursPerDay:8,version})).rejects.toThrow(/cambi|ficha/);
  expect(await db.getAll('positions')).toEqual([]);expect((await db.getAll('employees'))).toHaveLength(1);
 });
+test('una propuesta local (nacida de la asistencia) conserva su marca y se reutiliza al repetirla',async()=>{
+ const entry=await store.stage(payload,{peerId:'attendance:phone-1',peerName:'Mini de Juan',scope,local:true});
+ expect(entry.local).toBe(true);
+ const again=await store.stage(payload,{peerId:'attendance:phone-1',peerName:'Mini de Juan',scope,local:true});
+ expect(again.id).toBe(entry.id);expect((await store.list()).filter(e=>e.id===entry.id)).toHaveLength(1);
+ expect((await store.stage({...payload,proposalId:'proposal-2'},{peerId:'peer-1',scope})).local).toBeUndefined();
+});
