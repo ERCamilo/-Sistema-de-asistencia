@@ -24,8 +24,10 @@ const button = (label, attrs = '', kind = 'primary') => `<button type="button" c
 const money = value => `$${Number(value).toLocaleString('es-DO', { maximumFractionDigits: 2 })}`;
 const STEP_TITLES = { action: 'Qué hacer', target: 'Empleado de SA', confirm: 'Confirmar', position: 'Puesto', salary: 'Sueldo', details: 'Datos' };
 
-export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},projectName='',store=miniEmployeeIntakeStore,readState=()=>state,resolveScope=getEntityScope,sendResult=sendEmployeeIntakeResult,readOwner=currentIntakeOwner,aliasStore=miniAttendanceAliasStore,openPositionPicker=options=>EmployeePositionPickerModal.open(options)}={}) {
+export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},projectName='',store=miniEmployeeIntakeStore,readState=()=>state,resolveScope=getEntityScope,sendResult=sendEmployeeIntakeResult,readOwner=currentIntakeOwner,aliasStore=miniAttendanceAliasStore,doneLabel='',openPositionPicker=options=>EmployeePositionPickerModal.open(options)}={}) {
     const owner=readOwner(), scope=await resolveScope();
+    // Proposals built from attendance are normally opened from the attendance review.
+    const fromAttendance=!!entry.local&&!doneLabel;
     if(scope.projectId!==entry.payload.saProjectId || !scope.enabled || readOwner()!==owner)throw new Error('Selecciona la obra de esta propuesta para revisarla.');
     await refreshActivePayrollSettings({render:false});
     const model=readState(), hours=Number(getActivePayrollSettings(model)?.regularHoursPerDay)||8;
@@ -83,7 +85,7 @@ export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},proje
                     <div class="sa-p2p-peer-meta" data-intake-summary>${esc(summary(choice))}</div></div>
                     <div class="sa-p2p-device-actions">${choice.accepted?'':button(choice.action?'Cambiar':'Resolver',`data-intake-open="${i}"`,choice.action?'secondary':'primary')}</div></div>`;
             }).join('')}</div>
-            <div class="sa-p2p-actions">${entry.status==='pending'?`${button('Aceptar personal revisado','data-intake-accept','primary')}${button('Resolver duplicados en SA','data-intake-duplicates','secondary')}${button('Descartar propuesta','data-intake-discard','secondary')}`:button(entry.local?'Volver a la asistencia':'Volver a conexiones','data-intake-done','primary')}</div>
+            <div class="sa-p2p-actions">${entry.status==='pending'?`${button('Aceptar personal revisado','data-intake-accept','primary')}${button('Resolver duplicados en SA','data-intake-duplicates','secondary')}${button('Descartar propuesta','data-intake-discard','secondary')}`:button(doneLabel||(fromAttendance?'Volver a la asistencia':'Volver a conexiones'),'data-intake-done','primary')}</div>
             ${entry.status==='pending'?'<p class="sa-p2p-footnote">Descartar conserva los empleados que ya aceptaste.</p>':''}
         </section>`;
     };
@@ -236,8 +238,8 @@ export async function renderEmployeeIntakeReview(host,entry,{onBack=()=>{},proje
             const repeated=outcome.autoResolved||[];
             repeated.forEach(({entry:other})=>{if(!other.local)sendResult(other.peerId,other.result);});
             const repeatedCount=repeated.reduce((total,item)=>total+item.added.length,0);
-            await renderEmployeeIntakeReview(host,entry,{onBack,projectName,store,readState,resolveScope,sendResult,readOwner,aliasStore,openPositionPicker});
-            messageText(`${outcome.result.mappings.length} empleados aceptados en SA. ${entry.local?'Las asistencias de esos empleados ya quedaron vinculadas en la revisión de asistencia.':sent?'Respuesta enviada a Mini.':'Vuelve a enviar la propuesta desde Mini para recuperar los vínculos.'}${outcome.syncWarning?' La sincronización con la nube sigue pendiente.':''}${repeatedCount?` También se resolvió${repeatedCount===1?'':'ron'} ${repeatedCount} empleado${repeatedCount===1?'':'s'} repetido${repeatedCount===1?'':'s'} en otros orígenes.`:''}${aliasWarning?' No se pudo recordar una asociación para próximas importaciones.':''}`);
+            await renderEmployeeIntakeReview(host,entry,{onBack,projectName,store,readState,resolveScope,sendResult,readOwner,aliasStore,doneLabel,openPositionPicker});
+            messageText(`${outcome.result.mappings.length} empleados aceptados en SA. ${entry.local?(fromAttendance?'Las asistencias de esos empleados ya quedaron vinculadas en la revisión de asistencia.':'Quedaron vinculados en SA.'):sent?'Respuesta enviada a Mini.':'Vuelve a enviar la propuesta desde Mini para recuperar los vínculos.'}${outcome.syncWarning?' La sincronización con la nube sigue pendiente.':''}${repeatedCount?` También se resolvió${repeatedCount===1?'':'ron'} ${repeatedCount} empleado${repeatedCount===1?'':'s'} repetido${repeatedCount===1?'':'s'} en otros orígenes.`:''}${aliasWarning?' No se pudo recordar una asociación para próximas importaciones.':''}`);
         }catch(error){
             try{if(readOwner()!==owner||(await resolveScope()).projectId!==scope.projectId){host.replaceChildren();onBack();return;}}catch(_){host.replaceChildren();onBack();return;}
             render();messageText(error.message||'No se pudo aceptar. Tus cambios siguen en esta revisión.');host.querySelector('[data-intake-accept]').disabled=false;

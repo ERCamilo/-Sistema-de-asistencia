@@ -131,3 +131,12 @@ test('al aceptar avisa de los repetidos resueltos en otros orígenes y responde 
  expect(sendResult).toHaveBeenCalledWith('mini-1',expect.anything());expect(sendResult).toHaveBeenCalledWith('mini-2',{proposalId:'x'});expect(sendResult).not.toHaveBeenCalledWith('attendance:texto',expect.anything());
  expect(host.querySelector('[data-intake-message]').textContent).toContain('3 empleados repetidos en otros orígenes');
 });
+
+test('una propuesta local abierta desde SA P2P vuelve a esa pantalla y no habla de la asistencia',async()=>{
+ entry.local=true;model.employees=[emp('e-9','9','Ana')];
+ store.accept.mockResolvedValue({result:{mappings:[{miniLocalId:'m-1',saEmployeeId:'e-9'}]}});
+ await open({doneLabel:'Volver a personal por revisar'});click('[data-intake-open="0"]');click('[data-intake-action="link"]');click('[data-intake-all-list] [data-intake-target="e-9"]');click('[data-intake-finish]');
+ click('[data-intake-accept]');await tick();await tick();
+ expect(host.querySelector('[data-intake-done]').textContent).toContain('Volver a personal por revisar');
+ expect(host.querySelector('[data-intake-message]').textContent).not.toContain('asistencia');
+});

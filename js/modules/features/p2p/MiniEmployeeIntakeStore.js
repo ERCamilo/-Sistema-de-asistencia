@@ -79,7 +79,9 @@ export class MiniEmployeeIntakeStore {
                 if(intakeReviewVersion(current,scope,hoursPerDay)!==version || intakeReviewVersion(canonical,scope,hoursPerDay)!==version) throw new Error('Los datos de SA cambiaron. Pulsa Volver y abre la propuesta otra vez antes de aceptar.');
                 const previous=new Map(entry.mappings.map(m=>[m.miniLocalId,m]));
                 const effective=decisions.map(d=>{
-                    const known=previous.get(d.miniLocalId) || ledger.links[linkId(entry.peerId,scope.projectId,d.miniLocalId)];
+                    // A remembered link only counts while its SA employee still exists; otherwise the person can be created again.
+                    const remembered=ledger.links[linkId(entry.peerId,scope.projectId,d.miniLocalId)];
+                    const known=previous.get(d.miniLocalId) || (remembered && canonical.employees.some(e=>e.id===remembered.saEmployeeId&&!e.deletedAt) ? remembered : null);
                     if(previous.has(d.miniLocalId) && (d.action!=='link' || d.employeeId!==known.saEmployeeId || d.update))throw new Error('Una fila aceptada no se modifica en la misma propuesta.');
                     if(known && d.action==='create') throw new Error('Este empleado ya está vinculado. Actualiza la revisión.');
                     return d;

@@ -171,3 +171,24 @@ describe('un empleado resuelto en un origen se resuelve en los demás donde se r
   expect(outcome.result.mappings).toHaveLength(1);
  });
 });
+
+describe('vínculo recordado cuyo empleado ya no existe', () => {
+ const accept = (entry, decisions) => store.accept(entry.id, decisions, { scope, hoursPerDay: 8, version: intakeReviewVersion(model, scope, 8) });
+
+ test('permite volver a crear a la persona si su empleado de SA fue borrado', async () => {
+  const first = await store.stage(payload, { peerId: 'peer-1', scope });
+  const created = (await accept(first, [{ miniLocalId: 'mini-1', action: 'create' }])).result.mappings[0].saEmployeeId;
+  model.employees = model.employees.map(e => e.id === created ? { ...e, deletedAt: Date.now(), updatedAt: Date.now() + 1000 } : e);
+  const again = await store.stage({ ...payload, proposalId: 'proposal-2', requestId: 'request-2' }, { peerId: 'peer-1', scope });
+  const outcome = await accept(again, [{ miniLocalId: 'mini-1', action: 'create' }]);
+  expect(outcome.result.mappings[0].saEmployeeId).not.toBe(created);
+  expect(await store.linksFor('peer-1', 'P-1')).toMatchObject({ 'mini-1': { saEmployeeId: outcome.result.mappings[0].saEmployeeId } });
+ });
+
+ test('un vínculo vigente sigue impidiendo crear un duplicado', async () => {
+  const first = await store.stage(payload, { peerId: 'peer-1', scope });
+  await accept(first, [{ miniLocalId: 'mini-1', action: 'create' }]);
+  const again = await store.stage({ ...payload, proposalId: 'proposal-2', requestId: 'request-2' }, { peerId: 'peer-1', scope });
+  await expect(accept(again, [{ miniLocalId: 'mini-1', action: 'create' }])).rejects.toThrow(/ya está vinculado/);
+ });
+});

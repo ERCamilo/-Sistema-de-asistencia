@@ -12,7 +12,8 @@
         "Recuerda las asociaciones a otra ficha para próximas importaciones de asistencia.",
         "Cada integración de personal queda como una sola actividad con el número de empleados.",
         "Todo el personal por revisar aparece en un solo aviso, dividido por Mini y por texto pegado.",
-        "Si resuelves a un empleado repetido en otro Mini o en el texto, también queda resuelto allí."
+        "Si resuelves a un empleado repetido en otro Mini o en el texto, también queda resuelto allí.",
+        "Un empleado recordado que ya no existe en SA se puede volver a crear."
       ]
     },
     {

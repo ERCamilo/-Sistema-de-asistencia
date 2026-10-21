@@ -916,7 +916,7 @@ export function registerP2PRosterGlobals() {
 
 async function showEmployeeIntake(entry,projectState,{onBack}={}) {
   const back=onBack||(()=>{scheduleSaP2PHeaderRefresh();renderHome();});
-  await renderEmployeeIntakeReview(body(),entry,{projectName:projectState.activeProject?.name || '',onBack:()=>{scheduleSaP2PHeaderRefresh();back();}});
+  await renderEmployeeIntakeReview(body(),entry,{projectName:projectState.activeProject?.name || '',doneLabel:onBack?'Volver a personal por revisar':'',onBack:()=>{scheduleSaP2PHeaderRefresh();back();}});
 }
 
 // Single entry point for every pending proposal: one group per Mini and one for pasted text.
