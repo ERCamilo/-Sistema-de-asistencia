@@ -1,6 +1,14 @@
 {
-  "version": "1.7.93",
+  "version": "1.7.94",
   "changelog": [
+    {
+      "version": "1.7.94",
+      "date": "2026-10-21",
+      "title": "Aviso de personal más legible",
+      "items": [
+        "El aviso de personal recibido en Transferencias directas muestra completo su resumen, también en pantallas pequeñas."
+      ]
+    },
     {
       "version": "1.7.93",
       "date": "2026-10-21",
