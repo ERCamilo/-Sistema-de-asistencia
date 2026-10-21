@@ -11,9 +11,11 @@ const next = current.replace(/\d+$/, n => String(Number(n) + 1));
 const entry = {version:next,date:'2026-10-20',title:'Actualización de prueba',items:['Texto <img src=x onerror=alert(1)> seguro.']};
 const originalManifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'app-release.json')));
 const styles = [...fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="(css\/[^"]+)"/g)].map(m => `<link rel="stylesheet" href="/${m[1]}">`).join('');
-const fixture = `<!doctype html><html lang="es"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Actualizaciones de prueba</title>${styles}</head><body><main><h1>Prueba de novedades</h1><button id="news">Novedades</button><button id="check">Buscar actualizaciones</button><p id="app-update-status" role="status"></p></main><script type="module">
+const fixture = `<!doctype html><html lang="es"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Actualizaciones de prueba</title>${styles}</head><body><main><h1>Prueba de novedades</h1><span id="visible-version"></span><button id="news">Novedades</button><button id="check">Buscar actualizaciones</button><p id="app-update-status" role="status"></p></main><script type="module">
 import {startAppUpdates,openWhatsNew,checkAppUpdates} from '/js/modules/ui/AppUpdates.js';
 import {APP_VERSION} from '/js/modules/config/AppVersion.js';
+import {APP_CONFIG} from '/js/modules/config/Config.js';
+document.getElementById('visible-version').textContent='v'+APP_CONFIG.VERSION;
 import {createAppHistory} from '/js/modules/core/AppHistory.js';
 window.loadedVersion=APP_VERSION;window.marker='loaded';
 window.historyManager=createAppHistory({getView:()=>({tab:'settings',sub:'data'}),applyView:()=>true}).start();
@@ -45,10 +47,11 @@ const server=http.createServer((req,res)=>{
     await page.waitForFunction(()=>history.state.saNav.depth===1);
     await page.goBack();await page.waitForSelector('#whats-new-modal',{hidden:true});
     assert.equal(await page.evaluate(()=>history.state.saNav.view.tab),'settings');
-    published=true;await page.click('#check');await page.waitForSelector('#update-modal');
+    published=true;await page.evaluate(async()=>{const reg=await navigator.serviceWorker.getRegistration();await reg.update();});await page.waitForSelector('#update-modal');
     assert.ok((await page.$eval('#update-modal',el=>el.textContent)).includes(next));
     assert.equal(await page.$('#update-modal img'),null);
     assert.equal(await page.evaluate(()=>window.loadedVersion),current);
+    assert.equal(await page.$eval('#visible-version',el=>el.textContent),'v'+current);
     await page.click('#update-modal .btn-secondary');await page.waitForSelector('#update-modal',{hidden:true});
     await page.evaluate(async()=>{const reg=await navigator.serviceWorker.getRegistration();await reg.update();});
     await page.click('#check');await page.waitForSelector('#update-modal');
@@ -59,7 +62,7 @@ const server=http.createServer((req,res)=>{
     assert.equal(await page.evaluate(()=>window.loadedVersion),current);
     assert.deepEqual(await page.evaluate(()=>window.saveOptions),{immediate:true,announce:false,requireLocalSuccess:true,localOnly:true});
     await page.evaluate(()=>window.finishSave());
-    await page.waitForFunction(v=>window.loadedVersion===v,{},next);await page.waitForSelector('#whats-new-modal');
+    await page.waitForFunction(v=>window.loadedVersion===v,{},next);assert.equal(await page.$eval('#visible-version',el=>el.textContent),'v'+next);await page.waitForSelector('#whats-new-modal');
     await page.click('#whats-new-modal .btn-primary');await page.waitForSelector('#whats-new-modal',{hidden:true});
     assert.equal(await page.evaluate(()=>localStorage.getItem('sa:lastSeenVersion')),next);
     await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});

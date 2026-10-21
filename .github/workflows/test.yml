@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -26,6 +28,17 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Verify release version and notes
+        env:
+          RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          RELEASE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -n "$RELEASE_BASE" ] && [ "$RELEASE_BASE" != 0000000000000000000000000000000000000000 ]; then
+            node scripts/release-manifest.cjs --check --release --base "$RELEASE_BASE" --head "$RELEASE_HEAD"
+          else
+            node scripts/release-manifest.cjs --check --release --head "$RELEASE_HEAD"
+          fi
 
       # Enforce the direct-state-write ratchet on CI too (not just the opt-in
       # pre-commit hook) so the guard can't be bypassed on a PR from a machine
@@ -57,3 +70,8 @@ jobs:
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: npm run test:photo-viewer
+
+      - name: App update and release notes in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: npm run test:app-updates

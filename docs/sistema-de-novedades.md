@@ -35,3 +35,22 @@ El service worker mantiene `skipWaiting()`/`clients.claim()`. `controllerchange`
 ## Verificación
 
 Las pruebas cubren comparación numérica (1.10.0 > 1.9.0), primer arranque, novedades acumuladas, posponer/reabrir, catálogo inválido, intervalo y concurrencia, fallos de guardado y cancelación mientras se guarda. La prueba de navegador publica dos versiones locales con el worker real, comprueba recarga voluntaria, Atrás y límites de pantalla. La prueba también comprueba WCAG A/AA del diálogo en cuatro anchos.
+
+
+## Protección antes de publicar
+
+Cada entrega que modifica archivos de la aplicación debe aumentar `APP_VERSION` respecto a `main` y añadir arriba del `CHANGELOG` una entrada de esa versión con título y novedades propias, no vacías. Conserva las notas ya publicadas. La corrección de octubre de 2026 también reúne los cambios que se habían publicado sin aumentar la versión.
+
+- **Commit:** el hook comprueba el índice preparado, sin incorporar arreglos locales aún no preparados. Una rama puede contener varios commits de una misma entrega; se compara con `origin/main` (o HEAD cuando no existe esa referencia).
+- **Push:** `.githooks/pre-push` comprueba cada commit que se enviará, no el árbol de trabajo. Rechaza versiones iguales/menores, catálogos o generados incoherentes y el mismo caché anterior. Usa `git fetch origin main` para mantener la base local al día.
+- **GitHub:** la CI repite la validación con los SHA reales de base y head del PR. Esto comprueba también ramas concurrentes y entornos sin hooks locales; una comprobación fallida debe corregirse antes de fusionar.
+- Los cambios solo de documentación/tests y los sellos automáticos del build no necesitan una versión nueva. Los cambios de lógica del worker sí.
+
+Después de preparar y commitear la entrega puedes repetir la comprobación exacta con:
+
+```sh
+git fetch origin main
+node scripts/release-manifest.cjs --check --release --base origin/main --head HEAD
+```
+
+`npm run test:release` revisa el estado local contra `origin/main`. No cambia versiones ni inventa novedades automáticamente. Si falla, corrige la fuente de versión/historial, ejecuta `npm run build`, prepara los archivos generados y vuelve a intentar. El hook sella el caché al commitear.
