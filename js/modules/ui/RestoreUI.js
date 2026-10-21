@@ -277,7 +277,7 @@ export const RestoreUI = {
     },
 
     _buildProjectDiagnosticsHTML(backupData, diagnostics) {
-        const container = (backupData && backupData.data && typeof backupData.data === 'object') ? backupData.data : {};
+        const container = (backupData && backupData.data && typeof backupData.data === 'object') ? backupData.data : (backupData || {});
         const hasMetaFallback = Boolean(
             (container && (Object.prototype.hasOwnProperty.call(container, 'projects') || Object.prototype.hasOwnProperty.call(container, 'projectPayrollConfigs') || Object.prototype.hasOwnProperty.call(container, 'projectBackup'))) ||
             (backupData && (Object.prototype.hasOwnProperty.call(backupData, 'projectBackup') || Object.prototype.hasOwnProperty.call(backupData, 'projects')))
@@ -285,11 +285,15 @@ export const RestoreUI = {
         const esc = (v) => this._escapeProjectText(v);
         // Sin diagnósticos calculados: solo aviso legacy por presencia de claves (sin IO).
         if (!diagnostics || typeof diagnostics !== 'object') {
-            if (hasMetaFallback) return '';
+            if (hasMetaFallback) {
+                return this._buildProjectDiagnosticsHTML(backupData, {
+                    backupProjectIds: (Array.isArray(container.projects) ? container.projects : []).map(project => project.id)
+                });
+            }
             return `
                 <div id="project-backup-diagnostics" data-warning="legacy-no-project" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 0.8rem; line-height: 1.5;">
                     <div style="font-weight: 700; margin-bottom: 4px;">⚠️ Backup sin información de proyecto (legacy)</div>
-                    <div>Se puede restaurar con el comportamiento actual. Los registros sin proyecto pertenecen al predeterminado. Esta vista no reescribe projectId ni crea proyectos.</div>
+                    <div>Al confirmar, los registros sin obra se asociarán a la predeterminada. Si no existe una obra activa, se creará «Mi obra».</div>
                 </div>
             `;
         }
@@ -303,20 +307,30 @@ export const RestoreUI = {
         const petty = diagnostics.petty || { orphanMissing: 0, orphanInvalid: 0 };
         const receiptLoss = diagnostics.receiptLoss || { unrecoverableReceiptCount: 0 };
         const pointerInfo = diagnostics.pointerInfo || null;
+        const projectName = id => {
+            const project = (Array.isArray(container.projects) ? container.projects : []).find(project => project.id === id);
+            return esc(project?.name || id);
+        };
 
         const lines = [];
         if (isLegacy) {
-            lines.push('<div style="font-weight: 700; margin-bottom: 4px;">⚠️ Backup sin información de proyecto (legacy)</div><div>Se puede restaurar con el comportamiento actual. Los registros sin proyecto pertenecen al predeterminado. Esta vista no reescribe projectId ni crea proyectos.</div>');
+            lines.push('<div style="font-weight: 700; margin-bottom: 4px;">⚠️ Backup sin información de proyecto (legacy)</div><div>Al confirmar, los registros sin obra se asociarán a la predeterminada. Si no existe una obra activa, se creará «Mi obra».</div>');
         } else {
             lines.push(`<div style="font-weight: 700; margin-bottom: 6px;">🏷️ Backup con proyectos: ${backupIds.length} proyecto(s) distinto(s)</div>`);
             if (backupIds.length > 0) {
-                lines.push(`<div style="font-size: 0.75rem; color: #cbd5e1; margin-bottom: 6px;">IDs en backup: ${backupIds.map(esc).join(', ')}</div>`);
+                lines.push(`<div style="color: #cbd5e1; margin-bottom: 6px;">Obras: ${backupIds.map(projectName).join(' · ')}</div>`);
+            }
+            if (container.projectBackup?.activeProjectId) {
+                lines.push(`<div>Obra activa al restaurar: <b>${projectName(container.projectBackup.activeProjectId)}</b></div>`);
+            }
+            if (container.projectBackup?.defaultProjectId && container.projectBackup.defaultProjectId !== container.projectBackup.activeProjectId) {
+                lines.push(`<div>Predeterminada: <b>${projectName(container.projectBackup.defaultProjectId)}</b></div>`);
             }
             if (foreignIds.length > 0) {
-                lines.push(`<div style="margin-top: 6px;">⚠️ IDs foráneos (no existen en este dispositivo): <b>${foreignIds.map(esc).join(', ')}</b>. Se agregarán desde el respaldo junto con su configuración de nómina.</div>`);
+                lines.push(`<div style="margin-top: 6px;">Obras nuevas en este dispositivo: <b>${foreignIds.map(projectName).join(', ')}</b>. Se recuperarán desde el respaldo al confirmar.</div>`);
             }
             if (missingConfigs.length > 0) {
-                lines.push(`<div style="margin-top: 6px;">⚠️ Sin configuración de nómina en el backup para: <b>${missingConfigs.map(esc).join(', ')}</b>.</div>`);
+                lines.push(`<div style="margin-top: 6px;">⚠️ Sin configuración de nómina en el backup para: <b>${missingConfigs.map(projectName).join(', ')}</b>.</div>`);
             }
             if (closureRisks.atRiskCount > 0) {
                 lines.push(`<div style="margin-top: 6px;">⚠️ ${closureRisks.atRiskCount} cierre(s) local(es) podrían quedar huérfanos tras restaurar el roster (se conservan intactos, solo se avisa).</div>`);
@@ -328,7 +342,7 @@ export const RestoreUI = {
                 lines.push(`<div style="margin-top: 6px;">🧾 ${receiptLoss.unrecoverableReceiptCount} comprobante(s) solo-local(es) no recuperables desde este backup.</div>`);
             }
             if (pointerInfo && (!pointerInfo.defaultMatch || !pointerInfo.activeMatch)) {
-                lines.push('<div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">ℹ️ El proyecto predeterminado/activo local difiere del que trae el backup (informativo; no se cambia nada automáticamente).</div>');
+                lines.push('<div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">Al confirmar se usarán las obras activa y predeterminada del respaldo. Se conservan las asignaciones de sus registros.</div>');
             }
             if (lines.length === 1) {
                 lines.push('<div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">Sin riesgos detectados. El restore conserva la semántica actual y requiere tu confirmación.</div>');

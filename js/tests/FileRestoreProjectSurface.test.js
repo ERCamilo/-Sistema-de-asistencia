@@ -5,7 +5,10 @@ import { IndexedDBService } from 'actual/services/IndexedDBService.js';
 import mockedIDB from '../modules/services/IndexedDBService.js';
 import {
     prepareRestoreProjectSurface,
+    commitRestoredProjectSurface,
+    readRestoreProjectPointers,
     handleRestoreProjectChoiceRequired,
+    requestFullImportProjectChoice,
     getPendingFullImport,
     cancelFullImportProjectChoice
 } from '../modules/features/export/ExportController.js';
@@ -13,7 +16,8 @@ import { projectStore } from '../modules/features/projects/ProjectStore.js';
 import { defaultProjectService } from '../modules/features/projects/DefaultProject.js';
 import { projectContext } from '../modules/features/projects/ProjectContext.js';
 import { DEFAULT_PROJECT_LS_KEY, ACTIVE_PROJECT_LS_KEY, replaceEntityScope, resetEntityScope } from '../modules/features/projects/EntityProjectScope.js';
-import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
+import { isProjectsEnabled, setProjectsEnabled } from '../modules/config/FeatureFlags.js';
+import { ProjectSetupService } from '../modules/features/projects/ProjectSetupService.js';
 
 if (!globalThis.structuredClone) {
     globalThis.structuredClone = (x) => JSON.parse(JSON.stringify(x));
@@ -119,9 +123,124 @@ describe('Restaurar desde archivo: superficie de obras', () => {
         expect(handleRestoreProjectChoiceRequired(error)).toBe(false);
     });
 
-    test('obras desactivadas: restauración legacy sin preflight', async () => {
+    test('dispositivo con obras OFF: recupera catálogo y asignaciones tras un único commit durable', async () => {
         setProjectsEnabled(false);
-        expect(await prepareRestoreProjectSurface(backup())).toBeNull();
+        const data = backup({ multi: true });
+        data.employees[1].projectId = PRJ_B;
+        data.leaders[0].projectId = PRJ_B;
+        data.attendance['emp-u-2026-09-18'].projectId = PRJ_B;
+        data.projectBackup.activeProjectId = PRJ_B;
+        const previous = readRestoreProjectPointers();
+        const surface = await prepareRestoreProjectSurface(data);
+        expect(isProjectsEnabled()).toBe(false);
+        expect(readRestoreProjectPointers()).toEqual(previous);
+        expect((await db.getAll('projects')).map(p => p.id)).toEqual([LOCAL_PROJECT]);
+        expect(surface.incomingScope.projectId).toBe(PRJ_B);
+
+        await db.saveState(data, { clearFirst: true, projectSurface: surface, entityScope: surface.incomingScope });
+        commitRestoredProjectSurface(surface, previous);
+        expect(isProjectsEnabled()).toBe(true);
+        expect(readRestoreProjectPointers()).toEqual({ defaultProjectId: PRJ_A, activeProjectId: PRJ_B });
+        expect((await db.getAll('employees')).map(e => e.projectId)).toEqual([PRJ_A, PRJ_B]);
+        expect((await db.getAll('projects')).map(p => p.name).sort()).toEqual(['Obra Alpha', 'Obra Beta']);
+        expect(await db.get('projectPayrollConfigs', PRJ_A)).toMatchObject({ holidays: ['2026-01-26'] });
+
+        // El onboarding encuentra la obra restaurada y solo la renombra;
+        // no necesita activar/crear otra obra para completar el flujo.
+        const boot = jest.fn();
+        const setup = new ProjectSetupService({ store: projectStore, boot });
+        expect(await setup.getState()).toMatchObject({ ready: true, activeProject: { id: PRJ_B, name: 'Obra Beta' } });
+        await setup.renameActiveProject('Obra Beta recuperada');
+        expect(boot).not.toHaveBeenCalled();
+        expect((await db.getAll('projects'))).toHaveLength(2);
+        expect((await db.getAll('employees')).map(e => e.projectId)).toEqual([PRJ_A, PRJ_B]);
+    });
+
+    test('backup antiguo en equipo vacío: prepara sin escribir, asocia y persiste una sola obra', async () => {
+        setProjectsEnabled(false);
+        await db.clear('projects');
+        const data = backup();
+        delete data.projects;
+        delete data.projectPayrollConfigs;
+        delete data.projectBackup;
+        for (const record of [...data.employees, ...data.positions]) delete record.projectId;
+        data.settings.regularHoursPerDay = 9;
+        data.settings.holidays = ['2026-02-27'];
+        data.dayHoursConfig = { '2026-02-28': 4 };
+        const previous = readRestoreProjectPointers();
+        const surface = await prepareRestoreProjectSurface(data);
+        const id = surface.incomingScope.projectId;
+        expect(surface.projects).toEqual([expect.objectContaining({ id, name: 'Mi obra' })]);
+        expect(await db.getAll('projects')).toEqual([]);
+        expect(isProjectsEnabled()).toBe(false);
+        expect(readRestoreProjectPointers()).toEqual(previous);
+        expect(data.employees.every(e => e.projectId === id)).toBe(true);
+        expect(data.positions[0].projectId).toBe(id);
+        expect(data.leaders[0].projectId).toBe(id);
+        expect(Object.values(data.attendance).every(a => a.projectId === id)).toBe(true);
+
+        await db.saveState(data, { clearFirst: true, projectSurface: surface, entityScope: surface.incomingScope });
+        commitRestoredProjectSurface(surface, previous);
+        expect((await db.getAll('projects'))).toHaveLength(1);
+        expect(await db.get('projectPayrollConfigs', id)).toMatchObject({ regularHoursPerDay: 9, holidays: ['2026-02-27'], dayHours: { '2026-02-28': 4 } });
+        const again = await prepareRestoreProjectSurface(data);
+        expect(again.incomingScope.projectId).toBe(id);
+        expect(again.projects).toHaveLength(1);
+    });
+
+    test('backup antiguo reutiliza la predeterminada y rechaza IDs huérfanos sin crear otra obra', async () => {
+        const data = backup();
+        delete data.projects;
+        delete data.projectPayrollConfigs;
+        delete data.projectBackup;
+        await expect(prepareRestoreProjectSurface(data)).rejects.toThrow(/Falta el catálogo de obras/);
+        for (const record of [...data.employees, ...data.positions]) delete record.projectId;
+        const surface = await prepareRestoreProjectSurface(data);
+        expect(surface.incomingScope.projectId).toBe(LOCAL_PROJECT);
+        expect(surface.legacyBinding.resolvedExisting).toBe(true);
+        expect(surface.projects).toHaveLength(1);
+    });
+
+    test('fallo de transacción no cambia el catálogo ni habilita obras o punteros', async () => {
+        setProjectsEnabled(false);
+        const previous = readRestoreProjectPointers();
+        const data = backup();
+        const surface = await prepareRestoreProjectSurface(data);
+        // Fallo al serializar el catálogo después de clear() y de encolar
+        // empleados: se revierte toda la transacción, no solo las obras.
+        const serialize = db._serializeForIDB.bind(db);
+        const fault = jest.spyOn(db, '_serializeForIDB').mockImplementation(record => {
+            if (record.id === PRJ_A) throw new Error('Fallo de escritura simulado');
+            return serialize(record);
+        });
+        try {
+            await expect(db.saveState(data, { clearFirst: true, projectSurface: surface, entityScope: surface.incomingScope })).rejects.toThrow('Fallo de escritura simulado');
+        } finally {
+            fault.mockRestore();
+        }
+        expect((await db.getAll('projects')).map(p => p.id)).toEqual([LOCAL_PROJECT]);
+        expect(await db.getAll('employees')).toEqual([]);
+        expect(isProjectsEnabled()).toBe(false);
+        expect(readRestoreProjectPointers()).toEqual(previous);
+    });
+
+    test('elección de obra desde archivo OFF reanuda el mismo restore y conserva los IDs explícitos', async () => {
+        setProjectsEnabled(false);
+        const data = backup({ multi: true });
+        let error;
+        try { await prepareRestoreProjectSurface(data); } catch (e) { error = e; }
+        const retry = jest.fn(async selected => {
+            const surface = await prepareRestoreProjectSurface(selected);
+            await db.saveState(selected, { clearFirst: true, projectSurface: surface, entityScope: surface.incomingScope });
+            commitRestoredProjectSurface(surface);
+            return true;
+        });
+        expect(handleRestoreProjectChoiceRequired(error, retry)).toBe(true);
+        expect(await requestFullImportProjectChoice(PRJ_B)).toMatchObject({ ok: true, assignedRecords: 3 });
+        expect(retry).toHaveBeenCalledTimes(1);
+        expect((await db.getAll('employees')).map(e => e.projectId)).toEqual([PRJ_A, PRJ_B]);
+        expect((await db.getAll('projects'))).toHaveLength(2);
+        expect(getPendingFullImport()).toBeNull();
     });
 });
 
@@ -144,7 +263,7 @@ describe('applyBackupData: cableado del preflight de obras', () => {
     });
 
     test('una elección de obra pendiente no se reporta como error', () => {
-        const choice = body.indexOf('handleRestoreProjectChoiceRequired(error)');
+        const choice = body.indexOf('handleRestoreProjectChoiceRequired(error, onProjectChoiceRetry)');
         expect(choice).toBeGreaterThan(-1);
         expect(choice).toBeLessThan(body.indexOf("logError(error, 'aplicar el backup local')"));
     });

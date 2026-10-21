@@ -59,12 +59,13 @@ export function projectSection(s) {
     return `<div data-od-id="od-project" style="min-height:434px;padding:38px 34px;max-width:620px;margin:0 auto;width:100%;display:flex;flex-direction:column;justify-content:center;">
         ${chip('Proyecto de trabajo', 14)}
         <h1 style="margin:0;font-size:24px;font-weight:700;letter-spacing:-.012em;line-height:1.25;">Confirma el proyecto activo</h1>
-        <p style="margin:10px 0 24px;font-size:14px;color:${C.dim};line-height:1.55;">Tus datos de ${esc(sourceLabel)} ya están disponibles. Confirma la obra o proyecto al que pertenecen para que personal, asistencia, nómina y Mini usen el mismo contexto.</p>
+        <p style="margin:10px 0 24px;font-size:14px;color:${C.dim};line-height:1.55;">${esc(sourceLabel)} restaurado. Confirma el nombre de la obra activa.</p>
+        ${s.recoveredProjects?.length ? `<div data-od-id="od-recovered-projects" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">${s.recoveredProjects.map(project => `<span style="padding:7px 11px;border:1px solid ${C.border};border-radius:9px;background:${C.panel2};font-size:13px;">${esc(project.name)}</span>`).join('')}</div>` : ''}
         <label style="${LBL}" for="f-project-confirm">Nombre del proyecto o de la obra</label>
         ${input('f-project-confirm', 'projectName', s.projectName, 'Ej: Torre Mirador', 'maxlength="80" aria-required="true" ')}
         <div style="display:flex;align-items:flex-start;gap:12px;margin-top:20px;padding:15px 16px;border-radius:12px;background:${C.panel2};">
             <span aria-hidden="true" style="width:40px;height:40px;flex:none;border-radius:11px;background:${C.accent};color:${C.onAccent};display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V7l8-4 8 4v13"/><path d="M8 20v-5h8v5M8 9h.01M12 9h.01M16 9h.01"/></svg></span>
-            <div><div style="font-size:13.5px;font-weight:700;">Un contexto para toda la app</div><div style="font-size:12.5px;color:${C.dim};line-height:1.5;margin-top:4px;">Si el respaldo ya contiene un proyecto activo, se propone su nombre. Puedes corregirlo aquí antes de entrar a la app.</div></div>
+            <div><div style="font-size:13.5px;font-weight:700;">Tu obra recuperada</div><div style="font-size:12.5px;color:${C.dim};line-height:1.5;margin-top:4px;">Cambiar el nombre conserva la obra y sus datos. Las demás obras siguen disponibles en Ajustes → Proyectos.</div></div>
         </div>
         ${s._projectError ? `<div role="alert" aria-live="assertive" style="margin-top:16px;padding:12px 15px;border-radius:11px;background:color-mix(in oklch, ${C.bad} 20%, ${C.panel2});color:#fecaca;font-size:13px;line-height:1.5;">${esc(s._projectError)}</div>` : ''}
     </div>`;

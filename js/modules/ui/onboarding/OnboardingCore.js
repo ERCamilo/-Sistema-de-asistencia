@@ -142,6 +142,9 @@ function serializableSetupState(s) {
         source: s.source,
         company: s.company,
         projectName: s.projectName,
+        ...(Array.isArray(s.recoveredProjects) ? {
+            recoveredProjects: s.recoveredProjects.map(project => ({ id: project.id, name: project.name }))
+        } : {}),
         days: Array.isArray(s.days) ? [...s.days] : [],
         hours: s.hours,
         posName: s.posName,
@@ -163,6 +166,11 @@ export function saveProgress(storage, s) {
 
 function restoreSetupFields(p, s) {
     if (typeof p.source === 'string' || p.source === null) s.source = p.source;
+    if (Array.isArray(p.recoveredProjects)) {
+        s.recoveredProjects = p.recoveredProjects
+            .filter(project => project && typeof project.id === 'string' && typeof project.name === 'string')
+            .map(project => ({ id: project.id, name: project.name }));
+    }
     for (const field of ['company', 'projectName', 'posName', 'posRate', 'newEmpName', 'newEmpCode']) {
         if (typeof p[field] === 'string') s[field] = p[field];
     }
