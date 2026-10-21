@@ -101,6 +101,19 @@ describe('Restaurar desde archivo: superficie de obras', () => {
         expect((await db.getAll('projects')).map(p => p.id)).toEqual([LOCAL_PROJECT]);
     });
 
+    test('el catálogo de un archivo con nombres repetidos conserva IDs y deja una resolución pendiente', async () => {
+        const data = backup({ multi: true });
+        data.projects[1].name = ' OBRA   ALPHA ';
+        data.employees[1].projectId = PRJ_B;
+        data.leaders[0].projectId = PRJ_A;
+        data.attendance['emp-u-2026-09-18'].projectId = PRJ_B;
+        const surface = await prepareRestoreProjectSurface(data);
+        expect(surface.projects.map(row => row.id).sort()).toEqual([PRJ_A, PRJ_B]);
+        expect(surface.projects.find(row => row.id === PRJ_B)).toMatchObject({ metadata: { nameConflict: { source: 'backup', requestedName: ' OBRA   ALPHA ' } } });
+        expect(data.employees.map(row => row.projectId)).toEqual([PRJ_A, PRJ_B]);
+        expect((await db.getAll('projects')).map(row => row.id)).toEqual([LOCAL_PROJECT]);
+    });
+
     test('varias obras con datos sin obra: pide elegir con la misma UI que FULL sin mutar nada', async () => {
         const data = backup({ multi: true });
         let error;

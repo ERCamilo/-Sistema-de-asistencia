@@ -4,6 +4,7 @@ import { mountProjectCreateForm, openProjectCreateModal, closeProjectCreateModal
 import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
 import { mountProjectOnboarding } from './ProjectOnboarding.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
+import { openProjectNameConflicts } from './ProjectNameConflictUI.js';
 
 export const PROJECT_FILTERS = Object.freeze({ ALL: 'all', ACTIVE: PROJECT_STATUS.ACTIVE, CLOSED: PROJECT_STATUS.CLOSED, ARCHIVED: PROJECT_STATUS.ARCHIVED });
 const STATUS_ICONS = Object.freeze({
@@ -77,6 +78,7 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
                         ${isDefault ? `<span class="project-badge badge-default-project" data-default-project-badge="true">${ICONS.home}<span>Inicial</span></span>` : ''}
                     </div>
                     <div class="project-name" data-project-name-display>${esc(project.name || 'Sin nombre')}</div>
+                    ${project.metadata?.nameConflict ? '<button type="button" class="project-action is-secondary" data-project-name-conflict>Resolver nombre repetido</button>' : ''}
                     <div class="project-id" data-project-id-display>${esc(project.id)}</div>
                     ${switchAction}
                 </div>
@@ -131,6 +133,12 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
 
     function render() {
         container.innerHTML = renderProjectListHTML({ projects: currentProjects, activeProjectId: currentActiveId, defaultProjectId: currentDefaultId, currentFilter, allowSwitch: shouldAllowSwitch });
+        container.querySelectorAll('[data-project-name-conflict]').forEach(button => button.addEventListener('click', async () => {
+            closeProjectListModal();
+            window.closeProjectSetupModal?.();
+            try { await openProjectNameConflicts(); }
+            catch (error) { window.showNotification?.(error.message || String(error), 'error'); }
+        }));
         container.querySelectorAll('[data-project-filter]').forEach(tab => tab.addEventListener('click', event => {
             event.preventDefault();
             const next = tab.getAttribute('data-project-filter');

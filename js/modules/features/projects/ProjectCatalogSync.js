@@ -20,8 +20,9 @@
  *     copia de la obra por defecto (misma regla que la reconciliación).
  *   - Las obras «Mi obra» que la adopción canónica deja vacías en cada
  *     dispositivo no se publican: si están vacías se retiran localmente.
- *   - Dos obras con el mismo nombre se informan (getCatalogNameDuplicates);
- *     unirlas es una decisión explícita del usuario.
+ *   - Los nombres repetidos reciben una etiqueta local provisional y una
+ *     resolución durable. Nunca se publica esa etiqueta ni se unen IDs o datos
+ *     por coincidencia de nombre. El usuario confirma un nombre único.
  *
  * Nunca lanza hacia afuera: sin red o sin sesión, el catálogo local sigue
  * funcionando como antes.
@@ -36,6 +37,7 @@ import { DEFAULT_PROJECT_LS_KEY, peekEntityScope } from './EntityProjectScope.js
 import { ACTIVE_PROJECT_LS_KEY } from './ProjectContext.js';
 import { projectNameKey } from './ProjectNames.js';
 import { createDefaultConfig, cloneConfig } from '../payroll/ProjectPayrollConfig.js';
+import { mutateProjectCatalog, stageProjectNameConflicts, PROJECT_NAME_CONFLICT_EVENT } from './ProjectNameConflicts.js';
 
 const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion'];
 const PAYROLL_CONFIG_STORE = 'projectPayrollConfigs';
@@ -247,9 +249,30 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
         if (leftovers.has(id) && !remoteList.some(remote => trimId(remote?.id) === id)
             && !(await projectHasLocalData(id, { idb }))) excludeIds.push(id);
     }
-    const plan = planCatalogMerge(localList || [], remoteList, { excludeIds });
+    // Releer dentro del commit: una creación/renombrado en otra pestaña no
+    // puede colarse entre la validación de nombres y la escritura del catálogo.
+    const plan = await mutateProjectCatalog(idb, current => {
+        const merge = planCatalogMerge(current, remoteList, { excludeIds });
+        const byId = new Map(current.map(row => [row.id, row]));
+        for (const row of merge.storeLocal) {
+            const incoming = { ...row };
+            if (incoming.metadata?.nameConflict) {
+                incoming.metadata = { ...incoming.metadata };
+                delete incoming.metadata.nameConflict;
+            }
+            byId.set(row.id, incoming);
+        }
+        const final = stageProjectNameConflicts([...byId.values()], { incomingIds: merge.storeLocal.map(row => row.id) });
+        const before = new Map(current.map(row => [row.id, JSON.stringify(row)]));
+        const writes = final.filter(row => JSON.stringify(row) !== before.get(row.id));
+        const pendingIds = new Set(final.filter(row => row.metadata?.nameConflict).map(row => row.id));
+        return { writes, result: { ...merge,
+            changed: writes.map(row => row.id),
+            publish: merge.publish.filter(row => !pendingIds.has(row.id))
+                .map(row => toCatalogDoc(final.find(project => project.id === row.id)))
+        } };
+    });
     for (const project of plan.storeLocal) {
-        await idb.update('projects', project);
         await seedPayrollConfig(trimId(project.id), { idb });
     }
     let published = 0;
@@ -281,7 +304,7 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
             await idb.update(PAYROLL_CONFIG_STORE, incoming);
             announceConfig(incoming);
             configsReceived++;
-        } else if (action === 'publish') {
+        } else if (action === 'publish' && !project.metadata?.nameConflict) {
             try {
                 await writeDoc(catalogDoc(uid, id), { id, payrollConfig: toConfigDoc(local) }, { merge: true });
                 configsPublished++;
@@ -290,11 +313,16 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
             }
         }
     }
-    _lastDuplicates = findCatalogNameDuplicates(finalList || []);
+    // Incluye los nombres originales pendientes, no solo las etiquetas únicas.
+    _lastDuplicates = findCatalogNameDuplicates((finalList || []).map(row => ({ ...row,
+        name: row.metadata?.nameConflict?.requestedName || row.name })));
     if (_lastDuplicates.length) {
         console.warn('⚠️ Obras con el mismo nombre:', _lastDuplicates.map(group => group.map(item => `${item.name} (${item.id})`).join(' = ')).join('; '));
     }
-    if (plan.storeLocal.length || removed.length) {
+    if ((finalList || []).some(row => row.metadata?.nameConflict)) {
+        try { window.dispatchEvent(new CustomEvent(PROJECT_NAME_CONFLICT_EVENT)); } catch (_) { /* sin UI */ }
+    }
+    if (plan.changed.length || removed.length) {
         announceChange({ received: plan.storeLocal.map(project => project.id), removed });
     }
     return { received: plan.storeLocal.length, published, removed, configsReceived, configsPublished, duplicates: getCatalogNameDuplicates() };

@@ -240,6 +240,8 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/projects/ProjectFinancialPlanRepair.js",
     "./js/modules/features/projects/ProjectFinancialRecovery.js",
     "./js/modules/features/projects/ProjectListUI.js",
+    "./js/modules/features/projects/ProjectNameConflictUI.js",
+    "./js/modules/features/projects/ProjectNameConflicts.js",
     "./js/modules/features/projects/ProjectNames.js",
     "./js/modules/features/projects/ProjectOnboarding.js",
     "./js/modules/features/projects/ProjectOwnershipReconciliation.js",
