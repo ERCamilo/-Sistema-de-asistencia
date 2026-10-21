@@ -30,6 +30,7 @@
 .la-hub__facts span { font-size: .75rem; color: var(--la-faint); }
 .la-hub__facts b { font-size: .95rem; font-variant-numeric: tabular-nums; }
 .la-hub__facts small { font-size: .75rem; color: var(--la-dim); }
+.la-hub__facts .la-hub__earned-label { margin-top: 10px; }
 @media (max-width: 620px) {
     .la-hub__facts { grid-template-columns: 1fr; }
     .la-hub__facts > div + div { border-left: 0; border-top: 1px solid var(--la-line); }
