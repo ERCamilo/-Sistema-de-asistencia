@@ -61,7 +61,13 @@ export function groupProjectsByStatus(projects = []) {
     return grouped;
 }
 
-export function renderProjectItemHTML(project, { activeProjectId = null, defaultProjectId = null, allowSwitch = false } = {}) {
+export function renderProjectUsageHTML(usage) {
+    if (!usage?.verified) return '<div class="project-help" data-project-usage-unknown>Datos sin verificar</div>';
+    const labels = { employees: ['Empleado', 'Empleados'], positions: ['Posición', 'Posiciones'], loans: ['Préstamo', 'Préstamos'], attendance: ['Asistencia', 'Asistencias'], leaders: ['Líder', 'Líderes'], payrollClosures: ['Cierre', 'Cierres'], pettyCash: ['Registro de caja', 'Registros de caja'], other: ['Otra referencia', 'Otras referencias'], pending: ['Pendiente de sincronizar', 'Pendientes de sincronizar'] };
+    return `<div class="project-usage" data-project-usage><span class="project-badge ${usage.empty ? 'badge-status-active' : ''}" data-project-empty="${usage.empty}">${usage.empty ? 'Vacía' : 'Con datos'}</span>${Object.entries(labels).filter(([key]) => ['employees', 'positions', 'loans'].includes(key) || usage[key] > 0).map(([key, label]) => `<span class="project-usage-item"><strong>${usage[key]}</strong> ${label[usage[key] === 1 ? 0 : 1]}</span>`).join('')}</div>`;
+}
+
+export function renderProjectItemHTML(project, { activeProjectId = null, defaultProjectId = null, allowSwitch = false, usage = {}, confirmDeleteId = null, deletingId = null } = {}) {
     if (!project) return '';
     const statusMeta = PROJECT_STATUS_META[project.status] || PROJECT_STATUS_META[PROJECT_STATUS.ACTIVE];
     const isActiveContext = !!(activeProjectId && String(project.id) === String(activeProjectId));
@@ -88,6 +94,10 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
                     ${project.archivedAt ? `<div>Archivado: <strong>${formatProjectDate(project.archivedAt)}</strong></div>` : ''}
                 </div>
             </div>
+            ${project.metadata?.deletionConflict ? '<div class="project-notice is-warning">Borrado remoto pendiente: esta obra conserva datos o está en uso aquí.</div>' : ''}
+            ${renderProjectUsageHTML(usage[project.id])}
+            ${usage[project.id]?.verified && usage[project.id].empty ? `<div class="project-delete-actions"><button type="button" class="project-action is-secondary is-delete-project" data-project-delete="${esc(project.id)}" ${usage[project.id].deleteReason || deletingId ? 'disabled' : ''}>Borrar obra vacía</button>${usage[project.id].deleteReason ? `<span class="project-help">${esc(usage[project.id].deleteReason)}</span>` : ''}</div>` : ''}
+            ${confirmDeleteId === project.id && usage[project.id]?.empty ? `<div class="project-notice is-warning project-delete-confirm"><strong>¿Borrar «${esc(project.name)}»?</strong><p>Se quitará del menú y se sincronizará su eliminación.</p><div class="project-actions"><button type="button" class="project-action is-secondary" data-project-delete-cancel ${deletingId ? 'disabled' : ''}>Conservar</button><button type="button" class="project-action is-danger" data-project-delete-confirm="${esc(project.id)}" ${deletingId ? 'disabled' : ''}>${deletingId ? 'Comprobando…' : 'Confirmar borrado'}</button></div></div>` : ''}
             ${project.metadata?.notes ? `<div class="project-notes">${esc(project.metadata.notes)}</div>` : ''}
             ${project.metadata?.clonedFrom ? `<div class="project-meta">Basado en: <code>${esc(project.metadata.clonedFrom.sourceProjectId || 'otro proyecto')}</code></div>` : ''}
         </li>`;
@@ -99,10 +109,10 @@ function renderSectionGroup(title, status, items, options) {
     return `<section class="project-status-group"><div class="project-status-heading">${meta.icon}<span>${esc(title)} (${items.length})</span></div><ul class="project-list" role="list">${items.map(p => renderProjectItemHTML(p, options)).join('')}</ul></section>`;
 }
 
-export function renderProjectListHTML({ projects = [], activeProjectId = null, defaultProjectId = null, currentFilter = PROJECT_FILTERS.ALL, allowSwitch = false } = {}) {
+export function renderProjectListHTML({ projects = [], activeProjectId = null, defaultProjectId = null, currentFilter = PROJECT_FILTERS.ALL, allowSwitch = false, usage = {}, confirmDeleteId = null, deletingId = null } = {}) {
     const list = Array.isArray(projects) ? projects : [];
     const stats = calculateProjectStats(list);
-    const options = { activeProjectId, defaultProjectId, allowSwitch };
+    const options = { activeProjectId, defaultProjectId, allowSwitch, usage, confirmDeleteId, deletingId };
     const tab = (key, text) => `<button type="button" class="project-filter-tab ${currentFilter === key ? 'is-active' : ''}" data-project-filter="${key}" role="tab" aria-selected="${currentFilter === key}">${text}</button>`;
     const tabs = `<div class="project-filter-tabs project-list-tabs" role="tablist" aria-label="Filtrar proyectos por estado">${tab(PROJECT_FILTERS.ALL, `Todos (${stats.total})`)}${tab(PROJECT_FILTERS.ACTIVE, `Activos (${stats.active})`)}${tab(PROJECT_FILTERS.CLOSED, `Cerrados (${stats.closed})`)}${tab(PROJECT_FILTERS.ARCHIVED, `Archivados (${stats.archived})`)}</div>`;
     if (!stats.total) return `${tabs}<div class="project-list-empty" data-empty-state="all">No hay proyectos registrados en el sistema.</div>`;
@@ -120,7 +130,7 @@ export function renderProjectListHTML({ projects = [], activeProjectId = null, d
             content = `<ul class="project-list" role="list" data-projects-list>${filtered.map(p => renderProjectItemHTML(p, options)).join('')}</ul>`;
         }
     }
-    return `<div class="project-list-container" data-project-list-view>${tabs}${content}</div>`;
+    return `<div class="project-list-container" data-project-list-view><p class="project-help" data-project-usage-scope>Registros en este dispositivo, incluido el historial.</p>${tabs}${content}</div>`;
 }
 
 export function mountProjectList(container, { projects = [], activeProjectId = null, defaultProjectId = null, initialFilter = PROJECT_FILTERS.ALL, onFilterChange = null, onSwitchProject = null, allowSwitch = false, setupService = projectSetupService } = {}) {
@@ -129,10 +139,38 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
     let currentActiveId = activeProjectId;
     let currentDefaultId = defaultProjectId;
     let currentFilter = initialFilter;
+    let usage = {}, usageGeneration = 0, confirmDeleteId = null, deletingId = null, deleteError = '';
     const shouldAllowSwitch = allowSwitch || typeof onSwitchProject === 'function';
 
     function render() {
-        container.innerHTML = renderProjectListHTML({ projects: currentProjects, activeProjectId: currentActiveId, defaultProjectId: currentDefaultId, currentFilter, allowSwitch: shouldAllowSwitch });
+        container.innerHTML = renderProjectListHTML({ projects: currentProjects, activeProjectId: currentActiveId, defaultProjectId: currentDefaultId, currentFilter, allowSwitch: shouldAllowSwitch, usage, confirmDeleteId, deletingId });
+        if (deleteError) container.insertAdjacentHTML('afterbegin', `<div class="project-status-line is-error" role="alert">${esc(deleteError)}</div>`);
+        container.querySelectorAll('[data-project-delete]').forEach(button => button.addEventListener('click', () => {
+            if (deletingId || button.disabled) return;
+            confirmDeleteId = button.dataset.projectDelete;
+            deleteError = '';
+            render();
+            container.querySelector('[data-project-delete-confirm]')?.focus();
+        }));
+        container.querySelector('[data-project-delete-cancel]')?.addEventListener('click', () => {
+            confirmDeleteId = null;
+            render();
+        });
+        container.querySelector('[data-project-delete-confirm]')?.addEventListener('click', async () => {
+            if (deletingId) return;
+            deletingId = confirmDeleteId;
+            render();
+            try {
+                await setupService.deleteEmptyProject(deletingId);
+                const fresh = await setupService.getState();
+                currentProjects = fresh.projects;
+                currentActiveId = fresh.activeProjectId;
+                currentDefaultId = fresh.defaultProjectId;
+                confirmDeleteId = null;
+                window.showNotification?.('Obra vacía borrada.', 'success');
+            } catch (error) { deleteError = error.message || String(error); }
+            finally { deletingId = null; await refreshUsage(); render(); }
+        });
         container.querySelectorAll('[data-project-name-conflict]').forEach(button => button.addEventListener('click', async () => {
             closeProjectListModal();
             window.closeProjectSetupModal?.();
@@ -170,7 +208,21 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
             finally { btn.disabled = false; }
         }));
     }
+    async function refreshUsage() {
+        if (typeof setupService.getProjectUsage !== 'function') return;
+        const generation = ++usageGeneration;
+        try {
+            const next = await setupService.getProjectUsage(currentProjects);
+            if (generation !== usageGeneration) return;
+            usage = next;
+        } catch (_) {
+            if (generation !== usageGeneration) return;
+            usage = {};
+        }
+        render();
+    }
     render();
+    void refreshUsage();
     return {
         getFilter: () => currentFilter,
         setFilter: filter => { currentFilter = filter; render(); },
@@ -179,6 +231,7 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
             if (nextActiveId !== undefined) currentActiveId = nextActiveId;
             if (nextDefaultId !== undefined) currentDefaultId = nextDefaultId;
             render();
+            void refreshUsage();
         }
     };
 }
@@ -195,7 +248,7 @@ export async function openProjectListModal({ setupService = projectSetupService,
     const el = document.createElement('div');
     el.id = MODAL_ID;
     el.className = 'project-shell-overlay';
-    el.innerHTML = `<section class="project-shell" role="dialog" aria-modal="true" aria-labelledby="project-list-title"><header class="project-shell-header"><div class="project-shell-identity">${ICONS.folder}</div><div class="project-shell-heading"><h2 id="project-list-title" class="project-shell-title">Proyectos</h2><div class="project-shell-subtitle">Proyectos activos, cerrados y archivados.</div></div><button type="button" class="project-action is-secondary" data-project-create-open hidden>${ICONS.plus}<span>Nuevo proyecto</span></button><button type="button" class="project-icon-btn" data-project-list-close aria-label="Cerrar">${ICONS.close}</button></header><div class="project-shell-body" data-project-list-modal-body><div class="project-list-empty">Cargando proyectos…</div></div></section>`;
+    el.innerHTML = `<section class="project-shell" role="dialog" aria-modal="true" aria-labelledby="project-list-title"><header class="project-shell-header"><div class="project-shell-identity">${ICONS.folder}</div><div class="project-shell-heading"><h2 id="project-list-title" class="project-shell-title">Proyectos</h2><div class="project-shell-subtitle">Obras y registros.</div></div><button type="button" class="project-action is-secondary" data-project-create-open aria-label="Nueva obra" title="Nueva obra" hidden>${ICONS.plus}<span>Nuevo proyecto</span></button><button type="button" class="project-icon-btn" data-project-list-close aria-label="Cerrar">${ICONS.close}</button></header><div class="project-shell-body" data-project-list-modal-body><div class="project-list-empty">Cargando proyectos…</div></div></section>`;
     el.querySelector('[data-project-list-close]').addEventListener('click', closeProjectListModal);
     el.addEventListener('click', event => { if (event.target === el) closeProjectListModal(); });
     document.body.appendChild(el);

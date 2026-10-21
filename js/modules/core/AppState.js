@@ -166,7 +166,7 @@ const initialState = {
         holidays: [],
         scrollTopButton: false, // botón flotante "Ir arriba" (oculto por defecto)
         scrollbarMode: 'on-scroll', // Opciones: 'always', 'on-scroll', 'hidden'
-        miniConnectedReviewMode: 'daily', // Mini conectados: 'daily' (día por día) | 'compare' (Comparar con SA)
+        miniConnectedReviewMode: 'daily', // Texto y conectados: 'daily' (revisión guiada) | 'compare' (lista con SA)
         payPeriod: {
             periodStart: null,   // '2026-03-27' — primer día del período actual
             periodLength: 21,    // cantidad de días del ciclo

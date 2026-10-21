@@ -46,6 +46,22 @@
 .project-shell-title { margin: 0; font-size: 18px; font-weight: 750; line-height: 1.2; }
 .project-shell-subtitle { margin-top: 4px; color: var(--text-dim); font-size: 12px; line-height: 1.4; }
 .project-shell-body { padding: 18px 20px 20px; }
+.project-usage { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.project-usage-item { padding: 6px 9px; border-radius: 8px; background: var(--panel-2); color: var(--text-dim); font-size: 12px; }
+.project-usage-item strong { color: var(--text); }
+.project-delete-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.project-delete-actions .project-help { margin: 0; }
+.project-delete-confirm { margin-top: 12px; }
+.project-action.is-danger { background: var(--bad); color: var(--on-accent); }
+.project-action.is-delete-project { color: var(--bad); border: 1px solid var(--bad); }
+.project-list-container > .project-help,
+.project-delete-actions .project-help { color: var(--text-dim); }
+#project-list-modal .project-shell-title { font-size: 24px; }
+#project-list-modal [data-project-create-open][hidden] { display: none; }
+@media (max-width: 640px) {
+    #project-list-modal [data-project-create-open] { width: 44px; min-width: 44px; padding: 0; }
+    #project-list-modal [data-project-create-open] span { display: none; }
+}
 #project-name-conflict-modal .project-shell-title { font-size: 24px; }
 #project-name-conflict-modal .project-help,
 #project-name-conflict-modal .project-kicker,
@@ -178,8 +194,8 @@
 .badge-active-context { color: var(--on-accent); background: var(--accent); }
 .badge-default-project { color: var(--text); background: var(--hover); }
 .project-name { color: var(--text); font-size: 15px; font-weight: 750; overflow-wrap: anywhere; }
-.project-id { margin-top: 4px; color: var(--text-faint); font-family: monospace; font-size: 10.5px; overflow-wrap: anywhere; }
-.project-item-dates { color: var(--text-faint); font-size: 11px; line-height: 1.55; text-align: right; }
+.project-id { margin-top: 4px; color: var(--text-dim); font-family: monospace; font-size: 10.5px; overflow-wrap: anywhere; }
+.project-item-dates { color: var(--text-dim); font-size: 11px; line-height: 1.55; text-align: right; }
 .project-notes { margin-top: 10px; padding: 9px 11px; border-radius: 9px; color: var(--text-dim); background: var(--bg); font-size: 12px; }
 .project-list-empty { padding: 24px; border-radius: 13px; color: var(--text-dim); background: var(--panel-2); text-align: center; font-size: 13px; }
 .project-create-form { padding: 16px; border-radius: 15px; background: var(--panel-2); }

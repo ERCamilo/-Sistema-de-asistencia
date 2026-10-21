@@ -21,6 +21,7 @@ import {
 } from '../../features/attendance/MiniAttendanceDraft.js';
 import { applyMiniAttendancePlan } from '../../features/attendance/MiniAttendanceImportService.js';
 import { buildMiniAttendanceReviewViewModel } from '../MiniAttendanceReviewViewModel.js';
+import { MiniTextComparisonAdapter } from '../MiniTextComparisonAdapter.js';
 import { state, stateManager, toRaw } from '../../core/AppState.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
@@ -576,8 +577,8 @@ export class MiniAttendanceImportModal {
         connectedReviewMode = 'daily'
     } = {}) {
         this.confirmImportDates = confirmImportDates;
-        // Ajustes → «Revisión de Mini conectados»: 'daily' concilia cada día como
-        // el texto pegado; 'compare' conserva la vista «Comparar con SA».
+        // Keep the persisted key: General chooses the review for both entrances.
+        // 'daily' reaches the individual reviewer; 'compare' uses the shared list.
         this.connectedReviewMode = connectedReviewMode === 'compare' ? 'compare' : 'daily';
         this.employees = employees;
         this.attendance = attendance;
@@ -765,6 +766,8 @@ export class MiniAttendanceImportModal {
 
     setAllocationMode(mode) {
         this.draft = setMiniAttendanceAllocationMode(this.draft, mode);
+        // Decisions refer to the old hour distribution and cannot be carried over.
+        this.conflictPlan = null;
         this.duplicateHourChoices.clear();
         this.resetApplyState();
         this.render();
@@ -821,6 +824,44 @@ export class MiniAttendanceImportModal {
         this.reviewStep = 'automatic';
         this.individualReviewKeys = [];
         if (typeof this.onContinue === 'function') this.onContinue(this.draft);
+        if (this.importMode === 'paste' && this.connectedReviewMode === 'compare') {
+            this.beginTextComparison();
+            return;
+        }
+        this.render();
+    }
+
+    beginTextComparison() {
+        // Share the P2P list while preserving the text draft and its validations.
+        // No P2P inbox records are synthesized for pasted attendance.
+        this.buildReviewView().items.filter(item =>
+            item.sourceIndexes.length === 1 && !item.probableDuplicate && !item.isInactive &&
+            item.employee && this.draft.rows[item.sourceIndexes[0]].match.requiresConfirmation !== true
+        ).forEach(item => {
+            item.sourceIndexes.forEach(sourceIndex => {
+                this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, { approved: true });
+            });
+        });
+        this.rebuildConflictPlan();
+        this.automaticReviewItems().filter(item => item.readyReason?.type === 'hours_equal').forEach(item => {
+            const rowIndex = this.conflictPlan.rows.findIndex(row =>
+                row.sourceIndexes.some(index => item.sourceIndexes.includes(index)));
+            this.conflictPlan = reviewMiniAttendanceConflict(this.conflictPlan, rowIndex, {
+                action: 'keep_existing', acknowledged: true
+            });
+        });
+        this.textComparison = new MiniTextComparisonAdapter(this);
+        this.multiDayResolver = this.textComparison;
+        this.connectedView = 'sa-comparison';
+        this.consolidationDayIndex = 0;
+        this.clearResolvedRowsExpansion();
+        this.render();
+    }
+
+    leaveTextComparison() {
+        this.textComparison = null;
+        this.multiDayResolver = null;
+        this.stage = 'setup';
         this.render();
     }
 
@@ -996,7 +1037,9 @@ export class MiniAttendanceImportModal {
             dataset: { miniStage: this.stage },
             'aria-live': 'polite'
         });
-        const content = this.stage === 'paste'
+        const content = this.textComparison && this.stage === 'review' && this.reviewStep === 'automatic'
+            ? this.renderConnected()
+            : this.stage === 'paste'
             ? (this.importMode === 'connected' ? this.renderConnected() : this.renderPaste())
             : this.stage === 'setup' ? this.renderSetup() : this.renderReview();
         root.append(content);
@@ -1591,6 +1634,10 @@ export class MiniAttendanceImportModal {
     }
 
     async completeConnectedImport() {
+        if (this.textComparison) {
+            if (this.applyStatus === 'success') this.close();
+            return;
+        }
         if (!this.multiDayResolver || !this.inboxStore || !this.selectedDraftIds.size) return;
         const summary = this.multiDayResolver.getMultiDaySummary();
         if (!summary.totalDays || summary.appliedDaysCount !== summary.totalDays) return;
@@ -2313,6 +2360,7 @@ export class MiniAttendanceImportModal {
 
         picker.append(trigger, panel, empSelect);
         resolveIdentityEl.append(ignoreBtn, picker, linkBtn);
+        const intakeActions = element('div', null, { className: 'mini-identity-intake-actions' });
         const profileGroup = this.getAttendanceProfileGroup(item);
         if (profileGroup) {
             const count = profileGroup.proposal.employees.length;
@@ -2322,14 +2370,15 @@ export class MiniAttendanceImportModal {
             );
             createBtn.classList.add('mini-import-action-secondary');
             createBtn.addEventListener('click', () => this.openEmployeeIntakeFromAttendance(item));
-            resolveIdentityEl.append(createBtn);
+            intakeActions.append(createBtn);
         }
         const registerBtn=actionButton('Registrar empleado desde Mini','register-mini-employee');
         registerBtn.classList.add('mini-import-action-secondary');
         registerBtn.addEventListener('click',async()=>{
             try{await window.openP2PRosterTransfer?.();window.showNotification?.('Solicita el personal del Mini, revisa su ficha y acepta. Esta asistencia se mantiene pendiente de aprobación.','info');}catch(error){window.showNotification?.(error.message||'No se pudo abrir la recepción de personal.','error');}
         });
-        resolveIdentityEl.append(registerBtn);
+        intakeActions.append(registerBtn);
+        resolveIdentityEl.append(intakeActions);
         return resolveIdentityEl;
     }
 
@@ -2938,7 +2987,7 @@ export class MiniAttendanceImportModal {
             return section;
         }
 
-        if (this.consolidatedResult) {
+        if (this.consolidatedResult || this.textComparison) {
             content.append(this.renderConsolidationSkeleton());
         } else {
             content.append(element('div', 'No hay una consolidación activa. Vuelve a la bandeja y selecciona borradores.', {
@@ -3087,7 +3136,7 @@ export class MiniAttendanceImportModal {
         const isMiniStage = this.multiDayResolver?.stage === 'mini';
         const isSaStage = this.multiDayResolver?.stage === 'sa';
         const singleMiniReview = isMiniStage && this.getConnectedMiniSourceCount() === 1;
-        const summary = isMiniStage && this.multiDayResolver
+        const summary = this.textComparison ? this.textComparison.summary : isMiniStage && this.multiDayResolver
             ? this.multiDayResolver.getMiniProgressSnapshot().summary
             : (this.consolidatedResult?.summary || {
                 totalItems: 0, resolvedCount: 0, hoursConflictCount: 0, unresolvedIdentityCount: 0
@@ -3171,7 +3220,7 @@ export class MiniAttendanceImportModal {
                         applyDayBtn.dataset.miniDate = group.workDate;
                         applyDayBtn.addEventListener('click', async () => {
                             try {
-                                const gate = this.guardMiniImportDates([group.workDate]);
+                                const gate = this.textComparison ? true : this.guardMiniImportDates([group.workDate]);
                                 if (gate !== true && !(await gate)) return;
                                 await this.multiDayResolver.applyDay(group.workDate);
                                 this.render();
@@ -3294,7 +3343,7 @@ export class MiniAttendanceImportModal {
                     // Multi-day Resolver interactive controls
                     if (this.multiDayResolver) {
                         // 1. Unresolved Identity
-                        if (item.status === 'identity_conflict' || !item.saEmployeeId) {
+                        if (!this.textComparison && (item.status === 'identity_conflict' || !item.saEmployeeId)) {
                             rowEl.append(this.buildConnectedIdentityControls(item));
                         }
 
@@ -3343,9 +3392,21 @@ export class MiniAttendanceImportModal {
                         }
 
                         // 3. Existing SA conflict
-                        if (dayState && dayState.conflictPlan) {
+                        if (this.textComparison) {
+                            const detail = actionButton(item.confirmed ? 'Modificar selección' : item.needsDetailedReview ? 'Resolver en detalle' : 'Revisar en detalle', 'review-text-detail', dayState?.status === 'applied');
+                            detail.classList.add('mini-import-action-secondary');
+                            detail.addEventListener('click', () => this.openIndividualReview([item.textReviewKey]));
+                            rowEl.append(detail);
+                            if (item.adjustedAllocation) {
+                                rowEl.append(element('p', `Se aplicará en SA: ${this.formatConnectedHours(
+                                    item.adjustedAllocation.normalHours, item.adjustedAllocation.overtimeHours
+                                )}`, { className: 'mini-import-help', dataset: { miniAdjustedAllocation: '' } }));
+                            }
+                        }
+
+                        if (dayState && dayState.conflictPlan && !item.needsDetailedReview) {
                             const conflictRow = dayState.conflictPlan.rows.find(r => r.employeeId === item.saEmployeeId);
-                            if (conflictRow && !conflictRow.isIdentical) {
+                            if (conflictRow && !conflictRow.isIdentical && (!this.textComparison || conflictRow.existing)) {
                                 const saConflictEl = element('div', null, {
                                     className: 'mini-sa-conflict-row',
                                     dataset: { miniSaConflict: item.saEmployeeId }
@@ -3553,11 +3614,13 @@ export class MiniAttendanceImportModal {
                 ? (singleMiniReview
                     ? 'Hay una sola fuente Mini. Aquí se revisan identidades o incidencias; SA no participa todavía y nada se aplica.'
                     : 'En este paso solo se consolidan los Minis. SA no participa todavía y nada se aplica.')
-                : 'Esta etapa usa únicamente el consolidado Mini revisado para compararlo con SA. Nada se aplica sin confirmación.')
+                : this.textComparison
+                    ? 'Compara el texto con SA. Nada se aplica sin confirmación.'
+                    : 'Esta etapa usa únicamente el consolidado Mini revisado para compararlo con SA. Nada se aplica sin confirmación.')
         );
 
         container.append(badges, groupsContainer);
-        if (!isMiniStage && this.multiDayResolver) {
+        if (!isMiniStage && this.multiDayResolver && !this.textComparison) {
             const overtimeOption = element('label', null, {
                 className: 'mini-import-overtime-option',
                 dataset: { miniMergeOvertimeOption: '' }
@@ -3604,7 +3667,10 @@ export class MiniAttendanceImportModal {
             const pager = element('div', null, { className: 'mini-consolidation-day-pager' });
             const backInbox = actionButton('← Volver', 'back-connected-inbox');
             backInbox.classList.add('mini-import-action-secondary', 'mini-footer-back');
-            backInbox.addEventListener('click', () => { void this.openConnectedInbox(); });
+            backInbox.addEventListener('click', () => {
+                if (this.textComparison) this.leaveTextComparison();
+                else void this.openConnectedInbox();
+            });
             pager.append(backInbox);
             if (dates.length > 1 && this.consolidationDayIndex > 0) {
                 const prev = actionButton('Anterior', 'previous-consolidation-day');
@@ -3701,7 +3767,7 @@ export class MiniAttendanceImportModal {
                     try {
                         const readyDates = this.multiDayResolver.workDates
                             .filter(date => this.multiDayResolver.getDayState(date)?.status === 'ready');
-                        const gate = this.guardMiniImportDates(readyDates);
+                        const gate = this.textComparison ? true : this.guardMiniImportDates(readyDates);
                         if (gate !== true && !(await gate)) return;
                         await this.multiDayResolver.applyReadyDays();
                         this.render();
@@ -3717,13 +3783,14 @@ export class MiniAttendanceImportModal {
                 const completeBtn = actionButton(
                     'Finalizar',
                     'complete-connected-import',
-                    !allDaysApplied || this.selectedDraftIds.size === 0
+                    !allDaysApplied || (!this.textComparison && this.selectedDraftIds.size === 0)
                 );
                 completeBtn.title = 'Finalizar la importación cuando todos los días estén aplicados';
                 completeBtn.classList.add('mini-import-action-primary');
                 completeBtn.addEventListener('click', () => { void this.completeConnectedImport(); });
                 const flowActions = element('div', null, { className: 'mini-consolidation-flow-actions' });
-                flowActions.append(applyReadyBtn, completeBtn);
+                if (!this.textComparison) flowActions.append(applyReadyBtn);
+                flowActions.append(completeBtn);
                 const globalWrap = element('div', null, {
                     className: 'mini-consolidation-footer-global',
                     dataset: { miniFooterGlobal: '' }
@@ -3733,12 +3800,24 @@ export class MiniAttendanceImportModal {
                 globalWrap.append(flowActions);
                 batchSection.append(globalWrap);
                 if (!allDaysApplied) {
-                    batchSection.append(element('span', 'Compara y aplica todos los días para completar la importación.', {
+                    batchSection.append(element('span', this.textComparison
+                        ? 'Revisa y aplica el reporte para finalizar.'
+                        : 'Compara y aplica todos los días para completar la importación.', {
                         className: 'mini-import-complete-hint'
                     }));
                 }
             }
             container.append(batchSection);
+        }
+
+        if (this.textComparison) {
+            const status = this.renderApplyStatus();
+            if (status) container.insertBefore(status, container.querySelector('[data-mini-batch-actions]'));
+            if (['pending', 'success'].includes(this.applyStatus)) {
+                container.querySelectorAll('button, input, select').forEach(control => {
+                    if (control.dataset.miniAction !== 'complete-connected-import') control.disabled = true;
+                });
+            }
         }
 
         return container;
@@ -4520,6 +4599,19 @@ export class MiniAttendanceImportModal {
     }
 
     openIndividualReview(keys) {
+        if (['pending', 'success'].includes(this.applyStatus)) return;
+        const indexes = new Set(keys.flatMap(key => String(key).split('-').map(Number)));
+        const confirmed = this.buildReviewView().items.filter(item => item.confirmed &&
+            item.sourceIndexes.some(index => indexes.has(index)));
+        // Reopening an accepted selection starts an edit. Preserve its allocations
+        // and SA/Mini decision, but require confirmation of the edited values.
+        confirmed.forEach(item => item.sourceIndexes.forEach(index => {
+            this.draft = reviewMiniAttendanceDraftRow(this.draft, index, { approved: false });
+        }));
+        if (confirmed.length) {
+            this.resetApplyState();
+            this.rebuildConflictPlan();
+        }
         this.reviewStep = 'individual';
         this.individualReviewKeys = [...new Set(keys)];
         this.individualReviewMode = this.individualReviewKeys.length === 1 ? 'single' : 'queue';
