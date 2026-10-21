@@ -393,6 +393,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/ui/IncomingChangeModal.js",
     "./js/modules/ui/MaintenanceUI.js",
     "./js/modules/ui/MiniAttendanceReviewViewModel.js",
+    "./js/modules/ui/MiniTextComparisonAdapter.js",
     "./js/modules/ui/ModalManager.js",
     "./js/modules/ui/ModalPreviewGallery.js",
     "./js/modules/ui/NotificationPreviewGallery.js",

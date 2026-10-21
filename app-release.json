@@ -1,6 +1,16 @@
 {
-  "version": "1.7.94",
+  "version": "1.7.95",
   "changelog": [
+    {
+      "version": "1.7.95",
+      "date": "2026-10-21",
+      "title": "Revisión de Mini unificada",
+      "items": [
+        "Elige en General la revisión guiada o la comparación con SA, tanto para texto pegado como para Mini conectados.",
+        "Resuelve identidades, duplicados y distribuciones por cargo en la revisión individual sin perder el reporte original.",
+        "Los selectores y las acciones de vincular o registrar personal se acomodan al espacio disponible en escritorio y móvil."
+      ]
+    },
     {
       "version": "1.7.94",
       "date": "2026-10-21",
