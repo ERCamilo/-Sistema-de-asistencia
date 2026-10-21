@@ -175,7 +175,8 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
                 missingRoster: false,
                 saEmployeeId: normalizedSaId,
                 ...(row.positionName ? { positionName: row.positionName } : {}),
-                ...(row.saPositionId ? { saPositionId: row.saPositionId } : {})
+                ...(row.saPositionId ? { saPositionId: row.saPositionId } : {}),
+                ...(Number.isFinite(row.dailySalary) ? { dailySalary: row.dailySalary } : {})
             };
 
             if (!hasSaId) {
