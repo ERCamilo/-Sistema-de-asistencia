@@ -14,6 +14,9 @@ import { mountProjectOnboarding } from './ProjectOnboarding.js';
 import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
 import { openProjectReconciliation } from './ProjectReconciliationUI.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
+import { openProjectNameConflicts } from './ProjectNameConflictUI.js';
+import { prepareStoredProjectNameConflicts, PROJECT_NAME_CONFLICT_EVENT } from './ProjectNameConflicts.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 
 const MODAL_ID = 'project-setup-modal';
 let detachSetupDialogA11y = null;
@@ -91,7 +94,9 @@ async function renderState() {
     }
 
     const project = state.activeProject;
+    const pendingNames = state.projects.filter(row => row.metadata?.nameConflict).length;
     body().innerHTML = `
+        ${pendingNames ? `<div class="project-notice is-warning"><strong>${pendingNames} nombre${pendingNames === 1 ? '' : 's'} pendiente${pendingNames === 1 ? '' : 's'}</strong><div class="project-actions" style="margin-top:10px">${primary('Resolver nombres', 'data-project-resolve-names')}</div></div>` : ''}
         <div class="project-active-card">
             <div class="project-kicker">Proyecto activo</div>
             <div class="project-active-name">${esc(project.name)}</div>
@@ -117,6 +122,10 @@ async function renderState() {
             <p class="project-help">Comprueba si hay empleados sin obra o relaciones que requieren revisión.</p>
             <div class="project-actions is-stacked">${primary('Revisar asignaciones', 'data-project-review-assignments')}</div>
         </section>`;
+    body().querySelector('[data-project-resolve-names]')?.addEventListener('click', () => {
+        closeProjectSetupModal();
+        openProjectNameConflicts().catch(error => notify(error.message, 'error'));
+    });
     body().querySelector('[data-project-review-assignments]').addEventListener('click', async event => {
         const button = event.currentTarget;
         if (button.disabled) return;
@@ -258,6 +267,14 @@ export function registerProjectSetupGlobals() {
     window.closeProjectCreateModal = closeProjectCreateModal;
     window.mountProjectCreateForm = mountProjectCreateForm;
     window.switchActiveProject = (id) => projectSetupService.switchActiveProject(id);
+    window.openProjectNameConflicts = openProjectNameConflicts;
+    // No resolver/crear un default antes de hidratar la app. Aquí solo se
+    // distinguen nombres de las obras que ya existen en el dispositivo.
+    if (isProjectsEnabled()) {
+        prepareStoredProjectNameConflicts().then(rows => {
+            if (rows.length) window.dispatchEvent(new CustomEvent(PROJECT_NAME_CONFLICT_EVENT));
+        }).catch(() => {});
+    }
 }
 
 export const switchActiveProject = (id) => projectSetupService.switchActiveProject(id);

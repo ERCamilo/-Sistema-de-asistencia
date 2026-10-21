@@ -1,4 +1,6 @@
 import indexedDBService from '../../services/IndexedDBService.js';
+import { mutateProjectCatalog } from './ProjectNameConflicts.js';
+import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
 
 export const PROJECTS_STORE = 'projects';
 
@@ -29,8 +31,25 @@ export class ProjectStore {
 
     async create(project) {
         const payload = toPayload(project);
-        await this.db.update(PROJECTS_STORE, payload);
-        return clone(payload);
+        return this._saveUnique(payload);
+    }
+
+    async _saveUnique(payload) {
+        return mutateProjectCatalog(this.db, rows => {
+            const reserved = rows.flatMap(row => row.metadata?.nameConflict
+                ? [row, { ...row, name: row.metadata.nameConflict.requestedName }] : [row]);
+            const duplicate = findProjectNameConflict(payload.name, reserved, { excludeId: payload.id });
+            if (duplicate) throw new Error(duplicateProjectNameMessage(duplicate));
+            const current = rows.find(row => row.id === payload.id);
+            if (current?.metadata?.nameConflict) {
+                payload.metadata = { ...current.metadata, ...payload.metadata };
+                if (payload.name !== current.name) {
+                    payload.updatedAt = Math.max(Date.now(), (Number(current.updatedAt) || 0) + 1);
+                    delete payload.metadata.nameConflict;
+                }
+            }
+            return { writes: [payload], result: clone(payload) };
+        });
     }
 
     async get(id) {
@@ -54,8 +73,7 @@ export class ProjectStore {
     async update(project) {
         const payload = toPayload(project);
         payload.updatedAt = Date.now();
-        await this.db.update(PROJECTS_STORE, payload);
-        return clone(payload);
+        return this._saveUnique(payload);
     }
 }
 

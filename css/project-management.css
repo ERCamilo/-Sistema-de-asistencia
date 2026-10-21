@@ -46,6 +46,12 @@
 .project-shell-title { margin: 0; font-size: 18px; font-weight: 750; line-height: 1.2; }
 .project-shell-subtitle { margin-top: 4px; color: var(--text-dim); font-size: 12px; line-height: 1.4; }
 .project-shell-body { padding: 18px 20px 20px; }
+#project-name-conflict-modal .project-shell-title { font-size: 24px; }
+#project-name-conflict-modal .project-help,
+#project-name-conflict-modal .project-kicker,
+#project-name-conflict-modal .project-tech-details { color: var(--text-dim); }
+#project-name-conflict-modal .project-help,
+#project-name-conflict-modal .project-shell-subtitle { font-size: 13px; }
 .project-icon-btn {
     width: 44px;
     height: 44px;

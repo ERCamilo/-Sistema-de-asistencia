@@ -6,7 +6,7 @@
  */
 
 export function projectNameKey(value) {
-    return String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
+    return String(value ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
 }
 
 /** Otra obra (distinta de `excludeId`) que ya usa ese nombre, o null. */

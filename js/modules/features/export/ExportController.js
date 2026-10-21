@@ -69,6 +69,7 @@ import { defaultProjectService, DEFAULT_PROJECT_NAME } from '../projects/Default
 import { Project, PROJECT_STATUS } from '../projects/Project.js';
 import { firstAvailableProjectName } from '../projects/ProjectNames.js';
 import { createDefaultConfig } from '../payroll/ProjectPayrollConfig.js';
+import { stageProjectNameConflicts, PROJECT_NAME_CONFLICT_EVENT } from '../projects/ProjectNameConflicts.js';
 // R07 A1: pure ownership-reconciliation domain. ExportController only wires
 // the preflight; classify/plan logic lives in the domain module (no
 // reimplementation here).
@@ -757,7 +758,8 @@ function sentinelReconciliationError(where, sentinelId) {
 function prepareProjectSurfaceForFullImport(data, { fileRestore = false } = {}) {
     if ((!fileRestore && !isProjectsEnabled()) || !backupCarriesProjectSurface(data)) return null;
 
-    const projects = Array.isArray(data?.projects) ? data.projects.map(project => ({ ...project })) : [];
+    const projects = Array.isArray(data?.projects)
+        ? stageProjectNameConflicts(data.projects, { incomingIds: data.projects.map(project => project.id), incomingSource: 'backup' }) : [];
     if (projects.length === 0) {
         throw new Error('El backup multiproyecto no contiene un catálogo de proyectos válido.');
     }
@@ -820,6 +822,11 @@ function commitProjectSurfacePointers(projectSurface, previousPointers = null) {
     writeLocalStorageValue(DEFAULT_PROJECT_LS_KEY, scope.defaultProjectId);
     writeLocalStorageValue(ACTIVE_PROJECT_LS_KEY, scope.projectId);
     replaceEntityScope(scope);
+    if (projectSurface.projects?.some(project => project.metadata?.nameConflict)) {
+        queueMicrotask(() => {
+            try { window.dispatchEvent(new CustomEvent(PROJECT_NAME_CONFLICT_EVENT)); } catch (_) { /* sin UI */ }
+        });
+    }
     try {
         projectContext.notifyProjectChanged({
             previousProjectId: previousPointers?.activeProjectId || null,

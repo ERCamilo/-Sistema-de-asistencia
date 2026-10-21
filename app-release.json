@@ -1,6 +1,16 @@
 {
-  "version": "1.7.91",
+  "version": "1.7.92",
   "changelog": [
+    {
+      "version": "1.7.92",
+      "date": "2026-10-21",
+      "title": "Obras con nombres claros",
+      "items": [
+        "Evita nombres repetidos al crear o renombrar obras.",
+        "Resuelve coincidencias recibidas de la nube sin cambiar los datos de los empleados.",
+        "Retoma los nombres pendientes desde Ajustes → Proyectos."
+      ]
+    },
     {
       "version": "1.7.91",
       "date": "2026-10-21",

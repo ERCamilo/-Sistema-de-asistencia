@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.91';
+const APP_VERSION = '1.7.92';
 const CHANGELOG = [
+    { version: '1.7.92', date: '2026-10-21', title: 'Obras con nombres claros', items: ['Evita nombres repetidos al crear o renombrar obras.', 'Resuelve coincidencias recibidas de la nube sin cambiar los datos de los empleados.', 'Retoma los nombres pendientes desde Ajustes → Proyectos.'] },
     {"version": "1.7.91", "date": "2026-10-21", "title": "Actualizaciones y novedades confiables", "items": ["Vuelve a recibir avisos de actualización y consultar las novedades de cada entrega.", "Importa empleados y salarios diarios desde los reportes de Mini y WhatsApp.", "Mejoras en el historial de préstamos y al restaurar respaldos en otro dispositivo."]},
     { version: '1.7.90', date: '2026-10-20', title: 'Novedades y actualizaciones a tu ritmo', items: ['Consulta las mejoras de cada versión desde Ajustes.', 'Elige cuándo actualizar sin interrumpir tu trabajo.', 'Busca actualizaciones y revisa sus novedades antes de instalarlas.'] },
     { version: '1.7.89', date: '2026-10-20', title: 'Exportaciones a SplitX más completas', items: ['Exporta empresa, período, días y tarifas por puesto.', 'Consulta abonos de préstamos y saldos proyectados por separado.'] }
