@@ -1,6 +1,16 @@
 {
-  "version": "1.7.95",
+  "version": "1.7.96",
   "changelog": [
+    {
+      "version": "1.7.96",
+      "date": "2026-10-21",
+      "title": "Asociaciones de Mini que se recuerdan",
+      "items": [
+        "El aviso de personal recibido en Transferencias directas muestra completo su resumen, también en pantallas pequeñas.",
+        "Las asociaciones hechas al revisar personal de Mini ahora se recuerdan también cuando solo cambia el nombre, y en los empleados repetidos de otros orígenes, para no pedirlas de nuevo al importar asistencia.",
+        "Si en SA hay un empleado activo con el mismo número y un nombre parecido, la lista ofrece «Asociar con…» sin abrir el asistente."
+      ]
+    },
     {
       "version": "1.7.95",
       "date": "2026-10-21",

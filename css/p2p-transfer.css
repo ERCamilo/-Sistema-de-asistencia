@@ -197,3 +197,4 @@ button.sa-p2p-capability:hover { background:var(--p2p-hover); }
   .sa-mini-intake .sa-p2p-peer-row { grid-template-columns:36px minmax(0,1fr); }
   .sa-mini-intake .sa-p2p-device-actions { grid-column:1 / -1;justify-content:flex-end; }
 }
+[data-intake-notification] .sa-p2p-peer-meta { white-space:normal; }
