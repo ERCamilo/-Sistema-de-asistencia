@@ -1,9 +1,10 @@
 import { createLoan, refinanceLoan, getBalance, getInterestAmount, getIndividualLoanRecords, getEmployeesWithOnlyInactiveLoans } from '../modules/features/loans/LoansService.js';
 import { replayLoan, buildTimeline, getRemainingCapital } from '../modules/features/loans/LoanTimeline.js';
 import { computePortfolioSummary } from '../modules/features/loans/LoanPortfolio.js';
-import { getAccountSummary, getAccountMovements } from '../modules/features/loans/LoanAccount.js';
+import { getAccountSummary, getAccountMovements, recordDirectPayment, voidAccountMovement, VOID_MODE } from '../modules/features/loans/LoanAccount.js';
 import { readLoanEmployee } from '../modules/features/loans/LoanChronology.js';
 import { buildFlowBuckets, computeLoanFlows } from '../modules/features/loans/LoanFlowChart.js';
+import { buildLoanExport } from '../modules/features/loans/LoanExport.js';
 
 const base = extra => ({ id:'L', principal:1000, interestRate:0, startDate:'2026-01-01', status:'active', payments:[], refinancings:[], ...extra });
 const employee = loan => ({id:'E',loans:[loan]});
@@ -79,4 +80,66 @@ test('el saldo anterior por periodo incluye también los ajustes de interés', (
     ]});
     const buckets=buildFlowBuckets('month',{from:'2026-02-01',to:'2026-02-28'});
     expect(computeLoanFlows([loan],buckets).get('2026-02')).toMatchObject({open:800,adjustDown:300,end:500,missing:500});
+});
+
+test.each([
+    [500, 'refinancing', 0], [500, 'payment', 0], [1300, 'refinancing', 0], [1300, 'payment', 0],
+    [500, 'refinancing', 20], [500, 'payment', 20], [1500, 'refinancing', 20], [1500, 'payment', 20]
+])('revertir interés y abono de %s, empezando por %s y con %s % inicial, conserva el cierre y no deja interés negativo', (amount, first, initialRate) => {
+    const scope = { projectScope: { enabled: false } };
+    const emp = { id: 'fictional-adjustments', loans: [] };
+    const loan = createLoan(emp, { principal: 1000, interestRate: initialRate, startDate: '2026-01-01' }, scope);
+    const ref = refinanceLoan(emp, loan.id, { basis: 'principal', interestRate: 30, date: '2026-01-02' }, scope);
+    ref.payrollClosureId = 'fictional-closure';
+    const payment = recordDirectPayment(emp, loan.id, {
+        amount, date: '2026-01-03', source: 'payroll', payrollClosureId: 'fictional-closure'
+    }, scope);
+    const allocation = { ...payment.allocation };
+    const targets = {
+        refinancing: { loanId: loan.id, refinancingId: ref.id },
+        payment: { loanId: loan.id, paymentId: payment.id }
+    };
+    const order = first === 'refinancing' ? ['refinancing', 'payment'] : ['payment', 'refinancing'];
+    order.forEach((kind, index) => voidAccountMovement(emp, targets[kind], {
+        ...scope, mode: VOID_MODE.ADJUST, date: `2026-01-0${index + 4}`, at: 1000 + index, reason: 'Prueba ficticia'
+    }));
+    const initialInterest = 1000 * initialRate / 100;
+    const expectedBalance = 1000 + initialInterest;
+    const replay = replayLoan(loan), summary = computePortfolioSummary([emp]);
+    expect(replay).toMatchObject({ capital: 1000, interest: initialInterest, credit: 0, collected: { capital: 0, interest: 0 } });
+    expect(summary.cobrado).toMatchObject({ total: 0, capital: 0, interest: 0, excess: 0 });
+    expect(getAccountSummary(emp)).toMatchObject({ capital: 1000, interest: initialInterest, balance: expectedBalance });
+    expect(buildTimeline([{ employeeId: emp.id, loan }]).totals).toEqual({ capital: 1000, interest: initialInterest, balance: expectedBalance });
+    expect(getBalance(loan)).toBe(expectedBalance);
+    expect(payment.allocation).toEqual(allocation);
+    expect(payment.voided).toBe(false);
+    expect(ref.voided).toBe(false);
+    expect(payment.payrollClosureId).toBe('fictional-closure');
+    const out = buildLoanExport([emp], { range: { from: '2026-01-01', to: '2026-01-31' }, today: '2026-01-31' });
+    expect(out.preview).toMatchObject({ end: expectedBalance, received: 0 });
+    if (first === 'refinancing' && amount === 1300) {
+        const row = out.sheets.movimientos.find(row => row[0] === '05/01/2026' && row[4] === 'Ajuste de nómina cerrada');
+        expect(row[5]).toBe(1300);
+        expect(row[6]).toBe(1000);
+        expect(row[7]).toBe(0);
+        expect(row[15]).toBe(300);
+    }
+});
+
+test('un ajuste antiguo sin allocation conserva el crédito que no devolvió y lo aplica a la deuda restaurada', () => {
+    const scope = { projectScope: { enabled: false } };
+    const emp = { id: 'fictional-credit', loans: [] };
+    const loan = createLoan(emp, { principal: 1000, interestRate: 0, startDate: '2026-01-01' }, scope);
+    // A legacy imported record: current validation correctly rejects overpayment.
+    const payment = { id: 'legacy-payment', amount: 1100, date: '2026-01-02', source: 'payroll', payrollClosureId: 'fictional-closure' };
+    loan.payments.push(payment);
+    loan.status = 'paid';
+    voidAccountMovement(emp, { loanId: loan.id, paymentId: payment.id }, {
+        ...scope, mode: VOID_MODE.ADJUST, date: '2026-01-03', at: 1000
+    });
+    expect(loan.payments.at(-1).amount).toBe(-1000);
+    expect(replayLoan(loan)).toMatchObject({ capital: 900, interest: 0, credit: 0, collected: { capital: 100, interest: 0 } });
+    expect(getBalance(loan)).toBe(900);
+    expect(computePortfolioSummary([emp]).cobrado).toMatchObject({ total: 100, capital: 100, interest: 0, excess: 0 });
+    expect(replayLoan(loan).steps.at(-1).creditUsed).toBe(100);
 });

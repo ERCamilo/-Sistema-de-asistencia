@@ -161,7 +161,7 @@ export function buildLoanExport(employees = [], { range, includeVoided = false, 
     if (summary.undatedClosures?.length) sheets.resumen.push([], ['Advertencia', `${summary.undatedClosures.length} cierre(s) con saldo sin fecha: evolución incompleta; no se inventan pagos ni fechas.`]);
     const empRows = [['Nº', 'Empleado', 'Estado', 'Préstamos abiertos', 'Capital', 'Interés', 'Saldo', 'Prestado en el rango', 'Pagos aplicados al saldo en el rango', 'Último movimiento']];
     const loanRows = [['Nº', 'Empleado', 'Préstamo', 'Fecha', 'Capital', 'Tasa %', 'Interés inicial', 'Refinanciamientos', 'Interés por refinanciar', 'Pagado', 'Saldo', 'Cobro vigente', 'Cobro original', 'Estado']];
-    const movRows = [['Fecha', 'Nº', 'Empleado', 'Préstamo', 'Movimiento', 'Monto', 'Capital aplicado ese día', 'Interés aplicado ese día', 'Canal', 'Capital aplicado al corte actual', 'Interés aplicado al corte actual', 'Crédito pendiente al corte actual', 'Capital al registrar', 'Interés al registrar']];
+    const movRows = [['Fecha', 'Nº', 'Empleado', 'Préstamo', 'Movimiento', 'Monto', 'Capital aplicado ese día', 'Interés aplicado ese día', 'Canal', 'Capital aplicado al corte actual', 'Interés aplicado al corte actual', 'Crédito pendiente al corte actual', 'Capital al registrar', 'Interés al registrar', 'Crédito creado por ajuste', 'Crédito devuelto por ajuste', 'Crédito aplicado al ajuste']];
     for (const emp of employees) {
         const loans = (emp.loans || []).filter(l => counted(l, includeVoided));
         if (!loans.length) continue;
@@ -190,14 +190,19 @@ export function buildLoanExport(employees = [], { range, includeVoided = false, 
                 if (s.kind === 'loan') lentIn += value;
                 if (s.kind === 'payment') paidIn += -value;
                 const payment = s.kind === 'payment' ? (loan.payments || []).find(p=>p.id === s.id) : null;
+                const adjustment = s.kind === 'adjustment'
+                    ? [...(loan.payments || []), ...(loan.refinancings || [])].find(item => item.id === s.id) : null;
                 const application = payment ? replay.applications[String(s.id)] : null;
-                const amount = s.kind === 'payment' ? round2(-value + (s.excess || 0)) : Math.abs(value);
+                const amount = s.kind === 'payment' ? round2(-value + (s.excess || 0))
+                    : adjustment ? Math.abs(Number(adjustment.amount ?? adjustment.interestAmount ?? value)) : Math.abs(value);
                 movRows.push([
                     dmy(s.date), emp.number ?? '', emp.name || '', loan.number ? `#${loan.number}` : '', KIND_LABEL[s.kind] || s.kind,
                     amount, round2(Math.abs(s.delta.capital)), round2(Math.abs(s.delta.interest)),
                     s.kind === 'payment' ? paymentOrigin(loan, s.id) : '',
                     application?.capital ?? '', application?.interest ?? '', application?.credit ?? '',
-                    payment?.allocation?.capital ?? '', payment?.allocation?.interest ?? ''
+                    payment?.allocation?.capital ?? adjustment?.adjustment?.capital ?? '',
+                    payment?.allocation?.interest ?? adjustment?.adjustment?.interest ?? '',
+                    s.creditCreated || '', s.creditReturned || '', s.kind === 'adjustment' ? s.creditUsed || '' : ''
                 ]);
             }
         }

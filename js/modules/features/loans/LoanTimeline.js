@@ -174,6 +174,29 @@ function computeReplay(loan = {}) {
             push(event, { capital: 0, interest: round2(i.net) }, { creditUsed: i.used });
         } else if (event.kind === TIMELINE_KINDS.ADJUSTMENT) {
             let c = event.capital, i = event.interest;
+            let creditCreated = 0, creditReturned = 0, creditUsed = 0;
+            if (event.ofKind === 'payment' && c >= 0 && i >= 0) {
+                const application = applications.get(String(event.ofId));
+                const applied = application && round2(application.capital + application.interest + application.credit);
+                // A full reversal cancels this payment's current application.
+                // Its saved allocation may predate a later charge correction.
+                if (application && Math.abs(round2(c + i) - applied) < .005) {
+                    c = application.capital;
+                    i = application.interest;
+                    creditReturned = application.credit;
+                    credit -= creditReturned;
+                    application.credit = 0;
+                    for (const entry of creditQueue) if (entry.application === application) entry.remaining = 0;
+                }
+                reversedCapital += c;
+                reversedInterest += i;
+                // Any other available credit still offsets the restored debt.
+                const toInterest = absorb(i, 'interest');
+                const toCapital = absorb(c, 'capital');
+                c = toCapital.net;
+                i = toInterest.net;
+                creditUsed = round2(toInterest.used + toCapital.used);
+            }
             // A reversed charge first removes pending interest. The already-paid
             // portion becomes a credit applied to capital, never negative interest.
             if (i < 0 && interest + i < 0) {
@@ -188,11 +211,11 @@ function computeReplay(loan = {}) {
                     if (remaining > 0) { application.credit += remaining; creditQueue.push({application,remaining}); }
                     left -= take; if (left < .004) break;
                 }
-                credit += refund-toCapital;
+                creditCreated = round2(refund - toCapital);
+                credit += creditCreated;
             }
             capital += c; interest += i;
-            if (event.ofKind === 'payment') { reversedCapital += event.capital; reversedInterest += event.interest; }
-            push(event, { capital: round2(c), interest: round2(i) });
+            push(event, { capital: round2(c), interest: round2(i) }, { creditCreated, creditReturned, creditUsed });
         } else {
             const toInterest = Math.min(event.amount, Math.max(0, interest));
             const toCapital = Math.min(event.amount-toInterest, Math.max(0, capital));

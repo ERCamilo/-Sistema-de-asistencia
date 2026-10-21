@@ -272,8 +272,11 @@ async function toPdf(data, parts, { projectName: obra, today }) {
     if (parts.movimientos) {
         table('Movimientos del rango · aplicación en la fecha del movimiento', data.sheets.movimientos.map(row => row.slice(0,9)), { plain: [0, 1, 2, 3, 4, 8] });
         const allocation = data.sheets.movimientos.filter((row,index)=>index === 0 || row[4] === 'Abono')
-            .map(row=>[...row.slice(0,4), ...row.slice(9)]);
+            .map(row=>[...row.slice(0,4), ...row.slice(9,14)]);
         table('Aplicación al corte actual y asignación conservada al registrar', allocation, {plain:[0,1,2,3]});
+        const credits = data.sheets.movimientos.filter((row,index) => index === 0 || row.slice(14).some(value => Number(value) > .004))
+            .map(row => [...row.slice(0,4), ...row.slice(14)]);
+        table('Crédito en ajustes de nómina', credits, {plain:[0,1,2,3]});
     }
     return doc.output('blob');
 }

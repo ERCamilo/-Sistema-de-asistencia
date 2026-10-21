@@ -25,7 +25,7 @@ La cronología se resuelve con todos los préstamos del empleado **antes** de ex
 
 Los pagos se aplican primero a interés y después a capital. El crédito consumido se incorpora a la aplicación del pago original, sin simular otro ingreso. Al retirar interés cobrado, su aplicación pasa a capital o crédito; no se presenta interés pendiente negativo para ocultar una diferencia.
 
-La asignación original de un pago puede diferir de la aplicación reconstruida tras cambios posteriores o retroactivos. Ambas se conservan en el detalle/exportación; no se sobrescribe el registro original. Las correcciones de cierres siguen utilizando sus operaciones auditadas existentes.
+La asignación original de un pago puede diferir de la aplicación reconstruida tras cambios posteriores o retroactivos. Ambas se conservan en el detalle/exportación; no se sobrescribe el registro original. Las correcciones de cierres siguen utilizando sus operaciones auditadas existentes. La reversión completa de un abono se lee contra su aplicación vigente y cancela el crédito devuelto; así, retirar un cargo antes de revertir el pago no crea interés cobrado negativo. Los importes y la asignación guardados en el cierre no se reescriben. El historial y los archivos separan crédito creado, devuelto y aplicado por ajustes.
 
 Los reemplazos de cuotas utilizan el total e interés pactados en `replacementTerms`; no vuelven a multiplicar una tasa calculada sobre otra base.
 

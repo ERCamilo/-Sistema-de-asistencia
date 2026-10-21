@@ -134,6 +134,13 @@ function renderChart(days, selected, scope) {
         </div>`;
 }
 
+function adjustmentCreditDetail(items) {
+    const total = key => items.reduce((sum, item) => sum + Number(item[key] || 0), 0);
+    return [['creditCreated', 'Crédito a favor por ajuste'], ['creditReturned', 'Crédito devuelto'], ['creditUsed', 'Crédito aplicado al ajuste']]
+        .filter(([key]) => total(key) > .004)
+        .map(([key, label]) => `${label}: ${formatCurrency(total(key))}`).join(' · ');
+}
+
 function describeChanges(day, mode, nameById) {
     const groups = new Map();
     for (const item of day.items) {
@@ -156,7 +163,7 @@ function describeChanges(day, mode, nameById) {
                         : item.kind === 'refinancing'
                             ? (item.basis === 'pending' ? 'nuevo plan de cuotas, sin interés nuevo'
                                 : `interés sobre ${item.basis === 'capital' ? 'el capital restante' : item.basis === 'principal' ? 'el capital original' : 'el saldo'}`)
-                            : '';
+                            : item.kind === 'adjustment' ? adjustmentCreditDetail([item]) : '';
                 return { kind, amount: value, label, detail, excess: item.excess || 0 };
             });
         }
@@ -170,7 +177,8 @@ function describeChanges(day, mode, nameById) {
         ].filter(Boolean).join(' · ');
         const detail = kind === 'payment'
             ? `interés ${formatCurrency(-sum('interest'))} + capital ${formatCurrency(-sum('capital'))}`
-            : kind === 'loan' ? `capital ${formatCurrency(sum('capital'))} + interés ${formatCurrency(sum('interest'))}` : '';
+            : kind === 'loan' ? `capital ${formatCurrency(sum('capital'))} + interés ${formatCurrency(sum('interest'))}`
+                : kind === 'adjustment' ? adjustmentCreditDetail(items) : '';
         return [{ kind, amount, label, detail, excess }];
     }).flat();
 }
