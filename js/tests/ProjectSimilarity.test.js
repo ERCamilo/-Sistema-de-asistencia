@@ -1,7 +1,8 @@
 import {
     compareProjects,
     findSimilarProjects,
-    isDismissedPair
+    isDismissedPair,
+    matchProjectStaff
 } from '../modules/features/projects/ProjectSimilarity.js';
 
 /**
@@ -245,5 +246,52 @@ describe('«No son la misma»', () => {
     test('descartar un par no afecta a los demás pares de esa obra', () => {
         const projects = [project('A', 'A', { notSameAs: ['B'] }), project('B', 'B'), project('C', 'C')];
         expect(compareProjects(projects[0], projects[2], staff).level).toBe('identical');
+    });
+});
+
+describe('matchProjectStaff', () => {
+    const A = project('A', 'Torre Norte');
+    const B = project('B', 'Edificio Sur');
+    const iso = n => new Date(Date.UTC(2026, 0, 1 + n)).toISOString().slice(0, 10);
+    const att = (employeeId, n) => ({ employeeId, date: iso(n) });
+
+    test('separa quién está en las dos obras y quién solo en una', () => {
+        const employees = [
+            emp('a1', '001', 'Mathieu Dormeus', 'A'), emp('a2', '002', 'Solo Aqui', 'A'),
+            emp('b1', '1', 'dormeus mathieu', 'B'), emp('b2', '050', 'Solo Alla', 'B')
+        ];
+        const result = matchProjectStaff(A, B, employees);
+        expect(result.pairs).toHaveLength(1);
+        expect(result.pairs[0].a).toMatchObject({ name: 'Mathieu Dormeus', number: '001', employeeIds: ['a1'] });
+        expect(result.pairs[0].b).toMatchObject({ name: 'dormeus mathieu', employeeIds: ['b1'] });
+        expect(result.onlyA.map(p => p.name)).toEqual(['Solo Aqui']);
+        expect(result.onlyB.map(p => p.name)).toEqual(['Solo Alla']);
+        expect([result.peopleA, result.peopleB]).toEqual([2, 2]);
+    });
+
+    test('lista los días de cada persona ordenados y en formato de fecha', () => {
+        const employees = [emp('a1', '001', 'Ana Soto', 'A'), emp('b1', '001', 'Ana Soto', 'B')];
+        const result = matchProjectStaff(A, B, employees, { attendance: [att('a1', 3), att('a1', 1), att('b1', 1), att('b1', 2)] });
+        expect(result.pairs[0].a.days).toEqual([iso(1), iso(3)]);
+        expect(result.pairs[0].b.days).toEqual([iso(1), iso(2)]);
+    });
+
+    test('una persona repetida dentro de una obra agrupa todos sus ids', () => {
+        const employees = [emp('a1', '001', 'Ana Soto', 'A'), emp('a2', '001', 'ana soto', 'A'), emp('b1', '001', 'Ana Soto', 'B')];
+        const result = matchProjectStaff(A, B, employees);
+        expect(result.peopleA).toBe(1);
+        expect(result.pairs[0].a.employeeIds.sort()).toEqual(['a1', 'a2']);
+    });
+
+    test('no mezcla el personal de otras obras ni los borrados', () => {
+        const employees = [emp('a1', '001', 'Ana Soto', 'A'), emp('x1', '002', 'Otra Obra', 'X'), emp('b1', '003', 'Borrado Total', 'B', { deletedAt: 1 })];
+        const result = matchProjectStaff(A, B, employees);
+        expect(result.onlyA.map(p => p.name)).toEqual(['Ana Soto']);
+        expect(result.onlyB).toEqual([]);
+        expect(result.peopleB).toBe(0);
+    });
+
+    test('sin datos devuelve listas vacías', () => {
+        expect(matchProjectStaff(A, B, undefined)).toMatchObject({ pairs: [], onlyA: [], onlyB: [], peopleA: 0, peopleB: 0 });
     });
 });

@@ -84,8 +84,10 @@ function identitiesOf(employees, daysByEmployee) {
         const numberKey = employeeNumberIdentityKey(employee?.number);
         if (!nameKey && !numberKey) continue;
         const key = `${nameKey}|${numberKey ?? ''}`;
-        if (!seen.has(key)) seen.set(key, { nameKey, numberKey, days: new Set() });
-        for (const day of daysByEmployee.get(trimId(employee?.id)) || []) seen.get(key).days.add(day);
+        if (!seen.has(key)) seen.set(key, { nameKey, numberKey, name: String(employee?.name ?? '').trim(), number: String(employee?.number ?? '').trim(), employeeIds: new Set(), days: new Set() });
+        const identity = seen.get(key);
+        if (trimId(employee?.id)) identity.employeeIds.add(trimId(employee.id));
+        for (const day of daysByEmployee.get(trimId(employee?.id)) || []) identity.days.add(day);
     }
     return [...seen.values()];
 }
@@ -181,6 +183,34 @@ function compareStaff(a, b, staffA, staffB, daysByEmployee) {
     return { a, b, score, level, matched, sizeA: identitiesA.length, sizeB: identitiesB.length, nameScore, attendance };
 }
 
+function personView(person) {
+    return {
+        name: person.name, number: person.number, employeeIds: [...person.employeeIds],
+        days: [...person.days].sort((x, y) => x - y).map(isoDay)
+    };
+}
+
+/**
+ * Quién está en las dos obras y quién solo en una. Usa el mismo emparejamiento
+ * que la comparación, así la vista previa de una fusión coincide con lo sugerido.
+ */
+export function matchProjectStaff(a, b, employees = [], { defaultProjectId = '', attendance = [] } = {}) {
+    const list = Array.isArray(employees) ? employees : [];
+    const days = attendanceDaysByEmployee(attendance);
+    const identitiesA = identitiesOf(staffOf(trimId(a?.id), list, defaultProjectId), days);
+    const identitiesB = identitiesOf(staffOf(trimId(b?.id), list, defaultProjectId), days);
+    const pairs = pairPeople(identitiesA, identitiesB);
+    const matchedA = new Set(pairs.map(([i]) => i));
+    const matchedB = new Set(pairs.map(([, j]) => j));
+    return {
+        pairs: pairs.map(([i, j]) => ({ a: personView(identitiesA[i]), b: personView(identitiesB[j]) })),
+        onlyA: identitiesA.filter((_, i) => !matchedA.has(i)).map(personView),
+        onlyB: identitiesB.filter((_, j) => !matchedB.has(j)).map(personView),
+        peopleA: identitiesA.length,
+        peopleB: identitiesB.length
+    };
+}
+
 /** Compara dos obras. Simétrico: el orden de los argumentos no cambia el resultado. */
 export function compareProjects(a, b, employees = [], { defaultProjectId = '', attendance = [] } = {}) {
     const list = Array.isArray(employees) ? employees : [];
@@ -207,4 +237,4 @@ export function findSimilarProjects(projects = [], employees = [], { defaultProj
         || trimId(x.a.id).localeCompare(trimId(y.a.id)) || trimId(x.b.id).localeCompare(trimId(y.b.id)));
 }
 
-export default { compareProjects, findSimilarProjects, isDismissedPair, SIMILARITY_LEVEL, ATTENDANCE_STATE };
+export default { compareProjects, findSimilarProjects, matchProjectStaff, isDismissedPair, SIMILARITY_LEVEL, ATTENDANCE_STATE };
