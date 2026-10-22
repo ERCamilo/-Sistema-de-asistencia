@@ -191,9 +191,10 @@ function describeChanges(day, mode, nameById) {
  * @param {string} args.scope     'general' o el id del empleado
  * @param {'general'|'employee'} args.mode
  * @param {Array} args.employees  empleados (ya filtrados por obra) cuyos préstamos entran
+ * @param {object|null} args.timeline línea financiera calculada para esos mismos empleados
  */
-export function renderLoanHistoryPanel({ scope, mode = 'general', employees = [], embedded = false, defaults = null, variant = null } = {}) {
-    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))), { financialOnly: true });
+export function renderLoanHistoryPanel({ scope, mode = 'general', employees = [], embedded = false, defaults = null, variant = null, timeline: preparedTimeline = null } = {}) {
+    const timeline = preparedTimeline || buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))), { financialOnly: true });
     const all = timeline.days;
     const warning = timeline.undatedClosures.length ? `<p class="lf-note" role="note">Historial incompleto: ${timeline.undatedClosures.length} cierre(s) con saldo sin fecha. Estos préstamos se excluyen de la evolución; revisa sus cierres.</p>` : '';
     if (all.length === 0) return warning;

@@ -23,6 +23,7 @@
     "test:settings-layout": "node scripts/check-settings-layout.cjs",
     "test:mini-review-layout": "node scripts/check-mini-review-layout.cjs",
     "test:photo-viewer": "node scripts/check-photo-viewer.cjs",
+    "test:loans-load-time": "node scripts/check-loans-load-time.cjs",
     "test:loan-history-layout": "node scripts/check-loan-history-layout.cjs",
     "test:app-updates": "node scripts/check-app-updates.cjs",
     "test:release": "node scripts/release-manifest.cjs --check --release"
