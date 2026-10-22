@@ -41,7 +41,7 @@ import { mutateProjectCatalog, stageProjectNameConflicts, PROJECT_NAME_CONFLICT_
 import { readProjectUsageData, summarizeProjectUsage, protectDeletedProjects } from './ProjectUsage.js';
 import { state } from '../../core/AppState.js';
 
-const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt'];
+const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'notSameAs'];
 const PAYROLL_CONFIG_STORE = 'projectPayrollConfigs';
 
 let _lastDuplicates = [];
@@ -56,6 +56,12 @@ const isValidProjectId = id => {
     return Boolean(value) && !value.startsWith('legacy-unresolved:');
 };
 
+/** Ids únicos y ordenados; cualquier valor que no sea una lista de textos se ignora. */
+function cleanIdList(value) {
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.filter(item => typeof item === 'string').map(trimId).filter(Boolean))].sort();
+}
+
 /** Solo la identidad de la obra viaja a la nube. */
 export function toCatalogDoc(project) {
     const out = {};
@@ -63,6 +69,9 @@ export function toCatalogDoc(project) {
         if (project?.[field] !== undefined && project?.[field] !== null) out[field] = project[field];
     }
     out.id = trimId(project?.id);
+    const notSame = cleanIdList(out.notSameAs);
+    if (notSame.length) out.notSameAs = notSame;
+    else delete out.notSameAs;
     return out;
 }
 
@@ -93,8 +102,28 @@ export function planCatalogMerge(localList = [], remoteList = [], { excludeIds =
         if (theirs.deletedAt != null && mine.deletedAt == null) { storeLocal.push({ ...mine, ...toCatalogDoc(theirs) }); continue; }
         const mineAt = Number(mine.updatedAt) || 0;
         const theirsAt = Number(theirs.updatedAt) || 0;
-        if (theirsAt > mineAt) storeLocal.push({ ...mine, ...toCatalogDoc(theirs) });
-        else if (mineAt > theirsAt) publish.push(toCatalogDoc(mine));
+        // «No son la misma» se une siempre: un descarte hecho en un dispositivo
+        // atrasado no puede perderse porque otra edición tenga fecha más nueva.
+        const mineList = cleanIdList(mine.notSameAs);
+        const theirsList = cleanIdList(theirs.notSameAs);
+        const union = cleanIdList([...mineList, ...theirsList]);
+        const mineNeeds = union.length !== mineList.length;
+        const theirsNeeds = union.length !== theirsList.length;
+        const withUnion = doc => {
+            const out = { ...doc };
+            if (union.length) out.notSameAs = union;
+            return out;
+        };
+        if (theirsAt > mineAt) {
+            storeLocal.push(withUnion({ ...mine, ...toCatalogDoc(theirs) }));
+            if (theirsNeeds) publish.push(withUnion(toCatalogDoc(theirs)));
+        } else if (mineAt > theirsAt) {
+            publish.push(withUnion(toCatalogDoc(mine)));
+            if (mineNeeds) storeLocal.push(withUnion({ ...mine }));
+        } else {
+            if (mineNeeds) storeLocal.push(withUnion({ ...mine }));
+            if (theirsNeeds) publish.push(withUnion(toCatalogDoc(mine)));
+        }
     }
     return { storeLocal, publish };
 }
