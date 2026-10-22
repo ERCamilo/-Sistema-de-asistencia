@@ -50,6 +50,26 @@ test('selection requires a decision, shows the pair, and saves a local alias wit
     } finally { done(); }
 });
 
+test('going back from alias decision allows choosing a different employee without saving a variant', async () => {
+    const { ui, store, adapter, done } = fixture();
+    try {
+        const other = { id: 'other', name: 'Pedro García', number: '114' };
+        adapter.getEmployees = () => [employee, other];
+        await ui.action('select', 'paul');
+        expect(ui.view).toBe('remember');
+        expect(ui.dialog.textContent).toContain('Elegir otro empleado');
+        await ui.action('alias-back');
+        expect(ui.view).toBe('employees');
+        expect(ui.aliasSelection).toBeNull();
+        expect(ui.record.selectedEmployeeId).toBeUndefined();
+        await ui.action('select', 'other');
+        expect(ui.view).toBe('remember');
+        await ui.action('alias-skip');
+        expect(ui.record.selectedEmployeeId).toBe('other');
+        expect(await store.aliases('user', 'legacy')).toEqual([]);
+    } finally { done(); }
+});
+
 test('Ahora no continues with the selected employee and preserves edits without teaching an alias', async () => {
     const { ui, store, done } = fixture();
     try {

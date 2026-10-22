@@ -493,7 +493,12 @@ export class VoiceMvpUI {
     }
     async action(action, id) {
         if (this.aliasSelection) {
-            if (!this.busy && (action === 'alias-save' || action === 'alias-skip')) await this.decideAlias(action === 'alias-save');
+            if (this.busy) return;
+            if (action === 'alias-back') {
+                this.aliasSelection = null;
+                this.view = 'employees';
+                this.render();
+            } else if (action === 'alias-save' || action === 'alias-skip') await this.decideAlias(action === 'alias-save');
             return;
         }
         if (action === 'confirm-accept' || action === 'confirm-cancel') { this.finishConfirmation?.(action === 'confirm-accept'); return; }
@@ -764,7 +769,8 @@ export class VoiceMvpUI {
         if (primary) { primary.classList.add('voice-primary'); primary.setAttribute('aria-describedby', 'voice-hint'); footer.append(primary); }
         if (view === 'remember') {
             const skip = body.querySelector('[data-voice-action=alias-skip]');
-            footer.replaceChildren(skip, primary);
+            const back = body.querySelector('[data-voice-action=alias-back]');
+            footer.replaceChildren(back, skip, primary);
             primary.removeAttribute('aria-describedby');
         }
         if (this.confirmation) {
