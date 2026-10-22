@@ -153,9 +153,9 @@ export function computePortfolioSummary(employees = []) {
     };
 }
 
-/** Cambio de lo que deben en el mes de `today` (saldo hoy − saldo al empezar el mes). */
-export function computeMonthChange(employees = [], today) {
-    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))), { financialOnly: true });
+/** Cambio mensual; puede reutilizar la línea de tiempo financiera de la pantalla. */
+export function computeMonthChange(employees = [], today, timeline = null) {
+    timeline ||= buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))), { financialOnly: true });
     const monthStart = `${today.slice(0, 7)}-01`;
     const before = timeline.days.filter(d => d.date < monthStart).at(-1)?.result || 0;
     const now = timeline.days.filter(d => d.date <= today).at(-1)?.result || 0;

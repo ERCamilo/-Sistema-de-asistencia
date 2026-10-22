@@ -85,3 +85,8 @@ jobs:
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: npm run test:loan-history-layout
+
+      - name: Loans cold load in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: npm run test:loans-load-time

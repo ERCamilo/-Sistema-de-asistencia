@@ -14,12 +14,13 @@ import { state } from '../../core/AppState.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { round2 } from './LoansService.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
-import { getDateKey } from '../../utils/DateUtils.js';
+import { getDateKey, parseDate } from '../../utils/DateUtils.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import { computeAttendanceDetailEarnings } from '../attendance/AttendanceDetailEarnings.js';
+import { buildTimeline } from './LoanTimeline.js';
 import { buildPayPeriods } from './LoanPayPeriods.js';
 import { prepareLoanEmployees, computePortfolioSummary, computeMonthChange } from './LoanPortfolio.js';
-import { loanDataKey } from './LoanDataKey.js';
+import { loanDataKey, rawOf } from './LoanDataKey.js';
 import { computeRiskList, RISK_LEVELS } from './LoanRisk.js';
 import { findConsolidations } from './LoanConsolidationUndo.js';
 import { planLoanBackfill, listPaymentsToReview } from './LoanDataBackfill.js';
@@ -29,6 +30,7 @@ import { getAccountSummary } from './LoanAccount.js';
 import { buildFlowBuckets, computeLoanFlows } from './LoanFlowChart.js';
 import { ExportButton, ExportPanel } from './LoanExportPanel.js';
 import { ConsolidationReviewButton, ConsolidationReviewPanel } from './LoanConsolidationReviewPanel.js';
+import { captureEntityProjectScope } from '../projects/EntityProjectScope.js';
 import { readLoanUiMemory } from './LoanUiMemory.js';
 
 const M = (value, decimals = 2) => {
@@ -44,44 +46,61 @@ export function portfolioUi() {
 
 // ─── Datos (con caché: el cálculo de sueldos es pesado) ─────────────────────
 
-const grossCache = new Map();
-function grossOf(emp, start, end) {
-    const key = `${emp.id}|${start}|${end}`;
-    if (!grossCache.has(key)) grossCache.set(key, computeAttendanceDetailEarnings(state, emp.id, start, end).gross || 0);
-    return grossCache.get(key);
+/** Only the employee's requested days belong in a payroll snapshot. */
+function attendanceSlice(attendance, employeeId, start, end) {
+    const result = {};
+    for (let date = parseDate(start); getDateKey(date) <= end; date.setDate(date.getDate() + 1)) {
+        const key = `${employeeId}-${getDateKey(date)}`;
+        if (attendance[key]) result[key] = rawOf(attendance[key]);
+    }
+    return result;
 }
 
-let lastAttendance = null;
-let attendanceVersion = 0;
-// El modelo completo solo depende de los préstamos de la obra, el día, el
-// período de pago y (para el riesgo) la asistencia. Antes se rehacía en cada
-// render: cada tecla del buscador recalculaba toda la cartera.
+function salaryInputs(employees, periods, today, settings) {
+    const raw = rawOf(state);
+    const recent = periods.filter(p => p.start <= today).slice(-3);
+    const attendance = {};
+    if (recent.length) for (const emp of employees) {
+        Object.assign(attendance, attendanceSlice(raw.attendance || {}, emp.id, recent[0].start, today));
+    }
+    return { ...raw, employees, attendance, settings: rawOf(settings) };
+}
+
+// Exact dependencies include in-place attendance, rate and calendar edits.
+// Historical attendance outside the three salary periods does not affect risk.
 let modelCache = { key: null, value: null };
 
 /** Todo lo que necesita la pantalla, a partir de los empleados de la obra. */
 export function buildPortfolioModel(scopedEmployees = []) {
+    scopedEmployees = (rawOf(scopedEmployees) || []).map(rawOf);
     const today = getDateKey(new Date());
-    const payPeriod = getActivePayrollSettings(state).payPeriod;
-    // Si cambia la asistencia cambian los sueldos: se rehacen los cálculos.
-    if (state.attendance !== lastAttendance) { grossCache.clear(); lastAttendance = state.attendance; attendanceVersion++; }
-    const key = `${today}|${JSON.stringify(payPeriod ?? null)}|${attendanceVersion}|${loanDataKey(scopedEmployees)}`;
+    const settings = getActivePayrollSettings(state);
+    const payPeriod = settings.payPeriod;
+    const periods = buildPayPeriods(payPeriod, today, { before: 3, after: 1 });
+    const inputs = salaryInputs(scopedEmployees, periods, today, settings);
+    const salaryKey = JSON.stringify([captureEntityProjectScope(), inputs.settings, inputs.positions, inputs.leaders, inputs.attendance]);
+    const key = `${today}|${salaryKey}|${loanDataKey(scopedEmployees)}`;
     if (modelCache.key === key) return modelCache.value;
 
     const prepared = prepareLoanEmployees(scopedEmployees, payPeriod);
     const employees = prepared.employees;
-    const periods = buildPayPeriods(payPeriod, today, { before: 3, after: 1 });
+    const grossOf = (emp, start, end) => computeAttendanceDetailEarnings({
+        ...inputs, employees: [emp], attendance: attendanceSlice(inputs.attendance, emp.id, start, end)
+    }, emp.id, start, end).gross || 0;
     let risk = [];
     try { risk = computeRiskList(employees, { today, periods, grossOf, state }); } catch (_) { risk = []; }
     const dup = findLoanRecordDuplicates(scopedEmployees);
     const inactive = employees.filter(emp => emp.active === false)
         .map(emp => ({ emp, balance: getAccountSummary(emp).balance })).filter(x => x.balance > 0.004);
+    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))), { financialOnly: true });
     const model = {
         today,
+        timeline,
         scoped: scopedEmployees,
         prepared,
         employees,
         summary: computePortfolioSummary(employees),
-        month: computeMonthChange(employees, today),
+        month: computeMonthChange(employees, today, timeline),
         monthFlows: monthFlows(employees, today),
         risk,
         duplicates: dup.counts,

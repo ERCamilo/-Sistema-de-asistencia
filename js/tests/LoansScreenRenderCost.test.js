@@ -14,6 +14,8 @@ import { state } from '../modules/core/AppState.js';
 import { render } from '../modules/core/RenderManager.js';
 import { createLoan, recordPayment } from '../modules/features/loans/LoansService.js';
 import { loanDataKey } from '../modules/features/loans/LoanDataKey.js';
+import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
+import * as timeline from '../modules/features/loans/LoanTimeline.js';
 import { buildPortfolioModel } from '../modules/features/loans/LoanPortfolioView.js';
 import { setLoansSearch, LOANS_SEARCH_RENDER_DELAY_MS } from '../modules/features/loans/LoansController.js';
 
@@ -135,5 +137,19 @@ describe('Revisión de consolidaciones — su caché sí reutiliza el cálculo',
             ConsolidationReviewButton({ scoped: [...s.employees] });
             expect(spy).toHaveBeenCalledTimes(2);
         });
+    });
+});
+
+describe('Pantalla de préstamos — un historial compartido', () => {
+    test('el resumen mensual y el panel reutilizan la misma línea de tiempo, también al redibujar', () => {
+        seedPortfolio();
+        localStorage.setItem('loans-main-ui', JSON.stringify({ historyOpen: false }));
+        const spy = jest.spyOn(timeline, 'buildTimeline');
+        try {
+            const before = JSON.stringify(state.employees);
+            LoansLedger(); LoansLedger();
+            expect(spy).toHaveBeenCalledTimes(1);
+            expect(JSON.stringify(state.employees)).toBe(before);
+        } finally { spy.mockRestore(); localStorage.removeItem('loans-main-ui'); }
     });
 });

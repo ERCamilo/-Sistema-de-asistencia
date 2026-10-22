@@ -1,6 +1,16 @@
 {
-  "version": "1.7.97",
+  "version": "1.7.98",
   "changelog": [
+    {
+      "version": "1.7.98",
+      "date": "2026-10-22",
+      "title": "Préstamos abre más rápido",
+      "items": [
+        "La pantalla de préstamos calcula los sueldos de riesgo sin copiar repetidamente toda la asistencia.",
+        "Los avisos de riesgo se actualizan al editar asistencias, tarifas o la configuración de nómina.",
+        "El resumen mensual y el historial comparten sus cálculos para evitar trabajo repetido al abrir la pantalla."
+      ]
+    },
     {
       "version": "1.7.97",
       "date": "2026-10-21",
