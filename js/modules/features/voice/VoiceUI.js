@@ -3,6 +3,8 @@ import { voiceFacts, suggestedVoiceIntent, isVoiceIntentUnclear } from './VoiceI
 import { voiceIcon, voicePlayer, voiceEmployeeCard } from './VoiceVisuals.js';
 import { VoiceLoanView } from './VoiceLoanView.js';
 import { VoiceEmployeeView } from './VoiceEmployeeView.js';
+import { VoiceAliasView, needsVoiceAliasPrompt } from './VoiceAliasView.js';
+import { rankVoiceEmployees, voiceMatchCandidates, pickAutomaticVoiceMatch } from './VoiceMatching.js';
 import { VoiceAudioView } from './VoiceAudioView.js';
 import { voiceRetentionPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET } from './VoiceRetention.js';
 import { VoiceStore } from './VoiceStore.js';
@@ -196,6 +198,7 @@ export class VoiceMvpUI {
         if (this.record?.result && !this.record.pendingResult && (this.effectiveResult()?.intent === 'registrar_gasto_caja_chica' || isVoiceIntentUnclear(this.record.result))) { await this.routeResult(); if (this.dialog.open) this.render(); }
     }
     close({ discard = false } = {}) {
+        this.aliasSelection = null;
         this.testEndpointUid = null;
         if (discard && this.record && !this.record.completedLoanId) { const record = this.record; record.discarded = true; if (this.processingRecord === record) this.processingController?.abort(); this.store.remove?.(record.uid, record.requestId).catch(() => this.adapter.notify?.('No se pudo eliminar el audio descartado.', 'warning')); }
         this.finishConfirmation?.(false);
@@ -374,6 +377,7 @@ export class VoiceMvpUI {
         if (this.record && this.effectiveResult()?.intent !== 'registrar_gasto_caja_chica') { this.render(); if (!this.dialog.open) this.dialog.showModal(); }
     }
     async routeResult() {
+        if (this.aliasSelection) return;
         if (!this.record?.result || this.record.pendingResult) return;
         if (voiceHardBlocked(this.record.result)) { this.view = 'audio'; return; }
         if (!this.record.manualIntent && isVoiceIntentUnclear(this.record.result)) {
@@ -395,16 +399,16 @@ export class VoiceMvpUI {
             return;
         }
         if (!this.selected()) {
-            const exact = this.matches.filter(m => m.score >= 1);
+            const match = pickAutomaticVoiceMatch(this.rankedMatches || this.matches, this.adapter.getSettings?.()?.voiceMatchPrecision);
             // Conflicting name/number must be resolved by the user, even when the number is exact.
             let conflicts = false;
-            if (this.record.mention.spokenName && this.record.mention.spokenNumber && exact.length === 1) {
+            if (this.record.mention.spokenName && this.record.mention.spokenNumber && match) {
                 const named = resolveVoiceEmployees({ spokenName: this.record.mention.spokenName }, this.adapter.getEmployees(), this.employeeAliases);
-                conflicts = !named.some(m => m.employee.id === exact[0].employee.id && m.score >= 1);
+                conflicts = !named.some(m => m.employee.id === match.employee.id && m.score >= 1);
             }
-            if (exact.length !== 1 || conflicts) { this.view = 'employees'; return; }
-            this.record.selectedEmployeeId = exact[0].employee.id;
-            this.applyInitialRate(exact[0].employee); await this.save();
+            if (!match || conflicts) { this.view = 'employees'; return; }
+            this.record.selectedEmployeeId = match.employee.id;
+            this.applyInitialRate(match.employee); await this.save();
         }
         if (this.effectiveResult()?.intent === 'crear_prestamo') { this.record.draft ||= completeVoiceLoanDraft({ principal: voiceFacts(this.record.result).amount, concept: voiceFacts(this.record.result).note || voiceFacts(this.record.result).concept }, this.adapter.getLoanDefaults?.(this.selected())); this.record.visitedLoan = true; this.view = 'loan'; return; }
         if ((this.record.result.needsReview || this.record.result.issues.length) && !this.record.reviewed) { this.view = 'employees'; return; }
@@ -421,11 +425,12 @@ export class VoiceMvpUI {
     async refreshMatches() {
         const identity = this.identity();
         if (this.effectiveResult()?.intent === 'registrar_gasto_caja_chica') {
-            this.employeeAliases = []; this.matches = []; return;
+            this.employeeAliases = []; this.matches = []; this.rankedMatches = []; return;
         }
         const aliases = await this.store.aliases(identity.uid, identity.projectKey);
         this.employeeAliases = aliases;
-        this.matches = resolveVoiceEmployees(this.record?.mention || {}, this.adapter.getEmployees(), aliases);
+        this.rankedMatches = rankVoiceEmployees(this.record?.mention || {}, this.adapter.getEmployees(), aliases);
+        this.matches = voiceMatchCandidates(this.rankedMatches);
     }
     selected() { return this.adapter.getEmployees().find(e => e.id === this.record?.selectedEmployeeId); }
     loanReady() {
@@ -459,7 +464,38 @@ export class VoiceMvpUI {
             this.dialog.querySelector('[data-voice-action="confirm-cancel"]')?.focus();
         });
     }
+    async selectEmployee(employee) {
+        this.view = 'employees';
+        this.record.selectedEmployeeId = employee.id;
+        this.applyInitialRate(employee);
+        this.record.dirty = true; this.allEmployees = false;
+        await this.save(); await this.routeResult(); if (this.record) this.render();
+    }
+    async decideAlias(remember) {
+        const pending = this.aliasSelection, record = this.record;
+        this.guard(record);
+        if (!pending || pending.record !== record || pending.spokenName !== record.mention.spokenName) return;
+        const employee = this.adapter.getEmployees().find(item => item.id === pending.employeeId);
+        if (!employee) throw Error('Empleado no disponible en el proyecto activo.');
+        const guard = () => {
+            this.guard(record);
+            if (this.record !== record || this.aliasSelection !== pending) throw Error('La selección de empleado cambió. Vuelve a elegir.');
+        };
+        this.busy = true; this.render();
+        try {
+            if (remember) await this.store.saveAlias(record.uid, record.projectKey, employee.id, pending.spokenName, { guard });
+            guard();
+            await this.refreshMatches(); guard();
+            this.aliasSelection = null;
+            this.busy = false;
+            await this.selectEmployee(employee);
+        } finally { this.busy = false; if (this.record === record && this.dialog.open) this.render(); }
+    }
     async action(action, id) {
+        if (this.aliasSelection) {
+            if (!this.busy && (action === 'alias-save' || action === 'alias-skip')) await this.decideAlias(action === 'alias-save');
+            return;
+        }
         if (action === 'confirm-accept' || action === 'confirm-cancel') { this.finishConfirmation?.(action === 'confirm-accept'); return; }
         if (this.confirmation && action !== 'close') return;
         this.messageError = false;
@@ -557,10 +593,13 @@ export class VoiceMvpUI {
         if (action === 'choose') { this.view = 'employees'; this.allEmployees = true; this.render(); return; }
         if (action === 'select') {
             const employee = this.adapter.getEmployees().find(e => e.id === id); if (!employee) throw Error('Empleado no disponible en el proyecto activo.');
-            this.record.selectedEmployeeId = id;
-            this.applyInitialRate(employee);
-            if (this.dialog.querySelector?.('[data-voice-remember]')?.checked) await this.store.saveAlias(this.record.uid, this.record.projectKey, employee.id, this.record.mention.spokenName);
-            this.record.dirty = true; this.allEmployees = false; await this.save(); await this.routeResult(); if (this.record) this.render(); return;
+            if (!voiceHardBlocked(this.record.result) && needsVoiceAliasPrompt(this.record.mention.spokenName, employee, this.employeeAliases)) {
+                this.aliasSelection = { record: this.record, employeeId: employee.id, spokenName: this.record.mention.spokenName };
+                this.view = 'remember'; this.render();
+                this.dialog.querySelector?.('[data-voice-action=alias-save]')?.focus?.();
+                return;
+            }
+            await this.selectEmployee(employee); return;
         }
         const employee = this.selected(); if (!employee) throw Error('Selecciona al empleado correcto primero.');
         if (action === 'previous-interest') {
@@ -631,6 +670,7 @@ export class VoiceMvpUI {
         } finally { this.busy = false; if (this.dialog.open) this.render(); }
     }
     async change(input) {
+        if (this.aliasSelection) return;
         if (input.dataset.voiceEndpoint !== undefined) {
             const value = input.value.trim(); if (value && !isVoiceEndpointAllowed(value)) throw Error('Usa HTTPS o el endpoint Tailscale de desarrollo desde http://127.0.0.1:8080.');
             this.testEndpointUid = value === VOICE_TEST_ENDPOINT ? this.identity().uid : null;
@@ -685,6 +725,7 @@ export class VoiceMvpUI {
         const view = this.view || (record?.result ? selected ? 'loan' : 'employees' : 'audio');
         this.view = view;
         const views = {
+            remember: () => VoiceAliasView(this, button),
             intent: () => `<section class="voice-review"><h3>¿Qué quieres hacer?</h3><p>${escapeHTML(record.transcript)}</p><p>${escapeHTML(String(voiceFacts(result).amount ?? 'Sin monto'))} · ${escapeHTML(voiceFacts(result).spokenName || voiceFacts(result).concept || 'Completa los datos en el borrador')}</p></section>${button('intent-loan','Préstamo',this.busy)}${button('intent-cash','Caja chica',this.busy)}${button('intent-search','Buscar empleado',this.busy)}${VoiceNameWords(this,button)}`,
             audio: () => VoiceAudioView(this, button) + (blocked && result ? '<section class="voice-review" role="alert">Instrucción negada o no reconocida. No se registrará una operación. Revisa el texto y el motivo en Opciones de audio.</section>' : ''),
             employees: () => VoiceEmployeeView(this, button),
@@ -705,14 +746,15 @@ export class VoiceMvpUI {
         const template = document.createElement('template'); template.innerHTML = markup;
         template.content.querySelector('header')?.remove();
         body.replaceChildren(template.content);
-        const action = view === 'loan' ? 'loan' : view === 'audio' ? record?.audio ? 'process' : 'record' : view === 'employees' && selected && result.intent !== 'crear_prestamo' ? result.intent === 'abrir_prestamos' ? 'loans' : 'attendance' : view === 'storage' ? 'clear-audio' : null;
+        const action = view === 'remember' ? 'alias-save' : view === 'loan' ? 'loan' : view === 'audio' ? record?.audio ? 'process' : 'record' : view === 'employees' && selected && result.intent !== 'crear_prestamo' ? result.intent === 'abrir_prestamos' ? 'loans' : 'attendance' : view === 'storage' ? 'clear-audio' : null;
         const primary = action ? body.querySelector(`[data-voice-action="${action}"]`) : null;
         const validation = action === 'loan' && record?.draft ? this.adapter.validateLoan(record.draft) : null;
         if (primary && validation && !validation.valid) primary.disabled = true;
         const footer = this.dialog.querySelector('.voice-footer');
-        const titles = { intent: 'Elegir acción', audio: 'Tu audio', employees: '¿Quién es?', loan: 'Nuevo préstamo', playback: 'Audio del préstamo', storage: 'Audio guardado' };
+        const titles = { remember: '¿Recordar esta forma de llamarlo?', intent: 'Elegir acción', audio: 'Tu audio', employees: '¿Quién es?', loan: 'Nuevo préstamo', playback: 'Audio del préstamo', storage: 'Audio guardado' };
         this.dialog.querySelector('#voice-title').textContent = titles[view];
         this.dialog.dataset.voiceView = view;
+        this.dialog.querySelector('.voice-header > [data-voice-action=close]').hidden = view === 'remember';
         let hint = '';
         if (primary?.disabled) {
             hint = record?.retryAt > Date.now() ? `Puedes reintentar a las ${new Date(record.retryAt).toLocaleTimeString()}.` : record?.unsaved ? 'Conserva el audio localmente antes de enviarlo.' : this.busy ? 'Espera a que termine el procesamiento.' : record?.completedLoanId ? 'Esta grabación ya registró un préstamo.' : !selected ? 'Selecciona al empleado correcto.' : (result?.needsReview || result?.issues.length) && !record.reviewed ? 'Confirma que revisaste las advertencias.' : !record?.draft?.principal ? 'Completa el monto del préstamo.' : validation && !validation.valid ? validation.errors.join('. ') : 'Completa los datos y la fecha de cobro.';
@@ -720,6 +762,11 @@ export class VoiceMvpUI {
         footer.innerHTML = `${view === 'playback' ? '' : button('close', view === 'storage' ? 'Cerrar' : view === 'loan' ? `${voiceIcon('close')}<span class="voice-sr">Cancelar</span>` : 'Cancelar', this.busy && !!record?.completedLoanId)}<p class="voice-hint" id="voice-hint">${escapeHTML(hint)}</p>`;
         if (view === 'storage') footer.querySelector('[data-voice-action=close]')?.remove();
         if (primary) { primary.classList.add('voice-primary'); primary.setAttribute('aria-describedby', 'voice-hint'); footer.append(primary); }
+        if (view === 'remember') {
+            const skip = body.querySelector('[data-voice-action=alias-skip]');
+            footer.replaceChildren(skip, primary);
+            primary.removeAttribute('aria-describedby');
+        }
         if (this.confirmation) {
             footer.innerHTML = `<section class="voice-confirm" role="alert"><strong>Confirma la acción</strong><p>${escapeHTML(this.confirmation)}</p><div class="voice-actions">${button('confirm-cancel', 'Cancelar')}${button('confirm-accept', 'Confirmar')}</div></section>`;
             footer.querySelector('[data-voice-action="confirm-accept"]').classList.add('voice-primary');

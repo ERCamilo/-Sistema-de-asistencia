@@ -94,7 +94,10 @@ const server=http.createServer((req,res)=>{
       assert.deepEqual(violations,[]);
       await page.click('#whats-new-modal .btn-primary');await page.waitForSelector('#whats-new-modal',{hidden:true});
     }
-    await page.setOfflineMode(true);await page.reload({waitUntil:'domcontentloaded'});await page.waitForFunction(v=>window.loadedVersion===v,{},next);assert.equal(await page.evaluate(()=>localStorage.getItem('update-data-sentinel')),'preserved');await page.click('#check');assert.match(await page.$eval('#app-update-status',el=>el.textContent),/Sin conexión|No se pudo consultar/);await page.setOfflineMode(false);
+    await page.setOfflineMode(true);await page.reload({waitUntil:'domcontentloaded'});await page.waitForFunction(v=>window.loadedVersion===v,{},next);assert.equal(await page.evaluate(()=>localStorage.getItem('update-data-sentinel')),'preserved');await page.click('#check');
+    // Checking is asynchronous: wait for its offline result before asserting it.
+    await page.waitForFunction(()=>/Sin conexión|No se pudo consultar/.test(document.getElementById('app-update-status').textContent));
+    assert.match(await page.$eval('#app-update-status',el=>el.textContent),/Sin conexión|No se pudo consultar/);await page.setOfflineMode(false);
     invalid=true;await page.click('#check');await page.waitForFunction(()=>document.getElementById('app-update-status').textContent.includes('No se pudo consultar'));
     assert.deepEqual(errors,[]);console.log('PASS real SW: first install, two builds, defer/manual update, save failure/pending barrier, notes, Back, safe text, offline/malformed catalog, 4 widths and WCAG A/AA');
   }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}

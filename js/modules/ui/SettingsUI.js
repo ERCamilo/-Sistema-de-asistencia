@@ -355,6 +355,7 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
 const AUTO_SAVE_OPTION_VALUES = new Map([
     ['voiceAudioRetentionDays', new Set(['1', '2', '3', '4', '5'])],
     ['voiceAmbiguousAction', new Set(['loan', 'cash', 'ask'])],
+    ['voiceMatchPrecision', new Set(['precise', 'high', 'medium', 'low'])],
     ['attendanceWatermarkVisibility', new Set(['always', 'present'])],
     ['attendanceWatermarkContent', new Set(['number', 'position'])],
     ['loansCapacityStyle', new Set(['gauge', 'stacked'])],

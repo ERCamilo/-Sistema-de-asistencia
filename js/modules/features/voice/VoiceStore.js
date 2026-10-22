@@ -38,14 +38,19 @@ export class VoiceStore {
         const aliases = await this.operation('aliases', 'readonly', store => store.getAll());
         return aliases.filter(x => x.uid === uid && x.projectKey === projectKey);
     }
-    async saveAlias(uid, projectKey, employeeId, alias) {
+    async saveAlias(uid, projectKey, employeeId, alias, { guard = () => {} } = {}) {
         alias = normalizeVoiceName(alias).slice(0, 160); if (!alias) return;
         const db = await this.open();
+        guard();
         return new Promise((resolve, reject) => {
             const tx = db.transaction('aliases', 'readwrite'); const store = tx.objectStore('aliases');
+            let failure;
             const get = store.get([uid, projectKey, employeeId]);
-            get.onsuccess = () => store.put({ uid, projectKey, employeeId, aliases: [...new Set([...(get.result?.aliases || []), alias])].slice(-50) });
-            tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(Error('No se pudo guardar la coincidencia local.'));
+            get.onsuccess = () => {
+                try { guard(); store.put({ uid, projectKey, employeeId, aliases: [...new Set([...(get.result?.aliases || []), alias])].slice(-50) }); }
+                catch (error) { failure = error; tx.abort(); }
+            };
+            tx.oncomplete = resolve; tx.onerror = tx.onabort = () => reject(failure || Error('No se pudo guardar la coincidencia local.'));
         });
     }
     async removeAlias(uid, projectKey, employeeId, alias) {

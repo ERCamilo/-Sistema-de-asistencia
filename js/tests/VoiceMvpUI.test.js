@@ -108,11 +108,11 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
         const response = extracted(); response.loan.interestRate = null;
         ui.applyResult(response);
         expect(ui.record.draft.interestRate).toBe(20);
-        await ui.action('select', 'carlos'); expect(ui.record.draft.interestRate).toBe(15);
+        await ui.action('select', 'carlos'); if (ui.aliasSelection) await ui.action('alias-skip'); expect(ui.record.draft.interestRate).toBe(15);
         await ui.change({ dataset: { voiceField: 'interestRate' }, value: '0' });
-        await ui.action('select', 'carlos'); expect(ui.record.draft.interestRate).toBe(0);
+        await ui.action('select', 'carlos'); if (ui.aliasSelection) await ui.action('alias-skip'); expect(ui.record.draft.interestRate).toBe(0);
         response.loan.interestRate = 30; ui.applyResult(response);
-        await ui.action('select', 'carlos'); expect(ui.record.draft.interestRate).toBe(30);
+        await ui.action('select', 'carlos'); if (ui.aliasSelection) await ui.action('alias-skip'); expect(ui.record.draft.interestRate).toBe(30);
     });
     test('a confirmed recording registers once and keeps the draft if duplicate review is cancelled', async () => {
         const { ui, onLoan } = setup();
@@ -149,8 +149,9 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
             await ui.change({ dataset: { voiceMention: 'spokenName' }, value: 'Yanpié' });
             expect(ui.matches[0]).toMatchObject({ employee: { id: 'jean' }, reason: 'Nombre parecido', threshold: .5 });
             await ui.action('select', 'jean');
-            expect(ui.dialog.querySelector('[data-voice-alias]').value).toBe('Yanpié');
-            await ui.action('learn');
+            expect(ui.view).toBe('remember');
+            expect(ui.dialog.textContent).toContain('Yanpié');
+            await ui.action('alias-save');
             expect(ui.dialog.textContent).toContain('Variantes guardadas: yanpie');
             // A new recording has no selection; the saved alias offers Jean as a suggestion.
             ui.record.selectedEmployeeId = null; ui.record.requestId = 'request-2';
@@ -219,9 +220,11 @@ describe('Simplified voice workflow', () => {
         ui.adapter.getEmployees=()=>[{id:'cliff',name:'Cliff'},{id:'cleeft',name:'Cleeft'}];
         ui.record.result.intent='buscar_empleado';ui.record.mention.spokenName='Clift';ui.record.selectedEmployeeId=null;
         ui.adapter.onAttendance=jest.fn();
-        ui.dialog.querySelector=()=>({checked:true});
         await ui.action('select','cleeft');
-        expect(store.saveAlias).toHaveBeenCalledWith('one','legacy','cleeft','Clift');
+        expect(store.saveAlias).not.toHaveBeenCalled();
+        expect(ui.view).toBe('remember');
+        await ui.action('alias-save');
+        expect(store.saveAlias).toHaveBeenCalledWith('one','legacy','cleeft','Clift',expect.objectContaining({guard:expect.any(Function)}));
         expect(ui.adapter.onAttendance).toHaveBeenCalledWith('cleeft');expect(ui.record).toBeNull();
         const second=setup();second.store.saveAlias=jest.fn();
         second.ui.matches=[{employee:second.ui.adapter.getEmployees()[0],score:1}];second.ui.record.result.intent='buscar_empleado';second.ui.record.selectedEmployeeId=null;second.ui.adapter.onAttendance=jest.fn();
@@ -284,7 +287,7 @@ describe('Simplified voice workflow', () => {
         ui.adapter.getLoanDefaults=()=>({previousRate:30});
         ui.record.rateDefault=true; ui.record.employeeDefaultsApplied=true;
         const draft={...ui.record.draft};
-        await ui.action('choose'); await ui.action('select','carla');
+        await ui.action('choose'); await ui.action('select','carla'); await ui.action('alias-skip');
         expect(ui.record.selectedEmployeeId).toBe('carla'); expect(ui.record.draft).toEqual(draft);
         await ui.action('previous-interest'); expect(ui.record.draft).toEqual({...draft,interestRate:30});
     });
