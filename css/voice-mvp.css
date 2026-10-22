@@ -144,7 +144,16 @@
 .voice-name-variants > div > span { overflow-wrap:anywhere; min-width:0; }
 .voice-name-meter { margin:14px 0; color:var(--accent); }
 .voice-name-meter > span { display:block; height:8px; margin-top:8px; border-radius:8px; background:var(--accent); transform:scaleX(max(.03,var(--level,0))); transform-origin:left; transition:transform .08s linear; }
-.voice-remember { min-height:44px; display:flex !important; align-items:center; }
+.voice-dialog[data-voice-view=remember] { --accent:var(--voice-accent,#22d3ee); --on-accent:#06202a; margin:auto; }
+.voice-dialog[data-voice-view=remember] [hidden] { display:none; }
+.voice-alias-pair { display:flex; flex-direction:column; gap:12px; margin:12px 0 20px; }
+.voice-alias-pair blockquote { margin:0; padding:18px; border-radius:14px; background:var(--panel-2); color:var(--text); font-size:23px; font-weight:600; text-align:center; overflow-wrap:anywhere; }
+.voice-alias-arrow { display:flex; justify-content:center; color:var(--accent); transform:rotate(90deg); }
+.voice-alias-pair .voice-identity-card { margin:0; }
+.voice-alias-local { text-align:center; }
+.voice-dialog[data-voice-view=remember] .voice-footer { border-top:1px solid var(--border); }
+.voice-dialog[data-voice-view=remember] .voice-footer > button { flex:1 1 140px; }
+@media(max-width:640px) { .voice-dialog[data-voice-view=remember] { margin:auto 8px 8px; } }
 @media(prefers-reduced-motion:reduce) { .voice-name-meter > span { transition:none; transform:scaleX(.5); } }
 /* En móvil el botón central de la barra inferior reemplaza al flotante. */
 @media (max-width: 1023px) { body:has(.bnav) .voice-launcher { display:none; } }

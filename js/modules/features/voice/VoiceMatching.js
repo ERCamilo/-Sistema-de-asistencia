@@ -2,6 +2,26 @@ import { sameEmployeeNumber } from '../employees/EmployeeNumberIdentity.js';
 
 export const normalizeVoiceName = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}\p{M}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 export const VOICE_MATCH_LEVELS = Object.freeze([0.6, 0.5, 0.4]);
+export const VOICE_AUTO_MATCH_LEVELS = Object.freeze([
+    { value: 'precise', label: 'Preciso', minimum: .99 },
+    { value: 'high', label: 'Alto', minimum: .85 },
+    { value: 'medium', label: 'Medio', minimum: .75 },
+    { value: 'low', label: 'Bajo', minimum: .65 }
+]);
+export function voiceAutoMatchLevel(value) {
+    return VOICE_AUTO_MATCH_LEVELS.find(level => level.value === value) || VOICE_AUTO_MATCH_LEVELS[1];
+}
+
+/** An exact unique identity wins; approximate matches need one eligible candidate
+ * and 15 points over the runner-up, including candidates below display tiers. */
+export function pickAutomaticVoiceMatch(ranked = [], level = 'high') {
+    const ordered = [...ranked].sort((a, b) => b.score - a.score);
+    const exact = ordered.filter(match => match.score >= 1);
+    if (exact.length) return exact.length === 1 ? exact[0] : null;
+    const eligible = ordered.filter(match => match.score + 1e-9 >= voiceAutoMatchLevel(level).minimum);
+    if (eligible.length !== 1 || eligible[0].score - (ordered[1]?.score || 0) + 1e-9 < .15) return null;
+    return eligible[0];
+}
 
 export function levenshteinSimilarity(a, b) {
     a = Array.from(a); b = Array.from(b);
@@ -38,7 +58,7 @@ export function voiceSpellingSimilarity(a,b) {
     return .75*levenshteinSimilarity(a,b)+.25*jaroWinklerSimilarity(a,b);
 }
 
-export function resolveVoiceEmployees(mention={},employees=[],aliases=[]) {
+export function rankVoiceEmployees(mention={},employees=[],aliases=[]) {
     const name=normalizeVoiceName(mention.spokenName).slice(0,160);
     const number=String(mention.spokenNumber || '').trim();
     if(!name && !number) return [];
@@ -73,7 +93,15 @@ export function resolveVoiceEmployees(mention={},employees=[],aliases=[]) {
         }
         return {employee,score:Math.min(.99,score),reason:'Nombre parecido'};
     });
+    return ranked.filter(x=>x.score>0).sort((a,b)=>b.score-a.score || String(a.employee.name).localeCompare(String(b.employee.name)));
+}
+
+export function voiceMatchCandidates(ranked) {
     const threshold=VOICE_MATCH_LEVELS.find(level=>ranked.some(x=>x.score+1e-9>=level));
     if(threshold===undefined) return [];
     return ranked.filter(x=>x.score+1e-9>=threshold).map(x=>({...x,threshold})).sort((a,b)=>b.score-a.score || String(a.employee.name).localeCompare(String(b.employee.name)));
+}
+
+export function resolveVoiceEmployees(mention={},employees=[],aliases=[]) {
+    return voiceMatchCandidates(rankVoiceEmployees(mention,employees,aliases));
 }

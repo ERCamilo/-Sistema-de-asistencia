@@ -1,13 +1,23 @@
 {
-  "version": "1.7.99",
+  "version": "1.7.100",
   "changelog": [
     {
-      "version": "1.7.99",
+      "version": "1.7.100",
       "date": "2026-10-22",
       "title": "Preparación para detectar obras repetidas",
       "items": [
         "Prepara la comparación del personal y de la asistencia de tus obras para reconocer cuando dos obras son en realidad la misma, y para recordar las que descartes.",
         "Prepara una pantalla para revisar obras repetidas. Todavía no se muestra: la revisión y la fusión llegarán en una próxima versión."
+      ]
+    },
+    {
+      "version": "1.7.99",
+      "date": "2026-10-22",
+      "title": "Voz aprende cómo los llamas",
+      "items": [
+        "Al elegir un empleado, decide si quieres recordar la nueva forma de llamarlo.",
+        "Elige la precisión de las coincidencias automáticas desde la configuración actual de Voz.",
+        "Las coincidencias cercanas siguen pidiendo selección; revisa el préstamo antes de registrarlo."
       ]
     },
     {
