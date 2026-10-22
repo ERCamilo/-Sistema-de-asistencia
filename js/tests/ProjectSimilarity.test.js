@@ -1,6 +1,7 @@
 import {
     compareProjects,
-    findSimilarProjects
+    findSimilarProjects,
+    isDismissedPair
 } from '../modules/features/projects/ProjectSimilarity.js';
 
 /**
@@ -133,5 +134,116 @@ describe('findSimilarProjects', () => {
     test('las obras con id no válido se ignoran', () => {
         const pairs = findSimilarProjects([project('A', 'A'), project('legacy-unresolved:x', 'B')], employees);
         expect(pairs).toEqual([]);
+    });
+});
+
+/**
+ * La asistencia aporta evidencia, no veredicto: las mismas personas en los
+ * mismos días o con fechas intercaladas apuntan a una copia; fechas muy
+ * separadas apuntan a etapas distintas (una misma cuadrilla en dos obras).
+ */
+describe('señal de asistencia', () => {
+    const day = (n) => new Date(Date.UTC(2026, 0, 1 + n)).toISOString().slice(0, 10);
+    const att = (employeeId, n, extra = {}) => ({ employeeId, date: day(n), ...extra });
+    const staff = [...crew('A', 'a', PEOPLE), ...crew('B', 'b', PEOPLE)];
+    const A = project('A', 'Torre Norte');
+    const B = project('B', 'Edificio Sur');
+    const days = (prefix, from, to) => PEOPLE.flatMap((_, i) => Array.from({ length: to - from + 1 }, (__, k) => att(`${prefix}${i}`, from + k)));
+
+    test('sin asistencia en alguna obra el estado es desconocido y el nivel no cambia', () => {
+        const result = compareProjects(A, B, staff, { attendance: days('a', 0, 4) });
+        expect(result.attendance.state).toBe('unknown');
+        expect(result.level).toBe('identical');
+    });
+
+    test('los mismos días en ambas obras: compartida, contando personas-día', () => {
+        const result = compareProjects(A, B, staff, { attendance: [...days('a', 0, 2), ...days('b', 1, 3)] });
+        expect(result.attendance.state).toBe('shared');
+        expect(result.attendance.sharedDays).toBe(PEOPLE.length * 2);
+        expect(result.level).toBe('identical');
+    });
+
+    test('rangos que se cruzan sin compartir días: intercaladas', () => {
+        const odd = PEOPLE.flatMap((_, i) => [att(`a${i}`, 0), att(`a${i}`, 2), att(`a${i}`, 4)]);
+        const even = PEOPLE.flatMap((_, i) => [att(`b${i}`, 1), att(`b${i}`, 3)]);
+        const result = compareProjects(A, B, staff, { attendance: [...odd, ...even] });
+        expect(result.attendance).toMatchObject({ state: 'interleaved', sharedDays: 0 });
+        expect(result.level).toBe('identical');
+    });
+
+    test('obras seguidas (dispositivo atrasado) no pierden el nivel', () => {
+        const result = compareProjects(A, B, staff, { attendance: [...days('a', 0, 4), ...days('b', 5, 8)] });
+        expect(result.attendance.state).toBe('adjacent');
+        expect(result.level).toBe('identical');
+    });
+
+    test('más de 30 días de separación: etapas distintas, baja un nivel', () => {
+        const result = compareProjects(A, B, staff, { attendance: [...days('a', 0, 4), ...days('b', 80, 84)] });
+        expect(result.attendance.state).toBe('separated');
+        expect(result.level).toBe('similar');
+    });
+
+    test('separadas y solo parecidas: deja de sugerirse', () => {
+        const partial = [...crew('A', 'a', PEOPLE), ...crew('B', 'b', PEOPLE.slice(0, 8))];
+        const result = compareProjects(A, B, partial, { attendance: [...days('a', 0, 4), ...days('b', 80, 84)] });
+        expect(result.attendance.state).toBe('separated');
+        expect(result.level).toBeNull();
+    });
+
+    test('empareja primero ficha y nombre iguales, así dos homónimos no se cruzan', () => {
+        const twins = [
+            emp('a1', '006', 'Jean Baptiste', 'A'), emp('a2', '009', 'Jean Baptiste', 'A'),
+            emp('b1', '009', 'Jean Baptiste', 'B'), emp('b2', '006', 'Jean Baptiste', 'B')
+        ];
+        const attendance = [att('a1', 0), att('a2', 1), att('b1', 1), att('b2', 0)];
+        const result = compareProjects(A, B, twins, { attendance });
+        expect(result.matched).toBe(2);
+        expect(result.attendance.sharedDays).toBe(2);
+    });
+
+    test('ignora asistencia borrada, sin fecha válida o de personas ajenas', () => {
+        const attendance = [
+            att('a0', 0, { deletedAt: 5 }), { employeeId: 'a1', date: 'ayer' }, att('zz', 3),
+            att('a2', 0), att('b2', 0)
+        ];
+        const result = compareProjects(A, B, staff, { attendance });
+        expect(result.attendance).toMatchObject({ state: 'shared', sharedDays: 1 });
+    });
+
+    test('acepta la asistencia como mapa por clave', () => {
+        const map = Object.fromEntries([...days('a', 0, 1), ...days('b', 0, 1)].map((r, i) => [`k${i}`, r]));
+        expect(compareProjects(A, B, staff, { attendance: map }).attendance.sharedDays).toBe(PEOPLE.length * 2);
+    });
+
+    test('findSimilarProjects la usa y devuelve su evidencia', () => {
+        const pairs = findSimilarProjects([A, B], staff, { attendance: [...days('a', 0, 4), ...days('b', 80, 84)] });
+        expect(pairs).toHaveLength(1);
+        expect(pairs[0]).toMatchObject({ level: 'similar', attendance: { state: 'separated' } });
+    });
+});
+
+describe('«No son la misma»', () => {
+    const staff = [...crew('A', 'a', PEOPLE), ...crew('B', 'b', PEOPLE), ...crew('C', 'c', PEOPLE)];
+
+    test('un par descartado no se vuelve a sugerir, estando en cualquiera de las dos obras', () => {
+        const base = [project('A', 'A'), project('B', 'B'), project('C', 'C')];
+        expect(findSimilarProjects(base, staff).map(p => [p.a.id, p.b.id])).toEqual([['A', 'B'], ['A', 'C'], ['B', 'C']]);
+        const fromA = [project('A', 'A', { notSameAs: ['B'] }), project('B', 'B'), project('C', 'C')];
+        expect(findSimilarProjects(fromA, staff).map(p => [p.a.id, p.b.id])).toEqual([['A', 'C'], ['B', 'C']]);
+        const fromB = [project('A', 'A'), project('B', 'B', { notSameAs: ['A'] }), project('C', 'C')];
+        expect(findSimilarProjects(fromB, staff).map(p => [p.a.id, p.b.id])).toEqual([['A', 'C'], ['B', 'C']]);
+    });
+
+    test('isDismissedPair es simétrico y tolera datos ausentes', () => {
+        expect(isDismissedPair(project('A', 'A', { notSameAs: ['B'] }), project('B', 'B'))).toBe(true);
+        expect(isDismissedPair(project('B', 'B'), project('A', 'A', { notSameAs: ['B'] }))).toBe(true);
+        expect(isDismissedPair(project('A', 'A'), project('B', 'B'))).toBe(false);
+        expect(isDismissedPair(project('A', 'A', { notSameAs: 'B' }), project('B', 'B'))).toBe(false);
+        expect(isDismissedPair(null, undefined)).toBe(false);
+    });
+
+    test('descartar un par no afecta a los demás pares de esa obra', () => {
+        const projects = [project('A', 'A', { notSameAs: ['B'] }), project('B', 'B'), project('C', 'C')];
+        expect(compareProjects(projects[0], projects[2], staff).level).toBe('identical');
     });
 });

@@ -62,6 +62,8 @@ export class Project {
         if (Object.prototype.hasOwnProperty.call(data, 'createdBy')) this.createdBy = data.createdBy;
         if (Object.prototype.hasOwnProperty.call(data, 'deletedAt')) this.deletedAt = data.deletedAt;
         if (Object.prototype.hasOwnProperty.call(data, 'metadata')) this.metadata = cloneMetadata(data.metadata);
+        // «No son la misma»: ids de obras que el usuario descartó como duplicadas de esta.
+        if (Array.isArray(data.notSameAs)) this.notSameAs = data.notSameAs.filter(id => typeof id === 'string');
     }
 
     /** Fábrica canónica: estampa id + timestamps de nacimiento. */
@@ -125,7 +127,7 @@ export class Project {
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
         };
-        for (const key of ['closedAt', 'archivedAt', 'startDate', 'endDate', 'createdBy', 'deletedAt', 'metadata']) {
+        for (const key of ['closedAt', 'archivedAt', 'startDate', 'endDate', 'createdBy', 'deletedAt', 'metadata', 'notSameAs']) {
             if (Object.prototype.hasOwnProperty.call(this, key)) json[key] = this[key];
         }
         return json;
