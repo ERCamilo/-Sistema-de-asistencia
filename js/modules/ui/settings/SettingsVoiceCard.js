@@ -9,6 +9,8 @@
  * Probado en js/tests/SettingsVoiceCard.test.js.
  */
 
+import { VOICE_AUTO_MATCH_LEVELS, voiceAutoMatchLevel } from '../../features/voice/VoiceMatching.js';
+
 // Mismo trazo que el micrófono de la barra inferior (BottomNav.js); el
 // registro de IconSystem no tiene micrófono.
 const MIC_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0zM5 10v1a7 7 0 0 0 14 0v-1M12 18v3M8 21h8"/></svg>';
@@ -24,6 +26,7 @@ export function SettingsVoiceCard(context = {}) {
     const settings = context.state?.settings || {};
     const signedIn = Boolean(context.currentUser);
     const retention = Number(settings.voiceAudioRetentionDays ?? 5);
+    const precision = voiceAutoMatchLevel(settings.voiceMatchPrecision).value;
 
     return `
                 <!-- Voz -->
@@ -38,6 +41,9 @@ export function SettingsVoiceCard(context = {}) {
                     </div>
                     ${switchRow('voiceMvpEnabled', settings.voiceMvpEnabled === true, 'Activar botón de voz', 'Muestra el micrófono para grabar y revisar instrucciones de voz.')}
                     <p class="stg-voice-note">Mantén pulsado para grabar y suelta para terminar. Al terminar se envía el audio. Revisa el borrador antes de registrar.</p>
+                    <fieldset class="stg-choice-fieldset"><legend>Nivel de coincidencia para continuar directamente</legend><div class="stg-choice-group">
+                        ${VOICE_AUTO_MATCH_LEVELS.map(level => `<label class="stg-choice-option ${precision === level.value ? 'is-selected' : ''}"><input type="radio" name="voiceMatchPrecision" value="${level.value}" ${precision === level.value ? 'checked' : ''}><span>${level.label} · ≥${Math.round(level.minimum * 100)} %</span></label>`).join('')}
+                    </div><p class="stg-voice-note">Alto por defecto. Una sola coincidencia y 15 puntos de ventaja sobre la siguiente; si hay dudas, eliges tú. El préstamo siempre se revisa antes de guardar.</p></fieldset>
                     <fieldset class="stg-choice-fieldset"><legend>Cuando la intención sea ambigua</legend><div class="stg-choice-group">
                         ${[['loan', 'Proponer préstamo'], ['cash', 'Proponer caja chica'], ['ask', 'Preguntar siempre']].map(([value, label]) => `<label class="stg-choice-option ${(settings.voiceAmbiguousAction || 'loan') === value ? 'is-selected' : ''}"><input type="radio" name="voiceAmbiguousAction" value="${value}" ${(settings.voiceAmbiguousAction || 'loan') === value ? 'checked' : ''}><span>${label}</span></label>`).join('')}
                     </div></fieldset>

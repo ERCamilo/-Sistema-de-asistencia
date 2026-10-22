@@ -1,6 +1,16 @@
 {
-  "version": "1.7.98",
+  "version": "1.7.99",
   "changelog": [
+    {
+      "version": "1.7.99",
+      "date": "2026-10-22",
+      "title": "Voz aprende cómo los llamas",
+      "items": [
+        "Al elegir un empleado, decide si quieres recordar la nueva forma de llamarlo.",
+        "Elige la precisión de las coincidencias automáticas desde la configuración actual de Voz.",
+        "Las coincidencias cercanas siguen pidiendo selección; revisa el préstamo antes de registrarlo."
+      ]
+    },
     {
       "version": "1.7.98",
       "date": "2026-10-22",

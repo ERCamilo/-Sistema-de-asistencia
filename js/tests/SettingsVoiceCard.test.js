@@ -42,7 +42,13 @@ describe('Voz en Configuración → General', () => {
         expect(document.getElementById('voiceKeepLoanAudio').checked).toBe(true);
         expect(document.getElementById('voiceFeedback').checked).toBe(true);
         expect(document.querySelector('input[name="voiceAudioRetentionDays"]:checked').value).toBe('5');
+        expect(document.querySelector('input[name="voiceMatchPrecision"]:checked').value).toBe('high');
         expect(document.querySelector('[data-settings-action="manage-voice-audio"]').disabled).toBe(true);
+    });
+    test.each(['precise', 'high', 'medium', 'low'])('renders the saved precision %s', value => {
+        document.body.innerHTML = SettingsVoiceCard({ state: { settings: { voiceMatchPrecision: value } } });
+        expect(document.querySelector('input[name="voiceMatchPrecision"]:checked').value).toBe(value);
+        expect(document.querySelectorAll('input[name="voiceMatchPrecision"]')).toHaveLength(4);
     });
 });
 
