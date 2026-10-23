@@ -39,9 +39,10 @@ import { projectNameKey } from './ProjectNames.js';
 import { createDefaultConfig, cloneConfig } from '../payroll/ProjectPayrollConfig.js';
 import { mutateProjectCatalog, stageProjectNameConflicts, PROJECT_NAME_CONFLICT_EVENT } from './ProjectNameConflicts.js';
 import { readProjectUsageData, summarizeProjectUsage, protectDeletedProjects } from './ProjectUsage.js';
+import { Project } from './Project.js';
 import { state } from '../../core/AppState.js';
 
-const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'notSameAs'];
+const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'pausedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'notSameAs'];
 const PAYROLL_CONFIG_STORE = 'projectPayrollConfigs';
 
 let _lastDuplicates = [];
@@ -68,6 +69,7 @@ export function toCatalogDoc(project) {
     for (const field of CATALOG_FIELDS) {
         if (project?.[field] !== undefined && project?.[field] !== null) out[field] = project[field];
     }
+    if (project?.status === 'active' && Object.prototype.hasOwnProperty.call(project, 'pausedAt')) out.pausedAt = null;
     out.id = trimId(project?.id);
     const notSame = cleanIdList(out.notSameAs);
     if (notSame.length) out.notSameAs = notSame;
@@ -76,6 +78,7 @@ export function toCatalogDoc(project) {
 }
 
 function isCatalogProject(project) {
+    try { Project.fromJSON(project); } catch (_) { return false; }
     return Boolean(project) && isValidProjectId(project.id) && typeof project.name === 'string' && project.name.trim() !== '';
 }
 

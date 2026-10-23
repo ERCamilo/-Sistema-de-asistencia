@@ -95,7 +95,7 @@ export class ProjectStore {
     /** Toda mutación estampa updatedAt (F0.3 §1); no muta la instancia recibida. */
     async update(project) {
         const payload = toPayload(project);
-        payload.updatedAt = Date.now();
+        payload.updatedAt = Math.max(Date.now(), Number(payload.updatedAt) || 0);
         return this._saveUnique(payload);
     }
 }

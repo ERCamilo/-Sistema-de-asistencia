@@ -8,6 +8,7 @@ export const PROJECT_SCHEMA_VERSION = 1;
 
 export const PROJECT_STATUS = Object.freeze({
     ACTIVE: 'active',
+    PAUSED: 'paused',
     CLOSED: 'closed',
     ARCHIVED: 'archived'
 });
@@ -25,6 +26,8 @@ function makeProjectId() {
 // Se valida en el constructor (único punto de paso de create() y fromJSON()),
 // así un payload corrupto jamás entra al modelo ni al store.
 function assertStatusTimestamps(status, data) {
+    if (!Object.values(PROJECT_STATUS).includes(status)) throw new Error(`Estado de proyecto inválido: ${status}`);
+    if (status === PROJECT_STATUS.PAUSED && !Number.isFinite(data.pausedAt)) throw new Error('Proyecto pausado requiere pausedAt numérico.');
     if (status !== PROJECT_STATUS.CLOSED && status !== PROJECT_STATUS.ARCHIVED) return;
     if (!Number.isFinite(data.closedAt)) {
         throw new Error(`Proyecto inválido: estado "${status}" requiere closedAt (numérico) y falta o es inválido.`);
@@ -55,6 +58,7 @@ export class Project {
         // Opcionales: sólo existen si existieron en el origen. Ausencia ≠ null
         // mantiene los payloads byte-estables (misma razón que deletedAt en
         // Employee): un guardado viejo nunca borra un campo que no conocía.
+        if (Object.prototype.hasOwnProperty.call(data, 'pausedAt')) this.pausedAt = data.pausedAt;
         if (Object.prototype.hasOwnProperty.call(data, 'closedAt')) this.closedAt = data.closedAt;
         if (Object.prototype.hasOwnProperty.call(data, 'archivedAt')) this.archivedAt = data.archivedAt;
         if (Object.prototype.hasOwnProperty.call(data, 'startDate')) this.startDate = data.startDate;
@@ -76,6 +80,22 @@ export class Project {
 
     static fromJSON(json) {
         return new Project(json || {});
+    }
+
+    pause() {
+        if (this.status !== PROJECT_STATUS.ACTIVE) throw new Error('Sólo un proyecto activo puede pausarse.');
+        this.status = PROJECT_STATUS.PAUSED;
+        this.pausedAt = Math.max(Date.now(), this.updatedAt + 1);
+        this.updatedAt = this.pausedAt;
+        return this;
+    }
+
+    resume() {
+        if (this.status !== PROJECT_STATUS.PAUSED) throw new Error('Sólo un proyecto pausado puede reanudarse.');
+        this.status = PROJECT_STATUS.ACTIVE;
+        this.pausedAt = null;
+        this.updatedAt = Math.max(Date.now(), this.updatedAt + 1);
+        return this;
     }
 
     close() {
@@ -127,7 +147,7 @@ export class Project {
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
         };
-        for (const key of ['closedAt', 'archivedAt', 'startDate', 'endDate', 'createdBy', 'deletedAt', 'metadata', 'notSameAs']) {
+        for (const key of ['pausedAt', 'closedAt', 'archivedAt', 'startDate', 'endDate', 'createdBy', 'deletedAt', 'metadata', 'notSameAs']) {
             if (Object.prototype.hasOwnProperty.call(this, key)) json[key] = this[key];
         }
         return json;

@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.102';
+const APP_VERSION = '1.7.103';
 const CHANGELOG = [
+    { version: '1.7.103', date: '2026-10-24', title: 'Pausar obras y consultar su historial', items: ['Pausa y reanuda obras conservando sus registros.', 'Consulta el historial por obra en modo solo lectura, expórtalo a CSV o imprímelo.', 'Protege las escrituras de asistencia, préstamos, nóminas y Mini en obras pausadas.'] },
     { version: '1.7.102', date: '2026-10-24', title: 'Importes y cálculos seguros en Nómina', items: ['Otro monto acepta coma decimal y conserva el descuento elegido cuando el campo está vacío o tiene un error.', 'Nómina avisa si cambian asistencias, tarifas o configuración y pide actualizar la vista previa antes de exportar o confirmar.', 'Actualizar el cálculo conserva la selección de préstamos y evita recuperar resultados anteriores al recibir cambios de otra instancia.'] },
     { version: '1.7.101', date: '2026-10-23', title: 'Equipos completos en Nómina', items: ['Cambia entre líderes o vuelve a Todos sin que desaparezcan empleados de la nómina.', 'Al activar préstamos se conserva el salario calculado de los equipos que no estaban visibles.'] },
 { version: '1.7.100', date: '2026-10-22', title: 'Preparación para detectar obras repetidas', items: ['Prepara la comparación del personal y de la asistencia de tus obras para reconocer cuando dos obras son en realidad la misma, y para recordar las que descartes.', 'Prepara una pantalla para revisar obras repetidas. Todavía no se muestra: la revisión y la fusión llegarán en una próxima versión.'] },
