@@ -30,3 +30,11 @@ test('storage failure never displays an empty success', async () => {
     const context = new ProjectReadOnlyContext({ store: { get: async () => ({ id: 'a' }) }, idb: { getAll: async () => { throw new Error('offline storage'); } } });
     await expect(context.open('a')).rejects.toThrow('offline storage');
 });
+
+test('default reader only uses readonly IDB access even for deleted catalog entries', async () => {
+    const idb = { init: jest.fn(), get: jest.fn(async () => ({ id: 'a', deletedAt: 1 })), update: jest.fn(), getAll: jest.fn() };
+    const context = new ProjectReadOnlyContext({ idb });
+    await expect(context.open('a')).rejects.toThrow(/disponible/);
+    expect(idb.update).not.toHaveBeenCalled();
+    expect(idb.getAll).not.toHaveBeenCalled();
+});

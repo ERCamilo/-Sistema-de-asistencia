@@ -1,3 +1,7 @@
+import { registerPettyCashGlobals } from '../modules/features/pettycash/PettyCashUI.js';
+import { state } from '../modules/core/AppState.js';
+import { PettyCashStore } from '../modules/features/pettycash/PettyCashStore.js';
+import { indexedDBService } from '../modules/services/IndexedDBService.js';
 import { EmployeeModal } from '../modules/ui/modals/EmployeeModal.js';
 import { PositionModal } from '../modules/ui/modals/PositionModal.js';
 import { LeaderModal } from '../modules/ui/modals/LeaderModal.js';
@@ -77,4 +81,24 @@ test('personal forms and payroll settings reject paused writes before changing d
         await expect(putConfig({ projectId: 'paused' }, { idb })).rejects.toThrow(/no permite/);
         expect(idb.update).not.toHaveBeenCalled();
     } finally { window.showAlert = previousAlert; }
+});
+
+test('cash stops blocked fire-and-forget saves without an unhandled rejection', async () => {
+    const get = jest.spyOn(projectStore, 'get').mockResolvedValue({ id: 'paused', status: 'paused' });
+    const writesBefore = indexedDBService.update.mock.calls.length;
+    try {
+        await expect(PettyCashStore.save('projects', { id: 'cash', officialProjectId: 'paused' })).resolves.toBe(false);
+        expect(indexedDBService.update.mock.calls.length).toBe(writesBefore);
+    } finally { get.mockRestore(); }
+});
+
+test('cash confirmation blocks a paused owner before mutating in-memory movements', async () => {
+    const previous = state.pettyCash;
+    state.pettyCash = { projects: [{ id: 'cash', officialProjectId: 'paused' }], periods: [], movements: [{ id: 'm', projectId: 'cash', reviewPending: true }], selectedProjectId: 'cash' };
+    try {
+        registerPettyCashGlobals();
+        await window.pcConfirmMovement('m');
+        expect(state.pettyCash.movements[0].reviewPending).toBe(true);
+        expect(state.pettyCash.movements[0]).not.toHaveProperty('updatedAt');
+    } finally { state.pettyCash = previous; }
 });

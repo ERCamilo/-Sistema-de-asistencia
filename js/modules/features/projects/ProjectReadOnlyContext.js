@@ -1,5 +1,4 @@
 import indexedDBService from '../../services/IndexedDBService.js';
-import { projectStore } from './ProjectStore.js';
 import { protectedProjectIds, readProjectUsageData } from './ProjectUsage.js';
 
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -11,13 +10,15 @@ function freeze(value) {
 
 /** Snapshot durable e independiente: no escribe preferencias ni AppState. */
 export class ProjectReadOnlyContext {
-    constructor({ store = projectStore, idb = indexedDBService, defaultId = () => protectedProjectIds().defaultProjectId } = {}) {
-        this.store = store;
+    constructor({ store = null, idb = indexedDBService, defaultId = () => protectedProjectIds().defaultProjectId } = {}) {
+        // Lectura directa: ProjectStore.get puede recuperar borrados conflictivos.
+        this.store = store || { get: id => idb.get('projects', id) };
         this.idb = idb;
         this.defaultId = defaultId;
     }
 
     async open(projectId) {
+        await this.idb.init?.();
         const project = await this.store.get(projectId);
         if (!project || project.deletedAt != null) throw new Error('La obra ya no está disponible.');
         const data = await readProjectUsageData({ idb: this.idb });

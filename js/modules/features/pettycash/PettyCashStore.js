@@ -47,10 +47,18 @@ export const RESTORE_SOURCE = Object.freeze({
 });
 
 async function guardCashWrite(col, item) {
-    if (!isProjectsEnabled() || !item) return;
-    const cash = col === 'projects' ? item : await indexedDBService.get(STORE.projects, item.projectId);
-    const officialId = normalizeOfficialProjectId(cash?.officialProjectId);
-    if (officialId) await requireWritableProject(officialId);
+    if (!isProjectsEnabled() || !item) return true;
+    try {
+        const cash = col === 'projects' ? item : await indexedDBService.get(STORE.projects, item.projectId);
+        const officialId = normalizeOfficialProjectId(cash?.officialProjectId);
+        if (officialId) await requireWritableProject(officialId);
+        return true;
+    } catch (error) {
+        // Los handlers de caja también guardan sin await: un rechazo aquí
+        // debe avisarse y detenerse sin convertirse en una promesa no manejada.
+        if (typeof window !== 'undefined') window.showNotification?.(error.message, 'warning');
+        return false;
+    }
 }
 
 function isRestoreMergeEntry(entry) {
@@ -117,7 +125,7 @@ export const PettyCashStore = {
      */
     async saveLocal(col, item, opts = {}) {
         if (!STORE[col] || !item || !item.id) return false;
-        await guardCashWrite(col, item);
+        if (!await guardCashWrite(col, item)) return false;
         const source = opts.source || 'unspecified';
         PettyCashPersistenceMetrics.record({
             operation: 'save', collection: col, stage: 'requested', source
@@ -148,7 +156,7 @@ export const PettyCashStore = {
      */
     async save(col, item, opts = {}) {
         if (!STORE[col] || !item || !item.id) return;
-        await guardCashWrite(col, item);
+        if (!await guardCashWrite(col, item)) return false;
         const source = opts.source || 'unspecified';
         PettyCashPersistenceMetrics.record({
             operation: 'save', collection: col, stage: 'requested', source
@@ -209,7 +217,7 @@ export const PettyCashStore = {
      *  opts.announce: igual que en save(). */
     async remove(col, id, opts = {}) {
         if (!STORE[col] || !id) return;
-        await guardCashWrite(col, await indexedDBService.get(STORE[col], id));
+        if (!await guardCashWrite(col, await indexedDBService.get(STORE[col], id))) return false;
         const source = opts.source || 'unspecified';
         PettyCashPersistenceMetrics.record({
             operation: 'delete', collection: col, stage: 'requested', source

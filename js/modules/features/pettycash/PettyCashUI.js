@@ -1,3 +1,4 @@
+import { assertProjectWritable } from '../projects/ProjectWriteGuard.js';
 import { getProjectReconciliationSnapshot } from '../projects/ProjectReconciliationUI.js';
 /**
  * PettyCashUI — pantalla de Caja Chica (Fase 1, integración Paso 4 · opción C).
@@ -163,6 +164,16 @@ function persist() {
             reviewFirst: d.reviewFirst !== false
         }));
     } catch { /* noop */ }
+}
+
+function canWriteCashProject(project = currentProject()) {
+    try {
+        if (project?.officialProjectId) assertProjectWritable(project.officialProjectId);
+        return true;
+    } catch (error) {
+        window.showNotification?.(error.message, 'warning');
+        return false;
+    }
 }
 
 // ── persistencia durable: IndexedDB local + outbox + Firestore ────────
@@ -1801,6 +1812,8 @@ export async function savePettyCashMovementDraft(form, fields, { periodId = null
     const owner = auth?.currentUser?.uid;
     const guard = () => {
         canProceed();
+        const officialId = d.projects.find(item => item.id === period?.projectId)?.officialProjectId;
+        if (officialId) assertProjectWritable(officialId);
         if (auth?.currentUser?.uid !== owner) throw Error('Cambió la sesión de Caja Chica.');
         if (!period || !d.periods.some(item => item.id === period.id && item.projectId === period.projectId && item.status !== 'cerrada') || !d.projects.some(item => item.id === period.projectId)) throw Error('Selecciona una caja y un periodo abierto.');
     };
@@ -2042,6 +2055,7 @@ export function registerPettyCashGlobals() {
                             this.element.querySelector(result.field === 'rnc' ? '[data-fiscal-rnc]' : '[data-fiscal-min]')?.focus();
                             return;
                         }
+                        if (!canWriteCashProject(proj)) return;
                         Object.assign(proj, result.patch, { updatedAt: Date.now() });
                         persist(); saveProject(proj, 'Datos fiscales guardados'); window.render?.();
                         this.close();
@@ -2057,6 +2071,7 @@ export function registerPettyCashGlobals() {
         if (!proj) return;
         const name = (await Modal.prompt({ title: '✏️ Renombrar proyecto', message: 'Nuevo nombre del proyecto:', defaultValue: proj.name, confirmText: 'Guardar' }) || '').trim();
         if (!name) return;
+        if (!canWriteCashProject(proj)) return;
         proj.name = name; proj.updatedAt = Date.now();
         persist(); saveProject(proj, 'Proyecto renombrado'); window.render?.();
     };
@@ -2068,6 +2083,7 @@ export function registerPettyCashGlobals() {
         const pers = periodsOfProject(d.periods, proj.id);
         const ok = await Modal.confirm({ title: '🗑️ Eliminar proyecto', message: `¿Eliminar el proyecto "${esc(proj.name)}"${pers.length ? ` y sus ${pers.length} periodo(s)` : ''}? No se puede deshacer.`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
+        if (!canWriteCashProject(proj)) return;
         // cascada: movimientos + periodos del proyecto
         d.movements.filter(m => m.projectId === proj.id).forEach(m => {
             if (m.receiptStatus) discardMovementReceipt(m.id).then(drainPendingReceiptDeletes, (e) => console.warn('delete receipt', e));
@@ -2088,6 +2104,7 @@ export function registerPettyCashGlobals() {
         const label = (await Modal.prompt({ title: '💵 Nuevo periodo de caja', message: 'Etiqueta del periodo:', placeholder: 'Ej. Quincena 1 - Enero', confirmText: 'Crear' }) || '').trim();
         if (!label) return;
         const d = pc();
+        if (!canWriteCashProject(proj)) return;
         const per = { id: uid('per'), projectId: proj.id, label, status: 'abierta', openingDate: today(), closingDate: null, createdBy: 'app', updatedAt: Date.now() };
         d.periods.push(per);
         d.selectedPeriodId = per.id;
@@ -2119,6 +2136,7 @@ export function registerPettyCashGlobals() {
         if (!period) return;
         const label = document.getElementById('pc-per-label')?.value?.trim();
         if (!label) { Modal.alert({ title: 'Nombre requerido', message: 'El nombre del periodo no puede estar vacío.' }); return; }
+        if (!canWriteCashProject()) return;
         period.label = label;
         period.openingDate = document.getElementById('pc-per-open')?.value || period.openingDate || today();
         period.closingDate = document.getElementById('pc-per-close')?.value || null;
@@ -2134,6 +2152,7 @@ export function registerPettyCashGlobals() {
         const movs = movementsOfPeriod(d.movements, period.id);
         const ok = await Modal.confirm({ title: '🗑️ Eliminar periodo', message: `¿Eliminar el periodo "${esc(period.label)}"${movs.length ? ` y sus ${movs.length} movimiento(s)` : ''}? No se puede deshacer.`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
+        if (!canWriteCashProject()) return;
         movs.forEach(m => {
             if (m.receiptStatus) discardMovementReceipt(m.id).then(drainPendingReceiptDeletes, (e) => console.warn('delete receipt', e));
             removeMovementDoc(m.id);
@@ -2339,6 +2358,7 @@ export function registerPettyCashGlobals() {
         if (!mov) return;
         const period = d.periods.find((item) => item.id === mov.periodId);
         const project = d.projects.find((item) => item.id === (mov.projectId || period?.projectId));
+        if (!canWriteCashProject(project)) return;
         mov.reviewPending = false;
         delete mov.localDraft;
         mov.updatedAt = Date.now();
@@ -2831,6 +2851,7 @@ export function registerPettyCashGlobals() {
         const d = pc();
         const mov = d.movements.find(m => m.id === d.editMov);
         if (!mov) return;
+        if (!canWriteCashProject(d.projects.find(project => project.id === mov.projectId))) return;
         const numOrNull = (id) => { const v = document.getElementById(id)?.value; return (v === '' || v == null) ? null : round2(parseFloat(v)); };
         const txt = (id) => document.getElementById(id)?.value?.trim() || '';
         const amount = parseFloat(document.getElementById('pce-amount')?.value);
@@ -2928,6 +2949,7 @@ export function registerPettyCashGlobals() {
         const label = mov.type === 'gasto' ? (mov.paidTo || mov.description || 'gasto') : 'reposición';
         const ok = await Modal.confirm({ title: '🗑️ Eliminar movimiento', message: `¿Eliminar "${esc(label)}" de ${rd(mov.amount)}?`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
+        if (!canWriteCashProject(d.projects.find(project => project.id === mov.projectId))) return;
         if (mov.receiptStatus) await discardMovementReceipt(movId);
         removeMovementDoc(movId, 'Movimiento eliminado');
         d.movements = d.movements.filter(m => m.id !== movId);
@@ -2945,6 +2967,7 @@ export function registerPettyCashGlobals() {
         if (contadoStr === null) return;
         const contado = round2(parseFloat(contadoStr) || 0);
         const diferencia = round2(contado - r.saldo);
+        if (!canWriteCashProject()) return;
         period.status = 'cerrada';
         period.saldoFinal = r.saldo;
         period.efectivoContado = contado;
