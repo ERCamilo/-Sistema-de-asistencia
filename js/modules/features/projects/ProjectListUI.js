@@ -1,3 +1,4 @@
+import { openProjectHistory } from './ProjectHistoryUI.js';
 import { PROJECT_STATUS } from './Project.js';
 import { projectSetupService } from './ProjectSetupService.js';
 import { mountProjectCreateForm, openProjectCreateModal, closeProjectCreateModal } from './ProjectCreateUI.js';
@@ -88,7 +89,7 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
                     <div class="project-name" data-project-name-display>${esc(project.name || 'Sin nombre')}</div>
                     ${project.metadata?.nameConflict ? '<button type="button" class="project-action is-secondary" data-project-name-conflict>Resolver nombre repetido</button>' : ''}
                     <div class="project-id" data-project-id-display>${esc(project.id)}</div>
-                    ${switchAction}
+                    ${switchAction}<button type="button" class="project-action is-secondary" data-project-history="${esc(project.id)}">Consultar historial</button>
                     ${[PROJECT_STATUS.ACTIVE, PROJECT_STATUS.PAUSED].includes(project.status) ? `<button type="button" class="project-action is-secondary" data-project-lifecycle="${esc(project.id)}" ${isActiveContext ? 'disabled title="Cambia a otra obra antes de pausar"' : ''}>${project.status === PROJECT_STATUS.PAUSED ? 'Reanudar' : 'Pausar'}</button>` : ''}
                 </div>
                 <div class="project-item-dates">
@@ -148,6 +149,10 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
     function render() {
         container.innerHTML = renderProjectListHTML({ projects: currentProjects, activeProjectId: currentActiveId, defaultProjectId: currentDefaultId, currentFilter, allowSwitch: shouldAllowSwitch, usage, confirmDeleteId, deletingId });
         if (deleteError) container.insertAdjacentHTML('afterbegin', `<div class="project-status-line is-error" role="alert">${esc(deleteError)}</div>`);
+        container.querySelectorAll('[data-project-history]').forEach(button => button.addEventListener('click', async () => {
+            try { await openProjectHistory(button.dataset.projectHistory); }
+            catch (error) { deleteError = error.message || String(error); render(); }
+        }));
         container.querySelectorAll('[data-project-lifecycle]').forEach(button => button.addEventListener('click', () => {
             const project = currentProjects.find(p => p.id === button.dataset.projectLifecycle);
             if (!project || button.disabled) return;
