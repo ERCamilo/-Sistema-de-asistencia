@@ -1,3 +1,6 @@
+import { requireWritableProject } from '../projects/ProjectWriteGuard.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { peekEntityScope } from '../projects/EntityProjectScope.js';
 import { state, stateManager, invalidateEmployeeStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { stampAttendanceWrite } from './AttendanceRecordWriter.js';
@@ -149,6 +152,10 @@ export async function applyMiniAttendancePlan(plan, {
     }
     if (plan.writes.length === 0) return resultFor(plan, []);
 
+    if (isProjectsEnabled()) {
+        const scope = peekEntityScope();
+        for (const id of new Set(plan.writes.map(write => write.record.projectId ?? scope.defaultProjectId ?? scope.projectId))) await requireWritableProject(id);
+    }
     const stampedWrites = plan.writes.map(write => ({
         key: write.key,
         employeeId: write.record.employeeId,

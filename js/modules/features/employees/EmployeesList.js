@@ -1,3 +1,4 @@
+import { assertEntityProjectWritable } from '../projects/ProjectWriteGuard.js';
 ﻿/**
  * 👤 EmployeesList — Card template + handlers for employees.
  *
@@ -334,6 +335,7 @@ export function setEmployeeSalaryView(view) {
 export function toggleEmployeeStatus(employeeId) {
     const emp = state.employees.find(e => e.key === employeeId || e.id === employeeId);
     if (!emp) return;
+    try { assertEntityProjectWritable(emp); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
 
     const action = emp.active ? 'desactivar' : 'activar';
     const actionPast = emp.active ? 'desactivado' : 'activado';
@@ -345,6 +347,7 @@ export function toggleEmployeeStatus(employeeId) {
         cancelText: 'Cancelar',
         type: emp.active ? 'warning' : 'info',
         onConfirm: () => {
+            try { assertEntityProjectWritable(emp); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
             emp.active = !emp.active;
             const changeDate = getDateKey(new Date());
             emp.lastStatusChange = changeDate;
@@ -379,6 +382,7 @@ export function toggleEmployeeStatus(employeeId) {
 export async function deleteEmployeeHandler(employeeId) {
     const emp = state.employees.find(e => e.key === employeeId || e.id === employeeId);
     if (!emp) return;
+    try { assertEntityProjectWritable(emp); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
 
     const check = canDeleteEmployee(emp);
     if (!check.ok) {
@@ -403,11 +407,13 @@ export async function deleteEmployeeHandler(employeeId) {
         cancelText: 'Cancelar',
         type: 'danger',
         onConfirm: () => {
+            try { assertEntityProjectWritable(emp); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
             const empId = emp.id;
             // Modal.confirm es async: LiveSync pudo reemplazar state.employees
             // mientras el diálogo estaba abierto (otro dispositivo agregó un
             // préstamo). El guard de saldo debe validar sobre datos frescos.
             const freshEmp = state.employees.find(e => e.id === empId) || emp;
+            try { assertEntityProjectWritable(freshEmp); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
             const r = deleteEmployeePermanently(freshEmp, {
                 enqueueTombstone: (id, deletedAt) => enqueueEmployeeTombstone(id, deletedAt),
                 removeFromState: (id) => {

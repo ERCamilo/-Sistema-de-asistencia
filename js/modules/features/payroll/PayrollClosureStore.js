@@ -1,3 +1,4 @@
+import { assertProjectWritable } from '../projects/ProjectWriteGuard.js';
 import indexedDBService from '../../services/IndexedDBService.js';
 import {
     PAYROLL_CLOSURE_IDENTITY_KIND,
@@ -106,6 +107,7 @@ export class PayrollClosureStore {
             const expectedProjectId = options?.scope?.projectId
                 ? String(options.scope.projectId).trim()
                 : String(closure.projectId).trim();
+            assertProjectWritable(expectedProjectId);
             ensureNotStale(expectedProjectId);
             validatePayrollClosureForScopedWrite(closure, expectedProjectId);
         }
@@ -171,6 +173,7 @@ export class PayrollClosureStore {
             const expectedProjectId = scope?.projectId
                 ? String(scope.projectId).trim()
                 : String(closure.projectId).trim();
+            assertProjectWritable(expectedProjectId);
             ensureNotStale(expectedProjectId);
             validatePayrollClosureForScopedWrite(closure, expectedProjectId);
             const opScope = { ...captureEntityProjectScope(), enabled: true, projectId: expectedProjectId };

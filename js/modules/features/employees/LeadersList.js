@@ -1,3 +1,4 @@
+import { assertEntityProjectWritable } from '../projects/ProjectWriteGuard.js';
 ﻿/**
  * 🔑 LeadersList — Card template + handlers for leaders.
  *
@@ -168,6 +169,7 @@ export function toggleLeaderEmployees(leaderId) {
 export function toggleLeaderStatus(leaderId) {
     const ldr = state.leaders.find(l => l.id === leaderId);
     if (!ldr) return;
+    try { assertEntityProjectWritable(ldr); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
 
     const action = ldr.active ? 'desactivar' : 'activar';
     const actionPast = ldr.active ? 'desactivado' : 'activado';
@@ -179,6 +181,7 @@ export function toggleLeaderStatus(leaderId) {
         cancelText: 'Cancelar',
         type: ldr.active ? 'warning' : 'info',
         onConfirm: () => {
+            try { assertEntityProjectWritable(ldr); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
             ldr.active = !ldr.active;
             ldr.updatedAt = Date.now();
             ldr._isDirty = true;

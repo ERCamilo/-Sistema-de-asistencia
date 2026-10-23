@@ -1,3 +1,4 @@
+import { assertEntityProjectWritable } from '../projects/ProjectWriteGuard.js';
 /**
  * ✍️ AttendanceRecordWriter.js (Fase 1 — Portero por-registro, U1b)
  *
@@ -54,6 +55,7 @@ export function stampBirthProject(record) {
  * @returns {object} copia con updatedAt fresco (y deletedAt=null si revive)
  */
 export function stampAttendanceWrite(record, now = Date.now()) {
+    assertEntityProjectWritable(record);
     const stamped = stampBirthProject({ ...record, updatedAt: now });
     if (record.present === true) stamped.deletedAt = null; // revivir: presente ⇒ sin tombstone
     return stamped;
@@ -78,6 +80,7 @@ export function stampAttendanceWrite(record, now = Date.now()) {
  * @returns {object} copia tombstoneada
  */
 export function tombstoneAttendanceWrite(record, now = Date.now()) {
+    assertEntityProjectWritable(record);
     const tomb = { ...record, present: false, deletedAt: now, updatedAt: now };
     // F1.5 micro-closure — regla congelada por Dirección: un tombstone hereda
     // el proyecto EFECTIVO del registro que elimina (projectId propio ?? el

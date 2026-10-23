@@ -1,3 +1,4 @@
+import { rememberProjectWriteStates } from './ProjectWriteGuard.js';
 /**
  * 🎯 ProjectContext (F1.3) — mantiene el proyecto activo como preferencia
  * local del dispositivo (F0.3 §3).
@@ -91,10 +92,15 @@ export class ProjectContextService {
         const storedId = readStoredId();
         if (storedId) {
             const found = await this.store.get(storedId);
+            if (found) rememberProjectWriteStates([found]);
             if (found && found.status === PROJECT_STATUS.ACTIVE) return found.id;
         }
         const fallback = await this.defaults.ensureDefaultProject();
-        return fallback ? fallback.id : null;
+        if (fallback) rememberProjectWriteStates([fallback]);
+        if (fallback?.status === PROJECT_STATUS.ACTIVE) return fallback.id;
+        const candidates = await this.store.listAll();
+        rememberProjectWriteStates(candidates);
+        return candidates.find(project => project.status === PROJECT_STATUS.ACTIVE)?.id || null;
     }
 
     /**
@@ -106,6 +112,7 @@ export class ProjectContextService {
 
         const previousProjectId = readStoredId() || peekEntityScope().projectId || null;
         const candidate = await this.store.get(id);
+        if (candidate) rememberProjectWriteStates([candidate]);
         if (!candidate) throw new Error(`Proyecto inexistente: "${id}"`);
         if (candidate.status !== PROJECT_STATUS.ACTIVE) {
             throw new Error(`El proyecto "${candidate.name}" está "${candidate.status}"; sólo puede activarse uno "active".`);

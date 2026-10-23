@@ -1,3 +1,4 @@
+import { assertEntityProjectWritable } from '../../features/projects/ProjectWriteGuard.js';
 import { VoiceNameEntry } from '../../features/voice/VoiceNameEnrollmentUI.js';
 import { getActivePayrollSettings } from '../../features/payroll/ActivePayrollSettings.js';
 import { Modal } from '../../components/Modal.js';
@@ -237,6 +238,8 @@ export class EmployeeModal {
     }
 
     static save(modalInstance, existingEmp, { confirmedVersion } = {}) {
+        try { assertEntityProjectWritable(existingEmp || { projectId: peekEntityScope().projectId }); }
+        catch (error) { window.showAlert?.(error.message, 'warning'); return; }
         const el = modalInstance.element;
         // F1.4: alcance activo para sello de nacimiento y detección de duplicados.
         const scope = peekEntityScope();

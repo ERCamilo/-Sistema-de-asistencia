@@ -5,7 +5,7 @@ import { replaceEntityScope, peekEntityScope } from '../modules/features/project
 test('history isolates owners, retains legacy default and freezes its independent snapshot', async () => {
     replaceEntityScope({ enabled: true, projectId: 'active', defaultProjectId: 'default' });
     const before = peekEntityScope();
-    const data = { employees: [{ id: 'e1', name: '<script>', loans: [{ id: 'loan' }] }, { id: 'e2', projectId: 'active' }], attendance: [{ employeeId: 'e1', date: '2026-01-01' }, { employeeId: 'e2' }], pettyCashProjects: [{ id: 'c1', officialProjectId: 'default' }, { id: 'c2', officialProjectId: 'active' }], pettyCashMovements: [{ id: 'm1', projectId: 'c1' }, { id: 'm2', projectId: 'c2' }] };
+    const data = { employees: [{ id: 'e1', name: '<script>', loans: [{ id: 'loan' }] }, { id: 'e2', projectId: 'active' }], attendance: [{ employeeId: 'e1', date: '2026-01-01' }, { employeeId: 'e2', projectId: 'active' }], pettyCashProjects: [{ id: 'c1', officialProjectId: 'default' }, { id: 'c2', officialProjectId: 'active' }], pettyCashMovements: [{ id: 'm1', projectId: 'c1' }, { id: 'm2', projectId: 'c2' }] };
     const idb = { getAll: async name => data[name] || [], update: jest.fn() };
     const context = new ProjectReadOnlyContext({ store: { get: async id => ({ id, name: '=Obra', status: 'paused' }) }, idb, defaultId: () => 'default' });
     const snapshot = await context.open('default');

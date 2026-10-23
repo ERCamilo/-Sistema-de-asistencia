@@ -24,14 +24,13 @@ export class ProjectReadOnlyContext {
         const defaultId = this.defaultId();
         const owned = row => (row.projectId ?? defaultId) === projectId;
         const employees = rows(data.employees).filter(owned);
-        const employeeIds = new Set(employees.map(e => e.id));
         const cash = rows(data.pettyCashProjects).filter(row => row.officialProjectId === projectId);
         const cashIds = new Set(cash.map(row => row.id));
         const attendance = rows(data.attendance).flatMap(row => {
             // Versiones anteriores guardaban un mapa por fecha.
             if (row.employeeId) return [row];
             return rows(row.records || row.attendance).filter(item => item && typeof item === 'object');
-        }).filter(row => row.projectId != null ? owned(row) : employeeIds.has(row.employeeId));
+        }).filter(owned);
         return freeze(copy({ project, readOnly: true, capturedAt: Date.now(), sections: {
             employees,
             positions: rows(data.positions).filter(owned),

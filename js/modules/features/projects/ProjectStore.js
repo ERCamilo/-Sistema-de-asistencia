@@ -1,3 +1,4 @@
+import { rememberProjectWriteStates } from './ProjectWriteGuard.js';
 import indexedDBService from '../../services/IndexedDBService.js';
 import { mutateProjectCatalog, stageProjectNameConflicts } from './ProjectNameConflicts.js';
 import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
@@ -57,6 +58,7 @@ export class ProjectStore {
     async get(id) {
         const row = await this.db.get(PROJECTS_STORE, String(id || ''));
         if (row?.deletedAt != null) return (await this._visibleCatalog()).find(project => project.id === row.id) || null;
+        if (row) rememberProjectWriteStates([row]);
         return clone(row || null);
     }
 
@@ -81,6 +83,7 @@ export class ProjectStore {
 
     async listAll() {
         const records = await this._visibleCatalog();
+        rememberProjectWriteStates(records);
         return (records || [])
             .sort((left, right) => (left.createdAt - right.createdAt) ||
                 String(left.id).localeCompare(String(right.id)))

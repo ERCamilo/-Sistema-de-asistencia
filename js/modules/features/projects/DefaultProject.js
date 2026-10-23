@@ -76,9 +76,9 @@ export class DefaultProjectService {
         const pointerId = readPointer();
         if (pointerId) {
             const existing = await this.store.get(pointerId);
-            // Puntero colgante: inexistente O no activo ⇒ misma recuperación
-            // determinista que un puntero ausente (un solo contrato).
-            if (existing && existing.status === PROJECT_STATUS.ACTIVE) return existing;
+            // La pausa conserva la identidad inicial: el legado sin projectId
+            // sigue perteneciendo a esta obra aunque otra esté en uso.
+            if (existing && [PROJECT_STATUS.ACTIVE, PROJECT_STATUS.PAUSED].includes(existing.status)) return existing;
         }
 
         // Recuperación: listAll ya viene ordenado por createdAt asc, así que

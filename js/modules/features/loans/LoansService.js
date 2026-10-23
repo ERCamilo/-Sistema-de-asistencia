@@ -1,3 +1,4 @@
+import { assertEntityProjectWritable } from '../projects/ProjectWriteGuard.js';
 /**
  * 💵 LoansService — Pure data operations for the employee loans ledger.
  *
@@ -45,6 +46,7 @@ import {
 export function assertLoanEmployeeInScope(emp, scope = null, context = 'LoansService') {
     if (!isProjectsEnabled()) return;
     const resolvedScope = scope || captureEntityProjectScope();
+    assertEntityProjectWritable(emp, resolvedScope);
     if (!resolvedScope || !resolvedScope.enabled) return;
     if (!emp || typeof emp !== 'object' || !emp.id) {
         throw new ProjectScopedGateError(context);

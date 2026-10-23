@@ -1,3 +1,4 @@
+import { assertEntityProjectWritable } from '../projects/ProjectWriteGuard.js';
 ﻿/**
  * 🏷️ PositionsList — Card template + handlers for positions.
  *
@@ -231,6 +232,7 @@ export function openPositionForm(positionId = null) {
 export function togglePositionStatus(positionId) {
     const pos = state.positions.find(p => p.id === positionId);
     if (!pos) return;
+    try { assertEntityProjectWritable(pos); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
 
     const action = pos.active ? 'desactivar' : 'activar';
     Modal.confirm({
@@ -240,6 +242,7 @@ export function togglePositionStatus(positionId) {
         cancelText: 'Cancelar',
         type: pos.active ? 'warning' : 'info',
         onConfirm: () => {
+            try { assertEntityProjectWritable(pos); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
             pos.active = !pos.active;
             pos.updatedAt = Date.now();
             pos._isDirty = true;
@@ -305,6 +308,7 @@ export function cleanupPositionReferences(positionId) {
 export async function deletePosition(positionId) {
     const pos = state.positions.find(p => p.id === positionId);
     if (!pos) return;
+    try { assertEntityProjectWritable(pos); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
 
     if (pos.active) {
         Modal.confirm({
@@ -364,6 +368,7 @@ export async function deletePosition(positionId) {
         cancelText: 'Cancelar',
         type: 'danger',
         onConfirm: () => {
+            try { assertEntityProjectWritable(pos); } catch (error) { window.showAlert?.(error.message, 'warning'); return; }
             // 🛡️ Clear references in historical attendance BEFORE deleting
             // (prevents orphans flagged by validateDataIntegrity)
             const cleaned = cleanupPositionReferences(pos.id);

@@ -1,3 +1,4 @@
+import { rememberProjectWriteStates } from './ProjectWriteGuard.js';
 import indexedDBService from '../../services/IndexedDBService.js';
 import { findProjectNameConflict, firstAvailableProjectName, duplicateProjectNameMessage } from './ProjectNames.js';
 
@@ -8,20 +9,23 @@ export async function mutateProjectCatalog(idb, build) {
     await idb.init?.();
     if (!idb.db?.transaction) {
         // Adaptadores de memoria inyectados; el runtime usa la transacción IDB.
-        const { writes = [], result } = build(await idb.getAll('projects') || []);
+        const current = await idb.getAll('projects') || [];
+        const { writes = [], result } = build(current);
         for (const row of writes) await idb.update('projects', row);
+        rememberProjectWriteStates([...current, ...writes]);
         return result;
     }
     return new Promise((resolve, reject) => {
         const tx = idb.db.transaction('projects', 'readwrite');
-        let result, failure;
-        tx.oncomplete = () => resolve(result);
+        let result, failure, committed = [];
+        tx.oncomplete = () => { rememberProjectWriteStates(committed); resolve(result); };
         tx.onerror = tx.onabort = () => reject(failure || tx.error || new Error('No se pudo guardar el catálogo de obras.'));
         const store = tx.objectStore('projects');
         store.getAll().onsuccess = event => {
             try {
                 const plan = build(event.target.result);
                 result = plan.result;
+                committed = [...event.target.result, ...(plan.writes || [])];
                 for (const row of plan.writes || []) store.put(JSON.parse(JSON.stringify(row)));
             } catch (error) {
                 failure = error;

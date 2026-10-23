@@ -1,3 +1,4 @@
+import { assertEntityProjectWritable } from '../../features/projects/ProjectWriteGuard.js';
 import { getActivePayrollSettings } from '../../features/payroll/ActivePayrollSettings.js';
 import { Modal } from '../../components/Modal.js';
 import { COLOR_PALETTE } from '../../utils/Constants.js';
@@ -417,6 +418,8 @@ export class PositionModal {
     }
 
     static save(modalInstance, existingPos) {
+        try { assertEntityProjectWritable(existingPos || { projectId: peekEntityScope().projectId }); }
+        catch (error) { window.showAlert?.(error.message, 'warning'); return; }
         const el = modalInstance.element;
         // F1.4: alcance activo para el sello de nacimiento.
         const scope = peekEntityScope();

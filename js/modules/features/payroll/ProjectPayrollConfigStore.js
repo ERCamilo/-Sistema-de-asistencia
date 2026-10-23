@@ -1,3 +1,4 @@
+import { assertProjectWritable } from '../projects/ProjectWriteGuard.js';
 /**
  * F1.6-A2 — ProjectPayrollConfigStore
  * Local-only IndexedDB repository for projectPayrollConfigs (keyPath projectId).
@@ -41,6 +42,7 @@ export async function putConfig(config, opts = {}) {
         throw new TypeError('putConfig requires valid projectId');
     }
     const idb = opts.idb || indexedDBService;
+    assertProjectWritable(config.projectId);
     const payload = clone(config);
     payload.projectId = String(payload.projectId);
     payload.schemaVersion = SCHEMA_VERSION;

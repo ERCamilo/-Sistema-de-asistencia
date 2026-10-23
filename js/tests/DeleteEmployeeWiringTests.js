@@ -66,7 +66,7 @@ testRunner.addSuite("DeleteEmployeeWiring — botón y handler", {
     // el emp stale del closure → podía borrar un empleado con saldo nuevo.
     "onConfirm re-lee el empleado del state vivo antes de borrar (no usa el emp stale)"() {
         const idx = LIST_SRC.indexOf('export async function deleteEmployeeHandler');
-        const block = LIST_SRC.slice(idx, idx + 2000);
+        const block = LIST_SRC.slice(idx, idx + 6000);
         testRunner.assert(
             /onConfirm[\s\S]{0,500}state\.employees\.find\(\s*e\s*=>\s*e\.id\s*===\s*empId\s*\)/.test(block),
             'onConfirm debe re-buscar el empleado por empId en el state vivo'
@@ -79,7 +79,7 @@ testRunner.addSuite("DeleteEmployeeWiring — botón y handler", {
 
     "el handler encola el tombstone (no un hard-delete) vía enqueueEmployeeTombstone"() {
         const idx = LIST_SRC.indexOf('export async function deleteEmployeeHandler');
-        const block = LIST_SRC.slice(idx, idx + 2000);
+        const block = LIST_SRC.slice(idx, idx + 6000);
         testRunner.assert(/enqueueEmployeeTombstone\s*\(/.test(block),
             'debe encolar el tombstone durable, no hard-delete');
         testRunner.assert(/deleteEmployeePermanently\s*\(/.test(block),

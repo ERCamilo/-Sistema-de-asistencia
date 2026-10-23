@@ -1,3 +1,4 @@
+import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
 import { serialize, deserialize } from 'node:v8';
 import { IDBFactory } from 'fake-indexeddb';
 import { IndexedDBService } from 'actual/services/IndexedDBService.js';
@@ -191,4 +192,17 @@ describe('vínculo recordado cuyo empleado ya no existe', () => {
   const again = await store.stage({ ...payload, proposalId: 'proposal-2', requestId: 'request-2' }, { peerId: 'peer-1', scope });
   await expect(accept(again, [{ miniLocalId: 'mini-1', action: 'create' }])).rejects.toThrow(/ya está vinculado/);
  });
+});
+
+test('Mini cannot accept personnel into a project paused after review', async () => {
+    setProjectsEnabled(true);
+    try {
+        await db.update('projects', { id: 'P-1', name: 'Obra', status: 'active' });
+        const entry = await store.stage(payload, { peerId: 'peer-1', scope });
+        await db.update('projects', { id: 'P-1', name: 'Obra', status: 'paused', pausedAt: 1 });
+        await expect(store.accept(entry.id, [{ miniLocalId: 'mini-1', action: 'create' }], { scope, hoursPerDay: 8, version: intakeReviewVersion(model, scope, 8) })).rejects.toThrow(/no permite/);
+        expect(await db.getAll('employees')).toEqual([]);
+        expect(await db.getAll('positions')).toEqual([]);
+        expect((await store.list())[0].status).toBe('pending');
+    } finally { setProjectsEnabled(false); }
 });

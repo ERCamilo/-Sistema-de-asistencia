@@ -1,3 +1,5 @@
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { assertProjectWritable, requireWritableProject } from '../projects/ProjectWriteGuard.js';
 import indexedDBService from '../../services/IndexedDBService.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { eventBus } from '../../core/Events.js';
@@ -40,6 +42,7 @@ export class MiniEmployeeIntakeStore {
     async stage(raw,{peerId,peerName='',scope,local=false}) {
         const payload=proposalContract.validateProposal(raw), owner=this.readOwner();
         if(!peerId || peerId.length>128 || !scope.enabled || scope.projectId!==payload.saProjectId) throw new Error('Mini u obra de destino inválidos.');
+        await requireWritableProject(payload.saProjectId, { store: { get: id => this.dbService.get('projects', id) } });
         await this.dbService.init(); this.assertContext(owner,payload.saProjectId);
         const id=entryId(peerId,payload), serialized=JSON.stringify({...payload,requestId:undefined});
         let created=false;
@@ -63,12 +66,19 @@ export class MiniEmployeeIntakeStore {
         return staged;
     }
     async accept(id,decisions,{scope,hoursPerDay,version}) {
+        await requireWritableProject(scope.projectId, { store: { get: id => this.dbService.get('projects', id) } });
         const owner=this.readOwner();await this.dbService.init();this.assertContext(owner,scope.projectId);
         let applied=null, settled=null, repeated=[];
-        const output=await this.transaction(['settings','employees','positions'],(tx,resolve,abort)=>{
-            const requests=[tx.objectStore('settings').get(keyFor(owner)),tx.objectStore('employees').getAll(),tx.objectStore('positions').getAll()];let remaining=requests.length;
+        const checkProject = isProjectsEnabled();
+        const output=await this.transaction(['settings','employees','positions', ...(checkProject ? ['projects'] : [])],(tx,resolve,abort)=>{
+            const requests=[tx.objectStore('settings').get(keyFor(owner)),tx.objectStore('employees').getAll(),tx.objectStore('positions').getAll(), ...(checkProject ? [tx.objectStore('projects').get(scope.projectId)] : [])];let remaining=requests.length;
             requests.forEach(request=>{request.onsuccess=()=>{if(--remaining)return;try{
                 this.assertContext(owner,scope.projectId);
+                if (checkProject) {
+                    const project = requests[3].result;
+                    if (!project) throw new Error('La obra ya no está disponible.');
+                    assertProjectWritable(scope.projectId, { project, enabled: true });
+                }
                 const ledger=requests[0].result, entry=ledger?.items.find(e=>e.id===id);
                 if(!entry || entry.payload.saProjectId!==scope.projectId) throw new Error('Propuesta de otra cuenta u obra, o ya no disponible.');
                 if(entry.status==='discarded')throw new Error('Esta propuesta fue descartada. Prepara un nuevo envío desde Mini.');

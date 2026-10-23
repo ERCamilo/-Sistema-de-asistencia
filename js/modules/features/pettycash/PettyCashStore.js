@@ -1,3 +1,5 @@
+import { requireWritableProject } from '../projects/ProjectWriteGuard.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 /**
  * PettyCashStore.js — persistencia durable de caja chica (Fase capa-2: C1+L1).
  *
@@ -43,6 +45,13 @@ export const RESTORE_SOURCE = Object.freeze({
     MERGE: 'backup-restore',
     REPLACE: 'backup-replace'
 });
+
+async function guardCashWrite(col, item) {
+    if (!isProjectsEnabled() || !item) return;
+    const cash = col === 'projects' ? item : await indexedDBService.get(STORE.projects, item.projectId);
+    const officialId = normalizeOfficialProjectId(cash?.officialProjectId);
+    if (officialId) await requireWritableProject(officialId);
+}
 
 function isRestoreMergeEntry(entry) {
     return entry?.source === RESTORE_SOURCE.MERGE && entry?.op === 'save';
@@ -108,6 +117,7 @@ export const PettyCashStore = {
      */
     async saveLocal(col, item, opts = {}) {
         if (!STORE[col] || !item || !item.id) return false;
+        await guardCashWrite(col, item);
         const source = opts.source || 'unspecified';
         PettyCashPersistenceMetrics.record({
             operation: 'save', collection: col, stage: 'requested', source
@@ -138,6 +148,7 @@ export const PettyCashStore = {
      */
     async save(col, item, opts = {}) {
         if (!STORE[col] || !item || !item.id) return;
+        await guardCashWrite(col, item);
         const source = opts.source || 'unspecified';
         PettyCashPersistenceMetrics.record({
             operation: 'save', collection: col, stage: 'requested', source
@@ -198,6 +209,7 @@ export const PettyCashStore = {
      *  opts.announce: igual que en save(). */
     async remove(col, id, opts = {}) {
         if (!STORE[col] || !id) return;
+        await guardCashWrite(col, await indexedDBService.get(STORE[col], id));
         const source = opts.source || 'unspecified';
         PettyCashPersistenceMetrics.record({
             operation: 'delete', collection: col, stage: 'requested', source

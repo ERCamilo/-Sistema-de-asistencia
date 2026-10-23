@@ -1,3 +1,4 @@
+import { assertEntityProjectWritable } from '../../features/projects/ProjectWriteGuard.js';
 import { Modal } from '../../components/Modal.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
 import { peekEntityScope, entityInScope } from '../../features/projects/ProjectContext.js';
@@ -121,6 +122,8 @@ export class LeaderModal {
     }
 
     static save(modalInstance, existingLdr) {
+        try { assertEntityProjectWritable(existingLdr || { projectId: peekEntityScope().projectId }); }
+        catch (error) { window.showAlert?.(error.message, 'warning'); return; }
         const el = modalInstance.element;
         // F1.4: alcance activo para el sello de nacimiento.
         const scope = peekEntityScope();
