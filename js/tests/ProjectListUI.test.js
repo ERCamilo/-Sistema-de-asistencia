@@ -43,8 +43,8 @@ afterEach(() => {
 
 describe('F2.1 ProjectListUI — Pure calculations and data helpers', () => {
     test('calculateProjectStats tallies total and per-status project counts', () => {
-        expect(calculateProjectStats([])).toEqual({ total: 0, active: 0, closed: 0, archived: 0 });
-        expect(calculateProjectStats(null)).toEqual({ total: 0, active: 0, closed: 0, archived: 0 });
+        expect(calculateProjectStats([])).toEqual({ total: 0, active: 0, paused: 0, closed: 0, archived: 0 });
+        expect(calculateProjectStats(null)).toEqual({ total: 0, active: 0, paused: 0, closed: 0, archived: 0 });
 
         const projects = [
             mockProject({ id: 'P1', status: PROJECT_STATUS.ACTIVE }),
@@ -57,6 +57,7 @@ describe('F2.1 ProjectListUI — Pure calculations and data helpers', () => {
         expect(stats).toEqual({
             total: 4,
             active: 2,
+            paused: 0,
             closed: 1,
             archived: 1
         });
@@ -367,6 +368,7 @@ describe('F2.1 Canonical Integration — ProjectStore, ProjectSetupService, Proj
         expect(overview.stats).toEqual({
             total: 2,
             active: 1,
+            paused: 0,
             closed: 1,
             archived: 0
         });

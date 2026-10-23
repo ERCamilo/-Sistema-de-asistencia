@@ -6,7 +6,7 @@ import { mountProjectOnboarding } from './ProjectOnboarding.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 import { openProjectNameConflicts } from './ProjectNameConflictUI.js';
 
-export const PROJECT_FILTERS = Object.freeze({ ALL: 'all', ACTIVE: PROJECT_STATUS.ACTIVE, CLOSED: PROJECT_STATUS.CLOSED, ARCHIVED: PROJECT_STATUS.ARCHIVED });
+export const PROJECT_FILTERS = Object.freeze({ ALL: 'all', ACTIVE: PROJECT_STATUS.ACTIVE, PAUSED: PROJECT_STATUS.PAUSED, CLOSED: PROJECT_STATUS.CLOSED, ARCHIVED: PROJECT_STATUS.ARCHIVED });
 const STATUS_ICONS = Object.freeze({
     active: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
     closed: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
@@ -23,6 +23,7 @@ const ICONS = Object.freeze({
 
 export const PROJECT_STATUS_META = Object.freeze({
     [PROJECT_STATUS.ACTIVE]: Object.freeze({ label: 'Activo', badgeClass: 'badge-status-active', icon: STATUS_ICONS.active, description: 'Proyecto en curso' }),
+    [PROJECT_STATUS.PAUSED]: Object.freeze({ label: 'Pausado', badgeClass: 'badge-status-closed', icon: STATUS_ICONS.closed, description: 'Pausado para operaciones' }),
     [PROJECT_STATUS.CLOSED]: Object.freeze({ label: 'Cerrado', badgeClass: 'badge-status-closed', icon: STATUS_ICONS.closed, description: 'Cerrado para operaciones' }),
     [PROJECT_STATUS.ARCHIVED]: Object.freeze({ label: 'Archivado', badgeClass: 'badge-status-archived', icon: STATUS_ICONS.archived, description: 'Archivado visualmente' })
 });
@@ -43,9 +44,10 @@ export function formatProjectDate(timestamp) {
 
 export function calculateProjectStats(projects = []) {
     const list = Array.isArray(projects) ? projects : [];
-    const out = { total: list.length, active: 0, closed: 0, archived: 0 };
+    const out = { total: list.length, active: 0, paused: 0, closed: 0, archived: 0 };
     for (const p of list) {
         if (p?.status === PROJECT_STATUS.ACTIVE) out.active++;
+        else if (p?.status === PROJECT_STATUS.PAUSED) out.paused++;
         else if (p?.status === PROJECT_STATUS.CLOSED) out.closed++;
         else if (p?.status === PROJECT_STATUS.ARCHIVED) out.archived++;
     }
@@ -56,7 +58,7 @@ export function filterProjects(projects = [], filter = PROJECT_FILTERS.ALL) {
     return !filter || filter === PROJECT_FILTERS.ALL ? [...list] : list.filter(p => p?.status === filter);
 }
 export function groupProjectsByStatus(projects = []) {
-    const grouped = { [PROJECT_STATUS.ACTIVE]: [], [PROJECT_STATUS.CLOSED]: [], [PROJECT_STATUS.ARCHIVED]: [] };
+    const grouped = { [PROJECT_STATUS.PAUSED]: [], [PROJECT_STATUS.ACTIVE]: [], [PROJECT_STATUS.CLOSED]: [], [PROJECT_STATUS.ARCHIVED]: [] };
     for (const p of (Array.isArray(projects) ? projects : [])) (grouped[p?.status] || grouped[PROJECT_STATUS.ACTIVE]).push(p);
     return grouped;
 }
@@ -87,6 +89,7 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
                     ${project.metadata?.nameConflict ? '<button type="button" class="project-action is-secondary" data-project-name-conflict>Resolver nombre repetido</button>' : ''}
                     <div class="project-id" data-project-id-display>${esc(project.id)}</div>
                     ${switchAction}
+                    ${[PROJECT_STATUS.ACTIVE, PROJECT_STATUS.PAUSED].includes(project.status) ? `<button type="button" class="project-action is-secondary" data-project-lifecycle="${esc(project.id)}" ${isActiveContext ? 'disabled title="Cambia a otra obra antes de pausar"' : ''}>${project.status === PROJECT_STATUS.PAUSED ? 'Reanudar' : 'Pausar'}</button>` : ''}
                 </div>
                 <div class="project-item-dates">
                     <div>Creado: <strong>${formatProjectDate(project.createdAt)}</strong></div>
@@ -114,17 +117,17 @@ export function renderProjectListHTML({ projects = [], activeProjectId = null, d
     const stats = calculateProjectStats(list);
     const options = { activeProjectId, defaultProjectId, allowSwitch, usage, confirmDeleteId, deletingId };
     const tab = (key, text) => `<button type="button" class="project-filter-tab ${currentFilter === key ? 'is-active' : ''}" data-project-filter="${key}" role="tab" aria-selected="${currentFilter === key}">${text}</button>`;
-    const tabs = `<div class="project-filter-tabs project-list-tabs" role="tablist" aria-label="Filtrar proyectos por estado">${tab(PROJECT_FILTERS.ALL, `Todos (${stats.total})`)}${tab(PROJECT_FILTERS.ACTIVE, `Activos (${stats.active})`)}${tab(PROJECT_FILTERS.CLOSED, `Cerrados (${stats.closed})`)}${tab(PROJECT_FILTERS.ARCHIVED, `Archivados (${stats.archived})`)}</div>`;
+    const tabs = `<div class="project-filter-tabs project-list-tabs" role="tablist" aria-label="Filtrar proyectos por estado">${tab(PROJECT_FILTERS.ALL, `Todos (${stats.total})`)}${tab(PROJECT_FILTERS.ACTIVE, `Activos (${stats.active})`)}${tab(PROJECT_FILTERS.PAUSED, `Pausados (${stats.paused})`)}${tab(PROJECT_FILTERS.CLOSED, `Cerrados (${stats.closed})`)}${tab(PROJECT_FILTERS.ARCHIVED, `Archivados (${stats.archived})`)}</div>`;
     if (!stats.total) return `${tabs}<div class="project-list-empty" data-empty-state="all">No hay proyectos registrados en el sistema.</div>`;
 
     let content = '';
     if (currentFilter === PROJECT_FILTERS.ALL) {
         const grouped = groupProjectsByStatus(list);
-        content = `<div class="project-list-grouped" data-projects-list>${renderSectionGroup('Proyectos activos', PROJECT_STATUS.ACTIVE, grouped[PROJECT_STATUS.ACTIVE], options)}${renderSectionGroup('Proyectos cerrados', PROJECT_STATUS.CLOSED, grouped[PROJECT_STATUS.CLOSED], options)}${renderSectionGroup('Proyectos archivados', PROJECT_STATUS.ARCHIVED, grouped[PROJECT_STATUS.ARCHIVED], options)}</div>`;
+        content = `<div class="project-list-grouped" data-projects-list>${renderSectionGroup('Proyectos activos', PROJECT_STATUS.ACTIVE, grouped[PROJECT_STATUS.ACTIVE], options)}${renderSectionGroup('Proyectos pausados', PROJECT_STATUS.PAUSED, grouped[PROJECT_STATUS.PAUSED], options)}${renderSectionGroup('Proyectos cerrados', PROJECT_STATUS.CLOSED, grouped[PROJECT_STATUS.CLOSED], options)}${renderSectionGroup('Proyectos archivados', PROJECT_STATUS.ARCHIVED, grouped[PROJECT_STATUS.ARCHIVED], options)}</div>`;
     } else {
         const filtered = filterProjects(list, currentFilter);
         if (!filtered.length) {
-            const label = currentFilter === PROJECT_FILTERS.ACTIVE ? 'activos' : currentFilter === PROJECT_FILTERS.CLOSED ? 'cerrados' : 'archivados';
+            const label = currentFilter === PROJECT_FILTERS.ACTIVE ? 'activos' : currentFilter === PROJECT_FILTERS.PAUSED ? 'pausados' : currentFilter === PROJECT_FILTERS.CLOSED ? 'cerrados' : 'archivados';
             content = `<div class="project-list-empty" data-empty-state="${esc(currentFilter)}">No hay proyectos ${esc(label)}.</div>`;
         } else {
             content = `<ul class="project-list" role="list" data-projects-list>${filtered.map(p => renderProjectItemHTML(p, options)).join('')}</ul>`;
@@ -145,6 +148,33 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
     function render() {
         container.innerHTML = renderProjectListHTML({ projects: currentProjects, activeProjectId: currentActiveId, defaultProjectId: currentDefaultId, currentFilter, allowSwitch: shouldAllowSwitch, usage, confirmDeleteId, deletingId });
         if (deleteError) container.insertAdjacentHTML('afterbegin', `<div class="project-status-line is-error" role="alert">${esc(deleteError)}</div>`);
+        container.querySelectorAll('[data-project-lifecycle]').forEach(button => button.addEventListener('click', () => {
+            const project = currentProjects.find(p => p.id === button.dataset.projectLifecycle);
+            if (!project || button.disabled) return;
+            const paused = project.status === PROJECT_STATUS.ACTIVE;
+            const notice = document.createElement('div');
+            notice.className = 'project-notice is-warning';
+            notice.setAttribute('role', 'alertdialog');
+            notice.setAttribute('aria-label', paused ? 'Confirmar pausa' : 'Confirmar reanudación');
+            notice.innerHTML = `<p>¿${paused ? 'Pausar' : 'Reanudar'} «${esc(project.name)}»? ${paused ? 'Se conservará su historial y se bloquearán nuevas operaciones.' : 'Volverá a estar disponible para trabajar.'}</p><button type="button" data-lifecycle-confirm>Confirmar</button> <button type="button" data-lifecycle-cancel>Cancelar</button>`;
+            button.after(notice);
+            button.disabled = true;
+            notice.querySelector('[data-lifecycle-cancel]').onclick = () => { notice.remove(); button.disabled = false; button.focus(); };
+            const confirm = notice.querySelector('[data-lifecycle-confirm]');
+            confirm.focus();
+            confirm.onclick = async () => {
+                confirm.disabled = true;
+                notice.querySelector('[data-lifecycle-cancel]').disabled = true;
+                try {
+                    await setupService[paused ? 'pauseProject' : 'resumeProject'](project.id);
+                    const fresh = await setupService.getState();
+                    currentProjects = fresh.projects;
+                    currentActiveId = fresh.activeProjectId;
+                    deleteError = '';
+                } catch (error) { deleteError = error.message || String(error); }
+                render();
+            };
+        }));
         container.querySelectorAll('[data-project-delete]').forEach(button => button.addEventListener('click', () => {
             if (deletingId || button.disabled) return;
             confirmDeleteId = button.dataset.projectDelete;

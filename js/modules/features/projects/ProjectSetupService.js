@@ -2,6 +2,7 @@ import { isProjectsEnabled, setProjectsEnabled } from '../../config/FeatureFlags
 import { initProjectsInfrastructure } from './ProjectsBoot.js';
 import { projectStore } from './ProjectStore.js';
 import { getEntityScope, setActiveProjectId } from './ProjectContext.js';
+import { mutateProjectCatalog } from './ProjectNameConflicts.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
@@ -92,6 +93,7 @@ export class ProjectSetupService {
         const stats = {
             total: state.projects.length,
             active: state.projects.filter(p => p.status === PROJECT_STATUS.ACTIVE).length,
+            paused: state.projects.filter(p => p.status === PROJECT_STATUS.PAUSED).length,
             closed: state.projects.filter(p => p.status === PROJECT_STATUS.CLOSED).length,
             archived: state.projects.filter(p => p.status === PROJECT_STATUS.ARCHIVED).length
         };
@@ -110,6 +112,34 @@ export class ProjectSetupService {
         }
         return usage;
     }
+
+    async setProjectPaused(projectId, paused) {
+        const execute = async () => {
+            if (!this.flags.isEnabled()) throw new Error('Proyectos no está activado.');
+            if (isFullImportIsolationInProgress() || isProjectRepairIsolationInProgress()) throw new Error('Espera a que termine la restauración o reparación.');
+            if (this.isDraftDirty()) throw new Error('Guarda o cancela los cambios de configuración antes de continuar.');
+            const scope = await this.getScope();
+            const updated = await mutateProjectCatalog(this.store.db, rows => {
+                const row = rows.find(p => p.id === projectId && p.deletedAt == null);
+                if (!row) throw new Error('Proyecto inexistente o borrado.');
+                if (paused && (scope.projectId === projectId || protectedProjectIds().activeProjectId === projectId)) {
+                    throw new Error('Cambia a otra obra antes de pausar la obra en uso.');
+                }
+                const model = Project.fromJSON(row);
+                paused ? model.pause() : model.resume();
+                const payload = model.toJSON();
+                return { writes: [payload], result: payload };
+            });
+            if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('projects:setup-changed', { detail: { projectId, paused } }));
+            return updated;
+        };
+        const pending = this.switchQueue.then(execute);
+        this.switchQueue = pending.catch(() => {});
+        return pending;
+    }
+
+    pauseProject(projectId) { return this.setProjectPaused(projectId, true); }
+    resumeProject(projectId) { return this.setProjectPaused(projectId, false); }
 
     async deleteEmptyProject(projectId) {
         if (!this.flags.isEnabled()) throw new Error('Proyectos no está activado.');
