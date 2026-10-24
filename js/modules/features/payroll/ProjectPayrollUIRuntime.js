@@ -29,6 +29,7 @@ const TRANSIENT_EXPORT_CONFIG_FIELDS = Object.freeze([
     'activePreset',
     'periodSource',
     'payrollPreviewInclusion',
+    'payrollReviewEmployees',
     'payrollLoanSelection',
     'payrollLoanExpandedEmployees',
     'payrollAdjustmentPeriodSelections',

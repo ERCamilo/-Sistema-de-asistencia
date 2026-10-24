@@ -4,10 +4,11 @@
     {
       "version": "1.7.108",
       "date": "2026-10-24",
-      "title": "Puestos semanales coherentes con Nómina",
+      "title": "Puestos semanales y reportes por empleado",
       "items": [
         "Cambiar el puesto desde la vista semanal asigna las horas del día al puesto elegido y elimina el desglose anterior.",
         "El cambio se guarda para la fecha editada y actualiza los cálculos de asistencia y nómina.",
+        "Marca «Solo empleados seleccionados» para consultar y exportar el sueldo de una o varias personas con los filtros de líder y puestos.",
         "Para corregir un día guardado con un desglose anterior, vuelve a elegir su puesto y actualiza la vista previa de Nómina."
       ]
     },

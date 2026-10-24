@@ -57,6 +57,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
     let clipboard;
 
     beforeEach(async () => {
+        document.body.innerHTML = '';
         localStorage.clear();
         resetEntityScope();
         setProjectsEnabled(true);
@@ -107,6 +108,8 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
     });
 
     afterEach(() => {
+        document.body.innerHTML = '';
+        document.body.style.overflow = '';
         runtime?.dispose?.();
         resetEntityScope();
         setProjectsEnabled(false);
@@ -179,6 +182,99 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         PayrollUI.setLeaderHoursScope('leader');
         PayrollUI.setLeaderFilter('all');
         expect(await exported()).toHaveLength(2);
+    });
+
+    test('selecting lent staff narrows the table and export while retaining both salary modes', async () => {
+        const source = JSON.stringify(runtime.getCurrentView().previewRows);
+        const choosing = PayrollUI.openPayrollReviewEmployees();
+        document.querySelector('[data-adjustment-picker-employee="E1"]').click();
+        document.querySelector('[data-modal-overlay] [data-button-index="1"]').click();
+        expect(await choosing).toBe(true);
+        expect(runtime.getCurrentView().previewStale).toBe(false);
+        PayrollUI.setLeaderFilter('L1');
+        expect(await exported()).toHaveLength(1);
+        expect(net(await exported())).toBe(1600); // The paying leader sees the full two jobs.
+        const previousPdf = window.jspdf;
+        const doc = {
+            internal: { pageSize: { getWidth: () => 210, getHeight: () => 297 }, getNumberOfPages: () => 1 },
+            setFillColor: jest.fn(), rect: jest.fn(), setFontSize: jest.fn(), setFont: jest.fn(),
+            setTextColor: jest.fn(), text: jest.fn(), autoTable: jest.fn(), lastAutoTable: { finalY: 60 }, save: jest.fn()
+        };
+        try {
+            window.jspdf = { jsPDF: jest.fn(() => doc) };
+            window.jspdf.jsPDF.API = { autoTable: jest.fn() };
+            await PayrollUI.exportPayrollPDF();
+            const table = doc.autoTable.mock.calls.find(call => call[0].head[0].includes('Colaborador'))[0];
+            expect(table.body).toHaveLength(1);
+            expect(table.body[0]).toContain('Ana Uno');
+            expect(table.body[0]).toContain('$1,600.00');
+            expect(doc.text).toHaveBeenCalledWith('Empleados seleccionados: 1', 14, expect.any(Number));
+        } finally { window.jspdf = previousPdf; }
+        PayrollUI.setLeaderFilter('L2');
+        PayrollUI.setLeaderHoursScope('leader');
+        const chargedToOtherTeam = await exported();
+        expect(chargedToOtherTeam).toHaveLength(1);
+        expect(chargedToOtherTeam[0]).toMatchObject({ sourceEmployeeId: 'E1', bruto: 800, monto: 800,
+            workDays: { total: 1 } });
+        expect(chargedToOtherTeam[0].exportContext.totals).toMatchObject({ employeeCount: 1, gross: 800, net: 800 });
+        PayrollUI.setPayrollGuideStep('review');
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.querySelectorAll('.payroll-review-table__row')).toHaveLength(1);
+        expect(host.querySelector('tbody .payroll-review-table__employee').textContent).toContain('Ana Uno');
+        await PayrollUI.togglePayrollReviewEmployeeFilter(false);
+        expect(await exported()).toHaveLength(2);
+        expect(JSON.stringify(runtime.getCurrentView().previewRows)).toBe(source);
+        document.body.innerHTML = '';
+    });
+
+    test('an employee-only report cannot confirm the full payroll closure, and clearing the filter restores everyone', async () => {
+        const choosing = PayrollUI.openPayrollReviewEmployees();
+        document.querySelector('[data-adjustment-picker-employee="E2"]').click();
+        document.querySelector('[data-modal-overlay] [data-button-index="1"]').click();
+        await choosing;
+        PayrollUI.setPayrollGuideStep('review');
+        PayrollUI.setLeaderFilter('all');
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.textContent).toContain('Desmarca «Solo empleados seleccionados»');
+        expect(host.querySelector('[data-payroll-action="open-payroll-closure"]').disabled).toBe(true);
+        expect(host.querySelector('[data-payroll-action="toggle-payroll-paid"]').disabled).toBe(true);
+        PayrollUI.togglePayrollPaidConfirmation(true);
+        expect(appState.exportConfig.payrollPaidConfirmation).toBeFalsy();
+        await expect(PayrollUI.openPayrollClosure()).resolves.toBeUndefined();
+        expect((await exported()).map(employee => employee.sourceEmployeeId)).toEqual(['E2']);
+        await PayrollUI.togglePayrollReviewEmployeeFilter(false);
+        expect(await exported()).toHaveLength(2);
+        document.body.innerHTML = '';
+    });
+
+    test('cancelled or empty employee selections never silently include unselected people', async () => {
+        const cancel = PayrollUI.togglePayrollReviewEmployeeFilter(true);
+        document.querySelector('[data-modal-overlay] [data-button-index="0"]').click();
+        expect(await cancel).toBe(false);
+        expect(appState.exportConfig.payrollReviewEmployees).toBeUndefined();
+        const empty = PayrollUI.openPayrollReviewEmployees();
+        document.querySelector('[data-modal-overlay]:last-child [data-button-index="1"]').click();
+        expect(await empty).toBe(true);
+        expect(await exported()).toEqual([]);
+        document.body.innerHTML = '';
+    });
+
+    test('an open picker cannot apply its selection to a different project or period', async () => {
+        const choosing = PayrollUI.openPayrollReviewEmployees();
+        document.querySelector('[data-adjustment-picker-employee="E1"]').click();
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-02', periodEnd: '2026-03-15' });
+        document.querySelector('[data-modal-overlay] [data-button-index="1"]').click();
+        expect(await choosing).toBe(false);
+        expect(appState.exportConfig.payrollReviewEmployees).toBeUndefined();
+        const otherProject = PayrollUI.openPayrollReviewEmployees();
+        [...document.querySelectorAll('[data-adjustment-picker-employee="E1"]')].at(-1).click();
+        replaceEntityScope({ enabled: true, projectId: 'OTHER', defaultProjectId: P });
+        runtime.handleProjectChange({ projectId: 'OTHER' });
+        [...document.querySelectorAll('[data-modal-overlay] [data-button-index="1"]')].at(-1).click();
+        expect(await otherProject).toBe(false);
+        expect(appState.exportConfig.payrollReviewEmployees).toBeUndefined();
     });
 
     test.each([false, true])('reselecting a weekly job repairs stale hours and moves its actual pay to the other leader (multi: %s)', async multiPosition => {

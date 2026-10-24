@@ -7066,6 +7066,48 @@
     cursor: pointer;
 }
 
+.payroll-review-employees {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    font-size: 0.8rem;
+}
+
+.payroll-review-employees label,
+.payroll-review-employees button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    max-width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: #1b273d;
+    color: #f4f6fa;
+    cursor: pointer;
+    font: inherit;
+}
+
+.payroll-review-employees input {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    accent-color: #06b6d4;
+}
+
+.payroll-review-employees__count {
+    min-width: 22px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #06b6d4;
+    color: #081a24;
+    font-weight: 700;
+    text-align: center;
+}
+
 .payroll-review-leader {
     display: inline-flex;
     align-items: center;
