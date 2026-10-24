@@ -143,7 +143,9 @@ export function openPayrollAdjustmentEmployeePicker({ employees = [], selectedId
                     const id = row.dataset.adjustmentPickerEmployee;
                     if (selection.has(id)) selection.delete(id);
                     else selection.add(id);
-                    renderList();
+                    // Selecting one person must not rebuild every row or move the scroll position.
+                    row.classList.toggle('is-selected', selection.has(id));
+                    row.setAttribute('aria-pressed', String(selection.has(id)));
                 });
                 const searchEl = this.element.querySelector('[data-adjustment-picker-search]');
                 if (searchEl) {

@@ -8,6 +8,9 @@ import * as PayrollUI from '../modules/features/payroll/PayrollUI.js';
 import payrollClosureSync from '../modules/features/payroll/PayrollClosureSync.js';
 import { clearPayrollAdjustmentPeriodRuntime } from '../modules/features/payroll/PayrollAdjustmentPeriodSelection.js';
 import { resolvePayrollLoanSelection } from '../modules/features/payroll/PayrollLoans.js';
+import { Modal } from '../modules/components/Modal.js';
+import * as payrollContext from '../modules/features/payroll/PayrollProjectContext.js';
+import * as payrollCalculation from '../modules/features/payroll/PayrollService.js';
 const P = 'PRJ-AUDIT';
 let runtime, config, clipboard, previous;
 
@@ -74,6 +77,110 @@ const exported = async () => {
 const loan = () => resolvePayrollLoanSelection(
     state.employees, state.exportConfig.payrollLoanSelection, '2026-03-15'
 )[0];
+
+test.each([['available', 100, 800, 0], ['percentage', 30, 240, 560], ['percentage', 50, 400, 400]])(
+    '%s at %i percent uses salary before loans and exports the resulting net', async (kind, percentage, deduction, net) => {
+        PayrollUI.setPayrollLoanCustomAmount('e', '100');
+        expect(PayrollUI.setPayrollLoanSalaryAmount('e', kind, percentage)).toBe(true);
+        expect(loan().total).toBe(deduction);
+        expect((await exported())[0].monto).toBe(net);
+        expect(state.employees[0].loans[0].principal).toBe(5000);
+    }
+);
+
+test('salary percentage includes bonuses and subtracts other deductions', async () => {
+    state.exportConfig.bonuses = [{ id: 'b', name: 'Bono', type: 'fixed', value: 200, scope: 'global' }];
+    state.exportConfig.deductions = [{ id: 'd', name: 'Descuento', type: 'fixed', value: 100, scope: 'global' }];
+    await PayrollUI.refreshScopedPayrollPreview();
+    expect(PayrollUI.setPayrollLoanSalaryAmount('e', 'percentage', 30)).toBe(true);
+    expect(loan().total).toBe(270);
+    expect((await exported())[0].monto).toBe(630);
+});
+
+test('salary shortcut cannot use a stale preview or an invalid percentage', () => {
+    PayrollUI.setPayrollLoanCustomAmount('e', '100');
+    expect(PayrollUI.setPayrollLoanSalaryAmount('e', 'percentage', 150)).toBe(false);
+    expect(loan().total).toBe(100);
+    state.attendance['e-2026-03-05'].hoursWorked = 4;
+    expect(PayrollUI.setPayrollLoanSalaryAmount('e', 'available')).toBe(false);
+    expect(loan().total).toBe(100);
+});
+
+test('slider updates a local proposal without recalculating payroll or changing the chosen deduction', () => {
+    PayrollUI.setPayrollGuideStep('loans');
+    document.body.innerHTML = PayrollUI.PayrollTab();
+    const captures = jest.spyOn(runtime, 'captureContext');
+    try {
+        const slider = document.querySelector('[data-payroll-loan-percentage="range"]');
+        slider.value = '50';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(document.querySelector('[data-payroll-loan-percentage="number"]').value).toBe('50');
+        expect(document.querySelector('[data-payroll-loan-percentage-amount]').textContent).toBe('$400.00');
+        expect(state.exportConfig.payrollLoanSelection || []).toHaveLength(0);
+        expect(captures).not.toHaveBeenCalled();
+        document.querySelector('[data-kind="percentage"]').click();
+        expect(loan().total).toBe(400);
+    } finally { captures.mockRestore(); document.body.innerHTML = ''; }
+});
+
+test('empty percentage disables apply until a valid percentage is entered', () => {
+    PayrollUI.setPayrollGuideStep('loans');
+    document.body.innerHTML = PayrollUI.PayrollTab();
+    const input = document.querySelector('[data-payroll-loan-percentage="number"]');
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(document.querySelector('[data-kind="percentage"]').disabled).toBe(true);
+    expect(document.querySelector('[data-payroll-loan-percentage-error]').hidden).toBe(false);
+    input.value = '40';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(document.querySelector('[data-kind="percentage"]').disabled).toBe(false);
+    document.body.innerHTML = '';
+});
+
+test('opening the employee picker reuses one snapshot and cached active salaries', async () => {
+    PayrollUI.setPayrollGuideStep('deductions');
+    document.body.innerHTML = PayrollUI.PayrollTab();
+    const captures = jest.spyOn(runtime, 'captureContext');
+    const factory = jest.spyOn(payrollContext, 'createPayrollProjectContext');
+    const calculation = jest.spyOn(payrollCalculation, 'calculateEmployeePayrollWithContext');
+    let content;
+    const open = jest.spyOn(Modal.prototype, 'open').mockImplementation(function () {
+        content = this.content;
+        this.buttons[0].onClick.call(this);
+        return this;
+    });
+    try {
+        await PayrollUI.openAdjustmentEmployeePicker(document.querySelector('.payroll-adjustment-form button'));
+        expect(captures).toHaveBeenCalledTimes(1);
+        expect(factory).not.toHaveBeenCalled();
+        expect(calculation).not.toHaveBeenCalled();
+        expect(content).toContain('$800.00');
+        expect(content).toContain('Ana de prueba');
+    } finally { open.mockRestore(); captures.mockRestore(); factory.mockRestore(); calculation.mockRestore(); document.body.innerHTML = ''; }
+});
+
+test('picker recalculates changed attendance, includes inactive people and excludes another project', async () => {
+    state.attendance['e-2026-03-05'].hoursWorked = 16;
+    state.employees.push({ id: 'inactive', name: 'Inactivo de prueba', number: '2', projectId: P, active: false, positions: ['p'] });
+    state.employees.push({ id: 'foreign', name: 'Otra obra', number: '3', projectId: 'OTHER', active: true, positions: [] });
+    // A stale view hides the form, so retain a form representing the picker trigger already clicked.
+    const form = document.createElement('form');
+    form.className = 'payroll-adjustment-form';
+    const target = document.createElement('button');
+    form.appendChild(target);
+    let content;
+    const open = jest.spyOn(Modal.prototype, 'open').mockImplementation(function () {
+        content = this.content;
+        this.buttons[0].onClick.call(this);
+        return this;
+    });
+    try {
+        await PayrollUI.openAdjustmentEmployeePicker(target);
+        expect(content).toContain('$1,600.00');
+        expect(content).toContain('Inactivo de prueba');
+        expect(content).not.toContain('Otra obra');
+    } finally { open.mockRestore(); }
+});
 
 test('decimal comma applies the chosen loan amount rather than the entire debt', () => {
     PayrollUI.setPayrollLoanCustomAmount('e', '900,50');

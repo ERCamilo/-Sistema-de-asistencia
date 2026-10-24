@@ -7932,6 +7932,7 @@
 .payroll-loan-mode__options { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .payroll-loan-mode__option {
     display: inline-flex; gap: 6px; align-items: baseline;
+    min-height: 44px;
     padding: 6px 11px; border: 1px solid #3d4955; border-radius: 8px;
     background: none; color: #aeb7bf; font: inherit; font-size: 0.72rem; font-weight: 700; cursor: pointer;
 }
@@ -7943,6 +7944,15 @@
     padding: 2px 4px 2px 10px; border: 1px solid #3d4955; border-radius: 8px; background: #0e1419;
 }
 .payroll-loan-mode__amount.is-active { border-color: #f6c453; }
+.payroll-loan-mode__option:disabled { opacity: 0.55; cursor: default; }
+.payroll-loan-percentage { grid-column: 1 / -1; min-width: 0; color: #d8e0e7; font-size: 0.875rem; }
+.payroll-loan-percentage > label { display: block; margin-bottom: 4px; }
+.payroll-loan-percentage__controls { display: flex; align-items: center; gap: 12px; }
+.payroll-loan-percentage__controls input[type="range"] { flex: 1; min-width: 0; min-height: 44px; accent-color: #f6c453; }
+.payroll-loan-percentage__number { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.payroll-loan-percentage__number input { width: 64px; min-height: 44px; box-sizing: border-box; padding: 6px; border: 1px solid #64748b; border-radius: 6px; background: #0e1419; color: #edf2f6; font: inherit; }
+.payroll-loan-percentage p { margin: 6px 0 0; line-height: 1.5; }
+.payroll-loan-percentage [role="alert"] { color: #fda4af; }
 .payroll-loan-mode__amount span { color: #77848f; font-size: 0.7rem; }
 .payroll-loan-mode__amount input {
     width: 110px; padding: 5px 2px; border: 0; background: none;
@@ -8068,6 +8078,7 @@
 }
 
 .payroll-loan-mode__error {
+    grid-column: 1 / -1;
     margin: 8px 0;
     color: #fda4af;
     font-size: 0.875rem;

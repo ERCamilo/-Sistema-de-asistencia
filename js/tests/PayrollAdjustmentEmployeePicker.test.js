@@ -1,6 +1,7 @@
 import {
     filterPayrollAdjustmentEmployees,
-    renderPayrollAdjustmentEmployeePicker
+    renderPayrollAdjustmentEmployeePicker,
+    openPayrollAdjustmentEmployeePicker
 } from '../modules/features/payroll/PayrollAdjustmentEmployeePicker.js';
 
 const employees = [
@@ -23,6 +24,20 @@ const employees = [
 ];
 
 describe('PayrollAdjustmentEmployeePicker', () => {
+    test('toggling selection preserves the employee rows and cancel does not apply it', async () => {
+        jest.useFakeTimers();
+        const pending = openPayrollAdjustmentEmployeePicker({ employees, selectedIds: [] });
+        const row = document.querySelector('[data-adjustment-picker-employee="e1"]');
+        row.click();
+        expect(document.querySelector('[data-adjustment-picker-employee="e1"]')).toBe(row);
+        expect(row.getAttribute('aria-pressed')).toBe('true');
+        row.click();
+        expect(row.getAttribute('aria-pressed')).toBe('false');
+        document.querySelector('[data-button-index="0"]').click();
+        await expect(pending).resolves.toBeNull();
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
+    });
     test('filters by search and employee status', () => {
         expect(filterPayrollAdjustmentEmployees(employees, { query: '3', status: 'all' }))
             .toEqual([employees[1]]);
