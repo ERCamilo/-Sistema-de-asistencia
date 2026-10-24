@@ -1,5 +1,5 @@
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
-import { renderPositionIconSvg, resolvePositionIcon } from '../employees/PositionVisuals.js';
+import { renderPositionIconSvg, resolvePositionIcon, safePositionColor } from '../employees/PositionVisuals.js';
 const paths = {
     receipt: '<path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3Zm3 5h8M8 12h6"/>',
     building: '<rect x="4" y="3" width="12" height="18" rx="1"/><path d="M16 10h4v11H4M8 7h4m-4 4h4m-4 4h4m-2 6v-3"/>',
@@ -17,13 +17,21 @@ const paths = {
     mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/>'
 };
 export const voiceIcon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.mic}</svg>`;
+function positionIconInk(color) {
+    const [r, g, b] = color.slice(1).match(/../g).map(hex => {
+        const value = parseInt(hex, 16) / 255;
+        return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+    });
+    return .2126 * r + .7152 * g + .0722 * b > .179 ? '#000000' : '#ffffff';
+}
 export function voiceEmployeeCard(employee, action = '', positions = []) {
     const name = String(employee?.name || 'Sin seleccionar');
     const assigned = Array.isArray(employee?.positions) && employee.positions.length ? employee.positions : [employee?.positionId];
     const primary = assigned.map(id => id == null ? null : positions.find(position => String(position.id) === String(id))).find(Boolean);
+    const color = safePositionColor(primary?.color);
     const positionLabel = primary ? `Posición principal: ${primary.name || 'Sin nombre'}` : 'Sin posición principal';
-    const status = employee ? `<span class="voice-employee-status${employee.active === false ? ' is-inactive' : ''}">${employee.active === false ? 'Desactivado' : 'Activo'}</span>` : '';
-    return `<section class="voice-identity-card"><span class="voice-avatar" role="img" aria-label="${escapeAttr(positionLabel)}" title="${escapeAttr(positionLabel)}">${renderPositionIconSvg(resolvePositionIcon(primary || {}), { size: 24, className: 'voice-position-icon' })}</span><span class="voice-person"><strong>${escapeHTML(name)}</strong><span class="voice-employee-meta"><span class="voice-code">#${escapeHTML(employee?.number || '—')}</span>${status}</span></span>${action}</section>`;
+    const status = employee?.active === false ? '<span class="voice-employee-status">Pausado</span>' : '';
+    return `<section class="voice-identity-card"><span class="voice-avatar" role="img" aria-label="${escapeAttr(positionLabel)}" title="${escapeAttr(positionLabel)}" style="--voice-position-color:${color};--voice-position-ink:${positionIconInk(color)}">${renderPositionIconSvg(resolvePositionIcon(primary || {}), { size: 24, className: 'voice-position-icon' })}</span><span class="voice-person"><strong>${escapeHTML(name)}</strong><span class="voice-employee-meta"><span class="voice-code">#${escapeHTML(employee?.number || '—')}</span>${status}</span></span>${action}</section>`;
 }
 export function voiceWaveform(samples = []) {
     const bars = Array.from({length:44}, (_,i) => {
