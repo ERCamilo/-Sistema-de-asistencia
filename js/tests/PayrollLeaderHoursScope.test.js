@@ -13,6 +13,8 @@ import { applyPayrollLoanDeductions } from 'actual/features/payroll/PayrollLoans
 import { buildPayrollLoansDesktopModel } from 'actual/features/payroll/PayrollLoansDesktop.js';
 import { filterPayrollRowsByLeader, limitPayrollRowToPositions } from 'actual/features/payroll/PayrollPreview.js';
 import { formatCurrency } from 'actual/utils/Formatters.js';
+import { loadWeeklyPositionHandler } from './helpers/weeklyPositionHandler.js';
+import { WeekRow } from 'actual/ui/AttendanceUI.js';
 
 const P = 'PRJ-LEADER-HOURS';
 
@@ -177,6 +179,42 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         PayrollUI.setLeaderHoursScope('leader');
         PayrollUI.setLeaderFilter('all');
         expect(await exported()).toHaveLength(2);
+    });
+
+    test.each([false, true])('reselecting a weekly job repairs stale hours and moves its actual pay to the other leader (multi: %s)', async multiPosition => {
+        stateManager.batchSetState(raw => {
+            raw.employees[0].positionSalaries = { 'POS-1': 250, 'POS-2': 187.5 };
+            raw.attendance['E1-2026-03-06'] = { ...raw.attendance['E1-2026-03-06'],
+                selectedPosition: 'POS-2', multiPosition,
+                positionHours: [{ positionId: 'POS-1', hours: 8, overtimeHours: 0 }],
+                miniImportAudit: { source: 'mini' } };
+        });
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        PayrollUI.setLeaderHoursScope('leader');
+        PayrollUI.setLeaderFilter('L1');
+        // Before the explicit repair, the stored breakdown still assigns both days to L1.
+        expect((await exported()).find(person => person.sourceEmployeeId === 'E1').bruto).toBe(4000);
+        const handler = loadWeeklyPositionHandler(appState, stateManager);
+        const previousHandler = window.toggleWeekPosition;
+        try {
+            window.toggleWeekPosition = handler.change;
+            document.body.innerHTML = `<table><tbody>${WeekRow(appState.employees[0], ['2026-03-06'])}</tbody></table>`;
+            document.querySelector('[data-att-action="toggle-week-position"][data-pos-id="POS-2"]').click();
+        } finally {
+            window.toggleWeekPosition = previousHandler;
+            document.body.innerHTML = '';
+        }
+        expect(runtime.getCurrentView().previewStale).toBe(true);
+        expect(appState.attendance['E1-2026-03-06']).toMatchObject({ hoursWorked: 8,
+            selectedPosition: 'POS-2', multiPosition: false, positionHours: [], miniImportAudit: { source: 'mini' } });
+        await PayrollUI.refreshScopedPayrollPreview();
+        for (const [leader, gross, dailyRate, position] of [['L1', 2000, 2000, 'POS-1'], ['L2', 1500, 1500, 'POS-2']]) {
+            PayrollUI.setLeaderFilter(leader);
+            const employee = (await exported()).find(person => person.sourceEmployeeId === 'E1');
+            expect(employee).toMatchObject({ bruto: gross, monto: gross, workDays: { total: 1 } });
+            expect(employee.positions).toHaveLength(1);
+            expect(employee.positions[0]).toMatchObject({ id: position, dailyRate });
+        }
     });
 
     test.each([
