@@ -34,17 +34,19 @@ function getLoanWarningState(payrollRow) {
 }
 
 function renderWarningSummary(model) {
-    if (model.noticeCount === 0) {
+    if (model.groups.length === 0) {
         return '<strong class="is-clear">Sin alertas</strong>';
     }
 
     return `
         <span class="payroll-loans-warning-counts">
             ${model.negativeCount
-                ? `<strong class="is-negative">${model.negativeCount} ${model.negativeCount === 1 ? 'negativo' : 'negativos'}</strong>`
+                ? renderPayrollStatus(`${model.negativeCount} ${model.negativeCount === 1 ? 'negativo' : 'negativos'}`, 'error')
                 : ''}
-            ${model.zeroCount
-                ? `<strong class="is-zero">${model.zeroCount} en cero</strong>`
+            ${renderPayrollStatus(`${model.pendingDebtCount} con deuda pendiente`, 'warning')}
+            ${renderPayrollStatus(`${model.zeroAfterChargeCount} en cero tras cobro`, 'attention')}
+            ${model.zeroWithoutChargeCount
+                ? renderPayrollStatus(`${model.zeroWithoutChargeCount} sin sueldo disponible`, 'attention')
                 : ''}
             ${model.missingCount ? renderPayrollStatus(`${model.missingCount} fuera de nómina`) : ''}
         </span>
@@ -148,6 +150,7 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
             selectedBalance,
             eligibleBalance: loans.reduce((sum, loan) => sum + loan.balance, 0),
             netRemaining: Number(payrollRow?.monto) || 0,
+            chargedAmount: Number(payrollRow?._loans) || 0,
             invalid: warningState === 'negative',
             warningState
         });
@@ -160,6 +163,9 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
         negativeCount: groups.filter(group => group.warningState === 'negative').length,
         zeroCount: groups.filter(group => group.warningState === 'zero').length,
         missingCount: groups.filter(group => group.warningState === 'missing').length,
+        pendingDebtCount: groups.filter(group => group.eligibleBalance - group.chargedAmount > 0.004).length,
+        zeroAfterChargeCount: groups.filter(group => group.warningState === 'zero' && group.chargedAmount > 0).length,
+        zeroWithoutChargeCount: groups.filter(group => group.warningState === 'zero' && !(group.chargedAmount > 0)).length,
         noticeCount: groups.filter(group => group.warningState !== 'none').length
     };
 }
@@ -369,6 +375,7 @@ export function renderPayrollLoansDesktop({
     expandedEmployeeIds = [],
     customAmountDrafts = {},
     percentageDrafts = {},
+    bulkEnabled = true,
     periodEnd = null
 } = {}) {
     const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd);
@@ -390,11 +397,15 @@ export function renderPayrollLoansDesktop({
                 <span><small>Intereses</small><strong>${formatCurrency(summary.selectedInterest)}</strong></span>
                 <span><small>A descontar</small><strong>${formatCurrency(summary.selectedBalance)}</strong></span>
                 <span class="payroll-loans-warning-summary ${model.invalidCount ? 'has-warnings' : ''}">
-                    <small>Advertencias</small>${renderWarningSummary(model)}
+                    <small>Advertencias</small><span role="status" aria-live="polite">${renderWarningSummary(model)}</span>
                 </span>
             </div>
             <div class="payroll-loans-toolbar">
-                <button type="button" data-payroll-action="add-payroll-loans">Aplicar próximos cargos</button>
+                <button type="button" data-payroll-action="set-payroll-loans-salary-bulk" data-kind="recommended"
+                        ${bulkEnabled && model.groups.length ? '' : 'disabled'}>Recomendado: hasta 30 % a todos</button>
+                <button type="button" class="is-secondary" data-payroll-action="set-payroll-loans-salary-bulk" data-kind="available"
+                        ${bulkEnabled && model.groups.length ? '' : 'disabled'}>Máximo disponible a todos</button>
+                <button type="button" class="is-secondary" data-payroll-action="add-payroll-loans">Aplicar próximos cargos</button>
                 <button type="button"
                         class="is-secondary"
                         data-payroll-action="clear-payroll-loans"
@@ -402,6 +413,9 @@ export function renderPayrollLoansDesktop({
                     Limpiar selección
                 </button>
             </div>
+            <p class="payroll-loans-toolbar-hint">${bulkEnabled
+                ? 'Los cobros a todos reemplazan los montos de la nómina y el líder actuales; incluyen las cuotas pendientes.'
+                : 'Activa Préstamos en la vista previa para usar los cobros a todos.'}</p>
             <div class="payroll-loans-table">
                 <div class="payroll-loans-table__columns" aria-hidden="true">
                     <span>N.º</span><span>Empleado</span>

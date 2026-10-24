@@ -76,7 +76,7 @@ const exported = async () => {
 };
 const loan = () => resolvePayrollLoanSelection(
     state.employees, state.exportConfig.payrollLoanSelection, '2026-03-15'
-)[0];
+).find(item => item.employeeId === 'e');
 
 test.each([['available', 100, 800, 0], ['percentage', 30, 240, 560], ['percentage', 50, 400, 400]])(
     '%s at %i percent uses salary before loans and exports the resulting net', async (kind, percentage, deduction, net) => {
@@ -87,6 +87,99 @@ test.each([['available', 100, 800, 0], ['percentage', 30, 240, 560], ['percentag
         expect(state.employees[0].loans[0].principal).toBe(5000);
     }
 );
+
+test.each([['available', 900, 0], ['recommended', 270, 630]])(
+    'bulk %s applies once to adjusted salaries, exports actual amounts and refreshes warning counts', async (kind, amount, net) => {
+        state.exportConfig.bonuses = [{ id: 'b', name: 'Bono', type: 'fixed', value: 200, scope: 'global' }];
+        state.exportConfig.deductions = [{ id: 'd', name: 'Descuento', type: 'fixed', value: 100, scope: 'global' }];
+        await PayrollUI.refreshScopedPayrollPreview();
+        PayrollUI.setPayrollLoanCustomAmount('e', '100');
+        PayrollUI.setPayrollLoanCustomAmount('e', ''); // A bulk choice also resolves any invalid target draft.
+        const before = JSON.stringify(state.employees);
+        expect(PayrollUI.setPayrollLoansSalaryBulk(kind)).toBe(true);
+        expect(loan().total).toBe(amount);
+        expect((await exported())[0].monto).toBe(net);
+        expect(PayrollUI.setPayrollLoansSalaryBulk(kind)).toBe(true);
+        expect(loan().total).toBe(amount);
+        PayrollUI.setPayrollGuideStep('loans');
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const summary = host.querySelector('.payroll-loans-warning-summary');
+        expect(summary.textContent).toContain('1 con deuda pendiente');
+        expect(summary.textContent).toContain(`${kind === 'available' ? 1 : 0} en cero tras cobro`);
+        expect(summary.querySelectorAll('svg')).toHaveLength(2);
+        expect(JSON.stringify(state.employees)).toBe(before);
+    }
+);
+
+test('bulk choices respect the project and leader and preserve selections outside that filter', async () => {
+    const base = state.employees[0];
+    state.positions.push({ ...state.positions[0], id: 'p2', leaderId: 'leader2' });
+    state.leaders.push({ id: 'leader2', name: 'Otro líder', projectId: P, active: true });
+    state.employees.push({ ...base, id: 'other-leader', number: '2', positions: ['p2'], loans: [{ ...base.loans[0], id: 'loan2' }] });
+    state.employees.push({ ...base, id: 'foreign', number: '3', projectId: 'OTHER', loans: [{ ...base.loans[0], id: 'loan3' }] });
+    state.attendance['other-leader-2026-03-05'] = { ...state.attendance['e-2026-03-05'], employeeId: 'other-leader', selectedPosition: 'p2' };
+    await PayrollUI.refreshScopedPayrollPreview();
+    PayrollUI.setPayrollLoanCustomAmount('other-leader', '100');
+    PayrollUI.setPayrollLoanCustomAmount('foreign', '75');
+    state.exportConfig.leaderFilter = 'leader';
+    const before = state.exportConfig.payrollLoanSelection.map(item => ({ ...item }));
+    const render = jest.fn();
+    PayrollUI.init({ state, services: { payroll: {}, payrollRuntime: runtime }, render });
+    expect(PayrollUI.setPayrollLoansSalaryBulk('available')).toBe(true);
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(loan().total).toBe(800);
+    for (const id of ['other-leader', 'foreign']) {
+        expect(state.exportConfig.payrollLoanSelection.find(item => item.employeeId === id))
+            .toEqual(before.find(item => item.employeeId === id));
+    }
+});
+
+test('bulk action is delegated from both new buttons', () => {
+    PayrollUI.setPayrollGuideStep('loans');
+    document.body.innerHTML = PayrollUI.PayrollTab();
+    document.querySelector('[data-payroll-action="set-payroll-loans-salary-bulk"][data-kind="available"]').click();
+    expect(loan().total).toBe(800);
+    document.querySelector('[data-payroll-action="set-payroll-loans-salary-bulk"][data-kind="recommended"]').click();
+    expect(loan().total).toBe(240);
+    document.body.innerHTML = '';
+});
+
+test('bulk choices refuse stale previews, invalid actions and disabled loans without changing the selection', () => {
+    PayrollUI.setPayrollLoanCustomAmount('e', '100');
+    const before = JSON.stringify(state.exportConfig.payrollLoanSelection);
+    expect(PayrollUI.setPayrollLoansSalaryBulk('invalid')).toBe(false);
+    state.exportConfig.payrollPreviewInclusion = { loans: false };
+    expect(PayrollUI.setPayrollLoansSalaryBulk('available')).toBe(false);
+    PayrollUI.setPayrollGuideStep('loans');
+    const host = document.createElement('div');
+    host.innerHTML = PayrollUI.PayrollTab();
+    expect([...host.querySelectorAll('[data-payroll-action="set-payroll-loans-salary-bulk"]')].every(button => button.disabled)).toBe(true);
+    state.exportConfig.payrollPreviewInclusion = { loans: true };
+    state.attendance['e-2026-03-05'].hoursWorked = 4;
+    expect(PayrollUI.setPayrollLoansSalaryBulk('available')).toBe(false);
+    expect(JSON.stringify(state.exportConfig.payrollLoanSelection)).toBe(before);
+});
+
+test('bulk selection clears earlier charges for people without salary and does not charge a registered period', async () => {
+    const base = state.employees[0];
+    state.employees.push({ ...base, id: 'absent', number: '2', loans: [{ ...base.loans[0], id: 'absent-loan' }] });
+    await PayrollUI.refreshScopedPayrollPreview();
+    PayrollUI.setPayrollLoanCustomAmount('absent', '100');
+    expect(PayrollUI.setPayrollLoansSalaryBulk('available')).toBe(true);
+    expect(state.exportConfig.payrollLoanSelection.map(item => item.employeeId)).toEqual(['e']);
+    state.exportConfig.payrollRegistration = { periodStart: '2026-03-01', periodEnd: '2026-03-15' };
+    expect(PayrollUI.setPayrollLoansSalaryBulk('recommended')).toBe(false);
+    expect(loan().total).toBe(800);
+});
+
+test.each([['available', 800], ['recommended', 240]])('bulk %s also uses the legacy payroll calculation', (kind, expected) => {
+    setProjectsEnabled(false);
+    resetEntityScope();
+    PayrollUI.init({ state, services: { payroll: new payrollCalculation.PayrollService(state), payrollRuntime: runtime }, render: () => {} });
+    expect(PayrollUI.setPayrollLoansSalaryBulk(kind)).toBe(true);
+    expect(loan().total).toBe(expected);
+});
 
 test('salary percentage includes bonuses and subtracts other deductions', async () => {
     state.exportConfig.bonuses = [{ id: 'b', name: 'Bono', type: 'fixed', value: 200, scope: 'global' }];
