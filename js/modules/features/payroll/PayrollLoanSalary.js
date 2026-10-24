@@ -14,7 +14,7 @@ export function getPayrollLoanSalaryAmounts(row, collectibleDebt, percentage = D
     if (salary / 100 > salaryAvailable + 1e-9) salary -= 1;
     const debt = cents(collectibleDebt);
     const percent = Number(percentage);
-    const validPercentage = Number.isInteger(percent) && percent >= 1 && percent <= 100;
+    const validPercentage = String(percentage).trim() !== '' && Number.isFinite(percent) && percent >= 0 && percent <= 100;
     const available = Math.min(salary, debt);
     // Round down to cents so the chosen percentage is a maximum, including fractional cents.
     const suggested = validPercentage ? Math.min(debt, Math.floor(salary * percent / 100)) : 0;
@@ -26,4 +26,9 @@ export function getPayrollLoanSalaryAmounts(row, collectibleDebt, percentage = D
         percentage: percent,
         validPercentage
     };
+}
+
+export function getPayrollLoanEquivalentPercentage(amount, salary) {
+    if (!(Number(salary) > 0)) return null;
+    return Math.max(0, Number(amount) || 0) / Number(salary) * 100;
 }

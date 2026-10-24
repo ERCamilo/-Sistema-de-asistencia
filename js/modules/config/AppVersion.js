@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.105';
+const APP_VERSION = '1.7.106';
 const CHANGELOG = [
+    { version: '1.7.106', date: '2026-10-24', title: 'Selector móvil y descuentos sincronizados', items: ['Selecciona empleados sin filas recortadas y conserva visibles el buscador y los botones, también en pantallas bajas.', 'Reconoce con iconos y avisos breves los saldos insuficientes, los pagos pausados y el personal fuera de nómina.', 'El monto y el porcentaje se sincronizan al elegir Todo, Solo interés, escribir una cantidad o mover una barra más compacta; el descuento se actualiza al soltarla.'] },
     { version: '1.7.105', date: '2026-10-24', title: 'Los colores de tu personal en Voz', items: ['El círculo del empleado usa el color de su posición principal, también al seleccionarlo.', 'Solo los empleados desactivados muestran la etiqueta Pausado.'] },
     { version: '1.7.104', date: '2026-10-24', title: 'Empleados más claros en Voz', items: ['Identifica al empleado por el icono de su posición principal y su estado activo o desactivado.', 'El selector de empleados abre sin enfocar el buscador; toca el campo cuando quieras escribir.'] },
     { version: '1.7.103', date: '2026-10-24', title: 'Selección más rápida y descuentos por porcentaje', items: ['Seleccionar empleados en descuentos y bonificaciones abre más rápido y conserva la lista al marcar personas.', 'En préstamos puedes usar el sueldo disponible o elegir un porcentaje con una barra y un campo numérico; la sugerencia inicial es 30 %.', 'Antes de aplicar el porcentaje ves cuánto se descuenta y cuánto sueldo queda; la deuda no cobrada sigue pendiente.'] },

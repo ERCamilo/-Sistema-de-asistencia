@@ -1,4 +1,4 @@
-import { getPayrollLoanSalaryAmounts } from '../modules/features/payroll/PayrollLoanSalary.js';
+import { getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage } from '../modules/features/payroll/PayrollLoanSalary.js';
 import { createLoan, getBalance, getPayrollDeductionOptions } from '../modules/features/loans/LoansService.js';
 import { applyPayrollLoanDeductions, buildPayrollLoanSelection, setPayrollLoanMode } from '../modules/features/payroll/PayrollLoans.js';
 import { buildPayrollLoanSettlementBatch, applyPayrollLoanSettlementBatch } from '../modules/features/payroll/PayrollLoanSettlement.js';
@@ -33,8 +33,16 @@ test.each([null, {}, { monto: -10 }, { _montoBeforeLoans: 0, monto: 800 }, { mon
     expect(getPayrollLoanSalaryAmounts(row, 5000)).toMatchObject({ available: 0, suggested: 0 });
 });
 
-test.each(['', 0, -1, 101, 1.5, 'abc', Infinity])('invalid percentage %p cannot produce a deduction', percent => {
+test.each(['', -1, 101, 'abc', Infinity])('invalid percentage %p cannot produce a deduction', percent => {
     expect(getPayrollLoanSalaryAmounts({ monto: 800 }, 5000, percent)).toMatchObject({ validPercentage: false, suggested: 0 });
+});
+
+test('zero and decimal percentages stay within the available salary', () => {
+    expect(getPayrollLoanSalaryAmounts({ monto: 800 }, 5000, 0).suggested).toBe(0);
+    expect(getPayrollLoanSalaryAmounts({ monto: 800 }, 5000, 12.5).suggested).toBe(100);
+    expect(getPayrollLoanEquivalentPercentage(100, 800)).toBe(12.5);
+    expect(getPayrollLoanEquivalentPercentage(1000, 800)).toBe(125);
+    expect(getPayrollLoanEquivalentPercentage(100, 0)).toBeNull();
 });
 
 test.each([30, 100])('%i percent records only the actual payment and leaves the balance for a later payment', percentage => {

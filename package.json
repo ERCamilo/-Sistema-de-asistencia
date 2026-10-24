@@ -25,6 +25,7 @@
     "test:photo-viewer": "node scripts/check-photo-viewer.cjs",
     "test:loans-load-time": "node scripts/check-loans-load-time.cjs",
     "test:loan-history-layout": "node scripts/check-loan-history-layout.cjs",
+    "test:payroll-controls": "node scripts/check-payroll-controls.cjs",
     "test:app-updates": "node scripts/check-app-updates.cjs",
     "test:release": "node scripts/release-manifest.cjs --check --release"
   }

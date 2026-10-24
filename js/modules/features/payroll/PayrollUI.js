@@ -28,7 +28,7 @@ import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import { parsePayrollLoanAmount } from './PayrollLoanAmount.js';
 import { payrollPreviewInputKey } from './PayrollPreviewInputs.js';
-import { DEFAULT_PAYROLL_LOAN_PERCENTAGE, getPayrollLoanSalaryAmounts } from './PayrollLoanSalary.js';
+import { DEFAULT_PAYROLL_LOAN_PERCENTAGE, getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage } from './PayrollLoanSalary.js';
 import {
     buildPayrollPreviewFingerprint,
     confirmPayrollPaid
@@ -157,11 +157,12 @@ let payrollRuntime = null;
 let unsubscribeRuntimeInvalidation = null;
 let latestPayrollPreviewRows = [];
 const payrollLoanAmountDrafts = new Map();
-const payrollLoanPercentages = new Map();
+const payrollLoanPercentageDrafts = new Map();
 const STALE_PAYROLL_MESSAGE = 'La asistencia, las tarifas o la configuración cambiaron. Actualiza la vista previa antes de exportar o confirmar la nómina.';
 
 function payrollPreviewBlocker(view) {
     if (view?.enabled && view.previewStale) return STALE_PAYROLL_MESSAGE;
+    if (payrollLoanPercentageDrafts.size) return 'Corrige el porcentaje antes de exportar o confirmar la nómina.';
     if (payrollLoanAmountDrafts.size) return 'Corrige el campo «Otro monto» o elige Todo o Solo interés antes de exportar o confirmar la nómina.';
     return null;
 }
@@ -241,7 +242,7 @@ const _ACTION_MAP = {
     },
     'set-payroll-loan-salary-amount': (employeeId, target, event) => {
         event.stopPropagation();
-        const percentage = target.closest('.payroll-loan-mode')?.querySelector('[data-payroll-loan-percentage="number"]')?.value;
+        const percentage = DEFAULT_PAYROLL_LOAN_PERCENTAGE;
         window.PayrollUI?.setPayrollLoanSalaryAmount?.(employeeId, target.dataset.kind, percentage);
     },
     'select-all-payroll-loan-charges': (employeeId, target, event) => {
@@ -358,29 +359,57 @@ function _handlePayrollAdjustmentChoiceCapture(e) {
 }
 
 function _handlePayrollLoanPercentageInput(event) {
-    const input = event.target.closest?.('[data-payroll-loan-percentage]');
+    const input = event.target.closest?.('[data-payroll-loan-percentage], [data-payroll-loan-custom-amount]');
     if (!input) return;
     const panel = input.closest('.payroll-loan-mode');
     if (!panel) return;
-    const amounts = getPayrollLoanSalaryAmounts({ _montoBeforeLoans: panel.dataset.salaryAvailable },
-        panel.dataset.collectibleDebt, input.value);
+    const id = String(input.dataset.id);
+    const isPercentage = input.hasAttribute('data-payroll-loan-percentage');
+    if (event.type === 'change') {
+        if (!isPercentage) return; // The money field commits through its existing onchange handler.
+        const percent = panel.dataset.pendingPercentage ?? input.value;
+        delete panel.dataset.pendingPercentage;
+        window.PayrollUI?.setPayrollLoanSalaryAmount?.(id, 'percentage', percent);
+        return;
+    }
+    const salary = Number(panel.dataset.salaryAvailable) || 0;
+    const debt = Number(panel.dataset.collectibleDebt) || 0;
+    let amount;
+    if (isPercentage) {
+        const amounts = getPayrollLoanSalaryAmounts({ _montoBeforeLoans: salary }, debt, input.value);
+        const error = panel.querySelector('[data-payroll-loan-percentage-error]');
+        if (error) error.hidden = amounts.validPercentage;
+        input.setAttribute('aria-invalid', String(!amounts.validPercentage));
+        if (!amounts.validPercentage) {
+            payrollLoanPercentageDrafts.set(id, { value: input.value, error: 'Indica un porcentaje entre 0 y 100.' });
+            return;
+        }
+        payrollLoanPercentageDrafts.delete(id);
+        panel.dataset.pendingPercentage = input.value;
+        amount = amounts.suggested;
+        const money = panel.querySelector('[data-payroll-loan-custom-amount]');
+        if (money) money.value = amount.toFixed(2);
+    } else {
+        const parsed = parsePayrollLoanAmount(input.value);
+        if (parsed === null) return;
+        amount = Math.min(parsed, debt);
+        payrollLoanPercentageDrafts.delete(id);
+        delete panel.dataset.pendingPercentage;
+    }
+    const equivalent = getPayrollLoanEquivalentPercentage(amount, salary);
     const error = panel.querySelector('[data-payroll-loan-percentage-error]');
-    if (error) error.hidden = amounts.validPercentage;
-    input.setAttribute('aria-invalid', String(!amounts.validPercentage));
-    const apply = panel.querySelector('[data-kind="percentage"]');
-    if (apply) apply.disabled = !amounts.validPercentage || amounts.suggested <= 0;
-    if (!amounts.validPercentage) return;
-    payrollLoanPercentages.set(String(input.dataset.id), amounts.percentage);
+    if (error) error.hidden = true;
     panel.querySelectorAll('[data-payroll-loan-percentage]').forEach(control => {
-        control.value = amounts.percentage;
+        if (control === input && control.type === 'number') return;
+        control.value = control.type === 'range' ? Math.min(100, equivalent || 0) : equivalent === null ? '' : Number(equivalent.toFixed(4));
         control.setAttribute('aria-invalid', 'false');
-        if (control.type === 'range') control.setAttribute('aria-valuetext', `${amounts.percentage} %: descontar ${formatCurrency(amounts.suggested)}; quedan ${formatCurrency(amounts.remainingSalary)}`);
+        if (control.type === 'range') control.setAttribute('aria-valuetext', equivalent === null ? 'Sin sueldo disponible' : `${Number(equivalent.toFixed(4))} % del sueldo disponible`);
     });
-    panel.querySelectorAll('[data-payroll-loan-percentage-amount]').forEach(label => { label.textContent = formatCurrency(amounts.suggested); });
-    const title = panel.querySelector('[data-payroll-loan-percentage-title]');
-    if (title) title.textContent = amounts.percentage === DEFAULT_PAYROLL_LOAN_PERCENTAGE ? 'Sugerido 30 %' : `Usar ${amounts.percentage} %`;
-    const remaining = panel.querySelector('[data-payroll-loan-percentage-remaining]');
-    if (remaining) remaining.textContent = formatCurrency(amounts.remainingSalary);
+    const net = panel.querySelector('[data-payroll-loan-live-net]');
+    if (net) {
+        net.textContent = formatCurrency(salary - amount);
+        net.classList.toggle('is-negative', salary - amount < -0.004);
+    }
 }
 
 function _handlePayrollAdjustmentInput(e) {
@@ -416,7 +445,7 @@ let _payrollDelegationAttached = false;
 export function init(ctx) {
     unsubscribeRuntimeInvalidation?.();
     payrollLoanAmountDrafts.clear();
-    payrollLoanPercentages.clear();
+    payrollLoanPercentageDrafts.clear();
     context = ctx;
     payrollService = ctx.services.payroll;
     payrollRuntime = ctx.services.payrollRuntime || null;
@@ -427,7 +456,7 @@ export function init(ctx) {
         }
         latestPayrollPreviewRows = [];
         payrollLoanAmountDrafts.clear();
-        payrollLoanPercentages.clear();
+        payrollLoanPercentageDrafts.clear();
         clearPayrollAdjustmentPeriodRuntime();
         const state = getState();
         if (state?.exportConfig) {
@@ -461,6 +490,7 @@ export function init(ctx) {
         document.addEventListener('keydown', _handlePayrollKeydown);
         document.addEventListener('input', _handlePayrollAdjustmentInput);
         document.addEventListener('input', _handlePayrollLoanPercentageInput);
+        document.addEventListener('change', _handlePayrollLoanPercentageInput);
         document.addEventListener('change', _handlePayrollAdjustmentInput);
         _payrollDelegationAttached = true;
     }
@@ -1039,7 +1069,7 @@ function ScopedPayrollTab(view) {
                             payrollRows: rows,
                             expandedEmployeeIds: exportConfig.payrollLoanExpandedEmployees || [],
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
-                            salaryPercentages: Object.fromEntries(payrollLoanPercentages),
+                            percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
                             periodEnd: period.periodEnd
                         }) : ''}
                     </section>
@@ -1714,7 +1744,7 @@ function PayrollGeneratorTab() {
                             payrollRows: exportData,
                             expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || [],
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
-                            salaryPercentages: Object.fromEntries(payrollLoanPercentages),
+                            percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
                             periodEnd: state.exportConfig.periodEnd
                         })}`}
                     </section>
@@ -2228,6 +2258,7 @@ function buildAdjustmentEmployeePickerEntries() {
                 number: employee.number,
                 name: employee.name,
                 active: employee.active !== false,
+                inPayroll: isScoped && scopedView.period && !scopedView.previewStale ? previewById.has(String(employee.id)) : null,
                 positions,
                 gross: Number(payroll.brutoOriginal) || 0
             };
@@ -3445,6 +3476,7 @@ export function addPayrollLoansToExport() {
 
 export function removeEmployeePayrollLoans(employeeId) {
     payrollLoanAmountDrafts.delete(String(employeeId));
+    payrollLoanPercentageDrafts.delete(String(employeeId));
     const state = getState();
     stateManager.batchSetState(() => {
         state.exportConfig.payrollLoanSelection = removeEmployeePayrollLoansFromSelection(
@@ -4069,6 +4101,7 @@ function updatePayrollLoanSelection(nextSelection) {
 
 export function clearPayrollLoans() {
     payrollLoanAmountDrafts.clear();
+    payrollLoanPercentageDrafts.clear();
     updatePayrollLoanSelection([]);
 }
 
@@ -4113,6 +4146,7 @@ export function toggleEmployeePayrollLoans(employeeId) {
  */
 export function setPayrollLoanModeFor(employeeId, mode, amount = null) {
     payrollLoanAmountDrafts.delete(String(employeeId));
+    payrollLoanPercentageDrafts.delete(String(employeeId));
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
     if (!employee) return;
@@ -4123,7 +4157,12 @@ export function setPayrollLoanModeFor(employeeId, mode, amount = null) {
         selection = setEmployeePayrollLoans(selection, employee.id, getEligiblePayrollLoans(employee, periodEnd)
             .map(loan => ({ loanId: loan.loanId, chargeCount: Math.max(1, loan.defaultChargeCount) })));
     }
-    updatePayrollLoanSelection(setPayrollLoanMode(selection, employee.id, mode, amount));
+    let next = setPayrollLoanMode(selection, employee.id, mode, amount);
+    if (mode === PAYROLL_LOAN_MODE.CUSTOM) {
+        const actual = resolvePayrollLoanSelection([employee], next, getEffectivePayrollPeriodEnd(state))[0]?.total || 0;
+        next = setPayrollLoanMode(next, employee.id, mode, actual);
+    }
+    updatePayrollLoanSelection(next);
 }
 
 export function setPayrollLoanCustomAmount(employeeId, value) {
@@ -4163,14 +4202,24 @@ export function setPayrollLoanSalaryAmount(employeeId, kind, percentage = DEFAUL
     const debt = resolvePayrollLoanSelection([employee], selection, periodEnd)[0]?.fullTotal || 0;
     const amounts = getPayrollLoanSalaryAmounts(row, debt, kind === 'available' ? 100 : percentage);
     const amount = kind === 'available' ? amounts.available : amounts.suggested;
+    if (kind === 'percentage' && amounts.validPercentage && (amounts.percentage === 0 || amount === 0 && amounts.salaryAvailable > 0 && debt > 0)) {
+        payrollLoanPercentageDrafts.delete(String(employeeId));
+        payrollLoanAmountDrafts.delete(String(employeeId));
+        updatePayrollLoanSelection(removeEmployeePayrollLoansFromSelection(selection, employeeId));
+        return true;
+    }
     if (!amounts.validPercentage || amount <= 0) {
+        if (!amounts.validPercentage && kind === 'percentage') {
+            payrollLoanPercentageDrafts.set(String(employeeId), { value: String(percentage ?? ''), error: 'Indica un porcentaje entre 0 y 100.' });
+        }
         window.showNotification?.(!amounts.validPercentage
-            ? 'Indica un porcentaje entero entre 1 y 100.'
+            ? 'Indica un porcentaje entre 0 y 100.'
             : 'No hay sueldo disponible o cargos seleccionables en este período.', 'warning');
         return false;
     }
-    if (kind === 'percentage') payrollLoanPercentages.set(String(employeeId), amounts.percentage);
+
     payrollLoanAmountDrafts.delete(String(employeeId));
+    payrollLoanPercentageDrafts.delete(String(employeeId));
     updatePayrollLoanSelection(setPayrollLoanMode(selection, employeeId, PAYROLL_LOAN_MODE.CUSTOM, amount));
     return true;
 }

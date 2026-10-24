@@ -90,3 +90,8 @@ jobs:
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: npm run test:loans-load-time
+
+      - name: Payroll picker and synchronized controls in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: npm run test:payroll-controls

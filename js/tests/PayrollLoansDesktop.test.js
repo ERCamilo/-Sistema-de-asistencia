@@ -30,6 +30,13 @@ const payrollRows = [{
 }];
 
 describe('PayrollLoansDesktop', () => {
+    test('a missing payroll row is distinct from a computed zero balance', () => {
+        const host = document.createElement('div');
+        host.innerHTML = renderPayrollLoansDesktop({ employees, selection, payrollRows: [] });
+        expect(host.textContent).toContain('No está en la nómina');
+        expect(host.querySelector('.payroll-status--warning svg')).not.toBeNull();
+        expect(buildPayrollLoansDesktopModel(employees, selection, []).zeroCount).toBe(0);
+    });
     test('invalid custom amount keeps its draft with an associated inline error', () => {
         const host = document.createElement('div');
         host.innerHTML = renderPayrollLoansDesktop({ employees, selection, payrollRows,
