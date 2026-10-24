@@ -1,6 +1,15 @@
 {
-  "version": "1.7.103",
+  "version": "1.7.104",
   "changelog": [
+    {
+      "version": "1.7.104",
+      "date": "2026-10-24",
+      "title": "Empleados más claros en Voz",
+      "items": [
+        "Identifica al empleado por el icono de su posición principal y su estado activo o desactivado.",
+        "El selector de empleados abre sin enfocar el buscador; toca el campo cuando quieras escribir."
+      ]
+    },
     {
       "version": "1.7.103",
       "date": "2026-10-24",

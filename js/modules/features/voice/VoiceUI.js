@@ -735,7 +735,7 @@ export class VoiceMvpUI {
             audio: () => VoiceAudioView(this, button) + (blocked && result ? '<section class="voice-review" role="alert">Instrucción negada o no reconocida. No se registrará una operación. Revisa el texto y el motivo en Opciones de audio.</section>' : ''),
             employees: () => VoiceEmployeeView(this, button),
             loan: () => VoiceLoanView(this, button),
-            playback: () => `${voiceEmployeeCard(selected)}${voicePlayer(this,button)}<p class="voice-expiry">${voiceIcon('clock')} Hasta ${escapeHTML(new Date(record.audioExpiresAt).toLocaleDateString('es-DO', {day:'numeric',month:'short',timeZone:record.context?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone}))}</p>`,
+            playback: () => `${voiceEmployeeCard(selected, '', this.adapter.getPositions?.() || [])}${voicePlayer(this,button)}<p class="voice-expiry">${voiceIcon('clock')} Hasta ${escapeHTML(new Date(record.audioExpiresAt).toLocaleDateString('es-DO', {day:'numeric',month:'short',timeZone:record.context?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone}))}</p>`,
             storage: () => {
                 const settings = this.adapter.getSettings?.() || {};
                 const selectedDays = settings.voiceKeepLoanAudio === false ? 0 : Number(settings.voiceAudioRetentionDays || 5);
@@ -758,6 +758,10 @@ export class VoiceMvpUI {
         const footer = this.dialog.querySelector('.voice-footer');
         const titles = { remember: '¿Recordar esta forma de llamarlo?', intent: 'Elegir acción', audio: 'Tu audio', employees: '¿Quién es?', loan: 'Nuevo préstamo', playback: 'Audio del préstamo', storage: 'Audio guardado' };
         this.dialog.querySelector('#voice-title').textContent = titles[view];
+        const heading = this.dialog.querySelector('#voice-title');
+        if (view === 'employees') heading.tabIndex = -1;
+        else heading.removeAttribute('tabindex');
+        heading.toggleAttribute('autofocus', view === 'employees');
         this.dialog.dataset.voiceView = view;
         this.dialog.querySelector('.voice-header > [data-voice-action=close]').hidden = view === 'remember';
         let hint = '';
@@ -788,7 +792,7 @@ export class VoiceMvpUI {
         const list = liveBody.querySelector('.voice-all'); if (list) list.scrollTop = listScroll;
         if (focusKey && !this.confirmation) {
             const target = [...this.dialog.querySelectorAll(`[${focusKey.name}]`)].find(el => el.getAttribute(focusKey.name) === focusKey.value && (!active.dataset.id || el.dataset.id === active.dataset.id));
-            (target || this.dialog.querySelector('.voice-primary, [data-voice-search]'))?.focus({ preventScroll: true });
+            (target || (view === 'employees' ? heading : this.dialog.querySelector('.voice-primary')))?.focus({ preventScroll: true });
             if (selection && target && (['text', 'search', 'url', 'tel', 'password'].includes(target.type) || target.tagName === 'TEXTAREA')) target.setSelectionRange(...selection);
         }
         const searchInput = this.dialog.querySelector('[data-voice-search]');
@@ -805,6 +809,9 @@ export class VoiceMvpUI {
             const target = this.dialog.querySelector('.voice-primary:not(:disabled)');
             if (target) { target.focus({ preventScroll: true }); this.focusAfterConfirmation = false; }
         }
+        // Entering the picker must not open a phone keyboard. An explicitly
+        // focused search field keeps its focus and cursor on internal updates.
+        if (view === 'employees' && structural && this.dialog.open && !this.confirmation) heading.focus({ preventScroll: true });
         let morphed = false;
         if (structural && this.dialog.open && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
             const after = this.dialog.getBoundingClientRect();
