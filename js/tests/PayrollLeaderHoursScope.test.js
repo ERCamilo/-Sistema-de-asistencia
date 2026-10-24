@@ -12,6 +12,7 @@ import { stateManager, state as appState } from 'actual/core/AppState.js';
 import { applyPayrollLoanDeductions } from 'actual/features/payroll/PayrollLoans.js';
 import { buildPayrollLoansDesktopModel } from 'actual/features/payroll/PayrollLoansDesktop.js';
 import { filterPayrollRowsByLeader, limitPayrollRowToPositions } from 'actual/features/payroll/PayrollPreview.js';
+import { formatCurrency } from 'actual/utils/Formatters.js';
 
 const P = 'PRJ-LEADER-HOURS';
 
@@ -178,8 +179,13 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         expect(await exported()).toHaveLength(2);
     });
 
-    test.each(['jornada repartida', 'medias jornadas separadas'])(
-        'Juan: Gringo recibe 1.5 días y Julito 0.5, con tarifas propias y %s', async distribution => {
+    test.each([
+        ['jornada repartida', false, 1200, 600, 800, 1200],
+        ['medias jornadas separadas', false, 1200, 600, 800, 1200],
+        ['jornada repartida', true, 1320, 700, 880, 1400],
+        ['medias jornadas separadas', true, 1320, 700, 880, 1400]
+    ])(
+        'Juan: reparte sueldos y días con %s, tarifa personal: %s', async (distribution, personalRates, gringoPay, julitoPay, gringoDaily, julitoDaily) => {
             stateManager.batchSetState(raw => {
                 raw.employees[0].name = 'Juan';
                 raw.employees[1].name = 'Solo albañil';
@@ -188,6 +194,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
                 raw.positions[0].name = 'Varillero';
                 raw.positions[1].name = 'Albañil';
                 raw.positions[1].hourlyRate = 150;
+                if (personalRates) raw.employees[0].positionSalaries = { 'POS-1': 110, 'POS-2': 175 };
                 const record = (date, position, hours) => ({ employeeId: 'E1', date, projectId: P,
                     present: true, selectedPosition: position, hoursWorked: hours, overtimeHours: 0 });
                 raw.attendance = {
@@ -210,8 +217,8 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
             PayrollUI.setPayrollGuideStep('review');
             PayrollUI.setLeaderHoursScope('leader');
             const byTeam = {};
-            for (const [id, position, hours, days, gross] of [
-                ['L1', 'POS-1', 12, 1.5, 1200], ['L2', 'POS-2', 4, 0.5, 600]
+            for (const [id, position, hours, days, gross, dailyRate] of [
+                ['L1', 'POS-1', 12, 1.5, gringoPay, gringoDaily], ['L2', 'POS-2', 4, 0.5, julitoPay, julitoDaily]
             ]) {
                 PayrollUI.setLeaderFilter(id);
                 const output = await exported();
@@ -220,7 +227,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
                 expect(juan).toMatchObject({ employeeName: 'Juan', bruto: gross, monto: gross,
                     workDays: { regular: days, total: days } });
                 expect(juan.positions).toHaveLength(1);
-                expect(juan.positions[0]).toMatchObject({ id: position, leaderId: id, workDays: { total: days } });
+                expect(juan.positions[0]).toMatchObject({ id: position, leaderId: id, dailyRate, workDays: { total: days } });
                 expect(juan.leaders.map(leader => leader.id)).toEqual([id]);
                 expect(output.map(employee => employee.sourceEmployeeId)).toEqual(id === 'L1' ? ['E1'] : ['E1', 'E2']);
                 const host = document.createElement('div');
@@ -228,15 +235,17 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
                 const row = [...host.querySelectorAll('.payroll-review-table__row')]
                     .find(element => element.querySelector('.payroll-review-table__employee').textContent.includes('Juan'));
                 expect(row.querySelector('.payroll-review-table__amount').textContent.trim()).toBe(`${hours}h`);
+                expect(row.querySelectorAll('.payroll-review-table__amount')[1].textContent.trim()).toBe(formatCurrency(gross));
+                expect(row.querySelector('.payroll-review-table__amount.is-net').textContent.trim()).toBe(formatCurrency(gross));
                 expect(row.querySelectorAll('.payroll-breakdown-details__item')).toHaveLength(1);
                 expect(row.querySelector('.payroll-breakdown-details__item strong').textContent)
                     .toBe(id === 'L1' ? 'Varillero' : 'Albañil');
             }
             expect(byTeam.L1.workDays.total + byTeam.L2.workDays.total).toBe(2);
-            expect(byTeam.L1.bruto + byTeam.L2.bruto).toBe(1800);
+            expect(byTeam.L1.bruto + byTeam.L2.bruto).toBe(gringoPay + julitoPay);
             PayrollUI.setLeaderFilter('all');
             const full = (await exported()).find(employee => employee.sourceEmployeeId === 'E1');
-            expect(full).toMatchObject({ bruto: 1800, monto: 1800, workDays: { total: 2 } });
+            expect(full).toMatchObject({ bruto: gringoPay + julitoPay, monto: gringoPay + julitoPay, workDays: { total: 2 } });
             expect(full.positions).toHaveLength(2);
             expect(JSON.stringify(runtime.getCurrentView().previewRows)).toBe(source);
         }
