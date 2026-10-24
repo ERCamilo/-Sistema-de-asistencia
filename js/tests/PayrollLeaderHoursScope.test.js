@@ -177,4 +177,68 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         PayrollUI.setLeaderFilter('all');
         expect(await exported()).toHaveLength(2);
     });
+
+    test.each(['jornada repartida', 'medias jornadas separadas'])(
+        'Juan: Gringo recibe 1.5 días y Julito 0.5, con tarifas propias y %s', async distribution => {
+            stateManager.batchSetState(raw => {
+                raw.employees[0].name = 'Juan';
+                raw.employees[1].name = 'Solo albañil';
+                raw.leaders[0].name = 'Gringo';
+                raw.leaders[1].name = 'Julito';
+                raw.positions[0].name = 'Varillero';
+                raw.positions[1].name = 'Albañil';
+                raw.positions[1].hourlyRate = 150;
+                const record = (date, position, hours) => ({ employeeId: 'E1', date, projectId: P,
+                    present: true, selectedPosition: position, hoursWorked: hours, overtimeHours: 0 });
+                raw.attendance = {
+                    'E1-2026-03-05': record('2026-03-05', 'POS-1', 8),
+                    'E1-2026-03-06': distribution === 'jornada repartida'
+                        ? { ...record('2026-03-06', 'POS-1', 8), positionHours: [
+                            { positionId: 'POS-1', hours: 4, overtimeHours: 0 },
+                            { positionId: 'POS-2', hours: 4, overtimeHours: 0 }
+                        ] }
+                        : record('2026-03-06', 'POS-1', 4),
+                    ...(distribution === 'medias jornadas separadas'
+                        ? { 'E1-2026-03-07': record('2026-03-07', 'POS-2', 4) } : {}),
+                    'E2-2026-03-05': { ...record('2026-03-05', 'POS-2', 8), employeeId: 'E2' }
+                };
+                // Being assigned to Gringo is insufficient if all worked hours belong to Julito.
+                raw.employees[1].positions = ['POS-1', 'POS-2'];
+            });
+            await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+            const source = JSON.stringify(runtime.getCurrentView().previewRows);
+            PayrollUI.setPayrollGuideStep('review');
+            PayrollUI.setLeaderHoursScope('leader');
+            const byTeam = {};
+            for (const [id, position, hours, days, gross] of [
+                ['L1', 'POS-1', 12, 1.5, 1200], ['L2', 'POS-2', 4, 0.5, 600]
+            ]) {
+                PayrollUI.setLeaderFilter(id);
+                const output = await exported();
+                const juan = output.find(employee => employee.sourceEmployeeId === 'E1');
+                byTeam[id] = juan;
+                expect(juan).toMatchObject({ employeeName: 'Juan', bruto: gross, monto: gross,
+                    workDays: { regular: days, total: days } });
+                expect(juan.positions).toHaveLength(1);
+                expect(juan.positions[0]).toMatchObject({ id: position, leaderId: id, workDays: { total: days } });
+                expect(juan.leaders.map(leader => leader.id)).toEqual([id]);
+                expect(output.map(employee => employee.sourceEmployeeId)).toEqual(id === 'L1' ? ['E1'] : ['E1', 'E2']);
+                const host = document.createElement('div');
+                host.innerHTML = PayrollUI.PayrollTab();
+                const row = [...host.querySelectorAll('.payroll-review-table__row')]
+                    .find(element => element.querySelector('.payroll-review-table__employee').textContent.includes('Juan'));
+                expect(row.querySelector('.payroll-review-table__amount').textContent.trim()).toBe(`${hours}h`);
+                expect(row.querySelectorAll('.payroll-breakdown-details__item')).toHaveLength(1);
+                expect(row.querySelector('.payroll-breakdown-details__item strong').textContent)
+                    .toBe(id === 'L1' ? 'Varillero' : 'Albañil');
+            }
+            expect(byTeam.L1.workDays.total + byTeam.L2.workDays.total).toBe(2);
+            expect(byTeam.L1.bruto + byTeam.L2.bruto).toBe(1800);
+            PayrollUI.setLeaderFilter('all');
+            const full = (await exported()).find(employee => employee.sourceEmployeeId === 'E1');
+            expect(full).toMatchObject({ bruto: 1800, monto: 1800, workDays: { total: 2 } });
+            expect(full.positions).toHaveLength(2);
+            expect(JSON.stringify(runtime.getCurrentView().previewRows)).toBe(source);
+        }
+    );
 });
