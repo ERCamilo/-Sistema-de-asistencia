@@ -1,6 +1,7 @@
 import { Modal } from '../../components/Modal.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
+import { renderPayrollStatus } from './PayrollStatus.js';
 
 function normalizeSearch(value) {
     return String(value || '')
@@ -56,7 +57,8 @@ function renderEmployeeRows(employees, selectedIds) {
                 <span class="payroll-adjustment-picker__status is-${employee.active === false ? 'inactive' : 'active'}">
                     ${employee.active === false ? 'Inactivo' : 'Activo'}
                 </span>
-                <span class="payroll-adjustment-picker__check" aria-hidden="true">✓</span>
+                ${employee.inPayroll === false ? `<span class="payroll-adjustment-picker__notice">${renderPayrollStatus('No está en la nómina')}</span>` : ''}
+                <span class="payroll-adjustment-picker__check" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" focusable="false"><path d="m5 12 4 4L19 6"/></svg></span>
             </button>
         `;
     }).join('');
@@ -115,10 +117,28 @@ export function openPayrollAdjustmentEmployeePicker({ employees = [], selectedId
         };
         const modal = new Modal({
             title: 'Seleccionar empleados',
-            subtitle: 'Agrega varios empleados a la misma regla.',
+            subtitle: 'Selecciona a quién aplicar la regla.',
             content: renderPayrollAdjustmentEmployeePicker({ employees, selectedIds: [...selection], query, status }),
             size: 'large',
             onOpen() {
+                const container = this.element.querySelector('[data-modal-container]');
+                container?.classList.add('payroll-adjustment-picker-modal');
+                const fitViewport = () => container?.style.setProperty('--payroll-picker-height',
+                    `${Math.max(0, (window.visualViewport?.height || window.innerHeight) - (window.innerWidth <= 620 ? 16 : 24))}px`);
+                fitViewport();
+                window.visualViewport?.addEventListener('resize', fitViewport);
+                window.addEventListener('resize', fitViewport);
+                this.cleanupPickerViewport = () => {
+                    window.visualViewport?.removeEventListener('resize', fitViewport);
+                    window.removeEventListener('resize', fitViewport);
+                };
+                const updateCount = () => {
+                    const apply = this.element.querySelector('[data-button-index="1"]');
+                    if (!apply) return;
+                    apply.textContent = `Aplicar (${selection.size})`;
+                    apply.setAttribute('aria-label', `Aplicar selección: ${selection.size} empleados`);
+                };
+                updateCount();
                 const renderList = () => {
                     const filtered = filterPayrollAdjustmentEmployees(employees, { query, status });
                     const list = this.element.querySelector('[data-adjustment-picker-list]');
@@ -146,9 +166,10 @@ export function openPayrollAdjustmentEmployeePicker({ employees = [], selectedId
                     // Selecting one person must not rebuild every row or move the scroll position.
                     row.classList.toggle('is-selected', selection.has(id));
                     row.setAttribute('aria-pressed', String(selection.has(id)));
+                    updateCount();
                 });
                 const searchEl = this.element.querySelector('[data-adjustment-picker-search]');
-                if (searchEl) {
+                if (searchEl && window.innerWidth > 620 && !window.matchMedia?.('(pointer: coarse)').matches) {
                     try {
                         searchEl.focus({ preventScroll: true });
                     } catch {
@@ -157,6 +178,7 @@ export function openPayrollAdjustmentEmployeePicker({ employees = [], selectedId
                 }
             },
             onClose() {
+                this.cleanupPickerViewport?.();
                 finish(null);
             },
             buttons: [{

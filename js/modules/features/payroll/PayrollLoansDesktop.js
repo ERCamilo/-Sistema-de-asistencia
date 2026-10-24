@@ -1,7 +1,8 @@
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
-import { getPayrollLoanSalaryAmounts } from './PayrollLoanSalary.js';
+import { getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage } from './PayrollLoanSalary.js';
+import { renderPayrollStatus } from './PayrollStatus.js';
 import {
     getEligiblePayrollLoans,
     getPayrollLoanMode,
@@ -25,6 +26,7 @@ function splitEmployeeName(name) {
 }
 
 function getLoanWarningState(payrollRow) {
+    if (!payrollRow) return 'missing';
     const net = Math.round((((Number(payrollRow?.monto) || 0) + Number.EPSILON) * 100)) / 100;
     if (net < 0) return 'negative';
     if (net === 0) return 'zero';
@@ -32,7 +34,7 @@ function getLoanWarningState(payrollRow) {
 }
 
 function renderWarningSummary(model) {
-    if (model.invalidCount === 0) {
+    if (model.noticeCount === 0) {
         return '<strong class="is-clear">Sin alertas</strong>';
     }
 
@@ -44,6 +46,7 @@ function renderWarningSummary(model) {
             ${model.zeroCount
                 ? `<strong class="is-zero">${model.zeroCount} en cero</strong>`
                 : ''}
+            ${model.missingCount ? renderPayrollStatus(`${model.missingCount} fuera de nómina`) : ''}
         </span>
     `;
 }
@@ -73,7 +76,7 @@ function renderSelectionControl({ checked, mixed = false, employeeId, loanId = n
     `;
 }
 
-export function buildPayrollLoansDesktopModel(employees = [], selection = [], payrollRows = [], periodEnd = null, salaryPercentages = {}) {
+export function buildPayrollLoansDesktopModel(employees = [], selection = [], payrollRows = [], periodEnd = null) {
     const resolvedByEmployee = new Map(
         resolvePayrollLoanSelection(employees, selection, periodEnd).map(item => [
             String(item.employeeId),
@@ -118,7 +121,7 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
         const collectibleDebt = selectedLoans.length ? sum('fullAmount')
             : loans.reduce((total, loan) => total + loan.chargeOptions.slice(0, loan.defaultChargeCount)
                 .reduce((amount, charge) => amount + charge.amount, 0), 0);
-        const salaryAmounts = getPayrollLoanSalaryAmounts(payrollRow, collectibleDebt, salaryPercentages[employee.id]);
+        const salaryAmounts = getPayrollLoanSalaryAmounts(payrollRow, collectibleDebt);
 
         groups.push({
             employeeId: employee.id,
@@ -155,7 +158,9 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
         summary: summarizePayrollLoans(employees, selection, periodEnd),
         invalidCount: groups.filter(group => group.invalid).length,
         negativeCount: groups.filter(group => group.warningState === 'negative').length,
-        zeroCount: groups.filter(group => group.warningState === 'zero').length
+        zeroCount: groups.filter(group => group.warningState === 'zero').length,
+        missingCount: groups.filter(group => group.warningState === 'missing').length,
+        noticeCount: groups.filter(group => group.warningState !== 'none').length
     };
 }
 
@@ -229,75 +234,69 @@ function renderLoanRow(group, loan) {
 }
 
 /** «Cuánto descontar»: Todo, Solo interés u Otro monto, con el desglose y los avisos. */
-function renderModePanel(group, draft = null) {
+function renderModePanel(group, draft = null, percentageDraft = null) {
     const id = safe(group.employeeId);
-    const owedLeft = Math.max(0, Math.round((group.eligibleBalance - group.selectedBalance) * 100) / 100);
+    const salary = group.salaryAmounts;
     const net = group.netRemaining;
+    const selected = group.selectedBalance;
+    const equivalent = getPayrollLoanEquivalentPercentage(selected, salary.salaryAvailable);
+    const percentage = equivalent === null ? '' : Number(equivalent.toFixed(4));
     const button = (mode, label, amount) => `
         <button type="button" class="payroll-loan-mode__option"
                 data-payroll-action="set-payroll-loan-mode" data-id="${id}" data-mode="${mode}"
-                aria-pressed="${group.mode === mode}">${label} <b>${formatCurrency(amount)}</b></button>`;
-    const customValue = group.mode === PAYROLL_LOAN_MODE.CUSTOM && group.customAmount != null ? String(group.customAmount) : '';
-    const salary = group.salaryAmounts;
-    const percentageErrorId = `payroll-loan-percentage-error-${id}`;
+                aria-pressed="${group.selectedCount > 0 && group.mode === mode}">${label} <b>${formatCurrency(amount)}</b></button>`;
+    const customValue = group.selectedCount ? String(selected) : '';
+    const errorId = `payroll-loan-percentage-error-${id}`;
+    const owedLeft = Math.max(0, Math.round((group.eligibleBalance - selected) * 100) / 100);
     return `
         <div class="payroll-loan-mode" role="group" aria-label="Cuánto descontar a ${safe(group.employeeName)}"
              data-salary-available="${salary.salaryAvailable}" data-collectible-debt="${group.collectibleDebt}">
             <span class="payroll-loan-mode__label">Cuánto descontar</span>
             <div class="payroll-loan-mode__options">
-                ${button(PAYROLL_LOAN_MODE.ALL, 'Todo', group.fullTotal || group.eligibleBalance)}
-                ${button(PAYROLL_LOAN_MODE.INTEREST, 'Solo interés', group.selectedCount ? group.interestOnlyTotal : group.loans.reduce((t, l) => t + l.pendingInterest, 0))}
+                ${button(PAYROLL_LOAN_MODE.ALL, 'Todo', group.collectibleDebt)}
+                ${button(PAYROLL_LOAN_MODE.INTEREST, 'Solo interés', group.selectedCount ? group.interestOnlyTotal : group.loans.reduce((t, l) => t + Math.min(l.pendingInterest, l.chargeOptions[0]?.amount || 0), 0))}
                 <button type="button" class="payroll-loan-mode__option" data-payroll-action="set-payroll-loan-salary-amount"
                         data-id="${id}" data-kind="available" ${salary.available > 0 ? '' : 'disabled'}>
-                    Sueldo disponible <b>${formatCurrency(salary.available)}</b>
+                    Disponible <b>${formatCurrency(salary.available)}</b>
                 </button>
                 <button type="button" class="payroll-loan-mode__option" data-payroll-action="set-payroll-loan-salary-amount"
                         data-id="${id}" data-kind="percentage" ${salary.suggested > 0 ? '' : 'disabled'}>
-                    <span data-payroll-loan-percentage-title>${salary.percentage === 30 ? 'Sugerido 30 %' : `Usar ${salary.percentage} %`}</span>
-                    <b data-payroll-loan-percentage-amount>${formatCurrency(salary.suggested)}</b>
+                    Sugerido 30 % <b>${formatCurrency(salary.suggested)}</b>
                 </button>
+            </div>
+            <div class="payroll-loan-amount-controls">
                 <label class="payroll-loan-mode__amount ${group.mode === PAYROLL_LOAN_MODE.CUSTOM ? 'is-active' : ''}">
                     <span>Otro monto $</span>
                     <input type="text" inputmode="decimal" autocomplete="off" placeholder="0.00"
-                           data-id="${id}" value="${safe(draft ? draft.value : customValue)}"
+                           data-id="${id}" data-payroll-loan-custom-amount value="${safe(draft ? draft.value : customValue)}"
                            ${draft ? `aria-invalid="true" aria-describedby="payroll-loan-amount-error-${id}"` : ''}
                            aria-label="Otro monto para ${safe(group.employeeName)}"
                            onchange="PayrollUI.setPayrollLoanCustomAmount(this.dataset.id, this.value)">
                 </label>
-            </div>
-            <div class="payroll-loan-percentage">
-                <label for="payroll-loan-range-${id}">Porcentaje del disponible · ${formatCurrency(salary.salaryAvailable)}</label>
-                <div class="payroll-loan-percentage__controls">
-                    <input type="range" id="payroll-loan-range-${id}" min="1" max="100" step="1" value="${salary.percentage}"
-                           data-payroll-loan-percentage="range" data-id="${id}" aria-describedby="${percentageErrorId}"
-                           aria-valuetext="${salary.percentage} %: descontar ${formatCurrency(salary.suggested)}; quedan ${formatCurrency(salary.remainingSalary)}"
+                <div class="payroll-loan-percentage">
+                    <label class="sr-only" for="payroll-loan-range-${id}">Porcentaje del sueldo disponible para ${safe(group.employeeName)}</label>
+                    <input type="range" id="payroll-loan-range-${id}" min="0" max="100" step="any" value="${Math.min(100, percentage || 0)}"
+                           data-payroll-loan-percentage="range" data-id="${id}" aria-describedby="${errorId}"
+                           aria-valuetext="${percentage === '' ? 'Sin sueldo disponible' : `${percentage} % del sueldo disponible`}"
                            ${salary.available > 0 ? '' : 'disabled'}>
                     <label class="payroll-loan-percentage__number">
-                        <input type="number" min="1" max="100" step="1" value="${salary.percentage}" inputmode="numeric"
+                        <input type="number" min="0" step="any" value="${safe(percentageDraft ? percentageDraft.value : percentage)}" inputmode="decimal"
+                               ${percentageDraft ? 'aria-invalid="true"' : ''}
                                data-payroll-loan-percentage="number" data-id="${id}" aria-label="Porcentaje del sueldo disponible para ${safe(group.employeeName)}"
-                               aria-describedby="${percentageErrorId}" ${salary.available > 0 ? '' : 'disabled'}> %
+                               aria-describedby="${errorId}" ${salary.available > 0 ? '' : 'disabled'}> %
                     </label>
                 </div>
-                <p>Descontar <b data-payroll-loan-percentage-amount>${formatCurrency(salary.suggested)}</b> · quedan de sueldo
-                    <b data-payroll-loan-percentage-remaining>${formatCurrency(salary.remainingSalary)}</b>. Pulsa la opción para aplicarlo.</p>
-                <p id="${percentageErrorId}" data-payroll-loan-percentage-error role="alert" hidden>Indica un porcentaje entero entre 1 y 100.</p>
-                ${salary.salaryAvailable <= 0 ? '<p>No hay sueldo disponible en la vista previa de este período.</p>' : ''}
             </div>
+            <p id="${errorId}" class="payroll-loan-mode__error" data-payroll-loan-percentage-error role="alert" ${percentageDraft ? '' : 'hidden'}>Indica un porcentaje entre 0 y 100.</p>
             ${draft ? `<p class="payroll-loan-mode__error" id="payroll-loan-amount-error-${id}" role="alert">${safe(draft.error)}</p>` : ''}
-            ${group.selectedCount ? `
-                <p class="payroll-loan-mode__split">
-                    = <b class="is-capital">${formatCurrency(group.chargedCapital)}</b> de capital
-                    + <b class="is-interest">${formatCurrency(group.chargedInterest)}</b> de interés
-                    · queda debiendo <b>${formatCurrency(owedLeft)}</b>
-                    · neto a pagar <b class="${net < 0 ? 'is-negative' : ''}">${formatCurrency(net)}</b>
-                </p>` : '<p class="payroll-loan-mode__split">Marca los préstamos que se descuentan en esta nómina o elige una opción.</p>'}
-            ${net < 0 ? `<p class="payroll-loan-mode__warn is-bad">No alcanza la nómina: el neto quedaría en ${formatCurrency(net)}. Baja el monto o descuenta solo el interés.</p>` : ''}
-            ${group.mode === PAYROLL_LOAN_MODE.CUSTOM && (group.customAmount || 0) > group.fullTotal + 0.004 ? `<p class="payroll-loan-mode__warn is-bad">Escribiste más de lo que se cobra en los préstamos marcados (${formatCurrency(group.fullTotal)}). Se descuenta como máximo eso.</p>` : ''}
-            ${group.selectedCount && group.mode !== PAYROLL_LOAN_MODE.ALL && group.fullTotal - group.selectedBalance > 0.004 ? `<p class="payroll-loan-mode__warn">Lo que no se descuente (${formatCurrency(group.fullTotal - group.selectedBalance)}) queda pendiente para la próxima nómina; se puede refinanciar con o sin interés.</p>` : ''}
+            <p class="payroll-loan-mode__split">Queda de sueldo <b data-payroll-loan-live-net class="${net < 0 ? 'is-negative' : ''}">${formatCurrency(net)}</b>
+                · deuda pendiente <b>${formatCurrency(owedLeft)}</b></p>
+            ${group.mode === PAYROLL_LOAN_MODE.CUSTOM && (group.customAmount || 0) > group.fullTotal + 0.004
+                ? renderPayrollStatus('Monto limitado al saldo seleccionado', 'attention') : ''}
         </div>`;
 }
 
-function renderEmployeeGroup(group, expandedIds, customAmountDrafts) {
+function renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageDrafts) {
     const selectedAll = group.selectionState === 'all';
     const mixed = group.selectionState === 'mixed';
     const { firstName, lastName } = splitEmployeeName(group.employeeName);
@@ -307,7 +306,10 @@ function renderEmployeeGroup(group, expandedIds, customAmountDrafts) {
         : `is-warning-${group.warningState}`;
     const warningLabel = group.warningState === 'negative'
         ? ', neto negativo'
-        : group.warningState === 'zero' ? ', neto en cero' : '';
+        : group.warningState === 'zero' ? ', neto en cero' : group.warningState === 'missing' ? ', no está en la nómina' : '';
+    const notice = group.warningState === 'negative' ? renderPayrollStatus('No tiene saldo suficiente', 'error')
+        : group.warningState === 'missing' ? renderPayrollStatus('No está en la nómina')
+        : group.warningState === 'zero' ? renderPayrollStatus(group.salaryAmounts.salaryAvailable > 0 ? 'Sin sueldo restante' : 'Sin sueldo disponible', 'attention') : '';
     return `
         <details class="payroll-loan-group ${warningClass}"
                  data-employee-id="${safe(group.employeeId)}"
@@ -321,6 +323,7 @@ function renderEmployeeGroup(group, expandedIds, customAmountDrafts) {
                             <span>${safe(firstName)}</span>
                             <span>${safe(lastName)}</span>
                         </strong>
+                        ${notice}
                     </span>
                 </span>
                 <span class="payroll-loan-group__metrics">
@@ -348,7 +351,7 @@ function renderEmployeeGroup(group, expandedIds, customAmountDrafts) {
                 })}
             </summary>
             <div class="payroll-loan-group__body has-modes">
-                ${renderModePanel(group, customAmountDrafts[group.employeeId])}
+                ${renderModePanel(group, customAmountDrafts[group.employeeId], percentageDrafts[group.employeeId])}
                 <div class="payroll-loan-child-columns" aria-hidden="true">
                     <span>Préstamo</span><span>Interés pend.</span><span>Capital pend.</span><span>Total</span><span>A descontar</span>
                     <span>Cuotas</span><span></span>
@@ -365,10 +368,10 @@ export function renderPayrollLoansDesktop({
     payrollRows = [],
     expandedEmployeeIds = [],
     customAmountDrafts = {},
-    salaryPercentages = {},
+    percentageDrafts = {},
     periodEnd = null
 } = {}) {
-    const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd, salaryPercentages);
+    const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd);
     const expandedIds = new Set((expandedEmployeeIds || []).map(String));
     const summary = model.summary;
 
@@ -409,7 +412,7 @@ export function renderPayrollLoansDesktop({
                     <span></span><span></span>
                 </div>
                 ${model.groups.length
-                    ? model.groups.map(group => renderEmployeeGroup(group, expandedIds, customAmountDrafts)).join('')
+                    ? model.groups.map(group => renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageDrafts)).join('')
                     : '<p class="payroll-loans-table__empty">No hay préstamos activos para este período.</p>'}
             </div>
         </section>

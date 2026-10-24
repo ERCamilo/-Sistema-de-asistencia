@@ -106,7 +106,7 @@ test('salary shortcut cannot use a stale preview or an invalid percentage', () =
     expect(loan().total).toBe(100);
 });
 
-test('slider updates a local proposal without recalculating payroll or changing the chosen deduction', () => {
+test('slider previews the money immediately without capturing payroll and applies automatically on release', () => {
     PayrollUI.setPayrollGuideStep('loans');
     document.body.innerHTML = PayrollUI.PayrollTab();
     const captures = jest.spyOn(runtime, 'captureContext');
@@ -115,26 +115,80 @@ test('slider updates a local proposal without recalculating payroll or changing 
         slider.value = '50';
         slider.dispatchEvent(new Event('input', { bubbles: true }));
         expect(document.querySelector('[data-payroll-loan-percentage="number"]').value).toBe('50');
-        expect(document.querySelector('[data-payroll-loan-percentage-amount]').textContent).toBe('$400.00');
+        expect(document.querySelector('[data-payroll-loan-custom-amount]').value).toBe('400.00');
         expect(state.exportConfig.payrollLoanSelection || []).toHaveLength(0);
         expect(captures).not.toHaveBeenCalled();
-        document.querySelector('[data-kind="percentage"]').click();
+        slider.dispatchEvent(new Event('change', { bubbles: true }));
         expect(loan().total).toBe(400);
     } finally { captures.mockRestore(); document.body.innerHTML = ''; }
 });
 
-test('empty percentage disables apply until a valid percentage is entered', () => {
+test('empty percentage blocks export without replacing the previous amount until it is corrected', async () => {
+    PayrollUI.setPayrollLoanCustomAmount('e', '100');
     PayrollUI.setPayrollGuideStep('loans');
     document.body.innerHTML = PayrollUI.PayrollTab();
     const input = document.querySelector('[data-payroll-loan-percentage="number"]');
     input.value = '';
     input.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(document.querySelector('[data-kind="percentage"]').disabled).toBe(true);
     expect(document.querySelector('[data-payroll-loan-percentage-error]').hidden).toBe(false);
+    PayrollUI.copyExportJSON();
+    await Promise.resolve();
+    expect(clipboard).toHaveLength(0);
+    expect(loan().total).toBe(100);
     input.value = '40';
     input.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(document.querySelector('[data-kind="percentage"]').disabled).toBe(false);
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(loan().total).toBe(320);
+    expect((await exported())[0].monto).toBe(480);
     document.body.innerHTML = '';
+});
+
+test.each([['all', 5000, 625], ['interest', 500, 62.5], ['custom', 200, 25]])(
+    'the %s choice keeps the amount and equivalent percentage together', (mode, amount, percentage) => {
+        if (mode === 'interest') state.employees[0].loans[0].interestRate = 10;
+        PayrollUI.setPayrollLoanModeFor('e', mode, amount);
+        PayrollUI.setPayrollGuideStep('loans');
+        document.body.innerHTML = PayrollUI.PayrollTab();
+        expect(Number(document.querySelector('[data-payroll-loan-custom-amount]').value)).toBe(amount);
+        expect(Number(document.querySelector('[data-payroll-loan-percentage="number"]').value)).toBe(percentage);
+        expect(Number(document.querySelector('[data-payroll-loan-percentage="range"]').value)).toBe(Math.min(100, percentage));
+        if (percentage > 100) expect(document.body.textContent).toContain('No tiene saldo suficiente');
+        document.body.innerHTML = '';
+    }
+);
+
+test('typing a money amount moves the slider immediately, and zero percent removes the deduction', async () => {
+    PayrollUI.setPayrollGuideStep('loans');
+    document.body.innerHTML = PayrollUI.PayrollTab();
+    const input = document.querySelector('[data-payroll-loan-custom-amount]');
+    input.value = '200,50';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(Number(document.querySelector('[data-payroll-loan-percentage="number"]').value)).toBe(25.0625);
+    const slider = document.querySelector('[data-payroll-loan-percentage="range"]');
+    slider.value = '0';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(input.value).toBe('0.00');
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(state.exportConfig.payrollLoanSelection).toEqual([]);
+    expect((await exported())[0].monto).toBe(800);
+    document.body.innerHTML = '';
+});
+
+test('capped percentages and fractional percentages do not drift when the slider commits', () => {
+    PayrollUI.setPayrollGuideStep('loans');
+    document.body.innerHTML = PayrollUI.PayrollTab();
+    const slider = document.querySelector('[data-payroll-loan-percentage="range"]');
+    slider.value = '33.3333';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(loan().total).toBe(266.66);
+    document.body.innerHTML = '';
+});
+
+test('a manual amount above selected debt stores the actual deduction, keeping every control consistent', () => {
+    PayrollUI.setPayrollLoanCustomAmount('e', '9000');
+    expect(state.exportConfig.payrollLoanSelection[0].amount).toBe(5000);
+    expect(loan().total).toBe(5000);
 });
 
 test('opening the employee picker reuses one snapshot and cached active salaries', async () => {
