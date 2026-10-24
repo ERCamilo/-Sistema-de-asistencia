@@ -153,9 +153,33 @@ const server = http.createServer((req, res) => {
             const violations = await page.evaluate(async () => (await axe.run('.payroll-loan-amount-controls', { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map(v => v.id));
             assert.deepEqual(violations, []);
             assert.ok(await page.$eval('.payroll-loan-percentage', el => el.getBoundingClientRect().height <= 50), 'percentage control stays compact');
+            const bulk = '[data-payroll-action="set-payroll-loans-salary-bulk"]';
+            for (const [kind, expected, zero] of [['available', 800, 1], ['recommended', 240, 0]]) {
+                await page.$eval(`${bulk}[data-kind="${kind}"]`, el => el.scrollIntoView({ block: 'center' }));
+                await page.click(`${bulk}[data-kind="${kind}"]`);
+                assert.equal(await page.evaluate(() => window.auditState.exportConfig.payrollLoanSelection.find(item => item.employeeId === 'e0').amount), expected);
+                const summary = await page.$eval('.payroll-loans-warning-summary', el => ({ text: el.textContent, icons: el.querySelectorAll('svg').length }));
+                assert.ok(summary.text.includes(`${zero} en cero tras cobro`));
+                assert.ok(summary.text.includes('2 con deuda pendiente'));
+                assert.ok(summary.icons >= 3, 'all summary warnings include an SVG, including zero salary');
+            }
+            const layout = await page.$$eval('.payroll-loans-toolbar button', buttons => ({
+                fit: buttons.every(button => {
+                    const box = button.getBoundingClientRect();
+                    return box.left >= 0 && box.right <= innerWidth && box.height >= 44 && button.scrollWidth <= button.clientWidth;
+                }),
+                noOverflow: document.documentElement.scrollWidth <= innerWidth + 1
+            }));
+            assert.ok(layout.fit && layout.noOverflow, `bulk buttons fit at ${width}: ${JSON.stringify(layout)}`);
+            const summaryViolations = await page.evaluate(async () => (await axe.run('.payroll-loans-metrics, .payroll-loans-toolbar', { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.failureSummary) })));
+            assert.deepEqual(summaryViolations, []);
+            if (process.env.PAYROLL_REVIEW_ARTIFACT_DIR) {
+                await page.$eval('.payroll-loans-desktop', el => el.scrollIntoView({ block: 'start' }));
+                await page.screenshot({ path: path.join(process.env.PAYROLL_REVIEW_ARTIFACT_DIR, `bulk-${width}.png`) });
+            }
             if (process.env.PAYROLL_REVIEW_ARTIFACT_DIR) await page.screenshot({ path: path.join(process.env.PAYROLL_REVIEW_ARTIFACT_DIR, `loans-${width}.png`), fullPage: true });
         }
         assert.deepEqual(errors, []);
-        console.log('PASS payroll: mobile rows/footer/short viewport, SVG statuses, synchronized amount/percentage, no capture during drag, four widths and WCAG A/AA');
+        console.log('PASS payroll: mobile rows/footer/short viewport, SVG statuses, synchronized amount/percentage, bulk maximum/30% and warning counts, no capture during drag, four widths and WCAG A/AA');
     } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

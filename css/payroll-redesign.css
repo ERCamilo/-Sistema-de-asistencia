@@ -461,28 +461,14 @@
 
 .payroll-loans-warning-counts {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 4px;
     margin-top: 4px;
 }
 
-.payroll-loans-warning-counts strong {
-    margin: 0;
-    padding: 3px 6px;
-    border-radius: 4px;
-    color: #fff;
-    font-size: 0.62rem;
-    line-height: 1.2;
-}
-
-.payroll-loans-warning-counts strong.is-negative {
-    background: #dc2626;
-    color: #fff;
-}
-
-.payroll-loans-warning-counts strong.is-zero {
-    background: #fbbf24;
-    color: #111820;
+.payroll-loans-warning-counts .payroll-status {
+    font-size: 0.7rem;
+    white-space: normal;
 }
 
 .payroll-loans-warning-summary > strong.is-clear {
@@ -490,14 +476,14 @@
 }
 
 .payroll-loans-toolbar {
-    display: flex;
-    justify-content: flex-end;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     padding: 0 12px 12px;
 }
 
 .payroll-loans-toolbar button {
-    min-height: 34px;
+    min-height: 44px;
     padding: 7px 12px;
     border: 0;
     border-radius: 6px;
@@ -517,6 +503,13 @@
 .payroll-loans-toolbar button:disabled {
     opacity: 0.45;
     cursor: default;
+}
+
+.payroll-loans-toolbar-hint {
+    margin: 0 12px 12px;
+    color: #a4b1c7;
+    font-size: 0.72rem;
+    line-height: 1.45;
 }
 
 .payroll-loans-table {
@@ -5635,10 +5628,6 @@
 
     .payroll-loans-toolbar {
         padding: 0 9px 9px;
-    }
-
-    .payroll-loans-toolbar button {
-        flex: 1 1 0;
     }
 
     .payroll-loans-table {

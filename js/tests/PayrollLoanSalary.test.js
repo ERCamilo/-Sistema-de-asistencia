@@ -1,4 +1,4 @@
-import { getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage } from '../modules/features/payroll/PayrollLoanSalary.js';
+import { getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage, buildPayrollLoanSalarySelection } from '../modules/features/payroll/PayrollLoanSalary.js';
 import { createLoan, getBalance, getPayrollDeductionOptions } from '../modules/features/loans/LoansService.js';
 import { applyPayrollLoanDeductions, buildPayrollLoanSelection, setPayrollLoanMode } from '../modules/features/payroll/PayrollLoans.js';
 import { buildPayrollLoanSettlementBatch, applyPayrollLoanSettlementBatch } from '../modules/features/payroll/PayrollLoanSettlement.js';
@@ -63,4 +63,58 @@ test.each([30, 100])('%i percent records only the actual payment and leaves the 
     const nextCharges = getPayrollDeductionOptions(employee.loans[0], '2026-03-31');
     expect(nextCharges[0]).toMatchObject({ installmentSeq: 1, amount: 1000 - amount });
     expect(nextCharges.reduce((sum, charge) => sum + charge.amount, 0)).toBe(5000 - amount);
+});
+
+describe('salary-limited bulk selection', () => {
+    const periodEnd = '2026-03-15';
+    function fixture() {
+        const people = Array.from({ length: 7 }, (_, i) => ({ id: i, name: `Persona ${i}`, loans: [] }));
+        people.forEach(employee => createLoan(employee, { principal: employee.id === 1 ? 100 : 5000,
+            interestRate: 10, startDate: '2026-03-01', installmentMode: 'installments',
+            installmentCount: 5, installmentFrequencyWeeks: 1 }));
+        people[6].loans[0].status = 'paused';
+        const rows = [800, 800, 0, -100, 33.35].map((salary, i) => ({
+            _employeeId: String(i), _montoBeforeLoans: salary, monto: salary - 100, _loans: 100
+        }));
+        rows.push({ _employeeId: 6, monto: 800 });
+        return { people, rows };
+    }
+
+    test.each([['available', 800, 33.35], ['recommended', 240, 10]])(
+        '%s caps each payment, excludes absent/zero/negative salaries and paused loans', (kind, expected, cents) => {
+            const { people, rows } = fixture();
+            const before = JSON.stringify({ people, rows });
+            const selection = buildPayrollLoanSalarySelection(people, rows, periodEnd, kind);
+            expect(selection.map(item => item.employeeId)).toEqual([0, 1, 4]);
+            const result = applyPayrollLoanDeductions(rows, people, selection, periodEnd);
+            expect(result[0]._loans).toBe(expected);
+            expect(result[1]._loans).toBe(110); // Small debt is paid off, never over-collected.
+            expect(result[4]._loans).toBe(cents);
+            for (const row of result.filter(row => row._loans > 0)) {
+                expect(row.monto).toBeGreaterThanOrEqual(0);
+                if (kind === 'recommended') expect(row._loans).toBeLessThanOrEqual(row._montoBeforeLoans * 0.3 + 1e-9);
+            }
+            expect(JSON.stringify({ people, rows })).toBe(before);
+        }
+    );
+
+    test('maximum reaches later installments and repeating it does not subtract loans twice', () => {
+        const { people, rows } = fixture();
+        rows[0]._montoBeforeLoans = 2000;
+        const first = buildPayrollLoanSalarySelection(people, rows, periodEnd, 'available');
+        const paidRows = applyPayrollLoanDeductions(rows, people, first, periodEnd);
+        expect(paidRows[0]._loans).toBe(2000); // The first installment alone is only 1100.
+        expect(buildPayrollLoanSalarySelection(people, paidRows, periodEnd, 'available')).toEqual(first);
+        const recommended = buildPayrollLoanSalarySelection(people, paidRows, periodEnd, 'recommended');
+        expect(recommended[0].amount).toBe(600);
+        expect(getBalance(people[0].loans[0])).toBe(5500);
+    });
+
+    test('fractional cents never make the maximum net negative', () => {
+        const { people } = fixture();
+        const rows = [{ _employeeId: 0, monto: 800.006 }];
+        const selection = buildPayrollLoanSalarySelection(people, rows, periodEnd, 'available');
+        expect(selection[0].amount).toBe(800);
+        expect(applyPayrollLoanDeductions(rows, people, selection, periodEnd)[0].monto).toBeGreaterThanOrEqual(0);
+    });
 });

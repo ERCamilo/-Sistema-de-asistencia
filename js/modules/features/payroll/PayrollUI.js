@@ -28,7 +28,7 @@ import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import { parsePayrollLoanAmount } from './PayrollLoanAmount.js';
 import { payrollPreviewInputKey } from './PayrollPreviewInputs.js';
-import { DEFAULT_PAYROLL_LOAN_PERCENTAGE, getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage } from './PayrollLoanSalary.js';
+import { DEFAULT_PAYROLL_LOAN_PERCENTAGE, getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage, buildPayrollLoanSalarySelection } from './PayrollLoanSalary.js';
 import {
     buildPayrollPreviewFingerprint,
     confirmPayrollPaid
@@ -217,6 +217,7 @@ const _ACTION_MAP = {
     'add-employee-bonuses-to-export': () => window.PayrollUI?.addEmployeeBonusesToExport?.(),
     'add-employee-bonus-from-form': () => window.PayrollUI?.addEmployeeBonusFromForm?.(),
     'add-payroll-loans': () => window.PayrollUI?.addPayrollLoansToExport?.(),
+    'set-payroll-loans-salary-bulk': (_id, target) => window.PayrollUI?.setPayrollLoansSalaryBulk?.(target.dataset.kind),
     'remove-employee-payroll-loans': (employeeId) => window.PayrollUI?.removeEmployeePayrollLoans?.(employeeId),
     'clear-payroll-loans': () => window.PayrollUI?.clearPayrollLoans?.(),
     'toggle-payroll-loan-employee': (employeeId, _target, event) => {
@@ -1070,6 +1071,7 @@ function ScopedPayrollTab(view) {
                             expandedEmployeeIds: exportConfig.payrollLoanExpandedEmployees || [],
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
                             percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
+                            bulkEnabled: previewInclusion.loans,
                             periodEnd: period.periodEnd
                         }) : ''}
                     </section>
@@ -1745,6 +1747,7 @@ function PayrollGeneratorTab() {
                             expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || [],
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
                             percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
+                            bulkEnabled: previewInclusion.loans,
                             periodEnd: state.exportConfig.periodEnd
                         })}`}
                     </section>
@@ -4103,6 +4106,43 @@ export function clearPayrollLoans() {
     payrollLoanAmountDrafts.clear();
     payrollLoanPercentageDrafts.clear();
     updatePayrollLoanSelection([]);
+}
+
+/** Apply one salary-limited selection to the current project/leader, with one render. */
+export function setPayrollLoansSalaryBulk(kind) {
+    if (!['available', 'recommended'].includes(kind)) return false;
+    const state = getState();
+    const view = getScopedPayrollView();
+    if (isProjectsEnabled() && (!view?.enabled || view.status !== 'ready' || view.previewStale || !view.projectId)) {
+        window.showNotification?.(STALE_PAYROLL_MESSAGE, 'warning');
+        return false;
+    }
+    const period = view?.enabled ? view.period : state.exportConfig;
+    if (!period?.periodStart || !period?.periodEnd || period.periodStart > period.periodEnd) return false;
+    if (getActivePayrollRegistration(state.exportConfig.payrollRegistration, period.periodStart, period.periodEnd)) {
+        window.showNotification?.('Este período ya está pagado; consulta los abonos registrados.', 'warning');
+        return false;
+    }
+    if (!getPayrollPreviewInclusion(state.exportConfig.payrollPreviewInclusion).loans) {
+        window.showNotification?.('Activa Préstamos en la vista previa para aplicar estos cobros.', 'warning');
+        return false;
+    }
+    const rows = view?.enabled ? getScopedReviewRows(view, state) : generateExportData();
+    let employees = view?.enabled ? getScopedProjectEmployees(view.projectId, state) : getLeaderFilteredEmployees(state);
+    const leader = view?.enabled ? getScopedLeaderFilter(view, state) : state.exportConfig.leaderFilter;
+    if (view?.enabled && leader && leader !== 'all') {
+        employees = getPayrollEmployeesForPeriod({ ...state, employees,
+            exportConfig: { ...state.exportConfig, leaderFilter: leader } }, period.periodStart, period.periodEnd);
+    }
+    const affectedIds = new Set(employees.map(employee => String(employee.id)));
+    const selection = buildPayrollLoanSalarySelection(employees, rows, period.periodEnd, kind);
+    const preserved = (state.exportConfig.payrollLoanSelection || []).filter(item => !affectedIds.has(String(item.employeeId)));
+    for (const id of affectedIds) {
+        payrollLoanAmountDrafts.delete(id);
+        payrollLoanPercentageDrafts.delete(id);
+    }
+    updatePayrollLoanSelection([...preserved, ...selection]);
+    return true;
 }
 
 function getEffectivePayrollPeriodEnd(state) {

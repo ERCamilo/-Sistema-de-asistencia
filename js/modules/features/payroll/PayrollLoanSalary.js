@@ -1,3 +1,5 @@
+import { getEligiblePayrollLoans, PAYROLL_LOAN_MODE } from './PayrollLoans.js';
+
 export const DEFAULT_PAYROLL_LOAN_PERCENTAGE = 30;
 
 function cents(value) {
@@ -31,4 +33,23 @@ export function getPayrollLoanSalaryAmounts(row, collectibleDebt, percentage = D
 export function getPayrollLoanEquivalentPercentage(amount, salary) {
     if (!(Number(salary) > 0)) return null;
     return Math.max(0, Number(amount) || 0) / Number(salary) * 100;
+}
+
+/** Replace the target employees' temporary choices in one pass; never record payments.
+ * Include every selectable charge so «maximum» can cover more than the next installment.
+ */
+export function buildPayrollLoanSalarySelection(employees, payrollRows, periodEnd, kind) {
+    if (!['available', 'recommended'].includes(kind)) return [];
+    const rows = new Map((payrollRows || []).map(row => [String(row._employeeId), row]));
+    return (employees || []).flatMap(employee => {
+        const row = rows.get(String(employee.id));
+        if (!row) return [];
+        const eligible = getEligiblePayrollLoans(employee, periodEnd);
+        const debt = eligible.reduce((total, loan) => total + loan.chargeOptions.reduce((sum, charge) => sum + charge.amount, 0), 0);
+        const salary = getPayrollLoanSalaryAmounts(row, debt);
+        const amount = kind === 'available' ? salary.available : salary.suggested;
+        if (amount <= 0) return [];
+        const loans = eligible.map(loan => ({ loanId: loan.loanId, chargeCount: loan.maxChargeCount }));
+        return [{ employeeId: employee.id, loans, loanIds: loans.map(loan => loan.loanId), mode: PAYROLL_LOAN_MODE.CUSTOM, amount }];
+    });
 }
