@@ -1234,6 +1234,7 @@ const voiceMvp = new VoiceMvpUI({
     subscribeEnabled: callback => eventBus.on('render:complete', callback),
     getScope: () => peekEntityScope(),
     getEmployees: () => (state.employees || []).filter(employee => entityInScope(employee, peekEntityScope())),
+    getPositions: () => (state.positions || []).filter(position => entityInScope(position, peekEntityScope())),
     getEndpoint: () => APP_CONFIG.VOICE_WEBHOOK_URL,
     getSettings: () => state.settings,
     setAudioRetention: days => {

@@ -4,7 +4,7 @@ import { normalizeVoiceName } from './VoiceCore.js';
 import { voiceIcon, voiceEmployeeCard, voiceReview } from './VoiceVisuals.js';
 export function VoiceEmployeeView(ui,button) {
     const aliasesFor = e => ui.employeeAliases?.find(r => r.employeeId === e.id)?.aliases || [];
-    const row = e => `<div data-voice-name="${escapeAttr(normalizeVoiceName([e.name,e.number,...aliasesFor(e)].join(' ')))}">${button('select',`${voiceEmployeeCard(e)}${ui.selected()?.id === e.id ? voiceIcon('check') : ''}`,ui.busy,e.id).replace('<button ',`<button aria-pressed="${ui.selected()?.id === e.id}" `)}</div>`;
+    const row = e => `<div data-voice-name="${escapeAttr(normalizeVoiceName([e.name,e.number,...aliasesFor(e)].join(' ')))}">${button('select',`${voiceEmployeeCard(e, '', ui.adapter.getPositions?.() || [])}${ui.selected()?.id === e.id ? voiceIcon('check') : ''}`,ui.busy,e.id).replace('<button ',`<button aria-pressed="${ui.selected()?.id === e.id}" `)}</div>`;
     const ids = new Set(ui.matches.map(m => m.employee.id));
     const others = ui.adapter.getEmployees().filter(e => !ids.has(e.id)).sort((a,b) => String(a.number || '').localeCompare(String(b.number || ''),'es',{numeric:true}) || String(a.name).localeCompare(String(b.name),'es'));
     const needsReview = ui.selected() && (ui.effectiveResult?.()?.intent || ui.record.result.intent) !== 'crear_prestamo';
