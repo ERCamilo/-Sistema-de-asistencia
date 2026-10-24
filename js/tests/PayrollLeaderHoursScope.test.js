@@ -9,6 +9,8 @@ import { createDefaultConfig } from 'actual/features/payroll/ProjectPayrollConfi
 import { ProjectPayrollUIRuntime } from 'actual/features/payroll/ProjectPayrollUIRuntime.js';
 import * as PayrollUI from 'actual/features/payroll/PayrollUI.js';
 import { stateManager, state as appState } from 'actual/core/AppState.js';
+import { applyPayrollLoanDeductions } from 'actual/features/payroll/PayrollLoans.js';
+import { buildPayrollLoansDesktopModel } from 'actual/features/payroll/PayrollLoansDesktop.js';
 import { filterPayrollRowsByLeader, limitPayrollRowToPositions } from 'actual/features/payroll/PayrollPreview.js';
 
 const P = 'PRJ-LEADER-HOURS';
@@ -128,6 +130,45 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         const html = PayrollUI.PayrollTab();
         expect(html).toMatch(/aria-pressed="true"[^>]*>\s*Solo puestos de Líder Uno/);
         expect(html).toContain('Sin Plomero 8h');
+    });
+
+    test('recalcular con un líder seleccionado conserva las filas de toda la obra para cambiar de equipo', async () => {
+        PayrollUI.setLeaderFilter('L1');
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        expect(runtime.getCurrentView().previewRows.map(row => row._employeeId)).toEqual(['E1', 'E2']);
+        expect(await exported()).toHaveLength(1);
+        PayrollUI.setLeaderFilter('L2');
+        const rows = await exported();
+        expect(rows).toHaveLength(2);
+        expect(net(rows)).toBeCloseTo(2400);
+        PayrollUI.setLeaderHoursScope('leader');
+        expect(net(await exported())).toBeCloseTo(1600);
+    });
+
+    test('quitar el filtro después de recalcular recupera todo el personal sin volver a calcular', async () => {
+        PayrollUI.setLeaderFilter('L1');
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        PayrollUI.setLeaderFilter('all');
+        expect(await exported()).toHaveLength(2);
+    });
+
+    test('activar préstamos después de cambiar líder conserva el sueldo del otro equipo', async () => {
+        stateManager.batchSetState(raw => {
+            raw.employees[1].loans = [{ id: 'loan-team-2', number: 1, principal: 100, interestRate: 0,
+                startDate: '2026-03-01', dueDate: '2026-03-15', status: 'active', payments: [], refinancings: [] }];
+        });
+        PayrollUI.setLeaderFilter('L1');
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        PayrollUI.setLeaderFilter('all');
+        PayrollUI.addPayrollLoansToExport();
+        const selection = appState.exportConfig.payrollLoanSelection;
+        const rows = applyPayrollLoanDeductions(runtime.getCurrentView().previewRows, appState.employees, selection, '2026-03-15');
+        const model = buildPayrollLoansDesktopModel(appState.employees, selection, rows, '2026-03-15');
+        expect(model.groups.find(group => group.employeeId === 'E2').netRemaining).toBe(700);
+        expect(model.zeroCount).toBe(0);
+        const output = await exported();
+        expect(output).toHaveLength(2);
+        expect(net(output)).toBeCloseTo(2300);
     });
 
     test('al quitar el líder vuelven todos con todas sus horas', async () => {

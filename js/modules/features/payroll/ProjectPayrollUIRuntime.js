@@ -319,6 +319,9 @@ export class ProjectPayrollUIRuntime {
         const baseContext = loaded.request.ctx;
         const previewContext = {
             ...baseContext,
+            // Cache the full project calculation. Leader filtering belongs to
+            // the review/export projection so switching teams never loses rows.
+            exportConfig: Object.freeze({ ...baseContext.exportConfig, leaderFilter: 'all' }),
             employees: Object.freeze(baseContext.employees.map(employee => Object.freeze({
                 ...employee,
                 bonuses: [],
