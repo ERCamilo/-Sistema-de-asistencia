@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.100';
+const APP_VERSION = '1.7.101';
 const CHANGELOG = [
+    { version: '1.7.101', date: '2026-10-23', title: 'Equipos completos en Nómina', items: ['Cambia entre líderes o vuelve a Todos sin que desaparezcan empleados de la nómina.', 'Al activar préstamos se conserva el salario calculado de los equipos que no estaban visibles.'] },
 { version: '1.7.100', date: '2026-10-22', title: 'Preparación para detectar obras repetidas', items: ['Prepara la comparación del personal y de la asistencia de tus obras para reconocer cuando dos obras son en realidad la misma, y para recordar las que descartes.', 'Prepara una pantalla para revisar obras repetidas. Todavía no se muestra: la revisión y la fusión llegarán en una próxima versión.'] },
     { version: '1.7.99', date: '2026-10-22', title: 'Voz aprende cómo los llamas', items: ['Al elegir un empleado, decide si quieres recordar la nueva forma de llamarlo.', 'Elige la precisión de las coincidencias automáticas desde la configuración actual de Voz.', 'Las coincidencias cercanas siguen pidiendo selección; revisa el préstamo antes de registrarlo.'] },
     { version: '1.7.98', date: '2026-10-22', title: 'Préstamos abre más rápido', items: ['La pantalla de préstamos calcula los sueldos de riesgo sin copiar repetidamente toda la asistencia.', 'Los avisos de riesgo se actualizan al editar asistencias, tarifas o la configuración de nómina.', 'El resumen mensual y el historial comparten sus cálculos para evitar trabajo repetido al abrir la pantalla.'] },
