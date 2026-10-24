@@ -25,6 +25,8 @@ import {
 } from './PayrollLoans.js';
 import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
+import { parsePayrollLoanAmount } from './PayrollLoanAmount.js';
+import { payrollPreviewInputKey } from './PayrollPreviewInputs.js';
 import {
     buildPayrollPreviewFingerprint,
     confirmPayrollPaid
@@ -152,6 +154,14 @@ let payrollService = null;
 let payrollRuntime = null;
 let unsubscribeRuntimeInvalidation = null;
 let latestPayrollPreviewRows = [];
+const payrollLoanAmountDrafts = new Map();
+const STALE_PAYROLL_MESSAGE = 'La asistencia, las tarifas o la configuración cambiaron. Actualiza la vista previa antes de exportar o confirmar la nómina.';
+
+function payrollPreviewBlocker(view) {
+    if (view?.enabled && view.previewStale) return STALE_PAYROLL_MESSAGE;
+    if (payrollLoanAmountDrafts.size) return 'Corrige el campo «Otro monto» o elige Todo o Solo interés antes de exportar o confirmar la nómina.';
+    return null;
+}
 let payrollClosureInProgress = false;
 let payrollPeriodClosureCache = {
     key: null,
@@ -371,11 +381,17 @@ let _payrollDelegationAttached = false;
 
 export function init(ctx) {
     unsubscribeRuntimeInvalidation?.();
+    payrollLoanAmountDrafts.clear();
     context = ctx;
     payrollService = ctx.services.payroll;
     payrollRuntime = ctx.services.payrollRuntime || null;
-    unsubscribeRuntimeInvalidation = payrollRuntime?.subscribeInvalidation?.(() => {
+    unsubscribeRuntimeInvalidation = payrollRuntime?.subscribeInvalidation?.(change => {
+        if (change?.reason === 'config-changed') {
+            context?.render?.();
+            return;
+        }
         latestPayrollPreviewRows = [];
+        payrollLoanAmountDrafts.clear();
         clearPayrollAdjustmentPeriodRuntime();
         const state = getState();
         if (state?.exportConfig) {
@@ -590,12 +606,10 @@ function getScopedProjectEmployees(projectId, state = getState()) {
 
 function getScopedEffectivePreviewRows(scopedView = null, state = getState()) {
     const view = scopedView || payrollRuntime?.getCurrentView?.();
-    if (!view?.enabled || view.status !== 'ready') {
+    if (!view?.enabled || view.status !== 'ready' || view.previewStale) {
         return [];
     }
-    const baseRows = (view.previewRows && view.previewRows.length > 0)
-        ? view.previewRows
-        : (latestPayrollPreviewRows || []);
+    const baseRows = view.previewRows || [];
     const activePid = view.projectId ? String(view.projectId).trim() : null;
     if (!activePid) return baseRows;
 
@@ -763,7 +777,7 @@ function ScopedPayrollTab(view) {
     // Sin período vigente (primera carga o la configuración de la obra cambió):
     // se genera una vez por configuración, sin reintentos en cada render.
     const refreshKey = `${view.projectId}:${view.config?.updatedAt || ''}`;
-    if (view.status === 'idle' || (view.status === 'ready' && !view.period && scopedPreviewRefreshKey !== refreshKey)) {
+    if (view.status === 'idle' || (view.status === 'ready' && !view.previewStale && !view.period && scopedPreviewRefreshKey !== refreshKey)) {
         scopedPreviewRefreshKey = refreshKey;
         queueMicrotask(() => refreshScopedPayrollPreview().catch(() => {}));
     }
@@ -788,6 +802,19 @@ function ScopedPayrollTab(view) {
                     </div>
                 </div>
             </div>
+        `;
+    }
+    if (view.previewStale) {
+        return `
+            <section class="payroll-generator payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
+                <div class="payroll-preview-stale">
+                    <h2>Nómina · Actualizar cálculo</h2>
+                    <p role="alert">${STALE_PAYROLL_MESSAGE}</p>
+                    <p>Se conserva tu selección de préstamos.</p>
+                    <button type="button" class="payroll-preview-stale__refresh"
+                            data-payroll-action="refresh-scoped-payroll-preview">Actualizar vista previa</button>
+                </div>
+            </section>
         `;
     }
 
@@ -974,6 +1001,7 @@ function ScopedPayrollTab(view) {
                             selection: exportConfig.payrollLoanSelection || [],
                             payrollRows: rows,
                             expandedEmployeeIds: exportConfig.payrollLoanExpandedEmployees || [],
+                            customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
                             periodEnd: period.periodEnd
                         }) : ''}
                     </section>
@@ -1131,6 +1159,7 @@ export async function refreshScopedPayrollPreview(options = {}) {
     if (!payrollRuntime) throw new Error('Project payroll UI runtime unavailable');
     try {
         const result = await payrollRuntime.generatePreview(options);
+        result.current = result.current && (!payrollRuntime.isCurrent || payrollRuntime.isCurrent(result.request));
         if (result.current) {
             const state = getState();
             const { periodStart, periodEnd } = result.period;
@@ -1146,7 +1175,8 @@ export async function refreshScopedPayrollPreview(options = {}) {
             const deductions = state.exportConfig?.deductions || [];
             const bonuses = state.exportConfig?.bonuses || [];
             const adjustmentSelections = getPayrollAdjustmentPeriodRuntimeSelections(periodStart, periodEnd);
-            const ctx = createPayrollProjectContext({ state, scope: { enabled: true, projectId: result.projectId } });
+            const captured = result.request?.ctx || createPayrollProjectContext({ state, scope: { enabled: true, projectId: result.projectId } });
+            const ctx = { ...captured, exportConfig: { ...captured.exportConfig, deductions, bonuses } };
 
             result.rows.forEach(row => {
                 const payroll = calculateEmployeePayrollWithContext(
@@ -1180,6 +1210,7 @@ export async function refreshScopedPayrollPreview(options = {}) {
             result.rows = effectiveRows;
             if (result.request?.session) {
                 result.request.session.previewRows = effectiveRows;
+                result.request.session.previewKey = payrollPreviewInputKey(ctx, result.config, result.period, adjustmentSelections);
             }
             latestPayrollPreviewRows = effectiveRows;
             context?.render?.();
@@ -1644,6 +1675,7 @@ function PayrollGeneratorTab() {
                             selection: state.exportConfig.payrollLoanSelection || [],
                             payrollRows: exportData,
                             expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || [],
+                            customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
                             periodEnd: state.exportConfig.periodEnd
                         })}`}
                     </section>
@@ -3367,6 +3399,7 @@ export function addPayrollLoansToExport() {
 }
 
 export function removeEmployeePayrollLoans(employeeId) {
+    payrollLoanAmountDrafts.delete(String(employeeId));
     const state = getState();
     stateManager.batchSetState(() => {
         state.exportConfig.payrollLoanSelection = removeEmployeePayrollLoansFromSelection(
@@ -3508,6 +3541,11 @@ export function setExportPreset(preset) {
 
 function getEffectiveExportRows() {
     const scopedView = getScopedPayrollView();
+    const blocker = payrollPreviewBlocker(scopedView);
+    if (blocker) {
+        window.showNotification?.(blocker, 'warning');
+        return null;
+    }
     if (scopedView?.enabled) {
         return getScopedReviewRows(scopedView, getState());
     }
@@ -3516,6 +3554,7 @@ function getEffectiveExportRows() {
 
 function getSplitXExportData() {
     const previewRows = getEffectiveExportRows();
+    if (!previewRows) return null;
     const invalidRows = getInvalidPayrollLoanRows(previewRows);
     if (invalidRows.length > 0) {
         if (window.showNotification) {
@@ -3584,7 +3623,8 @@ export function downloadExportJSON() {
 
 export async function exportPayrollPDF() {
     const previewRows = getEffectiveExportRows();
-    if (!previewRows || previewRows.length === 0) {
+    if (!previewRows) return;
+    if (previewRows.length === 0) {
         if (window.showNotification) {
             window.showNotification('❌ No hay datos para exportar', 'error');
         }
@@ -3983,6 +4023,7 @@ function updatePayrollLoanSelection(nextSelection) {
 }
 
 export function clearPayrollLoans() {
+    payrollLoanAmountDrafts.clear();
     updatePayrollLoanSelection([]);
 }
 
@@ -4026,6 +4067,7 @@ export function toggleEmployeePayrollLoans(employeeId) {
  * no tenía préstamos marcados, se marcan los de esta nómina.
  */
 export function setPayrollLoanModeFor(employeeId, mode, amount = null) {
+    payrollLoanAmountDrafts.delete(String(employeeId));
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
     if (!employee) return;
@@ -4040,12 +4082,17 @@ export function setPayrollLoanModeFor(employeeId, mode, amount = null) {
 }
 
 export function setPayrollLoanCustomAmount(employeeId, value) {
-    const amount = Number(String(value ?? '').replace(/[^0-9.]/g, ''));
-    if (!Number.isFinite(amount) || amount <= 0) {
-        setPayrollLoanModeFor(employeeId, PAYROLL_LOAN_MODE.ALL);
-        return;
+    const amount = parsePayrollLoanAmount(value);
+    if (amount === null) {
+        payrollLoanAmountDrafts.set(String(employeeId), {
+            value: String(value ?? ''),
+            error: 'Ingresa un monto mayor que cero, por ejemplo 900,50. Se conserva el descuento anterior.'
+        });
+        context?.render?.();
+        return false;
     }
     setPayrollLoanModeFor(employeeId, PAYROLL_LOAN_MODE.CUSTOM, amount);
+    return true;
 }
 
 export function togglePayrollLoanSelection(employeeId, loanId) {
@@ -4145,6 +4192,8 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
         inProgress: ignoreInProgress ? false : payrollClosureInProgress
     });
     if (cache.error) gate = { ...gate, enabled: false, reason: 'history-error' };
+    const blocker = payrollPreviewBlocker(scopedView);
+    if (blocker) gate = { ...gate, enabled: false, reason: scopedView?.previewStale ? 'preview-stale' : 'invalid-loan-amount' };
     // La tabla muestra solo un líder, pero el cierre guarda la obra completa.
     if (isScoped && getScopedLeaderFilter(scopedView, state) !== 'all') {
         gate = { ...gate, enabled: false, reason: 'leader-filtered' };
@@ -4218,6 +4267,12 @@ export function togglePayrollPaidConfirmation(checked) {
             current.state.exportConfig.payrollPaidConfirmation = null;
         }
         context.render();
+        return;
+    }
+    const blocker = payrollPreviewBlocker(scopedView);
+    if (blocker) {
+        window.showNotification?.(blocker, 'warning');
+        context?.render?.();
         return;
     }
     if (!current.gate.hasRows || current.gate.invalidCount > 0 ||
@@ -4624,6 +4679,12 @@ export async function openPayrollClosure() {
         if (!activePid || activePid.startsWith('legacy-unresolved:')) {
             assertTandaBBlockedWhenScoped('PayrollUI.openPayrollClosure');
         }
+    }
+    const blocker = payrollPreviewBlocker(scopedView);
+    if (blocker) {
+        window.showNotification?.(blocker, 'warning');
+        context?.render?.();
+        return;
     }
     const startingScope = captureEntityProjectScope();
     const startingProjectId = (isProjectsEnabled() && startingScope?.enabled && startingScope?.projectId)
