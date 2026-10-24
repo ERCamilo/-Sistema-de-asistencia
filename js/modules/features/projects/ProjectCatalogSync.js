@@ -29,7 +29,7 @@
  */
 
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
-import { auth, db, doc, setDoc, collection, getDocs, onSnapshot } from '../../data/firebase.js';
+import { auth, db, doc, setDoc, collection, getDocs, onSnapshot, runTransaction } from '../../data/firebase.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { PROJECTS_V1_COLLECTION } from './ProjectRegistry.js';
 import { ADOPTION_MARKER_KEY } from './ProjectAdoption.js';
@@ -39,6 +39,7 @@ import { projectNameKey } from './ProjectNames.js';
 import { createDefaultConfig, cloneConfig } from '../payroll/ProjectPayrollConfig.js';
 import { mutateProjectCatalog, stageProjectNameConflicts, PROJECT_NAME_CONFLICT_EVENT } from './ProjectNameConflicts.js';
 import { readProjectUsageData, summarizeProjectUsage, protectDeletedProjects } from './ProjectUsage.js';
+import { isDetachedRestoreSyncBlocked } from "../../services/DetachedRestoreGuard.js";
 import { state } from '../../core/AppState.js';
 
 const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'notSameAs'];
@@ -49,6 +50,7 @@ let _liveUnsub = null;
 let _liveUid = null;
 let _publishTimer = null;
 let _inFlight = null;
+let _sessionGeneration = 0;
 
 const trimId = value => String(value ?? '').trim();
 const isValidProjectId = id => {
@@ -263,6 +265,31 @@ function currentUid() {
     return auth?.currentUser?.uid ? String(auth.currentUser.uid) : null;
 }
 
+async function publishCatalogPatch(uid, projectId, patch, writeDoc) {
+    const ref = catalogDoc(uid, projectId);
+    // In an actual Firestore client, compare and write within the same
+    // server transaction. The injectable test transport remains supported.
+    if (!db?.app?.options?.projectId || typeof runTransaction !== "function") {
+        return writeDoc(ref, patch, { merge: true });
+    }
+    return runTransaction(db, async transaction => {
+        const snapshot = await transaction.get(ref);
+        const previous = snapshot.exists() ? snapshot.data() : {};
+        if (patch.payrollConfig) {
+            const previousConfig = previous?.payrollConfig;
+            if (planConfigMerge(patch.payrollConfig, previousConfig) !== "publish") return false;
+        }
+        if (patch.name) {
+            const remoteTime = Number(previous?.updatedAt) || 0;
+            const candidateTime = Number(patch.updatedAt) || 0;
+            if (remoteTime > candidateTime) return false;
+            if (previous?.deletedAt != null && patch.deletedAt == null) return false;
+        }
+        transaction.set(ref, patch, { merge: true });
+        return true;
+    });
+}
+
 function announceChange(detail) {
     try {
         if (typeof window !== 'undefined') {
@@ -319,7 +346,7 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
     for (const project of plan.publish) {
         try {
             // merge: la configuración de nómina vive en el mismo documento.
-            await writeDoc(catalogDoc(uid, project.id), project, { merge: true });
+            await publishCatalogPatch(uid, project.id, project, writeDoc);
             published++;
         } catch (error) {
             console.warn(`⚠️ Obras: no se pudo publicar «${project.name}» en la nube:`, error?.message || error);
@@ -340,14 +367,27 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
         const remote = remoteById.get(id)?.payrollConfig || null;
         const action = planConfigMerge(local, remote);
         if (action === 'store') {
-            const incoming = { ...(local || {}), ...remote, projectId: id };
-            if (remote.seeded !== true) delete incoming.seeded;
-            await idb.update(PAYROLL_CONFIG_STORE, incoming);
-            announceConfig(incoming);
-            configsReceived++;
+            const update = current => {
+                if (planConfigMerge(current, remote) !== "store") return { write: false, value: current };
+                const incoming = { ...(current || {}), ...remote, projectId: id };
+                if (remote.seeded !== true) delete incoming.seeded;
+                return { write: true, value: incoming };
+            };
+            const incoming = typeof idb.atomicMutate === "function"
+                ? await idb.atomicMutate(PAYROLL_CONFIG_STORE, id, update)
+                : await (async () => {
+                    const current = await idb.get(PAYROLL_CONFIG_STORE, id);
+                    const mutation = update(current);
+                    if (mutation.write) await idb.update(PAYROLL_CONFIG_STORE, mutation.value);
+                    return mutation.value;
+                })();
+            if (incoming && planConfigMerge(incoming, remote) === null) {
+                announceConfig(incoming);
+                configsReceived++;
+            }
         } else if (action === 'publish' && !project.metadata?.nameConflict && !project.metadata?.deletionConflict) {
             try {
-                await writeDoc(catalogDoc(uid, id), { id, payrollConfig: toConfigDoc(local) }, { merge: true });
+                await publishCatalogPatch(uid, id, { id, payrollConfig: toConfigDoc(local) }, writeDoc);
                 configsPublished++;
             } catch (error) {
                 console.warn(`⚠️ Obras: no se pudo publicar la configuración de nómina de ${id}:`, error?.message || error);
@@ -374,22 +414,26 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
  * Devuelve null si no aplica (flag OFF, sin sesión o sin red).
  */
 export async function syncProjectCatalog({ uid = currentUid(), idb = indexedDBService, readDocs = getDocs, writeDoc = setDoc } = {}) {
-    if (!isProjectsEnabled() || !uid) return null;
-    if (_inFlight) return _inFlight;
-    _inFlight = (async () => {
+    if (!isProjectsEnabled() || !uid || isDetachedRestoreSyncBlocked()) return null;
+    if (currentUid() && currentUid() !== String(uid)) return null;
+    const generation = _sessionGeneration;
+    if (_inFlight?.uid === uid && _inFlight.generation === generation) return _inFlight.promise;
+    const promise = (async () => {
         try {
             const snapshot = await readDocs(catalogCollection(uid));
             const remoteList = [];
             snapshot.forEach(item => remoteList.push({ ...item.data(), id: item.id }));
+            if (generation !== _sessionGeneration || (currentUid() && currentUid() !== String(uid)) || !isProjectsEnabled() || isDetachedRestoreSyncBlocked()) return null;
             return await applyRemoteCatalog(uid, remoteList, { idb, writeDoc });
         } catch (error) {
             console.warn('⚠️ Obras: sincronización del catálogo no disponible:', error?.message || error);
             return null;
         } finally {
-            _inFlight = null;
+            if (_inFlight?.promise === promise) _inFlight = null;
         }
     })();
-    return _inFlight;
+    _inFlight = { uid, generation, promise };
+    return promise;
 }
 
 /** Espera la sincronización como mucho `timeoutMs` (para no bloquear la UI sin red). */
@@ -405,20 +449,20 @@ export async function syncProjectCatalogWithin(timeoutMs = 4000, options = {}) {
 
 /** Publica cambios locales del catálogo (crear/renombrar/cerrar obra) con debounce. */
 export function scheduleProjectCatalogPublish(delayMs = 1500) {
-    if (!isProjectsEnabled()) return;
+    if (!isProjectsEnabled() || isDetachedRestoreSyncBlocked()) return;
     clearTimeout(_publishTimer);
     _publishTimer = setTimeout(() => { syncProjectCatalog().catch(() => {}); }, delayMs);
 }
 
 /** Escucha la colección para recibir obras nuevas o renombradas en vivo. */
 export function startProjectCatalogLiveSync(uid = currentUid()) {
-    if (!isProjectsEnabled() || !uid) return false;
+    if (!isProjectsEnabled() || !uid || isDetachedRestoreSyncBlocked()) return false;
     if (_liveUnsub && _liveUid === String(uid)) return true;
     stopProjectCatalogLiveSync();
     try {
         _liveUid = String(uid);
         _liveUnsub = onSnapshot(catalogCollection(uid), snapshot => {
-            if (snapshot?.metadata?.hasPendingWrites) return;
+            if (snapshot?.metadata?.hasPendingWrites || isDetachedRestoreSyncBlocked()) return;
             const remoteList = [];
             snapshot.forEach(item => remoteList.push({ ...item.data(), id: item.id }));
             applyRemoteCatalog(_liveUid, remoteList).catch(error =>
@@ -434,6 +478,8 @@ export function startProjectCatalogLiveSync(uid = currentUid()) {
 }
 
 export function stopProjectCatalogLiveSync() {
+    _sessionGeneration++;
+    _inFlight = null;
     try { if (typeof _liveUnsub === 'function') _liveUnsub(); } catch (_) { /* noop */ }
     _liveUnsub = null;
     _liveUid = null;

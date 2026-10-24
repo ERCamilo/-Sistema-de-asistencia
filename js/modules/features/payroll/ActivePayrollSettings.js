@@ -75,9 +75,9 @@ export async function updateActiveDayHours(updates, { state = null, store = conf
     if (!current) return false;
     const dayHours = { ...getActiveDayHours(state || { dayHoursConfig: {} }), ...(current.dayHours || {}), ...updates };
     // Vista inmediata; luego se persiste.
-    setActivePayrollConfig({ ...current, dayHours });
-    const saved = await store.putConfig({ ...current, dayHours });
-    setActivePayrollConfig(saved);
+    setActivePayrollConfig({ ...current, dayHours, seeded: false });
+    const saved = await store.putConfig({ ...current, dayHours, seeded: false });
+    if (pid === activeProjectId()) setActivePayrollConfig(saved);
     try {
         if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('payroll-config:changed', { detail: { config: saved } }));
     } catch (_) { /* sin UI */ }
@@ -97,7 +97,7 @@ function rerender() {
 /** Fija la configuración recién guardada sin esperar a leer IndexedDB. */
 export function setActivePayrollConfig(config, { render = true } = {}) {
     const pid = String(config?.projectId ?? '').trim();
-    if (!pid) return;
+    if (!pid || (isProjectsEnabled() && pid !== activeProjectId())) return;
     const changed = cache.projectId !== pid || JSON.stringify(cache.config) !== JSON.stringify(config);
     cache = { projectId: pid, config: JSON.parse(JSON.stringify(config)) };
     if (changed && render && pid === activeProjectId()) rerender();
