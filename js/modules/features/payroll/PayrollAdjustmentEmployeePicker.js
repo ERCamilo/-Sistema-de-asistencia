@@ -104,7 +104,7 @@ export function renderPayrollAdjustmentEmployeePicker({
     `;
 }
 
-export function openPayrollAdjustmentEmployeePicker({ employees = [], selectedIds = [] } = {}) {
+export function openPayrollAdjustmentEmployeePicker({ employees = [], selectedIds = [], subtitle = 'Selecciona a quién aplicar la regla.' } = {}) {
     return new Promise(resolve => {
         const selection = new Set(selectedIds.map(String));
         let query = '';
@@ -117,7 +117,7 @@ export function openPayrollAdjustmentEmployeePicker({ employees = [], selectedId
         };
         const modal = new Modal({
             title: 'Seleccionar empleados',
-            subtitle: 'Selecciona a quién aplicar la regla.',
+            subtitle,
             content: renderPayrollAdjustmentEmployeePicker({ employees, selectedIds: [...selection], query, status }),
             size: 'large',
             onOpen() {

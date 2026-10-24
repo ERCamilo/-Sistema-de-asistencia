@@ -12,6 +12,9 @@ import { stateManager, state as appState } from 'actual/core/AppState.js';
 import { applyPayrollLoanDeductions } from 'actual/features/payroll/PayrollLoans.js';
 import { buildPayrollLoansDesktopModel } from 'actual/features/payroll/PayrollLoansDesktop.js';
 import { filterPayrollRowsByLeader, limitPayrollRowToPositions } from 'actual/features/payroll/PayrollPreview.js';
+import { formatCurrency } from 'actual/utils/Formatters.js';
+import { loadWeeklyPositionHandler } from './helpers/weeklyPositionHandler.js';
+import { WeekRow } from 'actual/ui/AttendanceUI.js';
 
 const P = 'PRJ-LEADER-HOURS';
 
@@ -54,6 +57,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
     let clipboard;
 
     beforeEach(async () => {
+        document.body.innerHTML = '';
         localStorage.clear();
         resetEntityScope();
         setProjectsEnabled(true);
@@ -104,6 +108,8 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
     });
 
     afterEach(() => {
+        document.body.innerHTML = '';
+        document.body.style.overflow = '';
         runtime?.dispose?.();
         resetEntityScope();
         setProjectsEnabled(false);
@@ -177,4 +183,205 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         PayrollUI.setLeaderFilter('all');
         expect(await exported()).toHaveLength(2);
     });
+
+    test('selecting lent staff narrows the table and export while retaining both salary modes', async () => {
+        const source = JSON.stringify(runtime.getCurrentView().previewRows);
+        const choosing = PayrollUI.openPayrollReviewEmployees();
+        document.querySelector('[data-adjustment-picker-employee="E1"]').click();
+        document.querySelector('[data-modal-overlay] [data-button-index="1"]').click();
+        expect(await choosing).toBe(true);
+        expect(runtime.getCurrentView().previewStale).toBe(false);
+        PayrollUI.setLeaderFilter('L1');
+        expect(await exported()).toHaveLength(1);
+        expect(net(await exported())).toBe(1600); // The paying leader sees the full two jobs.
+        const previousPdf = window.jspdf;
+        const doc = {
+            internal: { pageSize: { getWidth: () => 210, getHeight: () => 297 }, getNumberOfPages: () => 1 },
+            setFillColor: jest.fn(), rect: jest.fn(), setFontSize: jest.fn(), setFont: jest.fn(),
+            setTextColor: jest.fn(), text: jest.fn(), autoTable: jest.fn(), lastAutoTable: { finalY: 60 }, save: jest.fn()
+        };
+        try {
+            window.jspdf = { jsPDF: jest.fn(() => doc) };
+            window.jspdf.jsPDF.API = { autoTable: jest.fn() };
+            await PayrollUI.exportPayrollPDF();
+            const table = doc.autoTable.mock.calls.find(call => call[0].head[0].includes('Colaborador'))[0];
+            expect(table.body).toHaveLength(1);
+            expect(table.body[0]).toContain('Ana Uno');
+            expect(table.body[0]).toContain('$1,600.00');
+            expect(doc.text).toHaveBeenCalledWith('Empleados seleccionados: 1', 14, expect.any(Number));
+        } finally { window.jspdf = previousPdf; }
+        PayrollUI.setLeaderFilter('L2');
+        PayrollUI.setLeaderHoursScope('leader');
+        const chargedToOtherTeam = await exported();
+        expect(chargedToOtherTeam).toHaveLength(1);
+        expect(chargedToOtherTeam[0]).toMatchObject({ sourceEmployeeId: 'E1', bruto: 800, monto: 800,
+            workDays: { total: 1 } });
+        expect(chargedToOtherTeam[0].exportContext.totals).toMatchObject({ employeeCount: 1, gross: 800, net: 800 });
+        PayrollUI.setPayrollGuideStep('review');
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.querySelectorAll('.payroll-review-table__row')).toHaveLength(1);
+        expect(host.querySelector('tbody .payroll-review-table__employee').textContent).toContain('Ana Uno');
+        await PayrollUI.togglePayrollReviewEmployeeFilter(false);
+        expect(await exported()).toHaveLength(2);
+        expect(JSON.stringify(runtime.getCurrentView().previewRows)).toBe(source);
+        document.body.innerHTML = '';
+    });
+
+    test('an employee-only report cannot confirm the full payroll closure, and clearing the filter restores everyone', async () => {
+        const choosing = PayrollUI.openPayrollReviewEmployees();
+        document.querySelector('[data-adjustment-picker-employee="E2"]').click();
+        document.querySelector('[data-modal-overlay] [data-button-index="1"]').click();
+        await choosing;
+        PayrollUI.setPayrollGuideStep('review');
+        PayrollUI.setLeaderFilter('all');
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.textContent).toContain('Desmarca «Solo empleados seleccionados»');
+        expect(host.querySelector('[data-payroll-action="open-payroll-closure"]').disabled).toBe(true);
+        expect(host.querySelector('[data-payroll-action="toggle-payroll-paid"]').disabled).toBe(true);
+        PayrollUI.togglePayrollPaidConfirmation(true);
+        expect(appState.exportConfig.payrollPaidConfirmation).toBeFalsy();
+        await expect(PayrollUI.openPayrollClosure()).resolves.toBeUndefined();
+        expect((await exported()).map(employee => employee.sourceEmployeeId)).toEqual(['E2']);
+        await PayrollUI.togglePayrollReviewEmployeeFilter(false);
+        expect(await exported()).toHaveLength(2);
+        document.body.innerHTML = '';
+    });
+
+    test('cancelled or empty employee selections never silently include unselected people', async () => {
+        const cancel = PayrollUI.togglePayrollReviewEmployeeFilter(true);
+        document.querySelector('[data-modal-overlay] [data-button-index="0"]').click();
+        expect(await cancel).toBe(false);
+        expect(appState.exportConfig.payrollReviewEmployees).toBeUndefined();
+        const empty = PayrollUI.openPayrollReviewEmployees();
+        document.querySelector('[data-modal-overlay]:last-child [data-button-index="1"]').click();
+        expect(await empty).toBe(true);
+        expect(await exported()).toEqual([]);
+        document.body.innerHTML = '';
+    });
+
+    test('an open picker cannot apply its selection to a different project or period', async () => {
+        const choosing = PayrollUI.openPayrollReviewEmployees();
+        document.querySelector('[data-adjustment-picker-employee="E1"]').click();
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-02', periodEnd: '2026-03-15' });
+        document.querySelector('[data-modal-overlay] [data-button-index="1"]').click();
+        expect(await choosing).toBe(false);
+        expect(appState.exportConfig.payrollReviewEmployees).toBeUndefined();
+        const otherProject = PayrollUI.openPayrollReviewEmployees();
+        [...document.querySelectorAll('[data-adjustment-picker-employee="E1"]')].at(-1).click();
+        replaceEntityScope({ enabled: true, projectId: 'OTHER', defaultProjectId: P });
+        runtime.handleProjectChange({ projectId: 'OTHER' });
+        [...document.querySelectorAll('[data-modal-overlay] [data-button-index="1"]')].at(-1).click();
+        expect(await otherProject).toBe(false);
+        expect(appState.exportConfig.payrollReviewEmployees).toBeUndefined();
+    });
+
+    test.each([false, true])('reselecting a weekly job repairs stale hours and moves its actual pay to the other leader (multi: %s)', async multiPosition => {
+        stateManager.batchSetState(raw => {
+            raw.employees[0].positionSalaries = { 'POS-1': 250, 'POS-2': 187.5 };
+            raw.attendance['E1-2026-03-06'] = { ...raw.attendance['E1-2026-03-06'],
+                selectedPosition: 'POS-2', multiPosition,
+                positionHours: [{ positionId: 'POS-1', hours: 8, overtimeHours: 0 }],
+                miniImportAudit: { source: 'mini' } };
+        });
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        PayrollUI.setLeaderHoursScope('leader');
+        PayrollUI.setLeaderFilter('L1');
+        // Before the explicit repair, the stored breakdown still assigns both days to L1.
+        expect((await exported()).find(person => person.sourceEmployeeId === 'E1').bruto).toBe(4000);
+        const handler = loadWeeklyPositionHandler(appState, stateManager);
+        const previousHandler = window.toggleWeekPosition;
+        try {
+            window.toggleWeekPosition = handler.change;
+            document.body.innerHTML = `<table><tbody>${WeekRow(appState.employees[0], ['2026-03-06'])}</tbody></table>`;
+            document.querySelector('[data-att-action="toggle-week-position"][data-pos-id="POS-2"]').click();
+        } finally {
+            window.toggleWeekPosition = previousHandler;
+            document.body.innerHTML = '';
+        }
+        expect(runtime.getCurrentView().previewStale).toBe(true);
+        expect(appState.attendance['E1-2026-03-06']).toMatchObject({ hoursWorked: 8,
+            selectedPosition: 'POS-2', multiPosition: false, positionHours: [], miniImportAudit: { source: 'mini' } });
+        await PayrollUI.refreshScopedPayrollPreview();
+        for (const [leader, gross, dailyRate, position] of [['L1', 2000, 2000, 'POS-1'], ['L2', 1500, 1500, 'POS-2']]) {
+            PayrollUI.setLeaderFilter(leader);
+            const employee = (await exported()).find(person => person.sourceEmployeeId === 'E1');
+            expect(employee).toMatchObject({ bruto: gross, monto: gross, workDays: { total: 1 } });
+            expect(employee.positions).toHaveLength(1);
+            expect(employee.positions[0]).toMatchObject({ id: position, dailyRate });
+        }
+    });
+
+    test.each([
+        ['jornada repartida', false, 1200, 600, 800, 1200],
+        ['medias jornadas separadas', false, 1200, 600, 800, 1200],
+        ['jornada repartida', true, 1320, 700, 880, 1400],
+        ['medias jornadas separadas', true, 1320, 700, 880, 1400]
+    ])(
+        'Juan: reparte sueldos y días con %s, tarifa personal: %s', async (distribution, personalRates, gringoPay, julitoPay, gringoDaily, julitoDaily) => {
+            stateManager.batchSetState(raw => {
+                raw.employees[0].name = 'Juan';
+                raw.employees[1].name = 'Solo albañil';
+                raw.leaders[0].name = 'Gringo';
+                raw.leaders[1].name = 'Julito';
+                raw.positions[0].name = 'Varillero';
+                raw.positions[1].name = 'Albañil';
+                raw.positions[1].hourlyRate = 150;
+                if (personalRates) raw.employees[0].positionSalaries = { 'POS-1': 110, 'POS-2': 175 };
+                const record = (date, position, hours) => ({ employeeId: 'E1', date, projectId: P,
+                    present: true, selectedPosition: position, hoursWorked: hours, overtimeHours: 0 });
+                raw.attendance = {
+                    'E1-2026-03-05': record('2026-03-05', 'POS-1', 8),
+                    'E1-2026-03-06': distribution === 'jornada repartida'
+                        ? { ...record('2026-03-06', 'POS-1', 8), positionHours: [
+                            { positionId: 'POS-1', hours: 4, overtimeHours: 0 },
+                            { positionId: 'POS-2', hours: 4, overtimeHours: 0 }
+                        ] }
+                        : record('2026-03-06', 'POS-1', 4),
+                    ...(distribution === 'medias jornadas separadas'
+                        ? { 'E1-2026-03-07': record('2026-03-07', 'POS-2', 4) } : {}),
+                    'E2-2026-03-05': { ...record('2026-03-05', 'POS-2', 8), employeeId: 'E2' }
+                };
+                // Being assigned to Gringo is insufficient if all worked hours belong to Julito.
+                raw.employees[1].positions = ['POS-1', 'POS-2'];
+            });
+            await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+            const source = JSON.stringify(runtime.getCurrentView().previewRows);
+            PayrollUI.setPayrollGuideStep('review');
+            PayrollUI.setLeaderHoursScope('leader');
+            const byTeam = {};
+            for (const [id, position, hours, days, gross, dailyRate] of [
+                ['L1', 'POS-1', 12, 1.5, gringoPay, gringoDaily], ['L2', 'POS-2', 4, 0.5, julitoPay, julitoDaily]
+            ]) {
+                PayrollUI.setLeaderFilter(id);
+                const output = await exported();
+                const juan = output.find(employee => employee.sourceEmployeeId === 'E1');
+                byTeam[id] = juan;
+                expect(juan).toMatchObject({ employeeName: 'Juan', bruto: gross, monto: gross,
+                    workDays: { regular: days, total: days } });
+                expect(juan.positions).toHaveLength(1);
+                expect(juan.positions[0]).toMatchObject({ id: position, leaderId: id, dailyRate, workDays: { total: days } });
+                expect(juan.leaders.map(leader => leader.id)).toEqual([id]);
+                expect(output.map(employee => employee.sourceEmployeeId)).toEqual(id === 'L1' ? ['E1'] : ['E1', 'E2']);
+                const host = document.createElement('div');
+                host.innerHTML = PayrollUI.PayrollTab();
+                const row = [...host.querySelectorAll('.payroll-review-table__row')]
+                    .find(element => element.querySelector('.payroll-review-table__employee').textContent.includes('Juan'));
+                expect(row.querySelector('.payroll-review-table__amount').textContent.trim()).toBe(`${hours}h`);
+                expect(row.querySelectorAll('.payroll-review-table__amount')[1].textContent.trim()).toBe(formatCurrency(gross));
+                expect(row.querySelector('.payroll-review-table__amount.is-net').textContent.trim()).toBe(formatCurrency(gross));
+                expect(row.querySelectorAll('.payroll-breakdown-details__item')).toHaveLength(1);
+                expect(row.querySelector('.payroll-breakdown-details__item strong').textContent)
+                    .toBe(id === 'L1' ? 'Varillero' : 'Albañil');
+            }
+            expect(byTeam.L1.workDays.total + byTeam.L2.workDays.total).toBe(2);
+            expect(byTeam.L1.bruto + byTeam.L2.bruto).toBe(gringoPay + julitoPay);
+            PayrollUI.setLeaderFilter('all');
+            const full = (await exported()).find(employee => employee.sourceEmployeeId === 'E1');
+            expect(full).toMatchObject({ bruto: gringoPay + julitoPay, monto: gringoPay + julitoPay, workDays: { total: 2 } });
+            expect(full.positions).toHaveLength(2);
+            expect(JSON.stringify(runtime.getCurrentView().previewRows)).toBe(source);
+        }
+    );
 });

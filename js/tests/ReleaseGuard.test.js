@@ -49,8 +49,11 @@ test('rechaza subir solo el número, notas vacías o copiadas y borrar el histor
   release(newer); rejected(check(), /historial/);
   release(newer, [older]); write('app-release.json', JSON.stringify({ version: newer.version, changelog: [older] })); rejected(check(), /catálogo|fuente/);
 }));
-test('no exige subir versión por documentos/tests o por sellar solo el build', () => fixture(({ write, check }) => {
+test('no exige subir versión por documentos/tests o por sellar solo el build', () => fixture(({ git, write, check }) => {
   write('docs/guia.md', 'Documentación'); write('tests/check.test.js', '// Prueba');
+  write('qa/multiobra360/probe.mjs', 'export const testOnly = true;');
+  write('qa/multiobra360/issues.json', '{"R1":296}');
+  git('add', 'qa');
   write('sw.js', `const CACHE_VERSION = '${MINI ? 'asistencia-v1.9.0-' : ''}otro-build';\nself.addEventListener('fetch', () => {});\n`);
   write(MINI ? 'build-info.js' : 'js/modules/config/BuildInfo.js', MINI ? "window.MINI_BUILD_INFO={version:'1.9.0',buildId:'otro'};" : "export const BUILD='otro-build';");
   const result = check(); assert.equal(result.status, 0, result.stderr);

@@ -36,7 +36,7 @@ async function snapshot(ref, allowMissing = false, loaded = null) {
   return result;
 }
 function runtimeFile(name) {
-  if (/^(?:docs|tests|js\/tests|tutorials|scripts|infra|supabase|openspec|\.sdd-review|\.github|\.githooks)\//.test(name))
+  if (/^(?:docs|tests|qa|js\/tests|tutorials|scripts|infra|supabase|openspec|\.sdd-review|\.github|\.githooks)\//.test(name))
     return ['scripts/build.cjs', 'scripts/sw-precache.cjs', 'scripts/private-turn/package-mini-pages.mts'].includes(name);
   if (['build-info.js', 'js/modules/config/BuildInfo.js', 'package-lock.json', 'pnpm-lock.yaml', 'package.json', 'jest.config.js', 'jest.setup.js'].includes(name)) return false;
   return /\.(?:[cm]?js|ts|html|css|json|svg|png|jpe?g|webp|ico|woff2?)$/i.test(name) || ['_headers', '_redirects'].includes(name);

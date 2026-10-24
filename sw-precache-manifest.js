@@ -190,6 +190,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/payroll/PayrollProjectContext.js",
     "./js/modules/features/payroll/PayrollRegistration.js",
     "./js/modules/features/payroll/PayrollRegistrationUI.js",
+    "./js/modules/features/payroll/PayrollReviewEmployees.js",
     "./js/modules/features/payroll/PayrollReviewTable.js",
     "./js/modules/features/payroll/PayrollService.js",
     "./js/modules/features/payroll/PayrollSplitXExport.js",

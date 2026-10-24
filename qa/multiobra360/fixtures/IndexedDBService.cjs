@@ -1,0 +1,56 @@
+/**
+ * Mock for IndexedDBService.js
+ * All methods are jest.fn() so individual tests can override behavior with
+ * mockResolvedValueOnce / mockReturnValueOnce.
+ *
+ * ⚠️ API parity: el módulo real exporta `indexedDBService` (instancia,
+ * named), `IndexedDBService` (clase) y default. PettyCashStore importa la
+ * instancia NOMBRADA — si el mock no la exporta, recibe undefined y todos
+ * sus try/catch se tragan el fallo en silencio.
+ */
+const mockService = {
+    saveState: jest.fn().mockResolvedValue(undefined),
+    loadState: jest.fn().mockResolvedValue(null),
+    loadFullState: jest.fn().mockResolvedValue(null),
+    clear: jest.fn().mockResolvedValue(undefined),
+    clearAll: jest.fn().mockResolvedValue(undefined),
+    isSupported: jest.fn().mockReturnValue(true),
+    isAvailable: jest.fn().mockReturnValue(true),
+    // Comprobantes de caja chica (v9)
+    saveReceipt: jest.fn().mockResolvedValue(true),
+    getReceipt: jest.fn().mockResolvedValue(null),
+    deleteReceipt: jest.fn().mockResolvedValue(true),
+    listPendingReceipts: jest.fn().mockResolvedValue([]),
+    // Employee photo cache (v16)
+    saveEmployeePhoto: jest.fn().mockResolvedValue(null),
+    getEmployeePhoto: jest.fn().mockResolvedValue(null),
+    replaceEmployeePhoto: jest.fn().mockResolvedValue(null),
+    deleteEmployeePhoto: jest.fn().mockResolvedValue(true),
+    // Métodos genéricos usados por PettyCashStore (caja chica v10)
+    getAll: jest.fn().mockResolvedValue([]),
+    get: jest.fn().mockResolvedValue(null),
+    query: jest.fn().mockResolvedValue([]),
+    getPageByIndex: jest.fn().mockResolvedValue([]),
+    atomicMutate: jest.fn().mockImplementation(async (_store, _key, mutator) => mutator(null).value),
+    atomicMutateWithBatches: jest.fn().mockImplementation(
+        async (_store, _key, mutator) => mutator(null).value
+    ),
+    update: jest.fn().mockResolvedValue(1),
+    delete: jest.fn().mockResolvedValue(undefined),
+    batchUpdate: jest.fn().mockResolvedValue(0),
+    reconcilePettyCashSnapshot: jest.fn().mockImplementation(async (store, merge) =>
+        merge(await mockService.getAll(store), await mockService.getAll('pettyCashOutbox'))),
+    acquireLease: jest.fn().mockResolvedValue(true),
+    renewLease: jest.fn().mockResolvedValue(true),
+    releaseLease: jest.fn().mockResolvedValue(true),
+    batchDelete: jest.fn().mockResolvedValue(0),
+    getAttendanceRecoveryProtectedKeys: jest.fn().mockResolvedValue(new Set()),
+    getAttendanceByDateRange: jest.fn().mockResolvedValue([]),
+    // R07 A2b: init (no-op in mock — tests use real IDB) and atomicUpdate
+    init: jest.fn().mockResolvedValue(undefined),
+    atomicUpdate: jest.fn().mockResolvedValue(true)
+};
+
+export const IndexedDBService = mockService;
+export const indexedDBService = mockService;
+export default mockService;
