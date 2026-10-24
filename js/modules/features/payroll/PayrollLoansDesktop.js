@@ -222,7 +222,7 @@ function renderLoanRow(group, loan) {
 }
 
 /** «Cuánto descontar»: Todo, Solo interés u Otro monto, con el desglose y los avisos. */
-function renderModePanel(group) {
+function renderModePanel(group, draft = null) {
     const id = safe(group.employeeId);
     const owedLeft = Math.max(0, Math.round((group.eligibleBalance - group.selectedBalance) * 100) / 100);
     const net = group.netRemaining;
@@ -240,11 +240,13 @@ function renderModePanel(group) {
                 <label class="payroll-loan-mode__amount ${group.mode === PAYROLL_LOAN_MODE.CUSTOM ? 'is-active' : ''}">
                     <span>Otro monto $</span>
                     <input type="text" inputmode="decimal" autocomplete="off" placeholder="0.00"
-                           data-id="${id}" value="${safe(customValue)}"
+                           data-id="${id}" value="${safe(draft ? draft.value : customValue)}"
+                           ${draft ? `aria-invalid="true" aria-describedby="payroll-loan-amount-error-${id}"` : ''}
                            aria-label="Otro monto para ${safe(group.employeeName)}"
                            onchange="PayrollUI.setPayrollLoanCustomAmount(this.dataset.id, this.value)">
                 </label>
             </div>
+            ${draft ? `<p class="payroll-loan-mode__error" id="payroll-loan-amount-error-${id}" role="alert">${safe(draft.error)}</p>` : ''}
             ${group.selectedCount ? `
                 <p class="payroll-loan-mode__split">
                     = <b class="is-capital">${formatCurrency(group.chargedCapital)}</b> de capital
@@ -258,7 +260,7 @@ function renderModePanel(group) {
         </div>`;
 }
 
-function renderEmployeeGroup(group, expandedIds) {
+function renderEmployeeGroup(group, expandedIds, customAmountDrafts) {
     const selectedAll = group.selectionState === 'all';
     const mixed = group.selectionState === 'mixed';
     const { firstName, lastName } = splitEmployeeName(group.employeeName);
@@ -309,7 +311,7 @@ function renderEmployeeGroup(group, expandedIds) {
                 })}
             </summary>
             <div class="payroll-loan-group__body has-modes">
-                ${renderModePanel(group)}
+                ${renderModePanel(group, customAmountDrafts[group.employeeId])}
                 <div class="payroll-loan-child-columns" aria-hidden="true">
                     <span>Préstamo</span><span>Interés pend.</span><span>Capital pend.</span><span>Total</span><span>A descontar</span>
                     <span>Cuotas</span><span></span>
@@ -325,6 +327,7 @@ export function renderPayrollLoansDesktop({
     selection = [],
     payrollRows = [],
     expandedEmployeeIds = [],
+    customAmountDrafts = {},
     periodEnd = null
 } = {}) {
     const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd);
@@ -368,7 +371,7 @@ export function renderPayrollLoansDesktop({
                     <span></span><span></span>
                 </div>
                 ${model.groups.length
-                    ? model.groups.map(group => renderEmployeeGroup(group, expandedIds)).join('')
+                    ? model.groups.map(group => renderEmployeeGroup(group, expandedIds, customAmountDrafts)).join('')
                     : '<p class="payroll-loans-table__empty">No hay préstamos activos para este período.</p>'}
             </div>
         </section>

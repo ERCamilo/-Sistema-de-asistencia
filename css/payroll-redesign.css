@@ -8067,6 +8067,46 @@
     border-color: #94a3b8;
 }
 
+.payroll-loan-mode__error {
+    margin: 8px 0;
+    color: #fda4af;
+    font-size: 0.875rem;
+}
+
+.payroll-preview-stale {
+    max-width: 620px;
+    margin: 16px 0;
+    padding: 20px;
+    border: 1px solid var(--border, #334155);
+    border-radius: 12px;
+    background: var(--panel, #182028);
+    color: var(--text, #f4f7fa);
+}
+
+.payroll-preview-stale h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.payroll-preview-stale p {
+    margin: 12px 0;
+    line-height: 1.5;
+}
+
+.payroll-preview-stale__refresh {
+    min-width: 44px;
+    min-height: 44px;
+    max-width: 100%;
+    padding: 10px 16px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--accent, #06b6d4);
+    color: var(--on-accent, #042f35);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
 .payroll-plan-edit[open] > summary {
     margin-bottom: 8px;
 }

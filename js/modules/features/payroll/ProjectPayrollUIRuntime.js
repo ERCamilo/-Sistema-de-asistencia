@@ -6,7 +6,8 @@ import {
     validateProjectPayrollConfig
 } from './ProjectPayrollConfig.js';
 import { projectContext } from '../projects/ProjectContext.js';
-import { clearPayrollAdjustmentPeriodRuntime } from './PayrollAdjustmentPeriodSelection.js';
+import { clearPayrollAdjustmentPeriodRuntime, getPayrollAdjustmentPeriodRuntimeSelections } from './PayrollAdjustmentPeriodSelection.js';
+import { payrollPreviewInputKey } from './PayrollPreviewInputs.js';
 import { calculateEmployeePayrollWithContext } from './PayrollService.js';
 import {
     getPayrollEmployeesForPeriodWithContext,
@@ -69,6 +70,9 @@ function createSession(projectId, generation) {
         source: null,
         previewRows: [],
         previewKey: null,
+        previewInvalidated: false,
+        inputRevision: 0,
+        latestPreviewRequestId: 0,
         temporaryInclusion: {},
         temporarySelection: [],
         adjustmentSelections: {},
@@ -134,13 +138,20 @@ export class ProjectPayrollUIRuntime {
         if (!projectId) return false;
         let updated = false;
         for (const session of this.sessions.values()) {
-            if (session.projectId !== projectId || session.status !== 'ready') continue;
+            if (session.projectId !== projectId) continue;
             session.config = config;
             session.settingsView = createProjectPayrollSettingsView(this.state.settings, config);
+            session.status = 'ready';
+            session.error = null;
             if (session.selectedPeriod?.source === 'configured' || session.preset === 'payPeriod') session.selectedPeriod = null;
             session.previewRows = [];
             session.previewKey = null;
+            session.previewInvalidated = true;
+            session.inputRevision += 1;
             updated = true;
+        }
+        if (updated) {
+            for (const listener of [...this.invalidationListeners]) listener({ projectId, reason: 'config-changed' });
         }
         return updated;
     }
@@ -161,7 +172,11 @@ export class ProjectPayrollUIRuntime {
         if (this.disposed) {
             return { enabled: false, projectId: null, generation: this.generation, ctx: null, session: null };
         }
-        const ctx = this.captureContext(this.state);
+        const captured = this.captureContext(this.state);
+        // The calculation must use the same adjustment inputs across its awaits.
+        const ctx = captured.isScoped ? { ...captured, exportConfig: { ...captured.exportConfig,
+            bonuses: clone(captured.exportConfig?.bonuses || []),
+            deductions: clone(captured.exportConfig?.deductions || []) } } : captured;
         if (!ctx.isScoped) {
             return { enabled: false, projectId: null, generation: this.generation, ctx, session: null };
         }
@@ -174,13 +189,16 @@ export class ProjectPayrollUIRuntime {
             projectId,
             generation: this.generation,
             ctx,
+            inputRevision: this.sessions.get(key).inputRevision,
             session: this.sessions.get(key)
         };
     }
 
     isCurrent(request) {
         if (!request?.enabled) return request?.generation === this.generation;
-        return request.generation === this.generation && request.projectId === this.activeProjectId;
+        return request.generation === this.generation && request.projectId === this.activeProjectId
+            && request.inputRevision === request.session.inputRevision
+            && (request.previewRequestId == null || request.previewRequestId === request.session.latestPreviewRequestId);
     }
 
     commitIfCurrent(request, commit) {
@@ -198,6 +216,10 @@ export class ProjectPayrollUIRuntime {
         if (!request.enabled) {
             return { enabled: false, status: 'legacy', settingsView: this.state.settings, request };
         }
+        const period = request.session.selectedPeriod;
+        const previewStale = request.session.previewInvalidated || Boolean(request.session.previewKey
+            && request.session.previewKey !== payrollPreviewInputKey(request.ctx, request.session.config, period,
+                getPayrollAdjustmentPeriodRuntimeSelections(period?.periodStart, period?.periodEnd)));
         return {
             enabled: true,
             projectId: request.projectId,
@@ -207,7 +229,8 @@ export class ProjectPayrollUIRuntime {
             error: request.session.error,
             period: request.session.selectedPeriod,
             preset: request.session.preset,
-            previewRows: request.session.previewRows,
+            previewRows: previewStale ? [] : request.session.previewRows,
+            previewStale,
             request
         };
     }
@@ -281,6 +304,8 @@ export class ProjectPayrollUIRuntime {
             request.session.error = null;
             request.session.previewRows = [];
             request.session.previewKey = null;
+            request.session.previewInvalidated = true;
+            request.session.inputRevision += 1;
         });
         return {
             enabled: true,
@@ -304,6 +329,7 @@ export class ProjectPayrollUIRuntime {
     async generatePreview({ periodStart, periodEnd, preset = null, today = new Date() } = {}) {
         const request = this.beginRequest();
         if (!request.enabled) throw new Error('Scoped payroll preview requires projects enabled');
+        request.previewRequestId = ++request.session.latestPreviewRequestId;
         const loaded = await this.ensureCurrentConfig(request);
         const configuredPeriod = resolvePayrollPeriod(loaded.config.payPeriod, today);
         const previous = request.session.selectedPeriod;
@@ -382,7 +408,9 @@ export class ProjectPayrollUIRuntime {
             request.session.preset = effectivePreset;
             request.session.source = period.source;
             request.session.previewRows = rows;
-            request.session.previewKey = `${request.session.key}:${period.periodStart}:${period.periodEnd}`;
+            request.session.previewKey = payrollPreviewInputKey(request.ctx, loaded.config, period,
+                getPayrollAdjustmentPeriodRuntimeSelections(period.periodStart, period.periodEnd));
+            request.session.previewInvalidated = false;
         });
         return {
             projectId: request.projectId,

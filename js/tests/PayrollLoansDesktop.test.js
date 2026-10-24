@@ -30,6 +30,14 @@ const payrollRows = [{
 }];
 
 describe('PayrollLoansDesktop', () => {
+    test('invalid custom amount keeps its draft with an associated inline error', () => {
+        const host = document.createElement('div');
+        host.innerHTML = renderPayrollLoansDesktop({ employees, selection, payrollRows,
+            expandedEmployeeIds: ['e1'], customAmountDrafts: { e1: { value: '', error: 'Ingresa un monto válido.' } } });
+        const input = host.querySelector('input[aria-invalid="true"]');
+        expect(input.value).toBe('');
+        expect(host.querySelector(`#${input.getAttribute('aria-describedby')}`).textContent).toBe('Ingresa un monto válido.');
+    });
     test('builds a partial employee selection without changing persisted loans', () => {
         const before = JSON.stringify(employees);
         const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows);
