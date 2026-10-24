@@ -2789,17 +2789,25 @@ window.toggleWeekPosition = (empId, posId, dateStr) => {
     saveScrollPosition();
     const key = `${empId}-${dateStr}`;
     const att = state.attendance[key];
-    if (att && att.present) {
+    if (att && att.present && att.deletedAt == null) {
         stateManager.batchSetState(() => {
-            att.selectedPosition = posId;
-            att.updatedAt = Date.now();
+            // Like the daily selector, this chooses one position for the whole day.
+            // Imported / multi-position records can retain an older allocation.
+            Object.assign(att, stampAttendanceWrite({
+                ...att,
+                selectedPosition: posId,
+                multiPosition: false,
+                positionHours: []
+            }));
             const emp = state.employees.find(e => e.id === empId);
             if (emp) emp.updatedAt = Date.now();
         });
+        invalidateEmployeeStats(empId);
+        buildAttendanceIndex(dateStr);
         if (typeof componentMemo !== 'undefined' && componentMemo.invalidate) {
             componentMemo.invalidate(`week-row-${empId}`);
         }
-        saveApplicationData({ announce: 'Posición actualizada' }); // ✅ Guardar + toast honesto
+        saveApplicationData({ dateKey: dateStr, announce: 'Posición actualizada' });
         render();
     }
 };

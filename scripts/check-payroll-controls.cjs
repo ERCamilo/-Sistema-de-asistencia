@@ -110,6 +110,35 @@ const server = http.createServer((req, res) => {
                 await page.click('[data-modal-overlay] [data-button-index="1"]');
                 await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
             }
+            await page.evaluate(() => window.step('review'));
+            const employeeFilter = '[data-payroll-action="toggle-payroll-review-employee-filter"]';
+            await page.$eval(employeeFilter, el => el.scrollIntoView({ block: 'center' }));
+            await page.click(employeeFilter);
+            await page.waitForSelector('.payroll-adjustment-picker-modal');
+            await page.click('[data-modal-overlay] [data-button-index="0"]');
+            await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
+            assert.equal(await page.$eval(employeeFilter, el => el.checked), false, 'cancel keeps the full payroll view');
+            await page.click(employeeFilter);
+            await page.waitForSelector('.payroll-adjustment-picker-modal');
+            await page.click('[data-adjustment-picker-employee="e0"]');
+            await page.click('[data-adjustment-picker-employee="e1"]');
+            await page.click('[data-modal-overlay] [data-button-index="1"]');
+            await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
+            assert.equal((await page.$$('.payroll-review-table__row')).length, 2, 'only the chosen staff appear');
+            assert.equal(await page.$eval('[data-payroll-action="open-payroll-closure"]', el => el.disabled), true);
+            await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
+            assert.deepEqual(await page.evaluate(async () => (await axe.run('.payroll-review-employees', { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map(v => v.id)), []);
+            assert.ok(await page.$eval('.payroll-review-employees', el => {
+                const box = el.getBoundingClientRect();
+                return box.left >= 0 && box.right <= innerWidth && el.scrollWidth <= el.clientWidth;
+            }), `employee control fits at ${width}`);
+            if (process.env.PAYROLL_REVIEW_ARTIFACT_DIR) {
+                await page.$eval('.payroll-review-employees', el => el.scrollIntoView({ block: 'center' }));
+                await page.screenshot({ path: path.join(process.env.PAYROLL_REVIEW_ARTIFACT_DIR, `selected-employees-${width}.png`) });
+            }
+            await page.$eval(employeeFilter, el => el.scrollIntoView({ block: 'center' }));
+            await page.click(employeeFilter);
+            assert.equal((await page.$$('.payroll-review-table__row')).length, 80, 'clearing the checkbox restores all paid staff');
             await page.evaluate(() => window.step('loans'));
             const group = 'details[data-employee-id="e0"]';
             await page.$eval(group, el => { el.open = true; });
@@ -180,6 +209,6 @@ const server = http.createServer((req, res) => {
             if (process.env.PAYROLL_REVIEW_ARTIFACT_DIR) await page.screenshot({ path: path.join(process.env.PAYROLL_REVIEW_ARTIFACT_DIR, `loans-${width}.png`), fullPage: true });
         }
         assert.deepEqual(errors, []);
-        console.log('PASS payroll: mobile rows/footer/short viewport, SVG statuses, synchronized amount/percentage, bulk maximum/30% and warning counts, no capture during drag, four widths and WCAG A/AA');
+        console.log('PASS payroll: mobile rows/footer/short viewport, selected-employee report and closure guard, SVG statuses, synchronized amount/percentage, bulk maximum/30% and warning counts, no capture during drag, four widths and WCAG A/AA');
     } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

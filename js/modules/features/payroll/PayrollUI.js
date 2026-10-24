@@ -26,6 +26,7 @@ import {
 } from './PayrollLoans.js';
 import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
+import { getPayrollReviewEmployeeSelection, filterPayrollReviewEmployees, renderPayrollReviewEmployeeFilter } from './PayrollReviewEmployees.js';
 import { parsePayrollLoanAmount } from './PayrollLoanAmount.js';
 import { payrollPreviewInputKey } from './PayrollPreviewInputs.js';
 import { DEFAULT_PAYROLL_LOAN_PERCENTAGE, getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage, buildPayrollLoanSalarySelection } from './PayrollLoanSalary.js';
@@ -44,7 +45,8 @@ import {
 } from './PayrollPreview.js';
 import {
     openPayrollClosureModal,
-    renderPayrollClosurePanel
+    renderPayrollClosurePanel,
+    payrollClosureBlockerMessage
 } from './PayrollClosureUI.js';
 import { renderPayrollHistoryView } from './PayrollHistoryUI.js';
 import { buildClosureReview, voidDuplicatePayrollClosure } from './PayrollClosureReview.js';
@@ -253,6 +255,8 @@ const _ACTION_MAP = {
     'toggle-payroll-review-detail': (key) => window.PayrollUI?.togglePayrollReviewDetail?.(key),
     'clear-payroll-leader-filter': () => window.PayrollUI?.setLeaderFilter?.('all'),
     'set-payroll-leader-hours-scope': (scope) => window.PayrollUI?.setLeaderHoursScope?.(scope),
+    'toggle-payroll-review-employee-filter': (_id, target) => window.PayrollUI?.togglePayrollReviewEmployeeFilter?.(target.checked),
+    'open-payroll-review-employees': () => window.PayrollUI?.openPayrollReviewEmployees?.(),
     'toggle-payroll-paid': (_id, target) => window.PayrollUI?.togglePayrollPaidConfirmation?.(target.checked),
     'toggle-payroll-preview-category': (category, target) => window.PayrollUI?.togglePayrollPreviewCategory?.(
         category,
@@ -743,18 +747,26 @@ function getScopedLeaderFilter(view, state = getState()) {
  * según sus casillas en la vista previa, y solo los empleados del líder
  * elegido. El cierre usa byLeader:false (siempre cierra la obra completa).
  */
-function getScopedReviewRows(view = null, state = getState(), { byLeader = true, withInclusion = true } = {}) {
+function getScopedReviewRows(view = null, state = getState(), { byLeader = true, withInclusion = true, withEmployeeSelection = true } = {}) {
     const resolved = view || payrollRuntime?.getCurrentView?.();
     const effective = getScopedEffectivePreviewRows(resolved, state);
     const rows = withInclusion
         ? applyPayrollPreviewInclusion(effective, state?.exportConfig?.payrollPreviewInclusion)
         : effective;
     if (!byLeader) return rows;
-    return filterPayrollRowsByLeader(rows, {
+    const byTeam = filterPayrollRowsByLeader(rows, {
         leaderId: getScopedLeaderFilter(resolved, state),
         positions: state?.positions || [],
         employees: getScopedProjectEmployees(resolved?.projectId, state),
         hoursScope: state?.exportConfig?.leaderHoursScope
+    });
+    return withEmployeeSelection ? filterPayrollReviewEmployees(byTeam, payrollReviewEmployeeSelection(resolved, state)) : byTeam;
+}
+
+function payrollReviewEmployeeSelection(view, state = getState()) {
+    return getPayrollReviewEmployeeSelection(state.exportConfig.payrollReviewEmployees, {
+        projectId: view?.projectId, period: view?.period,
+        employees: getScopedProjectEmployees(view?.projectId, state)
     });
 }
 
@@ -907,6 +919,7 @@ function ScopedPayrollTab(view) {
     const activeLeader = leaders.find(leader => String(leader.id) === leaderFilter) || null;
     const leaderHoursScope = normalizeLeaderHoursScope(exportConfig.leaderHoursScope);
     const previewInclusion = getPayrollPreviewInclusion(exportConfig.payrollPreviewInclusion);
+    const reviewEmployeeSelection = payrollReviewEmployeeSelection(view, state);
     const totalAmount = rows.reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
     const grossAmount = rows.reduce((sum, row) => sum + (Number(row._brutoOriginal) || 0), 0);
     const bonusAmount = rows.reduce((sum, row) => sum + (Number(row._bonuses) || 0), 0);
@@ -1067,7 +1080,7 @@ function ScopedPayrollTab(view) {
                         ${guideStep === 'loans' && !activeRegistration ? renderPayrollLoansDesktop({
                             employees: scopedEmployees,
                             selection: exportConfig.payrollLoanSelection || [],
-                            payrollRows: rows,
+                            payrollRows: getScopedReviewRows(view, state, { withEmployeeSelection: false }),
                             expandedEmployeeIds: exportConfig.payrollLoanExpandedEmployees || [],
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
                             percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
@@ -1117,6 +1130,7 @@ function ScopedPayrollTab(view) {
                                         <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder">${icons.get('close', { size: 12 })}</button>
                                     </span>
                                 ` : ''}
+                                ${renderPayrollReviewEmployeeFilter(reviewEmployeeSelection)}
                                 <button type="button"
                                         data-payroll-action="export-payroll-pdf"
                                         class="payroll-btn-secondary payroll-review-toolbar__pdf"
@@ -1134,7 +1148,9 @@ function ScopedPayrollTab(view) {
                                 sourceRows,
                                 inclusion: previewInclusion,
                                 expanded: payrollReviewExpanded,
-                                emptyMessage: activeLeader
+                                emptyMessage: reviewEmployeeSelection.enabled
+                                    ? 'Ningún empleado seleccionado tiene trabajo en este filtro. Cambia los empleados o el líder.'
+                                    : activeLeader
                                     ? `Ningún empleado de ${activeLeader.name || 'este líder'} tiene asistencia en el período.`
                                     : 'No hay registros de asistencia para esta obra en el período seleccionado.'
                             })}
@@ -3529,6 +3545,55 @@ export function setLeaderFilter(leaderId) {
     context.render();
 }
 
+function storePayrollReviewEmployees(view, ids, enabled) {
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.exportConfig.payrollReviewEmployees = {
+            projectId: view.projectId, periodStart: view.period.periodStart, periodEnd: view.period.periodEnd,
+            enabled, ids
+        };
+        state.exportConfig.payrollPaidConfirmation = null;
+    });
+    context.render();
+}
+
+export async function togglePayrollReviewEmployeeFilter(checked) {
+    const view = getScopedPayrollView();
+    if (!view?.enabled || view.status !== 'ready' || view.previewStale) return false;
+    const selection = payrollReviewEmployeeSelection(view);
+    if (checked && !selection.ids.length) return openPayrollReviewEmployees();
+    storePayrollReviewEmployees(view, selection.ids, Boolean(checked));
+    return true;
+}
+
+export async function openPayrollReviewEmployees() {
+    const view = getScopedPayrollView();
+    if (!view?.enabled || view.status !== 'ready' || view.previewStale) return false;
+    const state = getState();
+    const rows = getScopedReviewRows(view, state, { byLeader: false });
+    const byId = new Map(getScopedProjectEmployees(view.projectId, state).map(employee => [String(employee.id), employee]));
+    const positionNames = new Map(state.positions.map(position => [String(position.id), position.name]));
+    const candidates = rows.map(row => {
+        const employee = byId.get(String(row._employeeId));
+        return employee ? { id: String(employee.id), number: employee.number, name: employee.name,
+            active: employee.active, gross: row._brutoOriginal,
+            positions: (row._positionBreakdown || []).map(part => part.positionName || positionNames.get(String(part.positionId))).filter(Boolean) } : null;
+    }).filter(Boolean);
+    const ids = await openPayrollAdjustmentEmployeePicker({
+        employees: candidates, selectedIds: payrollReviewEmployeeSelection(view, state).ids,
+        subtitle: 'Elige las personas que quieres incluir en este reporte.'
+    });
+    const current = getScopedPayrollView();
+    if (ids === null || !current?.enabled || current.projectId !== view.projectId
+        || current.period?.periodStart !== view.period?.periodStart || current.period?.periodEnd !== view.period?.periodEnd) {
+        context.render();
+        return false;
+    }
+    const allowed = new Set(candidates.map(employee => employee.id));
+    storePayrollReviewEmployees(current, ids.filter(id => allowed.has(String(id))).map(String), true);
+    return true;
+}
+
 /** Despliega o pliega el detalle de una categoría de un empleado en la vista previa. */
 export function togglePayrollReviewDetail(key) {
     const value = String(key || '');
@@ -3794,6 +3859,10 @@ export async function exportPayrollPDF() {
                 : ' · horas de todos los puestos';
             doc.text(`Líder: ${pdfLeader.name || ''}${pdfHoursScope}`, 14, yPosition + 5);
             doc.setFont('helvetica', 'normal');
+            yPosition += 5;
+        }
+        if (scopedView?.enabled && payrollReviewEmployeeSelection(scopedView, state).enabled) {
+            doc.text(`Empleados seleccionados: ${previewRows.length}`, 14, yPosition + 5);
             yPosition += 5;
         }
 
@@ -4127,7 +4196,7 @@ export function setPayrollLoansSalaryBulk(kind) {
         window.showNotification?.('Activa Préstamos en la vista previa para aplicar estos cobros.', 'warning');
         return false;
     }
-    const rows = view?.enabled ? getScopedReviewRows(view, state) : generateExportData();
+    const rows = view?.enabled ? getScopedReviewRows(view, state, { withEmployeeSelection: false }) : generateExportData();
     let employees = view?.enabled ? getScopedProjectEmployees(view.projectId, state) : getLeaderFilteredEmployees(state);
     const leader = view?.enabled ? getScopedLeaderFilter(view, state) : state.exportConfig.leaderFilter;
     if (view?.enabled && leader && leader !== 'all') {
@@ -4228,7 +4297,7 @@ export function setPayrollLoanSalaryAmount(employeeId, kind, percentage = DEFAUL
         window.showNotification?.(STALE_PAYROLL_MESSAGE, 'warning');
         return false;
     }
-    const rows = view?.enabled ? getScopedReviewRows(view, state) : generateExportData();
+    const rows = view?.enabled ? getScopedReviewRows(view, state, { withEmployeeSelection: false }) : generateExportData();
     const row = rows.find(item => String(item._employeeId) === String(employeeId));
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
     if (!employee) return false;
@@ -4367,6 +4436,9 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
     if (isScoped && getScopedLeaderFilter(scopedView, state) !== 'all') {
         gate = { ...gate, enabled: false, reason: 'leader-filtered' };
     }
+    if (isScoped && payrollReviewEmployeeSelection(scopedView, state).enabled) {
+        gate = { ...gate, enabled: false, reason: 'employee-filtered' };
+    }
     return { state, rows, fingerprint, activeClosures: cache.items, gate, isScoped, projectId, periodStart, periodEnd };
 }
 
@@ -4441,6 +4513,11 @@ export function togglePayrollPaidConfirmation(checked) {
     const blocker = payrollPreviewBlocker(scopedView);
     if (blocker) {
         window.showNotification?.(blocker, 'warning');
+        context?.render?.();
+        return;
+    }
+    if (current.gate.reason === 'employee-filtered') {
+        window.showNotification?.(payrollClosureBlockerMessage(current.gate), 'warning');
         context?.render?.();
         return;
     }
@@ -4853,6 +4930,10 @@ export async function openPayrollClosure() {
     if (blocker) {
         window.showNotification?.(blocker, 'warning');
         context?.render?.();
+        return;
+    }
+    if (scopedView?.enabled && payrollReviewEmployeeSelection(scopedView).enabled) {
+        window.showNotification?.(payrollClosureBlockerMessage({ reason: 'employee-filtered' }), 'warning');
         return;
     }
     const startingScope = captureEntityProjectScope();
