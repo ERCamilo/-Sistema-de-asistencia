@@ -19,6 +19,7 @@ import {
     setPayrollLoanChargeCount,
     setPayrollLoanMode,
     getPayrollLoanMode,
+    resolvePayrollLoanSelection,
     PAYROLL_LOAN_MODE,
     summarizePayrollLoans,
     togglePayrollLoan
@@ -27,6 +28,7 @@ import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import { parsePayrollLoanAmount } from './PayrollLoanAmount.js';
 import { payrollPreviewInputKey } from './PayrollPreviewInputs.js';
+import { DEFAULT_PAYROLL_LOAN_PERCENTAGE, getPayrollLoanSalaryAmounts } from './PayrollLoanSalary.js';
 import {
     buildPayrollPreviewFingerprint,
     confirmPayrollPaid
@@ -155,6 +157,7 @@ let payrollRuntime = null;
 let unsubscribeRuntimeInvalidation = null;
 let latestPayrollPreviewRows = [];
 const payrollLoanAmountDrafts = new Map();
+const payrollLoanPercentages = new Map();
 const STALE_PAYROLL_MESSAGE = 'La asistencia, las tarifas o la configuración cambiaron. Actualiza la vista previa antes de exportar o confirmar la nómina.';
 
 function payrollPreviewBlocker(view) {
@@ -235,6 +238,11 @@ const _ACTION_MAP = {
     'set-payroll-loan-mode': (employeeId, target, event) => {
         event.stopPropagation();
         window.PayrollUI?.setPayrollLoanModeFor?.(employeeId, target.dataset.mode);
+    },
+    'set-payroll-loan-salary-amount': (employeeId, target, event) => {
+        event.stopPropagation();
+        const percentage = target.closest('.payroll-loan-mode')?.querySelector('[data-payroll-loan-percentage="number"]')?.value;
+        window.PayrollUI?.setPayrollLoanSalaryAmount?.(employeeId, target.dataset.kind, percentage);
     },
     'select-all-payroll-loan-charges': (employeeId, target, event) => {
         event.stopPropagation();
@@ -349,6 +357,32 @@ function _handlePayrollAdjustmentChoiceCapture(e) {
     _handlePayrollAdjustmentInput(e);
 }
 
+function _handlePayrollLoanPercentageInput(event) {
+    const input = event.target.closest?.('[data-payroll-loan-percentage]');
+    if (!input) return;
+    const panel = input.closest('.payroll-loan-mode');
+    if (!panel) return;
+    const amounts = getPayrollLoanSalaryAmounts({ _montoBeforeLoans: panel.dataset.salaryAvailable },
+        panel.dataset.collectibleDebt, input.value);
+    const error = panel.querySelector('[data-payroll-loan-percentage-error]');
+    if (error) error.hidden = amounts.validPercentage;
+    input.setAttribute('aria-invalid', String(!amounts.validPercentage));
+    const apply = panel.querySelector('[data-kind="percentage"]');
+    if (apply) apply.disabled = !amounts.validPercentage || amounts.suggested <= 0;
+    if (!amounts.validPercentage) return;
+    payrollLoanPercentages.set(String(input.dataset.id), amounts.percentage);
+    panel.querySelectorAll('[data-payroll-loan-percentage]').forEach(control => {
+        control.value = amounts.percentage;
+        control.setAttribute('aria-invalid', 'false');
+        if (control.type === 'range') control.setAttribute('aria-valuetext', `${amounts.percentage} %: descontar ${formatCurrency(amounts.suggested)}; quedan ${formatCurrency(amounts.remainingSalary)}`);
+    });
+    panel.querySelectorAll('[data-payroll-loan-percentage-amount]').forEach(label => { label.textContent = formatCurrency(amounts.suggested); });
+    const title = panel.querySelector('[data-payroll-loan-percentage-title]');
+    if (title) title.textContent = amounts.percentage === DEFAULT_PAYROLL_LOAN_PERCENTAGE ? 'Sugerido 30 %' : `Usar ${amounts.percentage} %`;
+    const remaining = panel.querySelector('[data-payroll-loan-percentage-remaining]');
+    if (remaining) remaining.textContent = formatCurrency(amounts.remainingSalary);
+}
+
 function _handlePayrollAdjustmentInput(e) {
     if (e.type === 'change' && e.target.matches?.('[data-payroll-adjustment-period-selection]')) {
         window.PayrollUI?.setScheduledAdjustmentPeriodSelection?.(
@@ -382,6 +416,7 @@ let _payrollDelegationAttached = false;
 export function init(ctx) {
     unsubscribeRuntimeInvalidation?.();
     payrollLoanAmountDrafts.clear();
+    payrollLoanPercentages.clear();
     context = ctx;
     payrollService = ctx.services.payroll;
     payrollRuntime = ctx.services.payrollRuntime || null;
@@ -392,6 +427,7 @@ export function init(ctx) {
         }
         latestPayrollPreviewRows = [];
         payrollLoanAmountDrafts.clear();
+        payrollLoanPercentages.clear();
         clearPayrollAdjustmentPeriodRuntime();
         const state = getState();
         if (state?.exportConfig) {
@@ -424,6 +460,7 @@ export function init(ctx) {
         document.addEventListener('click', _handlePayrollClick);
         document.addEventListener('keydown', _handlePayrollKeydown);
         document.addEventListener('input', _handlePayrollAdjustmentInput);
+        document.addEventListener('input', _handlePayrollLoanPercentageInput);
         document.addEventListener('change', _handlePayrollAdjustmentInput);
         _payrollDelegationAttached = true;
     }
@@ -1002,6 +1039,7 @@ function ScopedPayrollTab(view) {
                             payrollRows: rows,
                             expandedEmployeeIds: exportConfig.payrollLoanExpandedEmployees || [],
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
+                            salaryPercentages: Object.fromEntries(payrollLoanPercentages),
                             periodEnd: period.periodEnd
                         }) : ''}
                     </section>
@@ -1676,6 +1714,7 @@ function PayrollGeneratorTab() {
                             payrollRows: exportData,
                             expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || [],
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
+                            salaryPercentages: Object.fromEntries(payrollLoanPercentages),
                             periodEnd: state.exportConfig.periodEnd
                         })}`}
                     </section>
@@ -2130,11 +2169,16 @@ function buildAdjustmentEmployeePickerEntries() {
     const operationScope = (isScoped && activeProjectId)
         ? { ...captureEntityProjectScope(), enabled: true, projectId: String(activeProjectId) }
         : null;
-    const period = resolveActivePayrollPeriod(state);
+    const period = scopedView?.period || state?.exportConfig || {};
     const { periodStart, periodEnd } = period;
+    // One snapshot for the whole picker; active employees already have a calculated gross.
+    const ctx = isScoped && scopedView.config
+        ? (scopedView.request?.ctx || createPayrollProjectContext({ state, scope: operationScope }))
+        : null;
+    const previewById = new Map((scopedView?.previewRows || []).map(row => [String(row._employeeId), row]));
 
-    let employees = state.employees || [];
-    if (operationScope) {
+    let employees = ctx?.employees || state.employees || [];
+    if (operationScope && !ctx) {
         employees = employees.filter(emp => entityInScope(emp, operationScope));
     }
 
@@ -2145,8 +2189,9 @@ function buildAdjustmentEmployeePickerEntries() {
             if (periodStart && periodEnd) {
                 try {
                     if (isScoped && scopedView.config) {
-                        const ctx = createPayrollProjectContext({ state, scope: { enabled: true, projectId: activeProjectId } });
-                        payroll = calculateEmployeePayrollWithContext(
+                        const cached = previewById.get(String(employee.id));
+                        payroll = cached ? { brutoOriginal: cached._brutoOriginal, breakdown: cached._positionBreakdown || [] }
+                            : calculateEmployeePayrollWithContext(
                             ctx,
                             scopedView.config,
                             employee.id,
@@ -2172,8 +2217,8 @@ function buildAdjustmentEmployeePickerEntries() {
             const organization = buildPayrollHistoricalOrganization({
                 employee,
                 breakdown: payroll.breakdown || [],
-                positions: state.positions || [],
-                leaders: state.leaders || []
+                positions: ctx?.positions || state.positions || [],
+                leaders: ctx?.leaders || state.leaders || []
             });
             const positions = organization.positionName === 'Sin posicion'
                 ? []
@@ -4092,6 +4137,41 @@ export function setPayrollLoanCustomAmount(employeeId, value) {
         return false;
     }
     setPayrollLoanModeFor(employeeId, PAYROLL_LOAN_MODE.CUSTOM, amount);
+    return true;
+}
+
+/** Quick amounts are explicit choices, saved as a custom amount until the user chooses again. */
+export function setPayrollLoanSalaryAmount(employeeId, kind, percentage = DEFAULT_PAYROLL_LOAN_PERCENTAGE) {
+    if (!['available', 'percentage'].includes(kind)) return false;
+    const state = getState();
+    const view = getScopedPayrollView();
+    if (view?.enabled && (view.status !== 'ready' || view.previewStale)) {
+        window.showNotification?.(STALE_PAYROLL_MESSAGE, 'warning');
+        return false;
+    }
+    const rows = view?.enabled ? getScopedReviewRows(view, state) : generateExportData();
+    const row = rows.find(item => String(item._employeeId) === String(employeeId));
+    const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    if (!employee) return false;
+    const periodEnd = view?.enabled ? view.period?.periodEnd : state.exportConfig.periodEnd;
+    let selection = state.exportConfig.payrollLoanSelection || [];
+    const selected = selection.find(item => String(item.employeeId) === String(employeeId));
+    if (!(selected?.loans || selected?.loanIds || []).length) {
+        selection = setEmployeePayrollLoans(selection, employeeId, getEligiblePayrollLoans(employee, periodEnd)
+            .map(loan => ({ loanId: loan.loanId, chargeCount: loan.defaultChargeCount })));
+    }
+    const debt = resolvePayrollLoanSelection([employee], selection, periodEnd)[0]?.fullTotal || 0;
+    const amounts = getPayrollLoanSalaryAmounts(row, debt, kind === 'available' ? 100 : percentage);
+    const amount = kind === 'available' ? amounts.available : amounts.suggested;
+    if (!amounts.validPercentage || amount <= 0) {
+        window.showNotification?.(!amounts.validPercentage
+            ? 'Indica un porcentaje entero entre 1 y 100.'
+            : 'No hay sueldo disponible o cargos seleccionables en este período.', 'warning');
+        return false;
+    }
+    if (kind === 'percentage') payrollLoanPercentages.set(String(employeeId), amounts.percentage);
+    payrollLoanAmountDrafts.delete(String(employeeId));
+    updatePayrollLoanSelection(setPayrollLoanMode(selection, employeeId, PAYROLL_LOAN_MODE.CUSTOM, amount));
     return true;
 }
 

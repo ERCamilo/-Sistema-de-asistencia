@@ -1,6 +1,16 @@
 {
-  "version": "1.7.102",
+  "version": "1.7.103",
   "changelog": [
+    {
+      "version": "1.7.103",
+      "date": "2026-10-24",
+      "title": "Selección más rápida y descuentos por porcentaje",
+      "items": [
+        "Seleccionar empleados en descuentos y bonificaciones abre más rápido y conserva la lista al marcar personas.",
+        "En préstamos puedes usar el sueldo disponible o elegir un porcentaje con una barra y un campo numérico; la sugerencia inicial es 30 %.",
+        "Antes de aplicar el porcentaje ves cuánto se descuenta y cuánto sueldo queda; la deuda no cobrada sigue pendiente."
+      ]
+    },
     {
       "version": "1.7.102",
       "date": "2026-10-24",

@@ -1,6 +1,7 @@
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
+import { getPayrollLoanSalaryAmounts } from './PayrollLoanSalary.js';
 import {
     getEligiblePayrollLoans,
     getPayrollLoanMode,
@@ -72,7 +73,7 @@ function renderSelectionControl({ checked, mixed = false, employeeId, loanId = n
     `;
 }
 
-export function buildPayrollLoansDesktopModel(employees = [], selection = [], payrollRows = [], periodEnd = null) {
+export function buildPayrollLoansDesktopModel(employees = [], selection = [], payrollRows = [], periodEnd = null, salaryPercentages = {}) {
     const resolvedByEmployee = new Map(
         resolvePayrollLoanSelection(employees, selection, periodEnd).map(item => [
             String(item.employeeId),
@@ -114,6 +115,10 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
         const warningState = getLoanWarningState(payrollRow);
         const choice = getPayrollLoanMode(selection, employee.id);
         const sum = key => Math.round(selectedLoans.reduce((total, loan) => total + (Number(loan[key]) || 0), 0) * 100) / 100;
+        const collectibleDebt = selectedLoans.length ? sum('fullAmount')
+            : loans.reduce((total, loan) => total + loan.chargeOptions.slice(0, loan.defaultChargeCount)
+                .reduce((amount, charge) => amount + charge.amount, 0), 0);
+        const salaryAmounts = getPayrollLoanSalaryAmounts(payrollRow, collectibleDebt, salaryPercentages[employee.id]);
 
         groups.push({
             employeeId: employee.id,
@@ -130,6 +135,8 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
                 : selectedLoans.length === loans.length && choice.mode === PAYROLL_LOAN_MODE.ALL ? 'all' : 'mixed',
             mode: choice.mode,
             customAmount: choice.amount,
+            collectibleDebt,
+            salaryAmounts,
             fullTotal: sum('fullAmount'),
             interestOnlyTotal: sum('selectedPendingInterest'),
             chargedInterest: sum('interestPart'),
@@ -231,12 +238,24 @@ function renderModePanel(group, draft = null) {
                 data-payroll-action="set-payroll-loan-mode" data-id="${id}" data-mode="${mode}"
                 aria-pressed="${group.mode === mode}">${label} <b>${formatCurrency(amount)}</b></button>`;
     const customValue = group.mode === PAYROLL_LOAN_MODE.CUSTOM && group.customAmount != null ? String(group.customAmount) : '';
+    const salary = group.salaryAmounts;
+    const percentageErrorId = `payroll-loan-percentage-error-${id}`;
     return `
-        <div class="payroll-loan-mode" role="group" aria-label="Cuánto descontar a ${safe(group.employeeName)}">
+        <div class="payroll-loan-mode" role="group" aria-label="Cuánto descontar a ${safe(group.employeeName)}"
+             data-salary-available="${salary.salaryAvailable}" data-collectible-debt="${group.collectibleDebt}">
             <span class="payroll-loan-mode__label">Cuánto descontar</span>
             <div class="payroll-loan-mode__options">
                 ${button(PAYROLL_LOAN_MODE.ALL, 'Todo', group.fullTotal || group.eligibleBalance)}
                 ${button(PAYROLL_LOAN_MODE.INTEREST, 'Solo interés', group.selectedCount ? group.interestOnlyTotal : group.loans.reduce((t, l) => t + l.pendingInterest, 0))}
+                <button type="button" class="payroll-loan-mode__option" data-payroll-action="set-payroll-loan-salary-amount"
+                        data-id="${id}" data-kind="available" ${salary.available > 0 ? '' : 'disabled'}>
+                    Sueldo disponible <b>${formatCurrency(salary.available)}</b>
+                </button>
+                <button type="button" class="payroll-loan-mode__option" data-payroll-action="set-payroll-loan-salary-amount"
+                        data-id="${id}" data-kind="percentage" ${salary.suggested > 0 ? '' : 'disabled'}>
+                    <span data-payroll-loan-percentage-title>${salary.percentage === 30 ? 'Sugerido 30 %' : `Usar ${salary.percentage} %`}</span>
+                    <b data-payroll-loan-percentage-amount>${formatCurrency(salary.suggested)}</b>
+                </button>
                 <label class="payroll-loan-mode__amount ${group.mode === PAYROLL_LOAN_MODE.CUSTOM ? 'is-active' : ''}">
                     <span>Otro monto $</span>
                     <input type="text" inputmode="decimal" autocomplete="off" placeholder="0.00"
@@ -245,6 +264,24 @@ function renderModePanel(group, draft = null) {
                            aria-label="Otro monto para ${safe(group.employeeName)}"
                            onchange="PayrollUI.setPayrollLoanCustomAmount(this.dataset.id, this.value)">
                 </label>
+            </div>
+            <div class="payroll-loan-percentage">
+                <label for="payroll-loan-range-${id}">Porcentaje del disponible · ${formatCurrency(salary.salaryAvailable)}</label>
+                <div class="payroll-loan-percentage__controls">
+                    <input type="range" id="payroll-loan-range-${id}" min="1" max="100" step="1" value="${salary.percentage}"
+                           data-payroll-loan-percentage="range" data-id="${id}" aria-describedby="${percentageErrorId}"
+                           aria-valuetext="${salary.percentage} %: descontar ${formatCurrency(salary.suggested)}; quedan ${formatCurrency(salary.remainingSalary)}"
+                           ${salary.available > 0 ? '' : 'disabled'}>
+                    <label class="payroll-loan-percentage__number">
+                        <input type="number" min="1" max="100" step="1" value="${salary.percentage}" inputmode="numeric"
+                               data-payroll-loan-percentage="number" data-id="${id}" aria-label="Porcentaje del sueldo disponible para ${safe(group.employeeName)}"
+                               aria-describedby="${percentageErrorId}" ${salary.available > 0 ? '' : 'disabled'}> %
+                    </label>
+                </div>
+                <p>Descontar <b data-payroll-loan-percentage-amount>${formatCurrency(salary.suggested)}</b> · quedan de sueldo
+                    <b data-payroll-loan-percentage-remaining>${formatCurrency(salary.remainingSalary)}</b>. Pulsa la opción para aplicarlo.</p>
+                <p id="${percentageErrorId}" data-payroll-loan-percentage-error role="alert" hidden>Indica un porcentaje entero entre 1 y 100.</p>
+                ${salary.salaryAvailable <= 0 ? '<p>No hay sueldo disponible en la vista previa de este período.</p>' : ''}
             </div>
             ${draft ? `<p class="payroll-loan-mode__error" id="payroll-loan-amount-error-${id}" role="alert">${safe(draft.error)}</p>` : ''}
             ${group.selectedCount ? `
@@ -328,9 +365,10 @@ export function renderPayrollLoansDesktop({
     payrollRows = [],
     expandedEmployeeIds = [],
     customAmountDrafts = {},
+    salaryPercentages = {},
     periodEnd = null
 } = {}) {
-    const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd);
+    const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd, salaryPercentages);
     const expandedIds = new Set((expandedEmployeeIds || []).map(String));
     const summary = model.summary;
 
