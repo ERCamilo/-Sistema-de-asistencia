@@ -108,7 +108,8 @@ export class ProjectContextService {
         const request = ++this.selectionRequest;
         const previousProjectId = readStoredId() || peekEntityScope().projectId || null;
         const candidate = await this.store.get(id);
-        if (request !== this.selectionRequest) return readStoredId() || peekEntityScope().projectId || null;
+        if (request !== this.selectionRequest || !isProjectsEnabled()) return isProjectsEnabled()
+            ? readStoredId() || peekEntityScope().projectId || null : null;
         if (!candidate) throw new Error(`Proyecto inexistente: "${id}"`);
         if (candidate.status !== PROJECT_STATUS.ACTIVE) {
             throw new Error(`El proyecto "${candidate.name}" está "${candidate.status}"; sólo puede activarse uno "active".`);

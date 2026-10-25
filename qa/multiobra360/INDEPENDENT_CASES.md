@@ -45,6 +45,15 @@ El código de salida es 0 si todos los casos pasan; 1 si hay fallos de aceptaci�
 2 si falta una capa, un escenario, una anchura, integridad o infraestructura.
 No aprobar a partir de resultados parciales ni convertir los casos en skips.
 
+## Reevaluación tras las correcciones
+
+El resultado de referencia de **7 PASS / 19 FAIL** corresponde al commit
+auditado `93ca8b3f`, no al candidato corregido que sigue en el PR #310.
+En la nueva ejecución local: **26/26 PASS**, sin errores de infraestructura;
+la batería anterior también obtuvo **103/103 PASS** y Jest general
+**6,648/6,648 PASS**. Véase el registro de resolución en
+`docs/validation/MULTIOBRA_INDEPENDENT_RESOLUTION_20261025.md`.
+
 ## Evidencias y aislamiento
 
 Directorio: qa/multiobra360/results/independent-review/

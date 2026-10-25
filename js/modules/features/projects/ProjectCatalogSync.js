@@ -51,6 +51,13 @@ let _liveUid = null;
 let _publishTimer = null;
 let _inFlight = null;
 let _sessionGeneration = 0;
+const OBSOLETE_SYNC = Symbol('obsolete catalog sync');
+
+function sessionValid(uid, generation) {
+    return generation === _sessionGeneration && isProjectsEnabled()
+        && !isDetachedRestoreSyncBlocked()
+        && (auth?.currentUser === undefined || currentUid() === String(uid));
+}
 
 const trimId = value => String(value ?? '').trim();
 const isValidProjectId = id => {
@@ -242,11 +249,22 @@ export async function removeEmptyAdoptionLeftovers({ idb = indexedDBService } = 
 /** Una obra recibida nace con la configuración de nómina de la obra por defecto. */
 async function seedPayrollConfig(projectId, { idb = indexedDBService } = {}) {
     try {
-        if (await idb.get(PAYROLL_CONFIG_STORE, projectId)) return false;
+        // Compute the candidate first; a later atomic check decides whether
+        // it still needs to be created.
         const seedId = trimId(peekEntityScope()?.defaultProjectId || readLocalStorage(DEFAULT_PROJECT_LS_KEY));
         const seed = seedId && seedId !== projectId ? await idb.get(PAYROLL_CONFIG_STORE, seedId) : null;
         const config = seed ? { ...cloneConfig(seed), projectId } : createDefaultConfig(projectId, {});
-        await idb.update(PAYROLL_CONFIG_STORE, { ...config, seeded: true, updatedAt: Date.now() });
+        const candidate = { ...config, seeded: true, updatedAt: Date.now() };
+        if (typeof idb.atomicMutate === 'function') {
+            const result = await idb.atomicMutate(PAYROLL_CONFIG_STORE, projectId, existing =>
+                existing ? { write: false, value: existing } : { write: true, value: candidate }
+            );
+            return result?.seeded === true;
+        }
+        // Nontransactional legacy adapters only; the actual IDB uses the
+        // single-transaction conditional insert above.
+        if (await idb.get(PAYROLL_CONFIG_STORE, projectId)) return false;
+        await idb.update(PAYROLL_CONFIG_STORE, candidate);
         return true;
     } catch (_) {
         return false;
@@ -265,7 +283,8 @@ function currentUid() {
     return auth?.currentUser?.uid ? String(auth.currentUser.uid) : null;
 }
 
-async function publishCatalogPatch(uid, projectId, patch, writeDoc) {
+async function publishCatalogPatch(uid, projectId, patch, writeDoc, valid = () => true) {
+    if (!valid()) throw OBSOLETE_SYNC;
     const ref = catalogDoc(uid, projectId);
     // In an actual Firestore client, compare and write within the same
     // server transaction. The injectable test transport remains supported.
@@ -274,6 +293,7 @@ async function publishCatalogPatch(uid, projectId, patch, writeDoc) {
     }
     return runTransaction(db, async transaction => {
         const snapshot = await transaction.get(ref);
+        if (!valid()) throw OBSOLETE_SYNC;
         const previous = snapshot.exists() ? snapshot.data() : {};
         if (patch.payrollConfig) {
             const previousConfig = previous?.payrollConfig;
@@ -282,8 +302,11 @@ async function publishCatalogPatch(uid, projectId, patch, writeDoc) {
         if (patch.name) {
             const remoteTime = Number(previous?.updatedAt) || 0;
             const candidateTime = Number(patch.updatedAt) || 0;
-            if (remoteTime > candidateTime) return false;
+            // A confirmed tombstone wins over an active stale copy, even
+            // when the latter's clock is ahead (existing deletion contract).
             if (previous?.deletedAt != null && patch.deletedAt == null) return false;
+            if (remoteTime > candidateTime
+                && (patch.deletedAt == null || previous?.deletedAt != null)) return false;
         }
         transaction.set(ref, patch, { merge: true });
         return true;
@@ -298,11 +321,18 @@ function announceChange(detail) {
     } catch (_) { /* sin UI */ }
 }
 
-async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, writeDoc = setDoc } = {}) {
+async function applyRemoteCatalog(uid, remoteList, {
+    idb = indexedDBService, writeDoc = setDoc, valid = () => true
+} = {}) {
+    const verify = () => { if (!valid()) throw OBSOLETE_SYNC; };
+    verify();
     await idb.init?.();
+    verify();
     const removed = await removeEmptyAdoptionLeftovers({ idb });
+    verify();
     const leftovers = new Set(adoptionLegacyIds());
     const localList = await idb.getAll('projects');
+    verify();
     let deletionUsage = {};
     if ([...(localList || []), ...remoteList].some(row => row.deletedAt != null)) {
         deletionUsage = summarizeProjectUsage([...(localList || []), ...remoteList], await readProjectUsageData({ idb }), { liveState: state });
@@ -314,9 +344,11 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
         if (leftovers.has(id) && !remoteList.some(remote => trimId(remote?.id) === id)
             && !(await projectHasLocalData(id, { idb }))) excludeIds.push(id);
     }
+    verify();
     // Releer dentro del commit: una creación/renombrado en otra pestaña no
     // puede colarse entre la validación de nombres y la escritura del catálogo.
     const plan = await mutateProjectCatalog(idb, current => {
+        verify(); // synchronous, inside the IndexedDB write transaction
         const protectedCurrent = protectDeletedProjects(current, deletionUsage);
         const merge = planCatalogMerge(protectedCurrent, remoteList, { excludeIds });
         const byId = new Map(protectedCurrent.map(row => [row.id, row]));
@@ -338,27 +370,32 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
                 .map(row => toCatalogDoc(final.find(project => project.id === row.id)))
         } };
     });
+    verify();
     for (const project of plan.storeLocal) {
+        verify();
         if (project.deletedAt != null) continue;
         await seedPayrollConfig(trimId(project.id), { idb });
     }
     let published = 0;
     for (const project of plan.publish) {
+        verify();
         try {
             // merge: la configuración de nómina vive en el mismo documento.
-            await publishCatalogPatch(uid, project.id, project, writeDoc);
+            await publishCatalogPatch(uid, project.id, project, writeDoc, valid);
             published++;
         } catch (error) {
             console.warn(`⚠️ Obras: no se pudo publicar «${project.name}» en la nube:`, error?.message || error);
         }
     }
     const finalList = await idb.getAll('projects');
+    verify();
     // Configuración de nómina por obra.
     const remoteById = new Map(remoteList.map(remote => [trimId(remote?.id), remote]));
     const excluded = new Set(excludeIds);
     let configsReceived = 0;
     let configsPublished = 0;
     for (const project of finalList || []) {
+        verify();
         if (project.deletedAt != null) continue;
         const id = trimId(project?.id);
         if (!id || excluded.has(id)) continue;
@@ -374,7 +411,10 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
                 return { write: true, value: incoming };
             };
             const incoming = typeof idb.atomicMutate === "function"
-                ? await idb.atomicMutate(PAYROLL_CONFIG_STORE, id, update)
+                ? await idb.atomicMutate(PAYROLL_CONFIG_STORE, id, current => {
+                    verify(); // prevent queued remote writes after logout/restore
+                    return update(current);
+                })
                 : await (async () => {
                     const current = await idb.get(PAYROLL_CONFIG_STORE, id);
                     const mutation = update(current);
@@ -387,13 +427,15 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
             }
         } else if (action === 'publish' && !project.metadata?.nameConflict && !project.metadata?.deletionConflict) {
             try {
-                await publishCatalogPatch(uid, id, { id, payrollConfig: toConfigDoc(local) }, writeDoc);
+                verify();
+                await publishCatalogPatch(uid, id, { id, payrollConfig: toConfigDoc(local) }, writeDoc, valid);
                 configsPublished++;
             } catch (error) {
                 console.warn(`⚠️ Obras: no se pudo publicar la configuración de nómina de ${id}:`, error?.message || error);
             }
         }
     }
+    verify();
     // Incluye los nombres originales pendientes, no solo las etiquetas únicas.
     _lastDuplicates = findCatalogNameDuplicates((finalList || []).map(row => ({ ...row,
         name: row.metadata?.nameConflict?.requestedName || row.name })));
@@ -415,17 +457,19 @@ async function applyRemoteCatalog(uid, remoteList, { idb = indexedDBService, wri
  */
 export async function syncProjectCatalog({ uid = currentUid(), idb = indexedDBService, readDocs = getDocs, writeDoc = setDoc } = {}) {
     if (!isProjectsEnabled() || !uid || isDetachedRestoreSyncBlocked()) return null;
-    if (currentUid() && currentUid() !== String(uid)) return null;
     const generation = _sessionGeneration;
+    if (!sessionValid(uid, generation)) return null;
     if (_inFlight?.uid === uid && _inFlight.generation === generation) return _inFlight.promise;
     const promise = (async () => {
         try {
             const snapshot = await readDocs(catalogCollection(uid));
             const remoteList = [];
             snapshot.forEach(item => remoteList.push({ ...item.data(), id: item.id }));
-            if (generation !== _sessionGeneration || (currentUid() && currentUid() !== String(uid)) || !isProjectsEnabled() || isDetachedRestoreSyncBlocked()) return null;
-            return await applyRemoteCatalog(uid, remoteList, { idb, writeDoc });
+            const valid = () => sessionValid(uid, generation);
+            if (!valid()) return null;
+            return await applyRemoteCatalog(uid, remoteList, { idb, writeDoc, valid });
         } catch (error) {
+            if (error === OBSOLETE_SYNC) return null;
             console.warn('⚠️ Obras: sincronización del catálogo no disponible:', error?.message || error);
             return null;
         } finally {
@@ -461,12 +505,15 @@ export function startProjectCatalogLiveSync(uid = currentUid()) {
     stopProjectCatalogLiveSync();
     try {
         _liveUid = String(uid);
+        const generation = _sessionGeneration;
+        const valid = () => sessionValid(uid, generation);
         _liveUnsub = onSnapshot(catalogCollection(uid), snapshot => {
-            if (snapshot?.metadata?.hasPendingWrites || isDetachedRestoreSyncBlocked()) return;
+            if (snapshot?.metadata?.hasPendingWrites || !valid()) return;
             const remoteList = [];
             snapshot.forEach(item => remoteList.push({ ...item.data(), id: item.id }));
-            applyRemoteCatalog(_liveUid, remoteList).catch(error =>
-                console.warn('⚠️ Obras: no se pudo aplicar el catálogo recibido:', error?.message || error));
+            applyRemoteCatalog(uid, remoteList, { valid }).catch(error => {
+                if (error !== OBSOLETE_SYNC) console.warn('⚠️ Obras: no se pudo aplicar el catálogo recibido:', error?.message || error);
+            });
         }, error => console.warn('⚠️ Obras: escucha del catálogo interrumpida:', error?.message || error));
         return true;
     } catch (error) {
