@@ -29,16 +29,16 @@ Por eso se repitió toda la validación en el worktree aislado.
 | Batería original: Chromium 390/1280 | 52 | 52 | 0 | 0 |
 | Original, total | 103 | 103 | 0 | 0 |
 | Suite general Jest | 6648 | 6648 | 0 | 0 |
-| Ampliación: límites locales | 8 | 0 | 8 | 0 |
+| Ampliación: límites locales | 11 | 3 | 8 | 0 |
 | Ampliación: transacciones reales | 3 | 2 | 1 | 0 |
-| Ampliación: Chromium 390/1280 | 8 | 2 | 6 | 0 |
-| Ampliación, total | 19 | 4 | 15 | 0 |
+| Ampliación: Chromium 390/1280 | 12 | 2 | 10 | 0 |
+| Ampliación, total | 26 | 7 | 19 | 0 |
 
 Suite general: 669/669 suites, sin tests pendientes.
 Release: `npm run test:release` PASS.
 GitHub PR310: Jest y Cloudflare Pages PASS.
-No sumar 15 fallos como 15 causas: varios son el mismo problema en dos anchos o transiciones.
-Las comprobaciones de integridad de los ocho nuevos recorridos de navegador pasaron.
+No sumar 19 fallos como 19 causas: varios son el mismo problema en dos anchos o transiciones.
+Las comprobaciones de integridad de los doce nuevos recorridos de navegador pasaron.
 
 ## Hallazgos principales
 
@@ -187,3 +187,12 @@ Resolver B1–B5 y los contratos de robustez; repetir batería original, ampliad
 Mantener los siete issues abiertos hasta validar el SHA integrado vigente con sus criterios.
 Después validar app completa con cuentas sintéticas reales y una matriz específica de
 fusión/traslado/ciclo de vida, respaldo, historial financiero y recuperación tras interrupción.
+
+## Ampliación del paquete de aceptación
+
+Se añadieron recorridos de navegador para B2 y B4, tres controles locales positivos
+y validación estricta de las 26 comprobaciones. El ejecutor elimina evidencias de
+capas anteriores antes de arrancar y distingue fallos de aserción (exit 1) de
+ejecuciones incompletas (exit 2). La prueba negativa con Java inexistente y
+JSON verdes antiguos pasó: no reutilizó resultados ni aprobó la ejecución.
+Guía de ejecución y matriz: qa/multiobra360/INDEPENDENT_CASES.md.

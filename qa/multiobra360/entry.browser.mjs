@@ -279,6 +279,36 @@ scenario('review-control-current-refresh','REVIEW','current same-project native 
  check(active.getActiveDayHours(state)[DATE]===9,'review control: current config displays 9');
 });
 
+
+scenario('review-seed-versus-edit','REVIEW','a new project seed cannot overwrite an explicit native IDB edit',async()=>{
+ await remoteSet('REVIEW-NEW',project('REVIEW-NEW'));
+ const get=idb.get.bind(idb),atomic=idb.atomicMutate.bind(idb),reached=defer(),release=defer();let first=true;
+ async function pause(){if(first){first=false;reached.resolve();await release.promise;}}
+ idb.get=async(name,id)=>{const value=await get(name,id);if(name==='projectPayrollConfigs'&&id==='REVIEW-NEW'&&!value)await pause();return value;};
+ idb.atomicMutate=async(name,id,fn)=>{if(name==='projectPayrollConfigs'&&id==='REVIEW-NEW')await pause();return atomic(name,id,fn);};
+ const pending=sync();
+ try{
+  await Promise.race([reached.promise,pending]);
+  await configs.putConfig({...cfg('REVIEW-NEW',10),dayHours:{[DATE]:10}});
+ }finally{release.resolve();}
+ try{
+  await pending;
+  const saved=await get('projectPayrollConfigs','REVIEW-NEW');
+  check(saved?.dayHours?.[DATE]===10&&saved.seeded!==true,'review: an explicit saved edit must survive seed creation',saved);
+ }finally{idb.get=get;idb.atomicMutate=atomic;}
+});
+scenario('review-failed-write-ui','REVIEW','a real attendance click with rejected persistence must not retain unsaved visible hours',async()=>{
+ const update=idb.update.bind(idb),attempted=defer();
+ idb.update=async(name,value)=>{if(name==='projectPayrollConfigs'&&value.projectId==='A'){attempted.resolve();throw Error('synthetic disk failure');}return update(name,value);};
+ try{
+  await click('[data-att-action="change-base-hours"][data-value="0.5"]');
+  await attempted.promise;await new Promise(requestAnimationFrame);render();
+  const saved=await idb.get('projectPayrollConfigs','A');
+  check(saved.dayHours[DATE]===8,'review control: rejected write did not change disk',saved);
+  check(active.getActiveDayHours(state)[DATE]===8,'review: visible confirmed hours must match disk after failure',{visible:active.getActiveDayHours(state)[DATE],saved:saved.dayHours[DATE],text:dayText()});
+ }finally{idb.update=update;}
+});
+
 window.auditCases=Object.values(cases).map(({fn,...meta})=>meta);
 window.runAuditCase=async id=>{
  const invariantBefore=await immutableSnapshot();

@@ -77,10 +77,12 @@ test('disabling projects during selection validation must not activate the pendi
 });
 
 test('seeding a newly received project must not overwrite an explicit edit made after the missing-config read',async()=>{
- const reached=gate(),release=gate(),get=db.get.bind(db);let first=true;
- db.get=async(name,id)=>{const value=await get(name,id);if(name==='projectPayrollConfigs'&&id==='NEW'&&first){first=false;reached.resolve();await release.promise;}return value;};
+ const reached=gate(),release=gate(),get=db.get.bind(db),atomic=db.atomicMutate.bind(db);let first=true;
+ const pause=async()=>{if(first){first=false;reached.resolve();await release.promise;}};
+ db.get=async(name,id)=>{const value=await get(name,id);if(name==='projectPayrollConfigs'&&id==='NEW'&&!value)await pause();return value;};
+ db.atomicMutate=async(name,id,fn)=>{if(name==='projectPayrollConfigs'&&id==='NEW')await pause();return atomic(name,id,fn);};
  const p=launch({readDocs:async()=>snapshot([project('NEW')])});
- await reached.promise;
+ await Promise.race([reached.promise,p]);
  await store.putConfig({...cfg('NEW',10),dayHours:{'2026-10-24':10}},{idb:db});
  release.resolve();await p;
  expect((await get('projectPayrollConfigs','NEW')).dayHours?.['2026-10-24']).toBe(10);
@@ -93,4 +95,23 @@ test('an explicit uid cannot start a cloud synchronization after the user has lo
  await launch({readDocs});
  expect(readDocs).not.toHaveBeenCalled();
  expect(await db.get('projects','LOGGED-OUT')).toBeFalsy();
+});
+
+test('CONTROL: a successful explicit day-hours save keeps visible and durable values aligned',async()=>{
+ replaceEntityScope({enabled:true,projectId:'O',defaultProjectId:'O'});
+ const initial=cfg('O');await db.update('projectPayrollConfigs',initial);active.setActivePayrollConfig(initial,{render:false});
+ const repository={getConfig:id=>store.getConfig(id,{idb:db}),putConfig:value=>store.putConfig(value,{idb:db})};
+ await expect(active.updateActiveDayHours({'2026-10-24':10},{store:repository})).resolves.toBe(true);
+ expect((await db.get('projectPayrollConfigs','O')).dayHours['2026-10-24']).toBe(10);
+ expect(active.getActiveDayHours({})['2026-10-24']).toBe(10);
+});
+test('CONTROL: a current refresh for the same project displays the durable configuration',async()=>{
+ replaceEntityScope({enabled:true,projectId:'O',defaultProjectId:'O'});
+ await db.update('projectPayrollConfigs',cfg('O',10,100));
+ await active.refreshActivePayrollSettings({render:false,store:{getConfig:id=>store.getConfig(id,{idb:db})}});
+ expect(active.getActiveDayHours({})['2026-10-24']).toBe(10);
+});
+test('CONTROL: a missing configuration is seeded when no explicit concurrent edit exists',async()=>{
+ await launch({readDocs:async()=>snapshot([project('NEW')])});
+ expect(await db.get('projectPayrollConfigs','NEW')).toMatchObject({projectId:'NEW',seeded:true});
 });
