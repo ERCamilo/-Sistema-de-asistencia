@@ -247,6 +247,38 @@ for(const [id,hours,delta] of [['r5-lower-limit-control',0,-.5],['r5-upper-limit
  check((await idb.get('projectPayrollConfigs','A'))?.dayHours?.[DATE]===hours,'R5 native stepper must remain within 0..24h',await idb.get('projectPayrollConfigs','A'));
 });
 
+
+for(const transition of ['account-switch','detached-restore'])scenario('review-post-read-'+transition,'REVIEW','guard changes after Firestore read and before native IDB commit',async()=>{
+ await remoteSet('FOREIGN',project('FOREIGN'));
+ const original=idb.getAll.bind(idb),reached=defer(),release=defer();let first=true;
+ idb.getAll=async name=>{const rows=await original(name);if(name==='projects'&&first){first=false;reached.resolve();await release.promise;}return rows;};
+ const pending=sync();
+ try{
+  await reached.promise;
+  if(transition==='account-switch'){catalog.stopProjectCatalogLiveSync();fb.useAuditUser('review-next-owner');}
+  else guard.markDetachedRestore({previousUid:fb.auth.currentUser.uid});
+ }finally{release.resolve();}
+ await pending;idb.getAll=original;
+ const value=await idb.get('projects','FOREIGN');
+ check(!value,'review: stale catalog must not enter local dataset after guard transition',value);
+});
+scenario('review-refresh-same-project','REVIEW','late native IDB read cannot undo a real newer attendance click',async()=>{
+ const reached=defer(),release=defer();
+ const pending=active.refreshActivePayrollSettings({store:{getConfig:async id=>{const old=await idb.get('projectPayrollConfigs',id);reached.resolve();await release.promise;return old;}}});
+ try{
+  await reached.promise;
+  await click('[data-att-action="change-base-hours"][data-value="0.5"]');
+  await until(async()=>(await idb.get('projectPayrollConfigs','A'))?.dayHours?.[DATE]===8.5,'actual new attendance click saved');
+ }finally{release.resolve();}
+ await pending;render();
+ check((await idb.get('projectPayrollConfigs','A'))?.dayHours?.[DATE]===8.5,'review: committed edit survives');
+ check(active.getActiveDayHours(state)[DATE]===8.5,'review: visible day hours match committed edit',{visible:active.getActiveDayHours(state)[DATE],text:dayText()});
+});
+scenario('review-control-current-refresh','REVIEW','current same-project native IDB refresh works',async()=>{
+ await setConfig('A',9,100);await active.refreshActivePayrollSettings();render();
+ check(active.getActiveDayHours(state)[DATE]===9,'review control: current config displays 9');
+});
+
 window.auditCases=Object.values(cases).map(({fn,...meta})=>meta);
 window.runAuditCase=async id=>{
  const invariantBefore=await immutableSnapshot();
