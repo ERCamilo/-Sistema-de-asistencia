@@ -1,6 +1,16 @@
 {
-  "version": "1.7.109",
+  "version": "1.7.110",
   "changelog": [
+    {
+      "version": "1.7.110",
+      "date": "2026-10-26",
+      "title": "Tu espacio de Voz",
+      "items": [
+        "Abre el nuevo modal de Voz desde General para configurar reconocimiento y captura.",
+        "Consulta, agrega, edita y elimina pronunciaciones de cada empleado.",
+        "Escucha y gestiona las grabaciones de esta obra sin modificar sus préstamos."
+      ]
+    },
     {
       "version": "1.7.109",
       "date": "2026-10-24",

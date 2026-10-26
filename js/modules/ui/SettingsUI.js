@@ -58,6 +58,7 @@ const _SETTINGS_ACTION_MAP = {
     },
     'refresh-device-diagnostics': () => refreshDeviceSettingsDiagnostics(),
     'manage-voice-audio': () => window.openVoiceAudioStorage?.(),
+    'open-voice-settings': () => window.openVoiceSettings?.(),
     // Cambiar de sub-pestaña re-renderiza el formulario desde state y pisa el
     // draft: con draft sucio se pregunta antes (guardSettingsDraftOnLeave).
     'change-settings-tab': (tab) => guardSettingsDraftOnLeave({

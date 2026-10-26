@@ -60,6 +60,8 @@ import { projectStore } from './modules/features/projects/ProjectStore.js';
 import { auth, onAuthStateChanged as subscribeVoiceSession } from './modules/data/firebase.js';
 import { VoiceNameEnrollmentUI } from './modules/features/voice/VoiceNameEnrollmentUI.js';
 import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
+import { VoiceSettingsUI } from './modules/features/voice/VoiceSettingsUI.js';
+import { isDeveloperMode } from './modules/ui/settings/DeveloperMode.js';
 import { openVoiceAttendanceEmployee } from './modules/features/voice/VoiceAttendanceNavigation.js';
 import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
 import { getAccountSummary as voiceAccountSummary } from './modules/features/loans/LoanAccount.js';
@@ -1283,7 +1285,25 @@ const voiceMvp = new VoiceMvpUI({
         return loan;
     }
 }).mount();
-new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.endpoint() }, { store: voiceMvp.store }).mount();
+const voiceNameEnrollment = new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.endpoint() }, { store: voiceMvp.store }).mount();
+const voiceSettings = new VoiceSettingsUI({
+    ...voiceMvp.adapter,
+    getProjectName: () => getHeaderActiveProjectName() || 'Obra actual',
+    isDeveloper: () => isDeveloperMode(),
+    setPreference: (key, value) => {
+        const result = typeof value === 'boolean' ? commitAutoSaveSwitch({ id: key, checked: value }) : commitAutoSaveOption({ name: key, value });
+        if (!result.committed) throw Error('La opción de voz no es válida.');
+    },
+    onTeachName: employeeId => voiceNameEnrollment.open(employeeId),
+    onLocalDataChanged: () => voiceMvp.refreshStorageStatus({ force: true }),
+    onOpenLoan: employeeId => guardSettingsDraftOnLeave({
+        showConfirm: options => voiceSettings.confirm(options.title, options.message, async generation => {
+            voiceSettings.guard(generation); options.onConfirm();
+        }, options.confirmText),
+        onProceed: () => { voiceSettings.close(); voiceMvp.adapter.onLoans(employeeId); }
+    })
+}, { store: voiceMvp.store }).mount();
+voiceNameEnrollment.dialog.addEventListener('close', () => { if (voiceSettings.dialog.open) voiceSettings.run(() => voiceSettings.refresh()); });
 voicePettyCash = new VoicePettyCashUI({
     ...voiceMvp.adapter,
     getContext: pettyCashVoiceContext,
@@ -1299,7 +1319,8 @@ voicePettyCash = new VoicePettyCashUI({
 }).mount();
 
 window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
-window.openVoiceAudioStorage = () => voiceMvp.run(() => voiceMvp.openStorage());
+window.openVoiceSettings = () => voiceSettings.run(() => voiceSettings.open());
+window.openVoiceAudioStorage = () => voiceSettings.run(() => voiceSettings.open('recordings'));
 
 // Barra inferior de 5 posiciones (prueba): su botón central dicta con la misma Voz
 // (mantener pulsado) y abre la captura rápida (foto de factura, buscar).

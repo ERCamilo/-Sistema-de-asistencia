@@ -1,10 +1,10 @@
 import { VoiceMvpUI } from '../modules/features/voice/VoiceUI.js';
-import { SettingsVoiceCard } from '../modules/ui/settings/SettingsVoiceCard.js';
 
 let ui;
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 function fixture({ user = { uid: 'one' }, store = {}, mount = false } = {}) {
-    document.body.innerHTML = SettingsVoiceCard({ state: { settings: {} }, currentUser: user });
+    // Legacy playback controls still consume this storage status contract.
+    document.body.innerHTML = '<p data-voice-storage-status></p><button data-voice-storage-retry hidden>Reintentar</button><p data-voice-storage-warning hidden></p><button data-settings-action="manage-voice-audio">Audios</button>';
     const session = { user };
     const settings = { voiceKeepLoanAudio: true, voiceAudioRetentionDays: 5 };
     let onRender;
