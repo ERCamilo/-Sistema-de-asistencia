@@ -6,6 +6,11 @@
 
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { resolveDailyTargetHours } from '../../utils/AttendanceHours.js';
+
+// Serialize commits from this tab for each obra. Other project settings
+// cannot clobber a day-hours edit while a prior save is pending.
+const pendingConfigWrites = new Map();
 import {
     PROJECT_PAYROLL_CONFIG_STORE,
     PROJECT_PAYROLL_CONFIG_SCHEMA_VERSION,
@@ -43,11 +48,41 @@ export async function putConfig(config, opts = {}) {
     const idb = opts.idb || indexedDBService;
     const payload = clone(config);
     payload.projectId = String(payload.projectId);
-    payload.schemaVersion = SCHEMA_VERSION;
-    delete payload.seeded;
-    payload.updatedAt = Date.now();
-    await idb.update(STORE_NAME, payload);
-    return clone(payload);
+    const projectId = payload.projectId;
+    // Transient metadata from updateActiveDayHours. The store applies a
+    // per-day patch to the latest durable state rather than replacing the
+    // whole record captured before another save completed.
+    const dayHoursPatch = payload.__dayHoursPatch;
+    const dayHoursDelta = payload.__dayHoursDelta;
+    delete payload.__dayHoursPatch;
+    delete payload.__dayHoursDelta;
+    const previous = pendingConfigWrites.get(projectId) || Promise.resolve();
+    const commit = previous.catch(() => {}).then(async () => {
+        const latest = await idb.get(STORE_NAME, projectId);
+        // A day-hours-only save must also preserve unrelated fields edited
+        // since the caller captured its earlier configuration snapshot.
+        const next = dayHoursPatch && latest
+            ? { ...payload, ...latest, projectId }
+            : { ...(latest || {}), ...payload };
+        if (dayHoursPatch && typeof dayHoursPatch === 'object') {
+            next.dayHours = { ...(latest?.dayHours || {}), ...dayHoursPatch };
+            for (const [date, delta] of Object.entries(dayHoursDelta || {})) {
+                const base = resolveDailyTargetHours(date, latest?.dayHours, latest?.regularHoursPerDay || payload.regularHoursPerDay);
+                next.dayHours[date] = Math.max(0, Math.min(24, base + Number(delta)));
+            }
+        }
+        next.schemaVersion = SCHEMA_VERSION;
+        delete next.seeded;
+        next.updatedAt = Math.max(Date.now(), (Number(latest?.updatedAt) || 0) + 1);
+        await idb.update(STORE_NAME, next);
+        return clone(next);
+    });
+    pendingConfigWrites.set(projectId, commit);
+    try {
+        return await commit;
+    } finally {
+        if (pendingConfigWrites.get(projectId) === commit) pendingConfigWrites.delete(projectId);
+    }
 }
 
 export async function listAll(opts = {}) {

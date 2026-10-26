@@ -70,7 +70,7 @@ export function getActiveDayHours(state) {
  * Guarda horas base por día en la configuración de la obra activa y la
  * publica (payroll-config:changed). Devuelve false sin obras activas.
  */
-export async function updateActiveDayHours(updates, { state = null, store = configStore } = {}) {
+export async function updateActiveDayHours(updates, { state = null, store = configStore, delta = null } = {}) {
     if (!isProjectsEnabled()) return false;
     const pid = activeProjectId();
     if (!pid) return false;
@@ -79,11 +79,25 @@ export async function updateActiveDayHours(updates, { state = null, store = conf
     const dayHours = { ...getActiveDayHours(state || { dayHoursConfig: {} }), ...(current.dayHours || {}), ...updates };
     // A failed storage write must never become authoritative in the UI.
     const revision = cacheRevision;
-    const saved = await store.putConfig({ ...current, dayHours, seeded: false });
-    if (pid === activeProjectId() && revision === cacheRevision) setActivePayrollConfig(saved);
-    try {
-        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('payroll-config:changed', { detail: { config: saved } }));
-    } catch (_) { /* sin UI */ }
+    const dayHoursDelta = delta == null ? null : Object.fromEntries(
+        Object.keys(updates).map(date => [date, delta])
+    );
+    const saved = await store.putConfig({
+        ...current, dayHours, seeded: false,
+        __dayHoursPatch: updates, __dayHoursDelta: dayHoursDelta
+    });
+    // An older completion cannot override a newer visible record, including
+    // indirectly through the payroll-config:changed listener.
+    const savedVersion = Number(saved?.updatedAt) || 0;
+    const visibleVersion = cache.projectId === pid ? Number(cache.config?.updatedAt) || 0 : 0;
+    const shouldApply = pid === activeProjectId()
+        && (revision === cacheRevision || savedVersion > visibleVersion);
+    if (shouldApply) {
+        setActivePayrollConfig(saved);
+        try {
+            if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('payroll-config:changed', { detail: { config: saved } }));
+        } catch (_) { /* sin UI */ }
+    }
     return true;
 }
 

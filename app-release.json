@@ -1,6 +1,17 @@
 {
-  "version": "1.7.109",
+  "version": "1.7.110",
   "changelog": [
+    {
+      "version": "1.7.110",
+      "date": "2026-10-26",
+      "title": "Horas de obra sin cambios perdidos",
+      "items": [
+        "Dos pulsaciones rápidas de +0.5 horas se acumulan correctamente sin perder un incremento.",
+        "Los cambios simultáneos de días diferentes preservan ambas ediciones y no revierten ajustes de feriados.",
+        "Los guardados antiguos ya no reemplazan valores recientes en pantalla.",
+        "Una configuración inicial pendiente no se agrega después de cambiar de cuenta."
+      ]
+    },
     {
       "version": "1.7.109",
       "date": "2026-10-24",
