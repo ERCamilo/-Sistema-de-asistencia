@@ -119,7 +119,7 @@ async function dual(kind,width){
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));origin='http://127.0.0.1:'+server.address().port;
  const {default:puppeteer}=await import('puppeteer-core');
  browser=await puppeteer.launch({executablePath:process.env.CHROMIUM_PATH||'/snap/bin/chromium',headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
- const probe=await pageFor({caseId:'list-cases'});const selectedPoint=process.env.MULTIOBRA_POINT||'all';const cases=(await probe.page.evaluate(()=>window.auditCases)).filter(c=>selectedPoint==='all'||c.point===selectedPoint);await probe.context.close();
+ const probe=await pageFor({caseId:'list-cases'});const selectedPoint=process.env.MULTIOBRA_POINT||'all';const cases=(await probe.page.evaluate(()=>window.auditCases)).filter(c=>selectedPoint==='all'?c.point!=='REVIEW':c.point===selectedPoint);await probe.context.close();
  const widths=(process.env.MULTIOBRA_WIDTHS||'390,1280').split(',').map(Number);
  for(const width of widths){for(const meta of cases){if(interrupted)throw Error('Audit interrupted');await single(meta,width);}for(const kind of (selectedPoint==='all'||selectedPoint==='R7'?['config','name']:[])){if(interrupted)throw Error('Audit interrupted');await dual(kind,width);}}
 })().catch(error=>{startupErrors.push(error.stack);console.error(error);}).finally(async()=>{

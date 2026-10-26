@@ -1,6 +1,17 @@
 {
-  "version": "1.7.108",
+  "version": "1.7.109",
   "changelog": [
+    {
+      "version": "1.7.109",
+      "date": "2026-10-24",
+      "title": "Sincronización de obras más segura",
+      "items": [
+        "Evita mezclar obras al cambiar de cuenta o cerrar sesión.",
+        "Protege las horas editadas y los ajustes de nómina frente a respuestas atrasadas.",
+        "Mantiene la selección de obra y bloquea la sincronización durante una restauración pendiente.",
+        "Evita que una escritura antigua sobrescriba cambios más recientes de otro dispositivo."
+      ]
+    },
     {
       "version": "1.7.108",
       "date": "2026-10-24",

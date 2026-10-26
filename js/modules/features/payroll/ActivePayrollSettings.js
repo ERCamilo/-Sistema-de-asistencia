@@ -26,6 +26,9 @@ export const ACTIVE_PAYROLL_SETTING_FIELDS = Object.freeze([
 
 let cache = { projectId: null, config: null };
 let inFlight = null;
+// Monotonic revision guards stale reads and superseded local saves, even when
+// the project id stays unchanged.
+let cacheRevision = 0;
 
 const activeProjectId = () => {
     const pid = peekEntityScope()?.projectId;
@@ -74,10 +77,10 @@ export async function updateActiveDayHours(updates, { state = null, store = conf
     const current = cache.projectId === pid && cache.config ? cache.config : await store.getConfig(pid);
     if (!current) return false;
     const dayHours = { ...getActiveDayHours(state || { dayHoursConfig: {} }), ...(current.dayHours || {}), ...updates };
-    // Vista inmediata; luego se persiste.
-    setActivePayrollConfig({ ...current, dayHours });
-    const saved = await store.putConfig({ ...current, dayHours });
-    setActivePayrollConfig(saved);
+    // A failed storage write must never become authoritative in the UI.
+    const revision = cacheRevision;
+    const saved = await store.putConfig({ ...current, dayHours, seeded: false });
+    if (pid === activeProjectId() && revision === cacheRevision) setActivePayrollConfig(saved);
     try {
         if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('payroll-config:changed', { detail: { config: saved } }));
     } catch (_) { /* sin UI */ }
@@ -97,9 +100,10 @@ function rerender() {
 /** Fija la configuración recién guardada sin esperar a leer IndexedDB. */
 export function setActivePayrollConfig(config, { render = true } = {}) {
     const pid = String(config?.projectId ?? '').trim();
-    if (!pid) return;
+    if (!pid || (isProjectsEnabled() && pid !== activeProjectId())) return;
     const changed = cache.projectId !== pid || JSON.stringify(cache.config) !== JSON.stringify(config);
     cache = { projectId: pid, config: JSON.parse(JSON.stringify(config)) };
+    if (changed) cacheRevision++;
     if (changed && render && pid === activeProjectId()) rerender();
 }
 
@@ -108,19 +112,20 @@ export async function refreshActivePayrollSettings({ render = true, store = conf
     if (!isProjectsEnabled()) return null;
     const pid = activeProjectId();
     if (!pid) return null;
-    if (inFlight?.pid === pid) return inFlight.promise;
+    if (inFlight?.pid === pid && inFlight.revision === cacheRevision) return inFlight.promise;
+    const revision = cacheRevision;
     const promise = (async () => {
         try {
             const config = await store.getConfig(pid);
-            if (config && pid === activeProjectId()) setActivePayrollConfig(config, { render });
+            if (config && pid === activeProjectId() && revision === cacheRevision) setActivePayrollConfig(config, { render });
             return config;
         } catch (_) {
             return null;
         } finally {
-            if (inFlight?.pid === pid) inFlight = null;
+            if (inFlight?.promise === promise) inFlight = null;
         }
     })();
-    inFlight = { pid, promise };
+    inFlight = { pid, revision, promise };
     return promise;
 }
 
@@ -128,6 +133,7 @@ export function resetActivePayrollSettingsForTests() {
     cache = { projectId: null, config: null };
     memo = { base: null, config: null, view: null };
     inFlight = null;
+    cacheRevision = 0;
 }
 
 setPayrollSettingsResolver(getActivePayrollSettings);
