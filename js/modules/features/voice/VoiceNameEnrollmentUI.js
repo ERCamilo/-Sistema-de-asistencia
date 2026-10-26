@@ -122,7 +122,7 @@ export class VoiceNameEnrollmentUI {
             const alias=normalizeVoiceName(this.variant).slice(0,160);if(!alias) throw Error('Escribe o graba una variante del nombre.');
             this.busy=true;this.render();
             try {
-                await this.store.saveAlias(this.identity.uid,this.identity.projectKey,this.employee.id,alias);
+                await this.store.saveAlias(this.identity.uid,this.identity.projectKey,this.employee.id,alias,{guard:()=>this.guard(generation)});
                 this.guard(generation);await this.discardAudio();this.guard(generation);
                 this.variant='';this.transcript='';await this.refresh(generation);this.message='Variante confirmada. Audio eliminado.';
             } finally {if(generation===this.generation) {this.busy=false;this.render();}}
@@ -130,7 +130,7 @@ export class VoiceNameEnrollmentUI {
         }
         if(action==='remove') {
             this.busy=true;this.render();
-            try {await this.store.removeAlias(this.identity.uid,this.identity.projectKey,this.employee.id,id);this.guard(generation);await this.refresh(generation);this.message='Variante eliminada.';}
+            try {await this.store.removeAlias(this.identity.uid,this.identity.projectKey,this.employee.id,id,{guard:()=>this.guard(generation)});this.guard(generation);await this.refresh(generation);this.message='Variante eliminada.';}
             finally {if(generation===this.generation) {this.busy=false;this.render();}}
         }
     }

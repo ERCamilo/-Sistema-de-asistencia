@@ -23,32 +23,24 @@ const tabs = () => [...document.querySelectorAll('.nav-tabs [data-settings-actio
 afterEach(() => localStorage.removeItem(DEV_MODE_KEY));
 
 describe('Voz en Configuración → General', () => {
-    test('General muestra Voz con sus interruptores; Tests ya no', () => {
-        render('general', { voiceMvpEnabled: true, voiceAudioRetentionDays: 3 });
-        const card = document.querySelector('[data-settings-voice]');
-        expect(card).not.toBeNull();
-        expect(card.querySelector('#voice-settings-title').textContent).toContain('Voz');
-        expect(document.getElementById('voiceMvpEnabled').checked).toBe(true);
-        expect(document.querySelector('input[name="voiceAudioRetentionDays"]:checked').value).toBe('3');
-        expect(document.querySelector('[data-voice-storage-status]').textContent).toMatch(/Inicia sesión/);
-
+    test('General muestra una entrada al modal de Voz sin añadir pestañas', () => {
+        render('general', { voiceMvpEnabled: true });
+        const button = document.querySelector('[data-settings-action="open-voice-settings"]');
+        expect(button).not.toBeNull();
+        expect(button.textContent).toContain('Voz');
+        expect(button.textContent).toContain('Configuración, pronunciaciones y audios');
+        expect(document.getElementById('voiceMvpEnabled')).toBeNull();
+        expect(tabs()).toEqual(['data','general','calendar']);
+        window.openVoiceSettings = jest.fn(); button.click();
+        expect(window.openVoiceSettings).toHaveBeenCalledTimes(1);
+        delete window.openVoiceSettings;
         document.body.innerHTML = SettingsTestsTab({ state: { settings: {} } });
         expect(document.getElementById('voiceMvpEnabled')).toBeNull();
+        expect(document.getElementById('voiceReviewBeforeSend')).toBeNull();
     });
-
-    test('valores por defecto: audio y sonido encendidos, 5 días', () => {
-        document.body.innerHTML = SettingsVoiceCard({ state: { settings: {} } });
-        expect(document.getElementById('voiceMvpEnabled').checked).toBe(false);
-        expect(document.getElementById('voiceKeepLoanAudio').checked).toBe(true);
-        expect(document.getElementById('voiceFeedback').checked).toBe(true);
-        expect(document.querySelector('input[name="voiceAudioRetentionDays"]:checked').value).toBe('5');
-        expect(document.querySelector('input[name="voiceMatchPrecision"]:checked').value).toBe('high');
-        expect(document.querySelector('[data-settings-action="manage-voice-audio"]').disabled).toBe(true);
-    });
-    test.each(['precise', 'high', 'medium', 'low'])('renders the saved precision %s', value => {
-        document.body.innerHTML = SettingsVoiceCard({ state: { settings: { voiceMatchPrecision: value } } });
-        expect(document.querySelector('input[name="voiceMatchPrecision"]:checked').value).toBe(value);
-        expect(document.querySelectorAll('input[name="voiceMatchPrecision"]')).toHaveLength(4);
+    test('la entrada está disponible con Voz apagada y sin sesión para poder configurarla', () => {
+        document.body.innerHTML = SettingsVoiceCard({state:{settings:{voiceMvpEnabled:false}}});
+        expect(document.querySelector('button').disabled).toBe(false);
     });
 });
 

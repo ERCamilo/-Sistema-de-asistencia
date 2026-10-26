@@ -25,11 +25,11 @@ function setup() {
 const originalFetch = global.fetch;
 describe('Voice draft UI: confirmation and async boundaries', () => {
     afterEach(() => { global.fetch = originalFetch; jest.restoreAllMocks(); });
-    test('General offers an opt-in voice switch and renders its saved state', () => {
+    test('General offers the voice modal entry instead of duplicating its controls', () => {
         document.body.innerHTML = SettingsVoiceCard({ state: { settings: {} } });
-        expect(document.getElementById('voiceMvpEnabled').checked).toBe(false);
+        expect(document.querySelector('[data-settings-action=\"open-voice-settings\"]')).not.toBeNull();
         document.body.innerHTML = SettingsVoiceCard({ state: { settings: { voiceMvpEnabled: true } } });
-        expect(document.getElementById('voiceMvpEnabled').checked).toBe(true);
+        expect(document.getElementById('voiceMvpEnabled')).toBeNull();
     });
     test('disabling voice hides the launcher, stops capture and retains saved drafts', async () => {
         const { ui, store } = setup(); let enabled = false; let notify;
@@ -39,7 +39,7 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
         ui.close = VoiceMvpUI.prototype.close.bind(ui);
         ui.mount(); ui.dialog.close = () => { ui.dialog.open = false; };
         expect(ui.launcher.hidden).toBe(true);
-        await expect(ui.open()).rejects.toThrow('Configuración');
+        await expect(ui.open()).rejects.toThrow('Ajustes → General → Voz');
         enabled = true; notify(); expect(ui.launcher.hidden).toBe(false);
         const cancel = jest.fn(); ui.recorder = { cancel }; ui.recording = true; ui.dialog.open = true;
         enabled = false; notify();
@@ -348,7 +348,7 @@ describe('Voice entry points outside the launcher (bottom-nav centre button)', (
         const { ui } = setup(); const notify = jest.fn();
         ui.adapter.notify = notify; ui.adapter.isEnabled = () => false;
         await expect(ui.startHold()).resolves.toBe(false);
-        expect(notify).toHaveBeenCalledWith(expect.stringContaining('Configuración'), 'warning');
+        expect(notify).toHaveBeenCalledWith(expect.stringContaining('Ajustes → General → Voz'), 'warning');
         // The failed hold is released: once enabled, the next attempt runs.
         expect(ui.held).toBe(false);
         ui.adapter.isEnabled = () => true;
