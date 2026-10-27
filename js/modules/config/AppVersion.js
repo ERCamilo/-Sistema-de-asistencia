@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.114';
+const APP_VERSION = '1.7.115';
 const CHANGELOG = [
+    { version: '1.7.115', date: '2026-10-27', title: 'Voz reconoce la posición como pista', items: ['Las posiciones mencionadas ayudan a ordenar empleados con nombres parecidos, incluyendo posiciones secundarias.', 'Los conflictos entre nombre, número y posición requieren selección; puedes ignorar una pista equivocada.', 'Cambiar de empleado conserva el monto, la tasa, las fechas y la nota del préstamo.'] },
     { version: '1.7.114', date: '2026-10-27', title: 'Actualiza cuando estés listo', items: ['La nueva versión se prepara en segundo plano y espera tu confirmación para guardar y reiniciar.', 'Si la descarga se interrumpe, puedes reintentar o recargar sin quedar esperando indefinidamente.', 'Reparar interfaz renueva los archivos de la aplicación y conserva tus datos, fotos y comprobantes.'] },
     { version: '1.7.111', date: '2026-10-27', title: 'Tu audio, sin perder el hilo', items: ['Voz avisa cuando detecta silencio o volumen muy bajo y permite escuchar, repetir o enviar de todos modos.', 'Vuelve a Voz con Atrás después de abrir préstamos o registrar un gasto, conservando el estado de la operación.', 'Al regresar, las operaciones completadas se muestran como registradas y no vuelven a enviarse.'] },
     { version: '1.7.110', date: '2026-10-26', title: 'Tu espacio de Voz', items: ['Abre el nuevo modal de Voz desde General para configurar reconocimiento y captura.', 'Consulta, agrega, edita y elimina pronunciaciones de cada empleado.', 'Escucha y gestiona las grabaciones de esta obra sin modificar sus préstamos.'] },
