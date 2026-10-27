@@ -68,7 +68,14 @@ const server=http.createServer((req,res)=>{
    await page.setRequestInterception(true);page.on('request',request=>{if(request.url().startsWith(origin)||request.url().startsWith('blob:')||request.url().startsWith('data:'))request.continue();else{external.push(request.url());request.abort();}});
    await page.goto(origin+'/voice-settings-fixture');await page.waitForFunction(()=>window.ready);
    await page.click('[data-settings-action=open-voice-settings]');await page.waitForFunction(()=>hub.records?.length===2&&hub.aliases?.length===2);
-   const click=async(action,value)=>{await page.click('[data-vs-action="'+action+'"]'+(value===undefined?'':'[data-value="'+value+'"]'));await page.waitForFunction(()=>!hub.busy);};
+   const click=async(action,value)=>{
+    const selector='[data-vs-action="'+action+'"]'+(value===undefined?'':'[data-value="'+value+'"]');
+    // Locators reacquire the live element and wait for a stable, visible,
+    // enabled target inside the scrolling dialog. page.click holds a handle
+    // that can lose its box during an asynchronous refresh or layout change.
+    try {await page.locator(selector).click();await page.waitForFunction(()=>!hub.busy);}
+    catch(error){const status=await page.evaluate(()=>({view:hub.view,open:hub.dialog.open,busy:hub.busy}));throw Error('Voz: '+action+' '+JSON.stringify(status)+' — '+error.message,{cause:error});}
+   };
    const axe=async()=>{if(!await page.evaluate(()=>!!window.axe))await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});const violations=await page.evaluate(async()=> (await axe.run('.voice-settings-dialog',{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})));assert.deepEqual(violations,[]);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     const header=await page.evaluate(()=>{const title=document.getElementById('vs-title'),close=document.querySelector('[data-vs-action=close]');return {fits:title.scrollWidth<=title.clientWidth,clear:title.getBoundingClientRect().right<=close.getBoundingClientRect().left};});
     assert.ok(header.fits&&header.clear,'El título debe caber sin cubrir el cierre: '+JSON.stringify(header));};
