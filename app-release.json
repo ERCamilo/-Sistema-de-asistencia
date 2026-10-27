@@ -1,16 +1,25 @@
 {
-  "version": "1.7.111",
+  "version": "1.7.112",
   "changelog": [
+    {
+      "version": "1.7.112",
+      "date": "2026-10-27",
+      "title": "Horas y feriados sin cambios perdidos",
+      "items": [
+        "Dos pulsaciones rápidas de +0.5 horas se acumulan correctamente.",
+        "Las ediciones simultáneas en días distintos se conservan.",
+        "Los ajustes de feriados no revierten las horas ya confirmadas, ni los cambios de horas revierten feriados.",
+        "Las respuestas atrasadas no reemplazan valores recientes y se descartan configuraciones iniciales de cuentas anteriores."
+      ]
+    },
     {
       "version": "1.7.111",
       "date": "2026-10-27",
-      "title": "Horas de obra sin cambios perdidos",
+      "title": "Tu audio, sin perder el hilo",
       "items": [
-        "Dos pulsaciones rápidas de +0.5 horas se acumulan correctamente.",
-        "Las ediciones simultáneas en días diferentes se conservan.",
-        "Cambiar un feriado y editar horas al mismo tiempo ya no restaura valores antiguos.",
-        "Las respuestas de guardados atrasados no sustituyen los valores recientes.",
-        "La configuración inicial pendiente se descarta después de cambiar de cuenta."
+        "Voz avisa cuando detecta silencio o volumen muy bajo y permite escuchar, repetir o enviar de todos modos.",
+        "Vuelve a Voz con Atrás después de abrir préstamos o registrar un gasto, conservando el estado de la operación.",
+        "Al regresar, las operaciones completadas se muestran como registradas y no vuelven a enviarse."
       ]
     },
     {
