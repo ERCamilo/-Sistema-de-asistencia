@@ -1,6 +1,16 @@
 {
-  "version": "1.7.111",
+  "version": "1.7.114",
   "changelog": [
+    {
+      "version": "1.7.114",
+      "date": "2026-10-27",
+      "title": "Actualiza cuando estés listo",
+      "items": [
+        "La nueva versión se prepara en segundo plano y espera tu confirmación para guardar y reiniciar.",
+        "Si la descarga se interrumpe, puedes reintentar o recargar sin quedar esperando indefinidamente.",
+        "Reparar interfaz renueva los archivos de la aplicación y conserva tus datos, fotos y comprobantes."
+      ]
+    },
     {
       "version": "1.7.111",
       "date": "2026-10-27",

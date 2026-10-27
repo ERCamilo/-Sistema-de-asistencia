@@ -8,3 +8,7 @@
 .app-release-actions { display: flex; gap: .7rem; flex-wrap: wrap; margin-top: 1rem; }
 .app-release-actions button { min-height: 44px; }
 #app-update-status { line-height: 1.5; }
+
+.release-modal [hidden] { display: none !important; }
+.release-modal[aria-busy="true"] [data-release-status] { color: var(--stg-text-primary, #f8fafc); }
+.release-modal .modal-footer { flex-wrap: wrap; gap: .6rem; }
