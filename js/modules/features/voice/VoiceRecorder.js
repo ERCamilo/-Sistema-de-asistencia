@@ -1,4 +1,5 @@
 import { VOICE_LIMITS } from './VoiceCore.js';
+import { assessVoiceAudio } from './VoiceAudioQuality.js';
 
 export class VoiceRecorder {
     constructor({ mediaDevices = globalThis.navigator?.mediaDevices, Recorder = globalThis.MediaRecorder, onComplete, onLevel = () => {}, onError = () => {}, setTimer = (...args) => globalThis.setTimeout(...args), clearTimer = id => globalThis.clearTimeout(id) } = {}) {
@@ -10,7 +11,7 @@ export class VoiceRecorder {
         const generation = ++this.generation; this.cancelled = false;
         const stream = await (warm || this.mediaDevices.getUserMedia({ audio: true }));
         if (generation !== this.generation) { stream.getTracks().forEach(t => t.stop()); return; }
-        this.stream = stream; this.chunks = []; this.bytes = 0; this.startedAt = Date.now(); this.tooLarge = false;
+        this.stream = stream; this.chunks = []; this.bytes = 0; this.startedAt = Date.now(); this.tooLarge = false; this.rmsSamples = [];
         try {
             const mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg;codecs=opus'].find(type => this.Recorder.isTypeSupported(type));
             this.recorder = new this.Recorder(stream, mime ? { mimeType: mime } : undefined);
@@ -25,7 +26,8 @@ export class VoiceRecorder {
                 const mimeType = this.recorder.mimeType || this.chunks[0]?.type;
                 const audio = new Blob(this.chunks, { type: mimeType });
                 if (!audio.size || !mimeType) { this.onError(Error('No se capturó audio.')); return; }
-                this.onComplete({ audio, mimeType, durationMs: Date.now() - this.startedAt });
+                const durationMs = Date.now() - this.startedAt;
+                this.onComplete({ audio, mimeType, durationMs, audioQuality: assessVoiceAudio(this.rmsSamples, durationMs) });
             };
             this.recorder.start(1000); this.startMeter(); this.timer = this.setTimer(() => this.stop(), VOICE_LIMITS.maxDurationMs - 250);
         } catch (error) { this.cancel(); throw error; }
@@ -37,11 +39,16 @@ export class VoiceRecorder {
             this.audioContext = new Context();
             this.analyser = this.audioContext.createAnalyser(); this.analyser.fftSize = 256;
             this.audioContext.createMediaStreamSource(this.stream).connect(this.analyser);
-            const samples = new Uint8Array(this.analyser.fftSize);
+            const floating = typeof this.analyser.getFloatTimeDomainData === 'function';
+            const samples = floating ? new Float32Array(this.analyser.fftSize) : new Uint8Array(this.analyser.fftSize);
             const tick = () => {
                 if (!this.stream) return;
-                this.analyser.getByteTimeDomainData(samples);
-                const rms = Math.sqrt(samples.reduce((sum, x) => sum + ((x - 128) / 128) ** 2, 0) / samples.length);
+                if (floating) this.analyser.getFloatTimeDomainData(samples); else this.analyser.getByteTimeDomainData(samples);
+                const rms = Math.sqrt(samples.reduce((sum, x) => sum + (floating ? x : (x - 128) / 128) ** 2, 0) / samples.length);
+                // A suspended context returns zeros even when capture works.
+                // Do not call that silence. Byte meters cannot reliably resolve
+                // very quiet sound either, so use them only for the animation.
+                if (floating && this.audioContext?.state === 'running' && this.rmsSamples.length < 800) this.rmsSamples.push(rms);
                 this.onLevel(Math.min(1, rms * 5)); this.meterTimer = this.setTimer(tick, 80);
             };
             this.audioContext.resume?.().catch(() => {}); tick();

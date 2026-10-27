@@ -36,6 +36,14 @@ async function fixture({anonymous=false}={}) {
     ui=new VoiceSettingsUI(adapter,{store}).mount();await ui.open();
     return {adapter,settings,employees,persist,listeners,setUser:value=>{user=value;listeners.session();},setScope:value=>{scope=value;listeners.scope();}};
 }
+test('returning from a loan restores its audio or explains expiry without changing the loan',async()=>{
+    const {employees,adapter}=await fixture();const before=JSON.stringify(employees);
+    await ui.action('recordings');await ui.action('audio','loan');ui.close();
+    await ui.resumeNavigation({recordId:'loan',recordFilter:'soon'});expect(ui.view).toBe('audio');expect(ui.dialog.querySelector('audio')).not.toBeNull();expect(ui.dialog.dataset.historyReturn).toBe('on');
+    ui.close();await store.discardRecordingAudio('u','p',['loan']);
+    await ui.resumeNavigation({recordId:'loan'});expect(ui.view).toBe('recordings');expect(ui.dialog.textContent).toContain('ya no está disponible');
+    expect(JSON.stringify(employees)).toBe(before);expect(adapter.onLoan).not.toHaveBeenCalled();
+});
 test('the existing autosave operations persist modal preferences and configuration works without a session',async()=>{
     const {settings,persist}=await fixture({anonymous:true});
     expect(ui.dialog.textContent).toContain('Inicia sesión');await ui.action('config');

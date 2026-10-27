@@ -1,6 +1,16 @@
 {
-  "version": "1.7.110",
+  "version": "1.7.111",
   "changelog": [
+    {
+      "version": "1.7.111",
+      "date": "2026-10-27",
+      "title": "Tu audio, sin perder el hilo",
+      "items": [
+        "Voz avisa cuando detecta silencio o volumen muy bajo y permite escuchar, repetir o enviar de todos modos.",
+        "Vuelve a Voz con Atrás después de abrir préstamos o registrar un gasto, conservando el estado de la operación.",
+        "Al regresar, las operaciones completadas se muestran como registradas y no vuelven a enviarse."
+      ]
+    },
     {
       "version": "1.7.110",
       "date": "2026-10-26",

@@ -75,6 +75,11 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
         await expect(ui.action('loan')).rejects.toThrow('Selecciona');
         expect(onLoan).not.toHaveBeenCalled();
     });
+    test('successful loans commit the Voice return; duplicate cancellation keeps the editable draft', async () => {
+        const {ui,onLoan}=setup();const point={commit:jest.fn(),cancel:jest.fn()};ui.adapter.beginReturn=jest.fn(()=>point);
+        onLoan.mockResolvedValue(null);await ui.action('loan');expect(point.cancel).toHaveBeenCalledTimes(1);expect(point.commit).not.toHaveBeenCalled();expect(ui.record.draft.principal).toBe(6000);
+        onLoan.mockResolvedValue({id:'saved-loan'});await ui.action('loan');expect(point.commit).toHaveBeenCalledTimes(1);expect(ui.record.completedLoanId).toBe('saved-loan');
+    });
     test('switching account during a request does not apply returned data to the new account', async () => {
         const { ui, setUser, onLoan } = setup(); let finish; let notifyStarted; const started = new Promise(resolve => { notifyStarted = resolve; });
         global.fetch = jest.fn(() => new Promise(resolve => { finish = resolve; notifyStarted(); }));

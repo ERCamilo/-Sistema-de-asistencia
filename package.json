@@ -22,6 +22,7 @@
     "build": "node scripts/release-manifest.cjs && node scripts/build.cjs",
     "test:settings-layout": "node scripts/check-settings-layout.cjs",
     "test:voice-settings": "node scripts/check-voice-settings.cjs",
+    "test:voice-audio-quality": "node scripts/check-voice-audio-quality.cjs",
     "test:mini-review-layout": "node scripts/check-mini-review-layout.cjs",
     "test:photo-viewer": "node scripts/check-photo-viewer.cjs",
     "test:loans-load-time": "node scripts/check-loans-load-time.cjs",
