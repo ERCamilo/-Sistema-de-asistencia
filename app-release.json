@@ -1,6 +1,16 @@
 {
-  "version": "1.7.111",
+  "version": "1.7.112",
   "changelog": [
+    {
+      "version": "1.7.112",
+      "date": "2026-10-27",
+      "title": "Voz reconoce la posición como pista",
+      "items": [
+        "Las posiciones mencionadas ayudan a ordenar empleados con nombres parecidos, incluyendo posiciones secundarias.",
+        "Los conflictos entre nombre, número y posición requieren selección; puedes ignorar una pista equivocada.",
+        "Cambiar de empleado conserva el monto, la tasa, las fechas y la nota del préstamo."
+      ]
+    },
     {
       "version": "1.7.111",
       "date": "2026-10-27",

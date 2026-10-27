@@ -4,13 +4,14 @@ import { voiceIcon, voicePlayer, voiceEmployeeCard } from './VoiceVisuals.js';
 import { VoiceLoanView } from './VoiceLoanView.js';
 import { VoiceEmployeeView } from './VoiceEmployeeView.js';
 import { VoiceAliasView, needsVoiceAliasPrompt } from './VoiceAliasView.js';
-import { rankVoiceEmployees, voiceMatchCandidates, pickAutomaticVoiceMatch } from './VoiceMatching.js';
+import { pickAutomaticVoiceMatch } from './VoiceMatching.js';
 import { VoiceAudioView } from './VoiceAudioView.js';
 import { voiceRetentionPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET } from './VoiceRetention.js';
 import { VoiceStore } from './VoiceStore.js';
 import { VoiceRecorder } from './VoiceRecorder.js';
 import { voiceAudioNeedsReview } from './VoiceAudioQuality.js';
 import { VoiceReturnView } from './VoiceReturnView.js';
+import { resolveVoiceEmployeeContext } from './VoicePositionContext.js';
 import { createHoldGuard } from '../../ui/HoldGuard.js';
 import { LOAN_FIELDS, VOICE_TEST_ENDPOINT, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceName, isVoiceEndpointAllowed, createVoiceContext, sendVoiceRecording, resolveVoiceEmployees, voiceBlocked, voiceHardBlocked, voiceDraftReady } from './VoiceCore.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
@@ -213,6 +214,7 @@ export class VoiceMvpUI {
         this.dialog.dataset.historyReturn = 'on';
     }
     close({ discard = false } = {}) {
+        this.employeeResolution = null; this.matchRequest = (this.matchRequest || 0) + 1;
         this.returnSummary = null;
         this.returnIdentity = null;
         if (this.dialog?.dataset) { delete this.dialog.dataset.historyLayer; delete this.dialog.dataset.historyReturn; }
@@ -417,15 +419,17 @@ export class VoiceMvpUI {
             return;
         }
         if (!this.selected()) {
-            const match = pickAutomaticVoiceMatch(this.rankedMatches || this.matches, this.adapter.getSettings?.()?.voiceMatchPrecision);
+            if (this.employeeResolution?.record === this.record && this.employeeResolution.precision !== this.adapter.getSettings?.()?.voiceMatchPrecision) await this.refreshMatches();
+            const match = this.employeeResolution?.record === this.record ? this.employeeResolution.automatic : pickAutomaticVoiceMatch(this.rankedMatches || this.matches, this.adapter.getSettings?.()?.voiceMatchPrecision);
             // Conflicting name/number must be resolved by the user, even when the number is exact.
             let conflicts = false;
-            if (this.record.mention.spokenName && this.record.mention.spokenNumber && match) {
-                const named = resolveVoiceEmployees({ spokenName: this.record.mention.spokenName }, this.adapter.getEmployees(), this.employeeAliases);
+            if (this.spokenEmployeeName() && this.record.mention.spokenNumber && match) {
+                const named = resolveVoiceEmployees({ spokenName: this.spokenEmployeeName() }, this.adapter.getEmployees(), this.employeeAliases);
                 conflicts = !named.some(m => m.employee.id === match.employee.id && m.score >= 1);
             }
             if (!match || conflicts) { this.view = 'employees'; return; }
             this.record.selectedEmployeeId = match.employee.id;
+            this.record.employeeSelection = 'automatic';
             this.applyInitialRate(match.employee); await this.save();
         }
         if (this.effectiveResult()?.intent === 'crear_prestamo') { this.record.draft ||= completeVoiceLoanDraft({ principal: voiceFacts(this.record.result).amount, concept: voiceFacts(this.record.result).note || voiceFacts(this.record.result).concept }, this.adapter.getLoanDefaults?.(this.selected())); this.record.visitedLoan = true; this.view = 'loan'; return; }
@@ -441,15 +445,26 @@ export class VoiceMvpUI {
     }
     async save() { this.guard(); await this.store.put(this.record); }
     async refreshMatches() {
-        const identity = this.identity();
+        const identity = this.identity(), record = this.record, request = this.matchRequest = (this.matchRequest || 0) + 1;
+        const signature = JSON.stringify([record?.mention,record?.transcript,record?.ignoreVoicePosition]);
         if (this.effectiveResult()?.intent === 'registrar_gasto_caja_chica') {
-            this.employeeAliases = []; this.matches = []; this.rankedMatches = []; return;
+            this.employeeAliases = []; this.matches = []; this.rankedMatches = []; this.employeeResolution = null; return;
         }
         const aliases = await this.store.aliases(identity.uid, identity.projectKey);
+        const current = this.identity();
+        if (current.uid !== identity.uid || current.projectKey !== identity.projectKey) throw Error('Cambió la cuenta o la obra. Vuelve a abrir Voz.');
+        if (request !== this.matchRequest || this.record !== record || record?.discarded || signature !== JSON.stringify([record?.mention,record?.transcript,record?.ignoreVoicePosition])) return;
         this.employeeAliases = aliases;
-        this.rankedMatches = rankVoiceEmployees(this.record?.mention || {}, this.adapter.getEmployees(), aliases);
-        this.matches = voiceMatchCandidates(this.rankedMatches);
+        const precision = this.adapter.getSettings?.()?.voiceMatchPrecision;
+        this.employeeResolution = { ...resolveVoiceEmployeeContext({mention:record?.mention,transcript:record?.transcript,employees:this.adapter.getEmployees(),aliases,positions:this.adapter.getPositions?.() || [],precision,ignorePosition:record?.ignoreVoicePosition===true}), record, precision };
+        this.rankedMatches = this.employeeResolution.ranked; this.matches = this.employeeResolution.matches;
+        if (record?.selectedEmployeeId && !record.completedLoanId && record.employeeSelection !== 'manual'
+            && this.employeeResolution.hints.length && this.employeeResolution.automatic?.employee.id !== record.selectedEmployeeId) {
+            record.selectedEmployeeId = null; record.employeeSelection = null; record.dirty = true; this.view = 'employees';
+            await this.save();
+        }
     }
+    spokenEmployeeName() { return this.employeeResolution?.record === this.record ? this.employeeResolution.nameQuery : this.record?.mention?.spokenName; }
     selected() { return this.adapter.getEmployees().find(e => e.id === this.record?.selectedEmployeeId); }
     loanReady() {
         if (!voiceDraftReady(this.record?.draft)) return false;
@@ -470,6 +485,7 @@ export class VoiceMvpUI {
         record.rateDefault = result.loan?.interestRate == null;
         record.loanDefaultsVersion = 1;
         record.employeeDefaultsApplied = false; record.selectedEmployeeId = null; record.reviewed = false; record.dirty = false; record.pendingResult = null; record.rememberName = false;
+        record.employeeSelection = null; record.ignoreVoicePosition = false; this.employeeResolution = null;
     }
     confirmInline(message) {
         return new Promise(resolve => {
@@ -485,6 +501,7 @@ export class VoiceMvpUI {
     async selectEmployee(employee) {
         this.view = 'employees';
         this.record.selectedEmployeeId = employee.id;
+        this.record.employeeSelection = 'manual';
         this.applyInitialRate(employee);
         this.record.dirty = true; this.allEmployees = false;
         await this.save(); await this.routeResult(); if (this.record) this.render();
@@ -492,7 +509,7 @@ export class VoiceMvpUI {
     async decideAlias(remember) {
         const pending = this.aliasSelection, record = this.record;
         this.guard(record);
-        if (!pending || pending.record !== record || pending.spokenName !== record.mention.spokenName) return;
+        if (!pending || pending.record !== record || pending.spokenName !== this.spokenEmployeeName()) return;
         const employee = this.adapter.getEmployees().find(item => item.id === pending.employeeId);
         if (!employee) throw Error('Empleado no disponible en el proyecto activo.');
         const guard = () => {
@@ -582,6 +599,11 @@ export class VoiceMvpUI {
             if (this.record && this.dialog.open) this.render(); return;
         }
         this.guard();
+        if (action === 'position-hint') {
+            this.record.ignoreVoicePosition = !this.record.ignoreVoicePosition;
+            this.record.selectedEmployeeId = null; this.record.employeeSelection = null; this.record.dirty = true; this.view = 'employees';
+            await this.save(); await this.refreshMatches(); this.render(); return;
+        }
         if (action === 'save-audio') { delete this.record.unsaved; try { await this.save(); } catch (error) { this.record.unsaved = true; throw error; } this.render(); return; }
         if (action === 'intent-loan') { await this.chooseIntent('crear_prestamo'); return; }
         if (action === 'intent-cash') { await this.chooseIntent('registrar_gasto_caja_chica'); return; }
@@ -604,6 +626,7 @@ export class VoiceMvpUI {
             if (name) {
                 this.record.mention = { ...this.record.mention, spokenName: name, spokenNumber: null };
                 this.record.selectedEmployeeId = null; this.record.reviewed = false; this.record.rememberName = false; this.record.dirty = true;
+                this.record.employeeSelection = null;
                 this.nameWordPicker = null; this.allEmployees = false; this.view = 'employees';
                 await this.save(); await this.refreshMatches();
             }
@@ -624,8 +647,8 @@ export class VoiceMvpUI {
         if (action === 'choose') { this.view = 'employees'; this.allEmployees = true; this.render(); return; }
         if (action === 'select') {
             const employee = this.adapter.getEmployees().find(e => e.id === id); if (!employee) throw Error('Empleado no disponible en el proyecto activo.');
-            if (!voiceHardBlocked(this.record.result) && needsVoiceAliasPrompt(this.record.mention.spokenName, employee, this.employeeAliases)) {
-                this.aliasSelection = { record: this.record, employeeId: employee.id, spokenName: this.record.mention.spokenName };
+            if (!voiceHardBlocked(this.record.result) && needsVoiceAliasPrompt(this.spokenEmployeeName(), employee, this.employeeAliases)) {
+                this.aliasSelection = { record: this.record, employeeId: employee.id, spokenName: this.spokenEmployeeName() };
                 this.view = 'remember'; this.render();
                 this.dialog.querySelector?.('[data-voice-action=alias-save]')?.focus?.();
                 return;
@@ -725,8 +748,11 @@ export class VoiceMvpUI {
             if (field === 'installmentCount' && Number.isInteger(this.record.draft.installmentCount) && this.record.draft.installmentCount >= 1) this.record.draft.installmentMode = this.record.draft.installmentCount > 1 ? 'installments' : 'lump';
             if (field === 'installmentMode' && v === 'installments' && this.record.draft.installmentCount < 2) this.record.draft.installmentCount = 2;
         }
-        if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.reviewed = false; this.record.rememberName = false; this.view = 'employees'; }
-        if (input.dataset.voiceTranscript !== undefined) { this.record.transcript = input.value; this.nameWordPicker = null; }
+        if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.employeeSelection = null; this.record.reviewed = false; this.record.rememberName = false; this.view = 'employees'; }
+        if (input.dataset.voiceTranscript !== undefined) {
+            this.record.transcript = input.value; this.nameWordPicker = null;
+            if (this.record.employeeSelection === 'automatic') { this.record.selectedEmployeeId = null; this.record.employeeSelection = null; this.view = 'employees'; }
+        }
         if (input.dataset.voiceReviewed !== undefined) this.record.reviewed = input.checked;
         if (input.dataset.voiceRemember !== undefined) this.record.rememberName = input.checked;
         this.record.dirty = true; await this.save(); await this.refreshMatches(); this.render();
