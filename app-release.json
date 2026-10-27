@@ -1,15 +1,26 @@
 {
-  "version": "1.7.110",
+  "version": "1.7.111",
   "changelog": [
+    {
+      "version": "1.7.111",
+      "date": "2026-10-27",
+      "title": "Horas de obra sin cambios perdidos",
+      "items": [
+        "Dos pulsaciones rápidas de +0.5 horas se acumulan correctamente.",
+        "Las ediciones simultáneas en días diferentes se conservan.",
+        "Cambiar un feriado y editar horas al mismo tiempo ya no restaura valores antiguos.",
+        "Las respuestas de guardados atrasados no sustituyen los valores recientes.",
+        "La configuración inicial pendiente se descarta después de cambiar de cuenta."
+      ]
+    },
     {
       "version": "1.7.110",
       "date": "2026-10-26",
-      "title": "Horas de obra sin cambios perdidos",
+      "title": "Tu espacio de Voz",
       "items": [
-        "Dos pulsaciones rápidas de +0.5 horas se acumulan correctamente sin perder un incremento.",
-        "Los cambios simultáneos de días diferentes preservan ambas ediciones y no revierten ajustes de feriados.",
-        "Los guardados antiguos ya no reemplazan valores recientes en pantalla.",
-        "Una configuración inicial pendiente no se agrega después de cambiar de cuenta."
+        "Abre el nuevo modal de Voz desde General para configurar reconocimiento y captura.",
+        "Consulta, agrega, edita y elimina pronunciaciones de cada empleado.",
+        "Escucha y gestiona las grabaciones de esta obra sin modificar sus préstamos."
       ]
     },
     {

@@ -94,6 +94,12 @@ export class VoiceMvpUI {
         this.dialog.addEventListener('cancel', event => { event.preventDefault(); this.run(() => this.action('close')); });
         this.onWipe = () => { this.wiped = true; this.close({ discard: true }); this.record = null; this.history = []; this.launcher.hidden = true; };
         window.addEventListener('sa:voice-wipe', this.onWipe);
+        this.onDiscardedAudio = event => {
+            const detail = event.detail, record = this.record;
+            if (!record || detail?.uid !== record.uid || detail.projectKey !== record.projectKey || !detail.requestIds.includes(record.requestId)) return;
+            record.discarded = true; this.processingController?.abort(); this.close(); this.record = null; this.history = [];
+        };
+        window.addEventListener('sa:voice-audio-discarded', this.onDiscardedAudio);
         this.unsubscribeScope = this.adapter.subscribeScope?.(() => { this.close({ discard: true }); this.record = null; this.history = []; });
         this.onStorageRetry = event => {
             if (event.target.closest?.('[data-voice-storage-retry]')) this.refreshStorageStatus({ force: true });
@@ -170,8 +176,8 @@ export class VoiceMvpUI {
     }
     identity(allowDisabled = false) {
         if (this.wiped) throw Error('Los datos locales se borraron. Recarga SA antes de usar Voz.');
-        if (!allowDisabled && this.adapter.isEnabled?.() === false) throw Error('Activa la prueba de voz en Configuración → Tests.');
-        const user = this.adapter.getUser(); if (!user) throw Error('Inicia sesión para usar el MVP de voz.');
+        if (!allowDisabled && this.adapter.isEnabled?.() === false) throw Error('Activa voz en Ajustes → General → Voz.');
+        const user = this.adapter.getUser(); if (!user) throw Error('Inicia sesión para usar voz.');
         const scope = this.adapter.getScope(); if (scope?.enabled && !scope.projectId) throw Error('Selecciona un proyecto primero.');
         return { uid: user.uid, projectKey: projectKey(scope) };
     }
@@ -743,7 +749,7 @@ export class VoiceMvpUI {
                 return `<div class="voice-retention" role="group" aria-label="Conservación de audio">${[0,1,2,3,4,5].map(days => button('retention', days ? `${days}<span>${days === 1 ? 'día' : 'días'}</span>` : 'No<span>guardar</span>', !this.adapter.setAudioRetention,String(days)).replace('<button ',`<button aria-pressed="${selectedDays === days}" `)).join('')}</div><div class="voice-storage-meter"><label for="voice-storage-meter">${this.storage ? `${(bytes/1048576).toFixed(1)} / 50 MiB` : 'Espacio no disponible'}</label><meter id="voice-storage-meter" min="0" max="50" value="${Math.min(50,bytes/1048576)}">${bytes}</meter></div>${button('clear-audio',`${voiceIcon('trash')} Eliminar audios`)}`;
             }
         };
-        const markup = `<p role="status">${escapeHTML(this.messageError || record?.error || record?.pendingResult || this.busy ? this.message : '')}</p>${this.storage?.low ? '<section class="voice-review" role="alert">Queda poco espacio para audios. Revisa Configuración → Tests.</section>' : ''}${views[view]()}`;
+        const markup = `<p role="status">${escapeHTML(this.messageError || record?.error || record?.pendingResult || this.busy ? this.message : '')}</p>${this.storage?.low ? '<section class="voice-review" role="alert">Queda poco espacio para audios. Revisa Ajustes → General → Voz → Grabaciones.</section>' : ''}${views[view]()}`;
         if (!oldBody) this.dialog.innerHTML = `<header class="voice-header"><h2 id="voice-title">Tu audio</h2>${button('close', `${voiceIcon('close')}<span class="voice-sr">Cerrar</span>`)}</header><div class="voice-body"></div><footer class="voice-footer"></footer>`;
         this.dialog.setAttribute('aria-labelledby', 'voice-title');
         const liveBody = this.dialog.querySelector('.voice-body');
@@ -838,5 +844,5 @@ export class VoiceMvpUI {
         if (!audio.voiceBound) { for (const event of ['play','pause','ended','timeupdate','loadedmetadata']) audio.addEventListener(event,update); audio.voiceBound = true; }
         update();
     }
-    destroy() { this.destroyed = true; this.holdGuard?.end(); this.releaseWarm(); clearTimeout(this.revealTimer); document.removeEventListener('click', this.onStorageRetry); clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
+    destroy() { this.destroyed = true; this.holdGuard?.end(); this.releaseWarm(); clearTimeout(this.revealTimer); document.removeEventListener('click', this.onStorageRetry); clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); window.removeEventListener('sa:voice-audio-discarded', this.onDiscardedAudio); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
 }
