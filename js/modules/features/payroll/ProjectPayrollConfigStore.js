@@ -54,8 +54,10 @@ export async function putConfig(config, opts = {}) {
     // whole record captured before another save completed.
     const dayHoursPatch = payload.__dayHoursPatch;
     const dayHoursDelta = payload.__dayHoursDelta;
+    const holidaysPatch = payload.__holidaysPatch;
     delete payload.__dayHoursPatch;
     delete payload.__dayHoursDelta;
+    delete payload.__holidaysPatch;
     const previous = pendingConfigWrites.get(projectId) || Promise.resolve();
     const commit = previous.catch(() => {}).then(async () => {
         const latest = await idb.get(STORE_NAME, projectId);
@@ -64,6 +66,16 @@ export async function putConfig(config, opts = {}) {
         const next = dayHoursPatch && latest
             ? { ...payload, ...latest, projectId }
             : { ...(latest || {}), ...payload };
+        // A full settings write based on an older snapshot must not undo
+        // day-hours committed after that snapshot was read. Callers editing
+        // day-hours explicitly supply __dayHoursPatch.
+        const staleSnapshot = latest && (Number(payload.updatedAt) || 0) < (Number(latest.updatedAt) || 0);
+        if (staleSnapshot && !dayHoursPatch && latest.dayHours !== undefined) {
+            next.dayHours = latest.dayHours;
+        }
+        // Apply an explicit field patch to the current durable record.
+        // Avoid overwriting unrelated fields from an out-of-date form.
+        if (holidaysPatch !== undefined) next.holidays = holidaysPatch;
         if (dayHoursPatch && typeof dayHoursPatch === 'object') {
             next.dayHours = { ...(latest?.dayHours || {}), ...dayHoursPatch };
             for (const [date, delta] of Object.entries(dayHoursDelta || {})) {
