@@ -55,6 +55,8 @@ export async function putConfig(config, opts = {}) {
     const dayHoursPatch = payload.__dayHoursPatch;
     const dayHoursDelta = payload.__dayHoursDelta;
     const holidaysPatch = payload.__holidaysPatch;
+    const payrollDefaultsPatch = payload.__payrollDefaultsPatch;
+    delete payload.__payrollDefaultsPatch;
     delete payload.__dayHoursPatch;
     delete payload.__dayHoursDelta;
     delete payload.__holidaysPatch;
@@ -63,7 +65,11 @@ export async function putConfig(config, opts = {}) {
         const latest = await idb.get(STORE_NAME, projectId);
         // A day-hours-only save must also preserve unrelated fields edited
         // since the caller captured its earlier configuration snapshot.
-        const next = dayHoursPatch && latest
+        // Field-scoped edits (holiday and day-hours) must be applied to the
+        // latest durable record. Their caller's other fields may be stale.
+        const fieldScopedWrite = dayHoursPatch !== undefined
+            || holidaysPatch !== undefined || payrollDefaultsPatch !== undefined;
+        const next = fieldScopedWrite && latest
             ? { ...payload, ...latest, projectId }
             : { ...(latest || {}), ...payload };
         // A full settings write based on an older snapshot must not undo
@@ -76,6 +82,7 @@ export async function putConfig(config, opts = {}) {
         // Apply an explicit field patch to the current durable record.
         // Avoid overwriting unrelated fields from an out-of-date form.
         if (holidaysPatch !== undefined) next.holidays = holidaysPatch;
+        if (payrollDefaultsPatch !== undefined) next.payrollDefaults = payrollDefaultsPatch;
         if (dayHoursPatch && typeof dayHoursPatch === 'object') {
             next.dayHours = { ...(latest?.dayHours || {}), ...dayHoursPatch };
             for (const [date, delta] of Object.entries(dayHoursDelta || {})) {

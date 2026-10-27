@@ -2323,6 +2323,7 @@ function persistAdjustmentDefault(kind, previous, next) {
         const updatedConfig = {
             ...currentConfig,
             payrollDefaults: defaults.payrollDefaults,
+            __payrollDefaultsPatch: defaults.payrollDefaults,
             updatedAt: Date.now()
         };
         payrollRuntime.saveConfig(updatedConfig).catch(err => {
