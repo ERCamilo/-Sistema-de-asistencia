@@ -14,6 +14,7 @@ import {SettingsTab,initSettingsUI,commitAutoSaveOption,commitAutoSaveSwitch} fr
 import {state,stateManager} from '/js/modules/core/AppState.js';
 import {captureSettingsDraft,restoreSettingsDraft,guardSettingsDraftOnLeave} from '/js/modules/ui/settings/SettingsDraftBar.js';
 import {DOMDiff} from '/js/modules/utils/DOMDiff.js';
+import {createAppHistory} from '/js/modules/core/AppHistory.js';
 import {VoiceSettingsUI} from '/js/modules/features/voice/VoiceSettingsUI.js';
 import {VoiceNameEnrollmentUI} from '/js/modules/features/voice/VoiceNameEnrollmentUI.js';
 import {VoiceStore} from '/js/modules/features/voice/VoiceStore.js';
@@ -38,11 +39,12 @@ if(!localStorage.getItem('voice-fixture-seeded')){
  localStorage.setItem('voice-fixture-seeded','1');
 }
 window.beforeEmployees=JSON.stringify(employees);
+let navigationView={tab:'settings',sub:'general'};const fixtureHistory=createAppHistory({getView:()=>navigationView,applyView:target=>{navigationView=target;return true;}}).start();
 const subscribe=callback=>{subscribers.add(callback);return ()=>subscribers.delete(callback);};
 const adapter={getUser:()=>currentUser,getScope:()=>scope,getProjectName:()=> 'Obra ficticia',getSettings:()=>state.settings,getEmployees:()=>employees.filter(e=>e.projectId===scope.projectId),getPositions:()=>state.positions,isEnabled:()=>state.settings.voiceMvpEnabled===true,isDeveloper:()=>true,subscribeSession:subscribe,subscribeScope:subscribe,subscribeEnabled:subscribe,
  setPreference:(key,value)=>{const result=typeof value==='boolean'?commitAutoSaveSwitch({id:key,checked:value,deps}):commitAutoSaveOption({name:key,value,deps});if(!result.committed)throw Error('Invalid setting');},setAudioRetention:days=>{if(days)commitAutoSaveOption({name:'voiceAudioRetentionDays',value:String(days),deps});commitAutoSaveSwitch({id:'voiceKeepLoanAudio',checked:days>0,deps});},getEndpoint:()=> 'https://n8n.invalid/blocked',notify:message=>{window.fixtureNotification=message;}};
 const enrollment=new VoiceNameEnrollmentUI(adapter,{store}).mount();
-window.hub=new VoiceSettingsUI({...adapter,onTeachName:id=>enrollment.open(id),onOpenLoan:id=>guardSettingsDraftOnLeave({showConfirm:options=>hub.confirm(options.title,options.message,async generation=>{hub.guard(generation);options.onConfirm();},options.confirmText),onProceed:()=>{hub.close();window.openedLoan=id;}})},{store}).mount();
+window.hub=new VoiceSettingsUI({...adapter,onTeachName:id=>enrollment.open(id),onOpenLoan:id=>guardSettingsDraftOnLeave({showConfirm:options=>hub.confirm(options.title,options.message,async generation=>{hub.guard(generation);options.onConfirm();},options.confirmText),onProceed:()=>{const snapshot={recordId:hub.recordId,recordFilter:hub.recordFilter},uid=currentUser.uid,project=scope.projectId;const point=fixtureHistory.beginReturn({view:{tab:'export',sub:'ledger'},isValid:()=>currentUser.uid===uid&&scope.projectId===project,restore:()=>hub.resumeNavigation(snapshot)});hub.close();window.openedLoan=id;navigationView={tab:'export',sub:'ledger'};point.commit();}})},{store}).mount();
 enrollment.dialog.addEventListener('close',()=>{if(hub.dialog.open)hub.run(()=>hub.refresh());});
 window.openVoiceSettings=()=>hub.run(()=>hub.open());window.preferenceSaved=()=>saveFlight;
 window.changeFixtureUser=uid=>{currentUser={uid};subscribers.forEach(callback=>callback());};
@@ -86,7 +88,9 @@ const server=http.createServer((req,res)=>{
    // The native voice dialog must host the existing draft-leave confirmation.
    await page.$eval('#companyName',el=>{el.value='Empresa pendiente';el.dispatchEvent(new Event('input',{bubbles:true}));});await click('open-loan');await page.waitForFunction(()=>hub.view==='confirm');await click('back');assert.equal(await page.$eval('#companyName',el=>el.value),'Empresa pendiente');
    await click('open-loan');await click('confirm');await page.waitForFunction(()=>window.openedLoan==='carlos');assert.equal(await page.evaluate(()=>hub.dialog.open),false);
-   await page.evaluate(()=>hub.open('recordings'));await click('audio','audio-a');await click('remove-audio');await axe();await click('confirm');
+   await page.evaluate(()=>history.back());await page.waitForFunction(()=>hub.dialog.open&&hub.view==='audio');await axe();
+   await click('open-loan');await page.waitForFunction(()=>!hub.dialog.open);await page.evaluate(()=>history.back());await page.waitForFunction(()=>hub.dialog.open&&hub.view==='audio');
+   await click('remove-audio');await axe();await click('confirm');
    assert.equal(await page.evaluate(async()=>!!(await voiceStore.get('voice-demo','audio-a')).audio),false);assert.equal(await page.evaluate(async()=> (await voiceStore.get('voice-demo','audio-a')).completedLoanId),'loan-a');
    assert.equal(await page.evaluate(async()=>!!(await voiceStore.get('voice-demo','other-work')).audio),true);assert.equal(await page.evaluate(async()=>!!(await voiceStore.get('other-account','other-user')).audio),true);
    await click('retention');await axe();await shot('conservacion');await click('retention-days','1');await axe();await click('back');assert.equal(await page.evaluate(()=>hub.policy().days),5);

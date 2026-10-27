@@ -94,6 +94,11 @@ export function createAppHistory({
     // retroceder: otro Atrás debe avanzar a la vista anterior.
     const unclosableLayers = new Set();
     const listeners = [];
+    // Optional one-shot returns (e.g. a Voice command opening its saved loan).
+    // Only an opaque key enters history.state; callbacks/data stay in memory.
+    const returnPoints = new Map();
+    let returnSequence = 0;
+    let pendingReturn = null;
 
     const listen = (target, type, fn, options) => {
         target.addEventListener(type, fn, options);
@@ -201,6 +206,7 @@ export function createAppHistory({
     function sync() {
         syncQueued = false;
         if (!started || pendingTraversals > 0 || applyingPop || handlingLayerPop) return;
+        if (pendingReturn) return; // business operation/confirmation still pending
         if (awaitedView) {
             if (!sameView(cleanView(getView()), awaitedView) && now() < awaitedUntil) return;
             awaitedView = null;
@@ -242,6 +248,48 @@ export function createAppHistory({
         (win.queueMicrotask || (fn => Promise.resolve().then(fn)))(sync);
     }
 
+    function beginReturn({ view, restore, isValid = () => true } = {}) {
+        const noop = { commit() {}, cancel() {} };
+        if (!started || !view?.tab || typeof restore !== 'function' || pendingReturn || pendingTraversals || applyingPop || !hasActivation()) return noop;
+        sync();
+        if (pendingTraversals || !current) return noop;
+        if (current.depth > 0) {
+            const layers = openLayers();
+            if (layers.length !== 1 || layers[0].dataset.historyReturn !== 'on') return noop;
+            write('replace', { ...current, kind: 'view', depth: 0 });
+        }
+        // Reserve during the click, before any async save can outlive browser
+        // user activation. A cancelled save removes its reserved destination.
+        if (returnPoints.size >= 8) returnPoints.delete(returnPoints.keys().next().value);
+        const key = `${now()}-${++returnSequence}`;
+        const point = { restore, isValid, ready: false };
+        returnPoints.set(key, point);
+        write('replace', { ...current, returnKey: key });
+        write('push', { ...entry('view', getView(), current.idx + 1, 0), returnFrom: key });
+        pendingReturn = key;
+        return {
+            commit() {
+                if (pendingReturn !== key || current?.returnFrom !== key) return;
+                point.ready = true; pendingReturn = null;
+                awaitedView = cleanView(view); awaitedUntil = now() + APPLY_TIMEOUT_MS;
+                write('replace', { ...current, view: cleanView(view) }); scheduleSync();
+            },
+            cancel() {
+                returnPoints.delete(key);
+                if (pendingReturn === key) pendingReturn = null;
+                if (current?.returnFrom === key) traverse(-1);
+            }
+        };
+    }
+
+    function clearReturns() {
+        returnPoints.clear(); pendingReturn = null;
+        if (current && (current.returnFrom || current.returnKey)) {
+            const { returnFrom, returnKey, ...ordinary } = current;
+            write('replace', ordinary);
+        }
+    }
+
     // ── Atrás / Adelante ─────────────────────────────────────────────────
     async function onPopState(event) {
         const target = event.state?.[STATE_KEY];
@@ -260,6 +308,7 @@ export function createAppHistory({
         }
         const from = current;
         const back = !from || target.idx < from.idx;
+        if (pendingReturn) { returnPoints.delete(pendingReturn); pendingReturn = null; }
 
         if (back) {
             const layers = openLayers();
@@ -279,17 +328,19 @@ export function createAppHistory({
                 handlingLayerPop = false;
                 if (!isVisible(top)) {
                     current = target;
+                    const returning = !poppedLayerEntry && from?.returnFrom === target.returnKey
+                        && returnPoints.get(target.returnKey)?.ready && openLayers().length === 0;
                     // Capa sin entrada propia: la vista no cambia; se recupera la
                     // entrada que se acaba de dejar.
-                    if (!poppedLayerEntry) traverse(1);
-                    return;
-                }
-                // El diálogo no se deja cerrar (decisión obligatoria): no
-                // recrear su entrada mientras siga abierto. Otro Atrás puede
-                // recorrer las vistas y el usuario no queda atrapado.
-                for (const layer of layers) {
-                    if (layer === top || layer.contains(top) || top.contains(layer)) {
-                        unclosableLayers.add(layer);
+                    if (!returning) { if (!poppedLayerEntry) traverse(1); return; }
+                } else {
+                    // El diálogo no se deja cerrar (decisión obligatoria): no
+                    // recrear su entrada mientras siga abierto. Otro Atrás puede
+                    // recorrer las vistas y el usuario no queda atrapado.
+                    for (const layer of layers) {
+                        if (layer === top || layer.contains(top) || top.contains(layer)) {
+                            unclosableLayers.add(layer);
+                        }
                     }
                 }
             }
@@ -319,6 +370,14 @@ export function createAppHistory({
                 traverse(back ? 1 : -1);
                 return;
             }
+        }
+        const point = back && from?.returnFrom === target.returnKey ? returnPoints.get(target.returnKey) : null;
+        if (point) {
+            returnPoints.delete(target.returnKey);
+            const { returnKey, ...consumed } = target;
+            write('replace', consumed);
+            try { if (point.ready && point.isValid()) await point.restore(); }
+            catch (_) { /* A return panel must never break ordinary Back navigation. */ }
         }
         if (back && target.idx === 0 && isStandalone()) {
             guardNeeded = true;
@@ -384,6 +443,7 @@ export function createAppHistory({
         observer = null;
         listeners.splice(0).forEach(off => off());
         clearTimeout(traversalTimer);
+        returnPoints.clear(); pendingReturn = null;
         started = false;
     }
 
@@ -392,6 +452,8 @@ export function createAppHistory({
         stop,
         sync,
         scheduleSync,
+        beginReturn,
+        clearReturns,
         openLayers,
         get current() { return current ? { ...current, view: { ...current.view } } : null; },
         get exitHintActive() { return now() < exitHintUntil; }

@@ -1229,7 +1229,30 @@ SyncUI.initSyncUI(moduleContext);
 // Device-local voice MVP. Transports audio only; confirmed loans use the
 // same registration path as the current account form.
 let voicePettyCash;
+let voiceReturnEpoch = 0, voiceReturnScope = '';
+function invalidateVoiceReturns() {
+    const key = JSON.stringify([auth.currentUser?.uid || null, peekEntityScope()]);
+    if (key !== voiceReturnScope) { voiceReturnScope = key; voiceReturnEpoch++; window.appHistory?.clearReturns(); }
+}
+function reserveVoiceReturn(kind, summary = {}, restore = null) {
+    invalidateVoiceReturns(); const epoch = voiceReturnEpoch;
+    const uid = auth.currentUser?.uid, scope = JSON.stringify(peekEntityScope());
+    const valid = () => epoch === voiceReturnEpoch && !!uid && auth.currentUser?.uid === uid && JSON.stringify(peekEntityScope()) === scope
+        && !voiceMvp.wiped && !voiceMvp.recording && state.settings?.voiceMvpEnabled === true
+        && (restore || !voiceMvp.record?.audio || voiceMvp.record.completedLoanId || voiceMvp.record.requestId === summary.requestId);
+    return window.appHistory?.beginReturn({
+        view: kind === 'cash' ? { tab: 'pettycash', sub: null } : { tab: 'export', sub: 'ledger' },
+        isValid: valid,
+        restore: async () => {
+            if (!valid()) return;
+            try { if (restore) await restore(); else voiceMvp.openReturnMenu({ ...summary, kind }); }
+            catch (error) { if (valid()) window.showNotification?.(error.message, 'warning'); }
+        }
+    });
+}
 const voiceMvp = new VoiceMvpUI({
+    beginReturn: reserveVoiceReturn,
+    onSettings: () => window.openVoiceSettings(),
     onPettyCash: (record, bridge) => voicePettyCash.open(record, bridge),
     getUser: () => auth.currentUser,
     isEnabled: () => state.settings?.voiceMvpEnabled === true,
@@ -1245,8 +1268,8 @@ const voiceMvp = new VoiceMvpUI({
     },
     notify: (message, type) => window.showNotification?.(message, type),
     getLoanDefaults: employee => ({ periods: getAccountPayPeriods(), previousRate: previousVoiceInterest({ loans: (employee?.loans || []).filter(loan => entityInScope(loan, peekEntityScope())) }), usePrevious: state.settings?.voiceUsePreviousInterest === true }),
-    subscribeSession: callback => subscribeVoiceSession(auth, callback),
-    subscribeScope: callback => projectContext.subscribe(callback),
+    subscribeSession: callback => subscribeVoiceSession(auth, () => { invalidateVoiceReturns(); callback(); }),
+    subscribeScope: callback => projectContext.subscribe(() => { invalidateVoiceReturns(); callback(); }),
     validateLoan: validateVoiceLoan,
     previewLoan: (employee, draft) => {
         const validation = validateVoiceLoan(draft);
@@ -1300,7 +1323,12 @@ const voiceSettings = new VoiceSettingsUI({
         showConfirm: options => voiceSettings.confirm(options.title, options.message, async generation => {
             voiceSettings.guard(generation); options.onConfirm();
         }, options.confirmText),
-        onProceed: () => { voiceSettings.close(); voiceMvp.adapter.onLoans(employeeId); }
+        onProceed: () => {
+            const snapshot = { recordId: voiceSettings.recordId, recordFilter: voiceSettings.recordFilter };
+            const navigation = reserveVoiceReturn('loans', {}, () => voiceSettings.resumeNavigation(snapshot));
+            try { voiceSettings.close(); voiceMvp.adapter.onLoans(employeeId); navigation?.commit(); }
+            catch (error) { navigation?.cancel(); throw error; }
+        }
     })
 }, { store: voiceMvp.store }).mount();
 voiceNameEnrollment.dialog.addEventListener('close', () => { if (voiceSettings.dialog.open) voiceSettings.run(() => voiceSettings.refresh()); });

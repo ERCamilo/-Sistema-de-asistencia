@@ -71,6 +71,11 @@ jobs:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: npm run test:voice-settings
 
+      - name: Voice recording quality and return navigation in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: npm run test:voice-audio-quality
+
       - name: Mini attendance review in Chromium
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome

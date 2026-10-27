@@ -84,7 +84,20 @@ export class VoiceSettingsUI {
         this.render(); this.dialog.showModal(); this.dialog.querySelector('#vs-title').focus();
         await this.refresh();
     }
+    async resumeNavigation({ recordId, recordFilter = 'available' } = {}) {
+        await this.open('recordings');
+        if (!this.dialog.open || !this.sameContext()) return;
+        this.recordFilter = recordFilter;
+        if (recordId && this.recordingInfos().some(row => row.record.requestId === recordId && row.available)) {
+            this.recordId = recordId; this.navigate('audio');
+        } else {
+            this.render(); if (recordId) this.feedback('El audio venció o ya no está disponible. El préstamo se conserva.');
+        }
+        this.dialog.dataset.historyLayer = 'on';
+        this.dialog.dataset.historyReturn = 'on';
+    }
     close() {
+        if (this.dialog?.dataset) { delete this.dialog.dataset.historyLayer; delete this.dialog.dataset.historyReturn; }
         this.generation++; this.readEpoch++; this.busy = false; this.confirmation = null;
         for (const cancel of [...this.readCancels]) cancel();
         this.releaseAudio();
