@@ -1,14 +1,24 @@
 {
-  "version": "1.7.112",
+  "version": "1.7.115",
   "changelog": [
     {
-      "version": "1.7.112",
+      "version": "1.7.115",
       "date": "2026-10-27",
       "title": "Voz reconoce la posición como pista",
       "items": [
         "Las posiciones mencionadas ayudan a ordenar empleados con nombres parecidos, incluyendo posiciones secundarias.",
         "Los conflictos entre nombre, número y posición requieren selección; puedes ignorar una pista equivocada.",
         "Cambiar de empleado conserva el monto, la tasa, las fechas y la nota del préstamo."
+      ]
+    },
+    {
+      "version": "1.7.114",
+      "date": "2026-10-27",
+      "title": "Actualiza cuando estés listo",
+      "items": [
+        "La nueva versión se prepara en segundo plano y espera tu confirmación para guardar y reiniciar.",
+        "Si la descarga se interrumpe, puedes reintentar o recargar sin quedar esperando indefinidamente.",
+        "Reparar interfaz renueva los archivos de la aplicación y conserva tus datos, fotos y comprobantes."
       ]
     },
     {

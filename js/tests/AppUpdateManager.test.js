@@ -102,3 +102,56 @@ test('cancelar durante el guardado tampoco modifica el caché', async () => {
   await manager.check(true); const pending = manager.apply(); close(); finish(); await pending;
   assert.equal(refreshes, 0); assert.equal(reloads, 0);
 });
+
+const gate = () => { let resolve; const promise = new Promise(r=>resolve=r); return {promise,resolve}; };
+function backgroundFixture() {
+    const preparing=gate(),activating=gate(),calls=[],shown=[],states=[];
+    let dirty=false;
+    const manager=createReleaseManager({
+        prefix:'background',policy:{...base,APP_VERSION:'1.9.0',CHANGELOG:releases.slice(1)},read:()=>null,write(){},
+        now:()=>1000,online:()=>true,canShow:()=>true,canReload:()=>!dirty,
+        fetchRelease:async()=>({version:'1.10.0',changelog:releases}),
+        prepareRelease:jest.fn(async(version,opts)=>{calls.push(opts.force?'repair-prepare':'prepare');return preparing.promise;}),
+        activateRelease:jest.fn(async()=>{calls.push('activate');return activating.promise;}),
+        beforeReload:jest.fn(async()=>{calls.push('save');if(dirty)throw Error('dirty');}),
+        reload:()=>calls.push('reload'),status:message=>states.push(message),updateState:()=>{},
+        show:(kind,entries,version,close,apply)=>{shown.push({kind,close,apply});return true;}
+    });
+    return {manager,preparing,activating,calls,shown,states,dirty:()=>{dirty=true;}};
+}
+test('background readiness never saves or reloads, and only a ready automatic update prompts',async()=>{
+    const f=backgroundFixture();await f.manager.check(false);
+    assert.equal(f.manager.getState().phase,'preparing');assert.equal(f.shown.length,0);
+    assert.deepEqual(f.calls,['prepare']);
+    f.preparing.resolve({version:'1.10.0',cacheName:'ready'});await f.manager.retry();
+    assert.equal(f.manager.getState().phase,'ready');assert.equal(f.shown.length,1);
+    assert.equal(f.calls.includes('save'),false);assert.equal(f.calls.includes('activate'),false);
+});
+test('prepared update saves before activating, and reloads only after activation succeeds',async()=>{
+    const f=backgroundFixture();await f.manager.check(true);
+    f.preparing.resolve({version:'1.10.0',cacheName:'ready'});await f.manager.retry();
+    const pending=f.manager.apply();for(let i=0;i<8;i++)await Promise.resolve();
+    assert.deepEqual(f.calls.slice(-2),['save','activate']);assert.equal(f.calls.includes('reload'),false);
+    f.activating.resolve();await pending;assert.equal(f.calls.at(-1),'reload');
+});
+test('closing during activation prevents a late reload',async()=>{
+    const f=backgroundFixture();await f.manager.check(true);
+    f.preparing.resolve({version:'1.10.0',cacheName:'ready'});await f.manager.retry();
+    const pending=f.manager.apply();for(let i=0;i<8;i++)await Promise.resolve();
+    f.shown[0].close();f.activating.resolve();await pending;
+    assert.equal(f.calls.includes('reload'),false);
+});
+test('dirty changes block activation and explicit fallback reload',async()=>{
+    const f=backgroundFixture();await f.manager.check(true);
+    f.preparing.resolve({version:'1.10.0',cacheName:'ready'});await f.manager.retry();f.dirty();
+    await f.manager.apply();await f.manager.reloadSafely();
+    assert.equal(f.calls.includes('activate'),false);assert.equal(f.calls.includes('reload'),false);
+});
+test('repair saves first, forces a fresh snapshot and does not reload before activation',async()=>{
+    const f=backgroundFixture();const pending=f.manager.repair();
+    for(let i=0;i<8;i++)await Promise.resolve();
+    assert.deepEqual(f.calls,['save','repair-prepare']);
+    f.preparing.resolve({version:'1.10.0',cacheName:'fresh'});for(let i=0;i<8;i++)await Promise.resolve();
+    assert.equal(f.calls.at(-1),'activate');assert.equal(f.calls.includes('reload'),false);
+    f.activating.resolve();await pending;assert.equal(f.calls.at(-1),'reload');
+});

@@ -1,13 +1,16 @@
 import * as policy from '../config/AppVersion.js';
 import { createReleaseManager } from '../services/AppUpdateManager.js';
+import { createAppUpdateWorker, withUpdateDeadline } from '../services/AppUpdateWorker.js';
 import { Modal } from '../components/Modal.js';
+import { logError } from '../services/ErrorLog.js';
 import { isSettingsDraftDirty } from './settings/SettingsDraftBar.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
 
-let manager = null;
+let manager = null, repairModal = null, lastStatus = '';
+const ownDialogs = new Set(['update-modal', 'interface-repair-modal']);
 function hasOtherDialog() {
     return [...document.querySelectorAll('.modal-overlay, [data-modal-overlay], #onboarding-preview-overlay')]
-        .some(el => el.id !== 'update-modal' && !el.hasAttribute('data-modal-closing'));
+        .some(el => !ownDialogs.has(el.id) && !el.hasAttribute('data-modal-closing'));
 }
 export async function fetchPublishedRelease() {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 8000);
@@ -20,81 +23,110 @@ export async function fetchPublishedRelease() {
     } finally { clearTimeout(timer); }
 }
 function status(message) {
-    const target = document.querySelector('#update-modal [data-release-status]') || document.getElementById('app-update-status');
+    lastStatus = message;
+    const target = document.querySelector('#interface-repair-modal [data-release-status]')
+        || document.querySelector('#update-modal [data-release-status]') || document.getElementById('app-update-status');
     if (target) target.textContent = message;
+}
+function updateControls(state) {
+    const modal = document.querySelector('#update-modal');
+    if (modal) {
+        const primary = modal.querySelector('[data-release-apply]'), reload = modal.querySelector('[data-release-reload]');
+        if (primary) {
+            primary.disabled = state.busy || state.phase === 'preparing';
+            primary.textContent = state.busy ? 'Actualizando…' : state.phase === 'preparing' ? 'Preparando…'
+                : state.phase === 'error' ? 'Reintentar' : 'Actualizar ahora';
+        }
+        if (reload) { reload.hidden = state.phase !== 'error'; reload.disabled = state.busy; }
+        modal.setAttribute('aria-busy', String(state.busy || state.phase === 'preparing'));
+    }
+    if (repairModal?.isOpen) {
+        const primary = repairModal.element.querySelector('[data-repair-apply]');
+        if (primary) { primary.disabled = state.busy; primary.textContent = state.busy ? 'Reparando…' : 'Reparar y recargar'; }
+        const reload = repairModal.element.querySelector('[data-release-reload]');
+        if (reload) { reload.hidden = state.busy || !/^No se pudo|tardó demasiado/.test(lastStatus); reload.disabled = state.busy; }
+        repairModal.element.setAttribute('aria-busy', String(state.busy));
+    }
+}
+function addStatus(content) {
+    const message = document.createElement('p'); message.dataset.releaseStatus = '';
+    message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite'); content.appendChild(message);
+    return message;
+}
+function decorate(modal, id, regionLabel) {
+    modal.open(); modal.element.id = id; modal.element.classList.add('release-modal');
+    const body = modal.element.querySelector('.modal-body'); body.tabIndex = 0;
+    body.setAttribute('role', 'region'); body.setAttribute('aria-label', regionLabel);
 }
 function show(kind, releases, version, close, apply) {
     const content = document.createElement('div'); content.className = 'release-notes';
-    if (kind === 'update') { const hint = document.createElement('p'); hint.textContent = 'Actualiza cuando termines tu trabajo. Tus datos guardados se conservan.'; content.appendChild(hint); }
+    if (kind === 'update') {
+        const hint = document.createElement('p');
+        hint.textContent = 'La nueva versión se prepara sin interrumpir tu trabajo. Al actualizar se guardarán tus datos.';
+        content.appendChild(hint);
+    }
     for (const release of releases) {
-        const section = document.createElement('section'), heading = document.createElement('h3'), date = document.createElement('p'), list = document.createElement('ul');
+        const section = document.createElement('section'), heading = document.createElement('h3');
+        const date = document.createElement('p'), list = document.createElement('ul');
         heading.textContent = `${release.title} · v${release.version}`; date.textContent = release.date.split('-').reverse().join('/');
         for (const text of release.items) { const item = document.createElement('li'); item.textContent = text; list.appendChild(item); }
         section.append(heading, date, list); content.appendChild(section);
     }
-    const message = document.createElement('p'); message.dataset.releaseStatus = ''; message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite'); content.appendChild(message);
+    const message = addStatus(content);
     const modal = new Modal({
         title: `${kind === 'news' ? 'Novedades' : 'Actualización disponible'} · v${version}`,
         content, size: 'medium', onClose: close,
         buttons: kind === 'news' ? [{ text: 'Entendido', class: 'btn-primary', onClick() { this.close(); } }] : [
             { text: 'Más tarde', class: 'btn-secondary', onClick() { this.close(); } },
-            { text: 'Actualizar ahora', class: 'btn-primary', async onClick() {
-                const button = this.element.querySelector('.btn-primary'); button.disabled = true;
-                try { await apply(); } finally { button.disabled = false; }
-            } }
+            { text: 'Recargar', class: 'btn-secondary release-reload', onClick() { void manager.reloadSafely(); } },
+            { text: 'Preparando…', class: 'btn-primary', onClick() { void apply(); } }
         ]
     });
-    modal.open(); modal.element.id = kind === 'news' ? 'whats-new-modal' : 'update-modal';
-    const body = modal.element.querySelector('.modal-body');
-    body.tabIndex = 0;
-    body.setAttribute('role', 'region');
-    body.setAttribute('aria-label', kind === 'news' ? 'Novedades de las versiones' : 'Detalles de la actualización');
-    modal.element.classList.add('release-modal'); return true;
-}
-async function refreshWorker() {
-    if (!('serviceWorker' in navigator)) return;
-    const registration = await navigator.serviceWorker.getRegistration(); if (!registration) return;
-    await registration.update();
-    const pending = registration.installing || registration.waiting;
-    if (pending && pending.state !== 'activated') {
-          await new Promise((resolve, reject) => {
-            const done = (error) => { clearTimeout(timer); pending.removeEventListener('statechange', check); error ? reject(error) : resolve(); };
-            const check = () => { if (pending.state === 'activated') done(); else if (pending.state === 'redundant') done(new Error('Update failed')); };
-            const timer = setTimeout(() => done(new Error('Update timeout')), 60000);
-            pending.addEventListener('statechange', check);
-            pending.postMessage('SKIP_WAITING'); check();
-          });
+    decorate(modal, kind === 'news' ? 'whats-new-modal' : 'update-modal',
+        kind === 'news' ? 'Novedades de las versiones' : 'Detalles de la actualización');
+    if (kind === 'update') {
+        modal.element.querySelector('.btn-primary').dataset.releaseApply = '';
+        modal.element.querySelector('.release-reload').dataset.releaseReload = '';
+        message.textContent = manager?.getState().message || '';
+        updateControls(manager.getState());
     }
-    const active = registration.active || navigator.serviceWorker.controller;
-    if (!active) throw new Error('No active worker');
-    // An unchanged, already active worker can still contain stale cached bytes.
-    await new Promise((resolve, reject) => {
-          const channel = new MessageChannel();
-          const done = (error) => { clearTimeout(timer); channel.port1.close(); channel.port2.close(); error ? reject(error) : resolve(); };
-          const timer = setTimeout(() => done(new Error('Shell refresh timeout')), 90000);
-          channel.port1.onmessage = event => { event.data?.ok === true ? done() : done(new Error('Shell refresh failed')); };
-          channel.port1.onmessageerror = () => done(new Error('Invalid worker response'));
-          try { active.postMessage({ type: 'REFRESH_APP_SHELL' }, [channel.port2]); }
-          catch (error) { done(error instanceof Error ? error : new Error('Worker unavailable')); }
-    });
+    return true;
+}
+async function beforeReload() {
+    if (hasOtherDialog() || isSettingsDraftDirty(document)) {
+        const error = new Error('Guarda o cierra los cambios pendientes antes de recargar.'); error.code = 'changes-pending'; throw error;
+    }
+    const saved = await withUpdateDeadline(() => saveApplicationData({
+        immediate: true, announce: false, requireLocalSuccess: true, localOnly: true
+    }), { timeoutMs: 15000 });
+    if (saved?.localOk !== true) throw new Error('No se pudo guardar.');
 }
 export function startAppUpdates() {
     if (manager) return manager;
+    const worker = createAppUpdateWorker();
     manager = createReleaseManager({
         policy, prefix: 'sa', read: key => localStorage.getItem(key), write: (key, value) => localStorage.setItem(key, value),
         now: () => Date.now(), online: () => navigator.onLine !== false, fetchRelease: fetchPublishedRelease,
-        canShow: () => !hasOtherDialog() && !isSettingsDraftDirty(document) && !document.querySelector('input:focus, textarea:focus'),
-        show, status, beforeReload: async () => {
-            if (hasOtherDialog() || isSettingsDraftDirty(document)) throw new Error('Hay cambios sin guardar.');
-            const saved = await saveApplicationData({ immediate: true, announce: false, requireLocalSuccess: true, localOnly: true });
-            if (saved?.localOk !== true) throw new Error('No se pudo guardar.');
-        }, prepareUpdate: refreshWorker, reload: () => location.reload()
+        canShow: () => !hasOtherDialog() && !repairModal?.isOpen && !isSettingsDraftDirty(document) && !document.querySelector('input:focus, textarea:focus'),
+        canReload: () => !hasOtherDialog() && !isSettingsDraftDirty(document),
+        show, status, updateState: updateControls, beforeReload, reportError: logError,
+        prepareRelease: worker.prepare, activateRelease: worker.activate, reload: () => location.reload()
     });
-    manager.boot();
+    manager.boot(); void worker.confirmRunningVersion(policy.APP_VERSION);
     let hadController = !!navigator.serviceWorker?.controller;
-    if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('controllerchange', () => {
-        const previous = hadController; hadController = true; void manager.controllerChanged(previous);
-    });
+    const watched = new WeakSet();
+    const watch = registration => {
+        if (!registration || watched.has(registration)) return;
+        watched.add(registration);
+        registration.addEventListener('updatefound', () => { void manager.check(false, true); });
+    };
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            const previous = hadController; hadController = true; void manager.controllerChanged(previous);
+        });
+        navigator.serviceWorker.ready?.then(watch).catch(() => {});
+        navigator.serviceWorker.getRegistration().then(watch).catch(() => {});
+    }
     const check = () => { if (document.visibilityState !== 'hidden') void manager.check(); };
     window.addEventListener('online', () => { void manager.check(false, true); });
     window.addEventListener('focus', check); document.addEventListener('visibilitychange', check);
@@ -103,3 +135,27 @@ export function startAppUpdates() {
 }
 export function openWhatsNew() { startAppUpdates().showNews(true); }
 export function checkAppUpdates() { return startAppUpdates().check(true); }
+export function openInterfaceRepair() {
+    const releaseManager = startAppUpdates();
+    if (repairModal?.isOpen || document.querySelector('#update-modal:not([data-modal-closing]), #whats-new-modal:not([data-modal-closing])')) return;
+    if (hasOtherDialog() || isSettingsDraftDirty(document)) {
+        status('Guarda o cierra los cambios pendientes antes de reparar la interfaz.'); return;
+    }
+    const content = document.createElement('div'); content.className = 'release-notes';
+    const hint = document.createElement('p');
+    hint.textContent = 'Renueva los archivos de la aplicación y recarga. Conserva tus datos, fotos y comprobantes.';
+    content.appendChild(hint); addStatus(content);
+    repairModal = new Modal({
+        title: 'Reparar interfaz', content, size: 'small',
+        onClose: () => releaseManager.cancelOperation(),
+        buttons: [
+            { text: 'Cancelar', class: 'btn-secondary', onClick() { this.close(); } },
+            { text: 'Recargar', class: 'btn-secondary release-reload', onClick() { void releaseManager.reloadSafely(); } },
+            { text: 'Reparar y recargar', class: 'btn-primary', onClick() { void releaseManager.repair(); } }
+        ]
+    });
+    decorate(repairModal, 'interface-repair-modal', 'Reparación de la interfaz');
+    repairModal.element.querySelector('.btn-primary').dataset.repairApply = '';
+    repairModal.element.querySelector('.release-reload').dataset.releaseReload = '';
+    lastStatus = ''; updateControls(releaseManager.getState());
+}
