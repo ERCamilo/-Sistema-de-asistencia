@@ -1,6 +1,27 @@
 {
-  "version": "1.7.111",
+  "version": "1.7.113",
   "changelog": [
+    {
+      "version": "1.7.113",
+      "date": "2026-10-27",
+      "title": "Feriados y nómina sin sobrescrituras",
+      "items": [
+        "Cambiar un feriado conserva la jornada base, el período de pago y el factor de horas extra ya confirmados.",
+        "Las opciones predeterminadas de nómina se guardan sin revertir horas ni feriados recientes.",
+        "Se preservan las mejoras de concurrencia de horas y el aislamiento de obras de las versiones anteriores."
+      ]
+    },
+    {
+      "version": "1.7.112",
+      "date": "2026-10-27",
+      "title": "Horas y feriados sin cambios perdidos",
+      "items": [
+        "Dos pulsaciones rápidas de +0.5 horas se acumulan correctamente.",
+        "Las ediciones simultáneas en días distintos se conservan.",
+        "Los ajustes de feriados no revierten las horas ya confirmadas, ni los cambios de horas revierten feriados.",
+        "Las respuestas atrasadas no reemplazan valores recientes y se descartan configuraciones iniciales de cuentas anteriores."
+      ]
+    },
     {
       "version": "1.7.111",
       "date": "2026-10-27",

@@ -18,8 +18,8 @@ function usesObraDayHours() {
     return isProjectsEnabled() && Boolean(scope?.enabled && scope.projectId);
 }
 
-function persistObraDayHours(updates) {
-    updateActiveDayHours(updates, { state })
+function persistObraDayHours(updates, delta = null) {
+    updateActiveDayHours(updates, { state, delta })
         .then(saved => { if (!saved) Notification.error('No se pudieron guardar las horas base en la obra.'); })
         .catch(error => Notification.error(`No se pudieron guardar las horas base: ${error?.message || error}`));
 }
@@ -41,7 +41,7 @@ export function changeBaseHours(delta) {
             const currentHours = resolveDailyTargetHours(dateKey, current, getActivePayrollSettings(state).regularHoursPerDay);
             updates[dateKey] = Math.max(0, Math.min(24, currentHours + delta));
         }
-        persistObraDayHours(updates);
+        persistObraDayHours(updates, delta);
         return;
     }
 
@@ -122,7 +122,7 @@ export function toggleHoliday(providedDateKey = null) {
 
     if (projectId) {
         projectPayrollConfigStore.getConfig(projectId)
-            .then(config => config ? projectPayrollConfigStore.putConfig({ ...config, holidays }) : null)
+            .then(config => config ? projectPayrollConfigStore.putConfig({ ...config, holidays, __holidaysPatch: holidays }) : null)
             .then(saved => { if (saved) setActivePayrollConfig(saved); })
             .catch(error => Notification.error(`No se pudo guardar el feriado en la obra: ${error?.message || error}`));
     }
