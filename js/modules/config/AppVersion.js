@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.111';
+const APP_VERSION = '1.7.112';
 const CHANGELOG = [
+    { version: '1.7.112', date: '2026-10-27', title: 'Prueba de tarjetas NFC', items: ['Comprueba desde Ajustes → Pruebas si tu teléfono puede leer el UID de una tarjeta NFC.', 'Consulta y copia el resultado para compararlo con el lector ESP32, sin registrar empleados ni asistencia.'] },
     { version: '1.7.111', date: '2026-10-27', title: 'Tu audio, sin perder el hilo', items: ['Voz avisa cuando detecta silencio o volumen muy bajo y permite escuchar, repetir o enviar de todos modos.', 'Vuelve a Voz con Atrás después de abrir préstamos o registrar un gasto, conservando el estado de la operación.', 'Al regresar, las operaciones completadas se muestran como registradas y no vuelven a enviarse.'] },
     { version: '1.7.110', date: '2026-10-26', title: 'Tu espacio de Voz', items: ['Abre el nuevo modal de Voz desde General para configurar reconocimiento y captura.', 'Consulta, agrega, edita y elimina pronunciaciones de cada empleado.', 'Escucha y gestiona las grabaciones de esta obra sin modificar sus préstamos.'] },
     { version: '1.7.109', date: '2026-10-24', title: 'Sincronización de obras más segura', items: ['Evita mezclar obras al cambiar de cuenta o cerrar sesión.', 'Protege las horas editadas y los ajustes de nómina frente a respuestas atrasadas.', 'Mantiene la selección de obra y bloquea la sincronización durante una restauración pendiente.', 'Evita que una escritura antigua sobrescriba cambios más recientes de otro dispositivo.'] },

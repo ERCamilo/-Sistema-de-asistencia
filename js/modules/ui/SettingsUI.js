@@ -18,6 +18,7 @@ import {
 import { SettingsDataTab } from './settings/SettingsDataTab.js';
 import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
 import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
+import { openNfcReadTest } from './settings/NfcReadTest.js';
 import { createVersionTapper, isDeveloperMode, setDeveloperMode, versionTapMessage } from './settings/DeveloperMode.js';
 import './onboarding/OnboardingPreview.js';
 import { openSafeModalPreview } from './ModalPreviewGallery.js';
@@ -42,6 +43,7 @@ export { SyncCard, refreshDeviceSettingsDiagnostics } from './settings/SettingsD
 const versionTapper = createVersionTapper();
 
 const _SETTINGS_ACTION_MAP = {
+    'test-nfc-read': () => openNfcReadTest(),
     'whats-new': () => openWhatsNew(),
     'check-app-updates': () => checkAppUpdates(),
     'version-tap': () => {

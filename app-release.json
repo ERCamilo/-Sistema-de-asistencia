@@ -1,6 +1,15 @@
 {
-  "version": "1.7.111",
+  "version": "1.7.112",
   "changelog": [
+    {
+      "version": "1.7.112",
+      "date": "2026-10-27",
+      "title": "Prueba de tarjetas NFC",
+      "items": [
+        "Comprueba desde Ajustes → Pruebas si tu teléfono puede leer el UID de una tarjeta NFC.",
+        "Consulta y copia el resultado para compararlo con el lector ESP32, sin registrar empleados ni asistencia."
+      ]
+    },
     {
       "version": "1.7.111",
       "date": "2026-10-27",
