@@ -21,6 +21,7 @@ function draw(tab = 'general') {
 }
 beforeEach(() => { clearErrorLog(); jest.useFakeTimers(); clearAppCaches.mockReset().mockResolvedValue({ deletedCaches: 1 }); saveApplicationData.mockClear(); });
 afterEach(() => {
+    document.querySelector('#interface-repair-modal:not([data-modal-closing]) [data-modal-close]')?.click();
     clearSettingsFormErrors(); discardSettingsDraft({}); document.body.innerHTML = '';
     delete window.showConfirm; delete window.showNotification;
     jest.clearAllTimers(); jest.useRealTimers();
@@ -64,45 +65,43 @@ test('el modo de guardado distingue incluso el checkbox de déficit del interrup
     expect(document.getElementById('showAttendanceCardDeficit').closest('label').textContent).toContain('Al guardar');
     expect(document.getElementById('weatherEnabled').closest('label').textContent).toContain('Automático');
 });
-test('cancelar la recarga conserva el borrador y no limpia la caché', () => {
+test('un borrador bloquea la reparación y conserva los valores sin ofrecer descartarlos', () => {
     draw(); document.getElementById('companyName').value = 'Pendiente';
     window.showConfirm = jest.fn(); document.querySelector('[data-settings-action="clear-cache"]').click();
-    expect(window.showConfirm.mock.calls[0][0].message).toMatch(/sin guardar.*descartar/i);
-    expect(window.showConfirm.mock.calls[0][0].confirmText).toMatch(/Descartar/);
+    expect(window.showConfirm).not.toHaveBeenCalled();
     expect(clearAppCaches).not.toHaveBeenCalled();
     expect(document.getElementById('companyName').value).toBe('Pendiente');
-});
-test('la recarga confirmada limpia una sola vez, manteniendo el borrador hasta recargar', async () => {
-    draw(); document.getElementById('companyName').value = 'Pendiente';
-    window.showConfirm = jest.fn(); document.querySelector('[data-settings-action="clear-cache"]').click();
-    const confirm = window.showConfirm.mock.calls[0][0].onConfirm;
-    await Promise.all([confirm(), confirm()]);
-    expect(clearAppCaches).toHaveBeenCalledTimes(1);
-    expect(document.getElementById('companyName').value).toBe('Pendiente');
-    expect(jest.getTimerCount()).toBe(1); // reload is scheduled, not executed by this fixture
-});
-test('una edición posterior exige una nueva confirmación antes de recargar', async () => {
-    draw(); window.showConfirm = jest.fn(); document.querySelector('[data-settings-action="clear-cache"]').click();
-    document.getElementById('companyName').value = 'Edición nueva';
-    await window.showConfirm.mock.calls[0][0].onConfirm();
-    expect(clearAppCaches).not.toHaveBeenCalled(); expect(window.showConfirm).toHaveBeenCalledTimes(2);
-    expect(window.showConfirm.mock.calls[1][0].message).toMatch(/sin guardar/);
-});
-test('sin diálogo de confirmación no se recarga un borrador', () => {
-    draw(); document.getElementById('companyName').value = 'Pendiente';
-    document.querySelector('[data-settings-action="clear-cache"]').click();
-    expect(clearAppCaches).not.toHaveBeenCalled();
     expect(document.getElementById('settings-form-error').textContent).toMatch(/Guarda o descarta/);
 });
-test('un fallo de caché conserva lo editado y explica el error inline', async () => {
-    draw(); document.getElementById('companyName').value = 'Pendiente';
-    clearAppCaches.mockRejectedValue(Error('Cache unavailable')); window.showConfirm = jest.fn();
+test('el acceso anterior abre una única reparación segura sin limpiar ni desregistrar', () => {
+    draw();
     document.querySelector('[data-settings-action="clear-cache"]').click();
-    await window.showConfirm.mock.calls[0][0].onConfirm();
-    expect(document.getElementById('companyName').value).toBe('Pendiente');
-    expect(document.getElementById('settings-form-error').textContent).toMatch(/cambios pendientes se conservan/);
-    expect(jest.getTimerCount()).toBe(0);
-    expect(getAllErrors()).toEqual(expect.arrayContaining([expect.objectContaining({ context: 'limpiar el cache' })]));
+    document.querySelector('[data-settings-action="clear-cache"]').click();
+    expect(document.querySelectorAll('#interface-repair-modal')).toHaveLength(1);
+    expect(document.querySelector('#interface-repair-modal').textContent).toMatch(/datos, fotos y comprobantes/);
+    expect(clearAppCaches).not.toHaveBeenCalled();
+    document.querySelector('#interface-repair-modal [data-modal-close]').click();
+    expect(document.getElementById('companyName').value).toBe('Empresa');
+});
+test('una edición posterior al diálogo bloquea la reparación antes de guardar o renovar archivos', async () => {
+    draw(); document.querySelector('[data-settings-action="clear-cache"]').click();
+    document.getElementById('companyName').value = 'Edición nueva';
+    document.querySelector('#interface-repair-modal .btn-primary').click();
+    for(let i=0;i<10;i++)await Promise.resolve();
+    expect(clearAppCaches).not.toHaveBeenCalled();expect(saveApplicationData).not.toHaveBeenCalled();
+    expect(document.querySelector('#interface-repair-modal [data-release-status]').textContent).toMatch(/Guarda o cierra/);
+    expect(document.getElementById('companyName').value).toBe('Edición nueva');
+});
+test('un guardado fallido conserva la página, permite reintentar y registra el error de reparación', async () => {
+    draw(); document.querySelector('[data-settings-action="clear-cache"]').click();
+    saveApplicationData.mockRejectedValueOnce(Error('synthetic disk unavailable'));
+    document.querySelector('#interface-repair-modal .btn-primary').click();
+    for(let i=0;i<12;i++)await Promise.resolve();
+    expect(document.getElementById('companyName').value).toBe('Empresa');
+    expect(document.querySelector('#interface-repair-modal [data-release-status]').textContent).toMatch(/No se pudo/);
+    expect(document.querySelector('#interface-repair-modal .btn-primary').disabled).toBe(false);
+    expect(clearAppCaches).not.toHaveBeenCalled();
+    expect(getAllErrors()).toEqual(expect.arrayContaining([expect.objectContaining({ context: 'reparar interfaz' })]));
 });
 test('la validación queda junto al campo y persiste al actualizar otro ajuste', () => {
     draw('calendar'); const input = document.getElementById('overtimeFactor'); input.value = '';
@@ -147,4 +146,23 @@ test('un error tardío del proyecto anterior no se muestra en el proyecto nuevo'
     reject(Error('old project failure')); await saving;
     expect(document.getElementById('settings-form-error')).toBeNull();
     expect(getAllErrors()).toEqual(expect.arrayContaining([expect.objectContaining({context:'guardar configuración del proyecto'})]));
+});
+
+test('un guardado bloqueado tiene límite y su respuesta tardía no renueva ni recarga', async () => {
+    draw(); document.querySelector('[data-settings-action="clear-cache"]').click();
+    let finish;
+    saveApplicationData.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const previousFetch = global.fetch;
+    const fetcher = global.fetch = jest.fn(() => { throw Error('unexpected release request'); });
+    try {
+        document.querySelector('#interface-repair-modal .btn-primary').click();
+        await jest.advanceTimersByTimeAsync(15001);
+        expect(document.querySelector('#interface-repair-modal .btn-primary').disabled).toBe(false);
+        expect(document.querySelector('#interface-repair-modal [data-release-status]').textContent).toMatch(/No se pudo/);
+        finish({ localOk: true });
+        for(let i=0;i<12;i++)await Promise.resolve();
+        expect(fetcher).not.toHaveBeenCalled();
+        expect(clearAppCaches).not.toHaveBeenCalled();
+        expect(document.getElementById('companyName').value).toBe('Empresa');
+    } finally { if (previousFetch) global.fetch = previousFetch; else delete global.fetch; }
 });

@@ -386,11 +386,11 @@ export function SettingsGeneralTab(context) {
                     </div>
                     <div class="settings-inline-action" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
                         <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
-                            ¿No ves la última versión de la app? Limpia el cache del navegador para forzar la actualización.
-                            <strong style="color: #cbd5e1;">No se borran tus datos</strong> (empleados, asistencia, configuración).
+                            ¿La interfaz se ve incompleta? Renueva los archivos de la aplicación.
+                            <strong style="color: #cbd5e1;">Conserva tus datos, fotos y comprobantes.</strong>
                         </span>
                         <button type="button" data-settings-action="clear-cache" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.8rem; white-space: nowrap;">
-                            Limpiar cache y recargar
+                            Reparar interfaz
                         </button>
                     </div>
                     <div class="settings-inline-action" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
