@@ -1,18 +1,21 @@
+import { processVoiceRecording, resumeVoicePending, pauseVoiceProcessing } from './VoiceProcessing.js';
+import { voiceKeepPending, voiceProcessingStatus } from './VoicePending.js';
 import { transcriptWords, selectedTranscriptName, suggestTranscriptNames, VoiceNameWords } from './VoiceNameWords.js';
 import { voiceFacts, suggestedVoiceIntent, isVoiceIntentUnclear } from './VoiceIntent.js';
 import { voiceIcon, voicePlayer, voiceEmployeeCard } from './VoiceVisuals.js';
 import { VoiceLoanView } from './VoiceLoanView.js';
 import { VoiceEmployeeView } from './VoiceEmployeeView.js';
 import { VoiceAliasView, needsVoiceAliasPrompt } from './VoiceAliasView.js';
-import { rankVoiceEmployees, voiceMatchCandidates, pickAutomaticVoiceMatch } from './VoiceMatching.js';
+import { pickAutomaticVoiceMatch } from './VoiceMatching.js';
 import { VoiceAudioView } from './VoiceAudioView.js';
 import { voiceRetentionPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET } from './VoiceRetention.js';
 import { VoiceStore } from './VoiceStore.js';
 import { VoiceRecorder } from './VoiceRecorder.js';
 import { voiceAudioNeedsReview } from './VoiceAudioQuality.js';
 import { VoiceReturnView } from './VoiceReturnView.js';
+import { resolveVoiceEmployeeContext } from './VoicePositionContext.js';
 import { createHoldGuard } from '../../ui/HoldGuard.js';
-import { LOAN_FIELDS, VOICE_TEST_ENDPOINT, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceName, isVoiceEndpointAllowed, createVoiceContext, sendVoiceRecording, resolveVoiceEmployees, voiceBlocked, voiceHardBlocked, voiceDraftReady } from './VoiceCore.js';
+import { LOAN_FIELDS, VOICE_TEST_ENDPOINT, VOICE_ENDPOINT_PREFIX, VOICE_DEV_ENDPOINT, normalizeVoiceName, isVoiceEndpointAllowed, createVoiceContext, resolveVoiceEmployees, voiceBlocked, voiceHardBlocked, voiceDraftReady } from './VoiceCore.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { completeVoiceLoanDraft, voiceLoanNote } from './VoiceLoanDraft.js';
 import { getDateKey } from '../../utils/DateUtils.js';
@@ -94,26 +97,39 @@ export class VoiceMvpUI {
         });
         this.dialog.addEventListener('change', event => this.run(() => this.change(event.target)));
         this.dialog.addEventListener('cancel', event => { event.preventDefault(); this.run(() => this.action('close')); });
-        this.onWipe = () => { this.wiped = true; this.close({ discard: true }); this.record = null; this.history = []; this.launcher.hidden = true; };
+        this.onWipe = () => { pauseVoiceProcessing(this); this.wiped = true; this.close({ discard: true }); this.record = null; this.history = []; this.launcher.hidden = true; };
         window.addEventListener('sa:voice-wipe', this.onWipe);
         this.onDiscardedAudio = event => {
             const detail = event.detail, record = this.record;
+            const processing = this.processingRecord;
+            if (processing && detail?.uid === processing.uid && detail.projectKey === processing.projectKey && detail.requestIds.includes(processing.requestId)) this.processingController?.abort();
             if (!record || detail?.uid !== record.uid || detail.projectKey !== record.projectKey || !detail.requestIds.includes(record.requestId)) return;
             record.discarded = true; this.processingController?.abort(); this.close(); this.record = null; this.history = [];
         };
         window.addEventListener('sa:voice-audio-discarded', this.onDiscardedAudio);
-        this.unsubscribeScope = this.adapter.subscribeScope?.(() => { this.close({ discard: true }); this.record = null; this.history = []; });
+        this.unsubscribeScope = this.adapter.subscribeScope?.(() => { pauseVoiceProcessing(this); this.close(); this.record = null; this.history = []; });
         this.onStorageRetry = event => {
             if (event.target.closest?.('[data-voice-storage-retry]')) this.refreshStorageStatus({ force: true });
         };
         document.addEventListener('click', this.onStorageRetry);
-        this.unsubscribeEnabled = this.adapter.subscribeEnabled?.(() => { this.refreshVisibility(); this.refreshStorageStatus(); });
+        this.queueEnabled = this.adapter.isEnabled?.() !== false;
+        this.queueSessionUid = this.adapter.getUser()?.uid || null;
+        this.unsubscribeEnabled = this.adapter.subscribeEnabled?.(() => {
+            this.refreshVisibility(); this.refreshStorageStatus();
+            const enabled = this.adapter.isEnabled?.() !== false, previous = this.queueEnabled; this.queueEnabled = enabled;
+            if (enabled && !previous) this.onOnline?.();
+        });
         this.unsubscribe = this.adapter.subscribeSession?.(() => {
             this.refreshVisibility();
             this.refreshStorageStatus();
-            const uid = this.adapter.getUser()?.uid;
-            if (!uid || (this.returnIdentity && uid !== this.returnIdentity.uid) || (this.record && uid !== this.record.uid) || (this.recording && uid !== this.recordingUid)) { this.close({ discard: true }); this.record = null; }
+            const uid = this.adapter.getUser()?.uid, previousUid = this.queueSessionUid; this.queueSessionUid = uid;
+            if (!uid || (this.returnIdentity && uid !== this.returnIdentity.uid) || (this.record && uid !== this.record.uid) || (this.recording && uid !== this.recordingUid) || (this.processingRecord && uid !== this.processingRecord.uid)) { pauseVoiceProcessing(this); this.close(); this.record = null; }
+            if (uid && !previousUid) this.onOnline?.();
         });
+        this.onOnline = () => { if (this.processingFlight) { this.resumeAfterFlight = true; return; } this.resumePending({ automatic: true }).catch(() => {}); };
+        this.onOffline = () => { if (this.dialog.open) this.render(); };
+        window.addEventListener('online', this.onOnline); window.addEventListener('offline', this.onOffline);
+        this.onOnline();
         this.refreshVisibility();
         this.refreshStorageStatus();
         this.maintenanceTimer = setInterval(() => this.refreshStorageStatus({ force: true }), 5 * 60 * 1000);
@@ -171,7 +187,8 @@ export class VoiceMvpUI {
     }
     refreshVisibility() {
         this.launcher.hidden = this.wiped || this.adapter.isEnabled?.() === false || !this.adapter.getUser();
-        if (this.launcher.hidden && ((this.dialog.open && this.view !== 'playback' && this.view !== 'storage') || this.recording)) this.close({ discard: true });
+        if (this.launcher.hidden) pauseVoiceProcessing(this);
+        if (this.launcher.hidden && ((this.dialog.open && this.view !== 'playback' && this.view !== 'storage') || this.recording)) this.close();
     }
     async run(callback) {
         try { await callback(); } catch (error) { if (!this.dialog.open) this.adapter.notify?.(error.message || 'No se pudo completar la acción.', 'warning'); this.messageError = true; this.message = error.message || 'No se pudo completar la acción.'; if (this.dialog.open) this.render(); }
@@ -195,13 +212,23 @@ export class VoiceMvpUI {
         // The legacy HTTP endpoint cannot be used from the public HTTPS preview.
         return (saved === VOICE_TEST_ENDPOINT || saved === VOICE_DEV_ENDPOINT && location.protocol === 'https:' ? this.adapter.getEndpoint() : saved) || this.adapter.getEndpoint() || '';
     }
-    async open() {
-        const identity = this.identity();
+    async open(requestId = null) {
+        const identity = this.identity(), epoch = this.processingEpoch || 0;
         if (this.record && (this.record.uid !== identity.uid || this.record.projectKey !== identity.projectKey)) this.record = null;
         await this.maintenance();
-        this.history = await this.store.list(identity.uid, identity.projectKey); this.message = '';
+        const history = await this.store.list(identity.uid, identity.projectKey);
+        if (this.identity().uid !== identity.uid || this.identity().projectKey !== identity.projectKey || epoch !== (this.processingEpoch || 0)) return;
+        this.history = history;
+        this.message = '';
+        if (this.record && !this.record.unsaved) this.record = history.find(record => record.requestId === this.record.requestId) || null;
+        if (requestId) {
+            this.record = this.history.find(record => record.requestId === requestId);
+            if (!this.record?.audio) throw Error('El audio venció o fue eliminado.');
+            if (this.record.completedLoanId || this.record.completedCashId) throw Error('Esta grabación ya tiene una operación registrada.');
+        }
         if (!this.record?.audio || this.record.discarded || this.record.completedLoanId) this.record = this.history.find(r => r.audio && !r.completedLoanId && r.purpose !== 'name-example') || null;
-        this.view = this.record?.result ? (this.record.selectedEmployeeId ? 'loan' : 'employees') : 'audio';
+        this.view = this.record?.pendingResult ? 'audio' : this.record?.result ? (this.record.selectedEmployeeId ? 'loan' : 'employees') : 'audio';
+        if (this.record) this.message = this.record.error?.message || '';
         await this.prepareLoadedLoan(); await this.refreshMatches(); this.render(); this.dialog.showModal();
         if (this.record?.result && !this.record.pendingResult && (this.effectiveResult()?.intent === 'registrar_gasto_caja_chica' || isVoiceIntentUnclear(this.record.result))) { await this.routeResult(); if (this.dialog.open) this.render(); }
     }
@@ -213,12 +240,13 @@ export class VoiceMvpUI {
         this.dialog.dataset.historyReturn = 'on';
     }
     close({ discard = false } = {}) {
+        this.employeeResolution = null; this.matchRequest = (this.matchRequest || 0) + 1;
         this.returnSummary = null;
         this.returnIdentity = null;
         if (this.dialog?.dataset) { delete this.dialog.dataset.historyLayer; delete this.dialog.dataset.historyReturn; }
         this.aliasSelection = null;
         this.testEndpointUid = null;
-        if (discard && this.record && !this.record.completedLoanId) { const record = this.record; record.discarded = true; if (this.processingRecord === record) this.processingController?.abort(); this.store.remove?.(record.uid, record.requestId).catch(() => this.adapter.notify?.('No se pudo eliminar el audio descartado.', 'warning')); }
+        if (discard && this.record && !this.record.completedLoanId && !voiceKeepPending(this.record)) { const record = this.record; record.discarded = true; if (this.processingRecord === record) this.processingController?.abort(); this.store.remove?.(record.uid, record.requestId).catch(() => this.adapter.notify?.('No se pudo eliminar el audio descartado.', 'warning')); }
         this.finishConfirmation?.(false);
         if (this.recording) { this.feedback.play('cancel'); this.setCaptureState('idle'); }
         this.recorder?.cancel(); this.releaseWarm(); this.recording = false; this.held = false; this.showWave(false);
@@ -243,7 +271,7 @@ export class VoiceMvpUI {
         this.identity();
         // Borrar la toma anterior sin esperar: el micrófono no espera a IndexedDB.
         const previous = this.record; this.record = null;
-        if (previous && !previous.completedLoanId) { previous.discarded = true; this.store.remove?.(previous.uid, previous.requestId)?.catch?.(() => {}); }
+        if (previous && !previous.completedLoanId && !voiceKeepPending(previous)) { previous.discarded = true; this.store.remove?.(previous.uid, previous.requestId)?.catch?.(() => {}); }
         if (!this.held) { this.releaseWarm(); return; }
         this.view = 'audio';
         if (this.dialog.open) this.dialog.close();
@@ -417,15 +445,17 @@ export class VoiceMvpUI {
             return;
         }
         if (!this.selected()) {
-            const match = pickAutomaticVoiceMatch(this.rankedMatches || this.matches, this.adapter.getSettings?.()?.voiceMatchPrecision);
+            if (this.employeeResolution?.record === this.record && this.employeeResolution.precision !== this.adapter.getSettings?.()?.voiceMatchPrecision) await this.refreshMatches();
+            const match = this.employeeResolution?.record === this.record ? this.employeeResolution.automatic : pickAutomaticVoiceMatch(this.rankedMatches || this.matches, this.adapter.getSettings?.()?.voiceMatchPrecision);
             // Conflicting name/number must be resolved by the user, even when the number is exact.
             let conflicts = false;
-            if (this.record.mention.spokenName && this.record.mention.spokenNumber && match) {
-                const named = resolveVoiceEmployees({ spokenName: this.record.mention.spokenName }, this.adapter.getEmployees(), this.employeeAliases);
+            if (this.spokenEmployeeName() && this.record.mention.spokenNumber && match) {
+                const named = resolveVoiceEmployees({ spokenName: this.spokenEmployeeName() }, this.adapter.getEmployees(), this.employeeAliases);
                 conflicts = !named.some(m => m.employee.id === match.employee.id && m.score >= 1);
             }
             if (!match || conflicts) { this.view = 'employees'; return; }
             this.record.selectedEmployeeId = match.employee.id;
+            this.record.employeeSelection = 'automatic';
             this.applyInitialRate(match.employee); await this.save();
         }
         if (this.effectiveResult()?.intent === 'crear_prestamo') { this.record.draft ||= completeVoiceLoanDraft({ principal: voiceFacts(this.record.result).amount, concept: voiceFacts(this.record.result).note || voiceFacts(this.record.result).concept }, this.adapter.getLoanDefaults?.(this.selected())); this.record.visitedLoan = true; this.view = 'loan'; return; }
@@ -441,15 +471,26 @@ export class VoiceMvpUI {
     }
     async save() { this.guard(); await this.store.put(this.record); }
     async refreshMatches() {
-        const identity = this.identity();
+        const identity = this.identity(), record = this.record, request = this.matchRequest = (this.matchRequest || 0) + 1;
+        const signature = JSON.stringify([record?.mention,record?.transcript,record?.ignoreVoicePosition]);
         if (this.effectiveResult()?.intent === 'registrar_gasto_caja_chica') {
-            this.employeeAliases = []; this.matches = []; this.rankedMatches = []; return;
+            this.employeeAliases = []; this.matches = []; this.rankedMatches = []; this.employeeResolution = null; return;
         }
         const aliases = await this.store.aliases(identity.uid, identity.projectKey);
+        const current = this.identity();
+        if (current.uid !== identity.uid || current.projectKey !== identity.projectKey) throw Error('Cambió la cuenta o la obra. Vuelve a abrir Voz.');
+        if (request !== this.matchRequest || this.record !== record || record?.discarded || signature !== JSON.stringify([record?.mention,record?.transcript,record?.ignoreVoicePosition])) return;
         this.employeeAliases = aliases;
-        this.rankedMatches = rankVoiceEmployees(this.record?.mention || {}, this.adapter.getEmployees(), aliases);
-        this.matches = voiceMatchCandidates(this.rankedMatches);
+        const precision = this.adapter.getSettings?.()?.voiceMatchPrecision;
+        this.employeeResolution = { ...resolveVoiceEmployeeContext({mention:record?.mention,transcript:record?.transcript,employees:this.adapter.getEmployees(),aliases,positions:this.adapter.getPositions?.() || [],precision,ignorePosition:record?.ignoreVoicePosition===true}), record, precision };
+        this.rankedMatches = this.employeeResolution.ranked; this.matches = this.employeeResolution.matches;
+        if (record?.selectedEmployeeId && !record.completedLoanId && record.employeeSelection !== 'manual'
+            && this.employeeResolution.hints.length && this.employeeResolution.automatic?.employee.id !== record.selectedEmployeeId) {
+            record.selectedEmployeeId = null; record.employeeSelection = null; record.dirty = true; this.view = 'employees';
+            await this.save();
+        }
     }
+    spokenEmployeeName() { return this.employeeResolution?.record === this.record ? this.employeeResolution.nameQuery : this.record?.mention?.spokenName; }
     selected() { return this.adapter.getEmployees().find(e => e.id === this.record?.selectedEmployeeId); }
     loanReady() {
         if (!voiceDraftReady(this.record?.draft)) return false;
@@ -470,6 +511,7 @@ export class VoiceMvpUI {
         record.rateDefault = result.loan?.interestRate == null;
         record.loanDefaultsVersion = 1;
         record.employeeDefaultsApplied = false; record.selectedEmployeeId = null; record.reviewed = false; record.dirty = false; record.pendingResult = null; record.rememberName = false;
+        record.employeeSelection = null; record.ignoreVoicePosition = false; if (record === this.record) this.employeeResolution = null;
     }
     confirmInline(message) {
         return new Promise(resolve => {
@@ -485,6 +527,7 @@ export class VoiceMvpUI {
     async selectEmployee(employee) {
         this.view = 'employees';
         this.record.selectedEmployeeId = employee.id;
+        this.record.employeeSelection = 'manual';
         this.applyInitialRate(employee);
         this.record.dirty = true; this.allEmployees = false;
         await this.save(); await this.routeResult(); if (this.record) this.render();
@@ -492,7 +535,7 @@ export class VoiceMvpUI {
     async decideAlias(remember) {
         const pending = this.aliasSelection, record = this.record;
         this.guard(record);
-        if (!pending || pending.record !== record || pending.spokenName !== record.mention.spokenName) return;
+        if (!pending || pending.record !== record || pending.spokenName !== this.spokenEmployeeName()) return;
         const employee = this.adapter.getEmployees().find(item => item.id === pending.employeeId);
         if (!employee) throw Error('Empleado no disponible en el proyecto activo.');
         const guard = () => {
@@ -522,7 +565,7 @@ export class VoiceMvpUI {
         if (action === 'confirm-accept' || action === 'confirm-cancel') { this.finishConfirmation?.(action === 'confirm-accept'); return; }
         if (this.confirmation && action !== 'close') return;
         this.messageError = false;
-        if (action === 'close') { this.close({ discard: true }); return; }
+        if (action === 'close') { pauseVoiceProcessing(this); this.close({ discard: true }); return; }
         if (action === 'play-audio') {
             const audio = this.dialog.querySelector('audio');
             if (audio) { if (audio.paused) await audio.play(); else audio.pause(); }
@@ -538,7 +581,7 @@ export class VoiceMvpUI {
         }
         if (action === 'stop') { this.recorder?.stop(); return; }
         if (this.busy || this.recording) return;
-        if (action === 'voice-settings' && this.view === 'done') { this.close(); this.adapter.onSettings?.(); return; }
+        if (action === 'voice-settings') { const initial = this.view === 'done' ? 'home' : 'recordings'; this.close(); this.adapter.onSettings?.(initial); return; }
         if (action === 'clear-audio') {
             const identity = this.identity(true);
             if (!await this.confirmInline('¿Eliminar los audios de esta cuenta en este navegador? Los préstamos se conservarán.')) return;
@@ -550,14 +593,14 @@ export class VoiceMvpUI {
         if (action === 'test-endpoint') { this.testEndpointUid = this.identity().uid; this.message = 'Webhook de prueba temporal. Activa la escucha en n8n antes de enviar.'; this.render(); return; }
         if (action === 'default-endpoint') { this.testEndpointUid = null; localStorage.removeItem(`${VOICE_ENDPOINT_PREFIX}${this.identity().uid}`); this.message = 'Webhook de producción seleccionado.'; this.render(); return; }
         if (action === 'record') {
-            if (this.record?.audio && !this.record.discarded && !this.record.completedLoanId) {
+            if (this.record?.audio && !this.record.discarded && !this.record.completedLoanId && !voiceKeepPending(this.record)) {
                 const previous = this.record;
                 if (!await this.confirmInline('¿Reemplazar esta grabación? Su audio y borrador se eliminarán al comenzar otra.')) return;
                 this.guard(previous); if (this.record !== previous) return;
             }
             this.returnSummary = null; this.returnIdentity = null;
             if (this.dialog?.dataset) { delete this.dialog.dataset.historyLayer; delete this.dialog.dataset.historyReturn; }
-            if (this.record && !this.record.completedLoanId) { this.record.discarded = true; await this.store.remove?.(this.record.uid, this.record.requestId); }
+            if (this.record && !this.record.completedLoanId && !voiceKeepPending(this.record)) { this.record.discarded = true; await this.store.remove?.(this.record.uid, this.record.requestId); }
             this.record = null; if (this.dialog.open) this.dialog.close();
             const identity = this.identity(); this.message = ''; this.recordingUid = identity.uid; this.recording = true; this.setCaptureState('arming');
             this.recordLevels = [];
@@ -576,12 +619,19 @@ export class VoiceMvpUI {
             return;
         }
         if (action === 'load') {
-            const identity = this.identity(); this.record = await this.store.get(identity.uid, id); this.guard();
-            this.allEmployees = false; this.view = this.record.completedLoanId ? 'playback' : this.record.selectedEmployeeId ? 'loan' : 'employees'; this.message = ''; await this.prepareLoadedLoan(); await this.refreshMatches();
+            const identity = this.identity(), loaded = await this.store.get(identity.uid, id);
+            if (!loaded) throw Error('El audio venció o fue eliminado.');
+            this.guard(loaded); this.record = loaded;
+            this.allEmployees = false; this.view = this.record.completedLoanId ? 'playback' : !this.record.result || this.record.pendingResult ? 'audio' : this.record.selectedEmployeeId ? 'loan' : 'employees'; this.message = this.record.error?.message || voiceProcessingStatus(this.record); await this.prepareLoadedLoan(); await this.refreshMatches();
             if (!this.record.completedLoanId && !this.record.pendingResult && (isVoiceIntentUnclear(this.record.result) || this.effectiveResult()?.intent === 'registrar_gasto_caja_chica')) await this.routeResult();
             if (this.record && this.dialog.open) this.render(); return;
         }
         this.guard();
+        if (action === 'position-hint') {
+            this.record.ignoreVoicePosition = !this.record.ignoreVoicePosition;
+            this.record.selectedEmployeeId = null; this.record.employeeSelection = null; this.record.dirty = true; this.view = 'employees';
+            await this.save(); await this.refreshMatches(); this.render(); return;
+        }
         if (action === 'save-audio') { delete this.record.unsaved; try { await this.save(); } catch (error) { this.record.unsaved = true; throw error; } this.render(); return; }
         if (action === 'intent-loan') { await this.chooseIntent('crear_prestamo'); return; }
         if (action === 'intent-cash') { await this.chooseIntent('registrar_gasto_caja_chica'); return; }
@@ -604,6 +654,7 @@ export class VoiceMvpUI {
             if (name) {
                 this.record.mention = { ...this.record.mention, spokenName: name, spokenNumber: null };
                 this.record.selectedEmployeeId = null; this.record.reviewed = false; this.record.rememberName = false; this.record.dirty = true;
+                this.record.employeeSelection = null;
                 this.nameWordPicker = null; this.allEmployees = false; this.view = 'employees';
                 await this.save(); await this.refreshMatches();
             }
@@ -624,8 +675,8 @@ export class VoiceMvpUI {
         if (action === 'choose') { this.view = 'employees'; this.allEmployees = true; this.render(); return; }
         if (action === 'select') {
             const employee = this.adapter.getEmployees().find(e => e.id === id); if (!employee) throw Error('Empleado no disponible en el proyecto activo.');
-            if (!voiceHardBlocked(this.record.result) && needsVoiceAliasPrompt(this.record.mention.spokenName, employee, this.employeeAliases)) {
-                this.aliasSelection = { record: this.record, employeeId: employee.id, spokenName: this.record.mention.spokenName };
+            if (!voiceHardBlocked(this.record.result) && needsVoiceAliasPrompt(this.spokenEmployeeName(), employee, this.employeeAliases)) {
+                this.aliasSelection = { record: this.record, employeeId: employee.id, spokenName: this.spokenEmployeeName() };
                 this.view = 'remember'; this.render();
                 this.dialog.querySelector?.('[data-voice-action=alias-save]')?.focus?.();
                 return;
@@ -685,26 +736,24 @@ export class VoiceMvpUI {
             navigation?.commit();
         } catch (error) { navigation?.cancel(); throw error; }
     }
-    async process() {
-        if (this.record.unsaved) throw Error('Conserva el audio localmente antes de enviarlo.');
-        if (this.record.retryAt > Date.now()) throw Error('Espera hasta ' + new Date(this.record.retryAt).toLocaleTimeString() + ' antes de reintentar.');
-        const record = this.record; this.processingRecord = record; this.processingController = new AbortController(); this.busy = true; this.message = 'Procesando la grabación…'; this.render();
-        try {
-            const result = await sendVoiceRecording({ url: this.endpoint(), record, externalSignal: this.processingController.signal, getToken: async force => { this.guard(record); return this.adapter.getUser().getIdToken(force); } });
-            this.guard(record);
-            if (record.dirty) { record.pendingResult = result; this.message = 'Llegó un nuevo resultado. Tus ediciones se conservaron; puedes reemplazarlas explícitamente.'; }
-            else { this.applyResult(result, record); this.message = 'Borrador listo para revisar.'; }
-            record.retryAt = null; record.error = null; await this.store.put(record);
-            if (this.record?.requestId === record.requestId) { await this.refreshMatches(); this.busy = false; await this.routeResult(); }
-            else this.message = 'El resultado se conservó con su grabación original.';
-        } catch (error) {
-            if (record.discarded) return;
-            record.error = { code: error.code || 'ERROR', status: error.status || null, message: error.message, retryable: !!error.retryable };
-            record.retryAt = error.retryAfterMs ? Date.now() + error.retryAfterMs : null;
-            clearTimeout(this.retryTimer);
-            if (error.retryAfterMs) this.retryTimer = setTimeout(() => { if (this.dialog.open && this.record === record && !record.discarded) this.render(); }, error.retryAfterMs);
-            if (!this.wiped && !record.discarded) await this.store.put(record); this.message = error.message;
-        } finally { this.busy = false; if (this.dialog.open) this.render(); }
+    process(options = {}) {
+        const record = options.record || this.record;
+        if (this.processingFlight) {
+            if (this.processingRecord?.requestId === record?.requestId) return this.processingFlight;
+            return Promise.reject(Error('Ya hay un audio en proceso. Espera a que termine o usa Reintentar pendientes.'));
+        }
+        if (this.busy || this.recording) return Promise.reject(Error('Termina la acción actual antes de procesar otro audio.'));
+        this.processingFlight = processVoiceRecording(this, record, options).finally(() => {
+            this.processingFlight = null;
+            window.dispatchEvent(new Event('sa:voice-processing-changed'));
+            if (this.resumeAfterFlight) { this.resumeAfterFlight = false; this.onOnline?.(); }
+        });
+        return this.processingFlight;
+    }
+    resumePending(options) { return resumeVoicePending(this, options); }
+    async openSaved(requestId) {
+        this.identity();
+        await this.open(requestId);
     }
     async change(input) {
         if (this.aliasSelection) return;
@@ -725,8 +774,11 @@ export class VoiceMvpUI {
             if (field === 'installmentCount' && Number.isInteger(this.record.draft.installmentCount) && this.record.draft.installmentCount >= 1) this.record.draft.installmentMode = this.record.draft.installmentCount > 1 ? 'installments' : 'lump';
             if (field === 'installmentMode' && v === 'installments' && this.record.draft.installmentCount < 2) this.record.draft.installmentCount = 2;
         }
-        if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.reviewed = false; this.record.rememberName = false; this.view = 'employees'; }
-        if (input.dataset.voiceTranscript !== undefined) { this.record.transcript = input.value; this.nameWordPicker = null; }
+        if (input.dataset.voiceMention) { this.record.mention[input.dataset.voiceMention] = input.value || null; this.record.selectedEmployeeId = null; this.record.employeeSelection = null; this.record.reviewed = false; this.record.rememberName = false; this.view = 'employees'; }
+        if (input.dataset.voiceTranscript !== undefined) {
+            this.record.transcript = input.value; this.nameWordPicker = null;
+            if (this.record.employeeSelection === 'automatic') { this.record.selectedEmployeeId = null; this.record.employeeSelection = null; this.view = 'employees'; }
+        }
         if (input.dataset.voiceReviewed !== undefined) this.record.reviewed = input.checked;
         if (input.dataset.voiceRemember !== undefined) this.record.rememberName = input.checked;
         this.record.dirty = true; await this.save(); await this.refreshMatches(); this.render();
@@ -802,7 +854,7 @@ export class VoiceMvpUI {
         if (primary?.disabled) {
             hint = record?.retryAt > Date.now() ? `Puedes reintentar a las ${new Date(record.retryAt).toLocaleTimeString()}.` : record?.unsaved ? 'Conserva el audio localmente antes de enviarlo.' : this.busy ? 'Espera a que termine el procesamiento.' : record?.completedLoanId ? 'Esta grabación ya registró un préstamo.' : !selected ? 'Selecciona al empleado correcto.' : (result?.needsReview || result?.issues.length) && !record.reviewed ? 'Confirma que revisaste las advertencias.' : !record?.draft?.principal ? 'Completa el monto del préstamo.' : validation && !validation.valid ? validation.errors.join('. ') : 'Completa los datos y la fecha de cobro.';
         }
-        footer.innerHTML = `${view === 'playback' ? '' : button('close', ['storage','done'].includes(view) ? 'Cerrar' : view === 'loan' ? `${voiceIcon('close')}<span class="voice-sr">Cancelar</span>` : 'Cancelar', this.busy && !!record?.completedLoanId)}<p class="voice-hint" id="voice-hint">${escapeHTML(hint)}</p>`;
+        footer.innerHTML = `${view === 'playback' ? '' : button('close', ['storage','done'].includes(view) ? 'Cerrar' : voiceKeepPending(record) ? 'Cerrar y conservar' : view === 'loan' ? `${voiceIcon('close')}<span class="voice-sr">Cancelar</span>` : 'Cancelar', this.busy && !!record?.completedLoanId)}<p class="voice-hint" id="voice-hint">${escapeHTML(hint)}</p>`;
         if (view === 'storage') footer.querySelector('[data-voice-action=close]')?.remove();
         if (primary) { primary.classList.add('voice-primary'); primary.setAttribute('aria-describedby', 'voice-hint'); footer.append(primary); }
         if (view === 'remember') {
@@ -872,5 +924,5 @@ export class VoiceMvpUI {
         if (!audio.voiceBound) { for (const event of ['play','pause','ended','timeupdate','loadedmetadata']) audio.addEventListener(event,update); audio.voiceBound = true; }
         update();
     }
-    destroy() { this.destroyed = true; this.holdGuard?.end(); this.releaseWarm(); clearTimeout(this.revealTimer); document.removeEventListener('click', this.onStorageRetry); clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); window.removeEventListener('sa:voice-audio-discarded', this.onDiscardedAudio); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
+    destroy() { this.destroyed = true; pauseVoiceProcessing(this); window.removeEventListener('online', this.onOnline); window.removeEventListener('offline', this.onOffline); this.holdGuard?.end(); this.releaseWarm(); clearTimeout(this.revealTimer); document.removeEventListener('click', this.onStorageRetry); clearTimeout(this.savedTimer); clearInterval(this.clockTimer); this.feedback.close(); this.processingController?.abort(); clearTimeout(this.retryTimer); clearInterval(this.maintenanceTimer); window.removeEventListener('blur', this.onBlur); window.removeEventListener('keydown', this.onKey); document.removeEventListener('visibilitychange', this.onVisibility); this.wave?.remove(); this.recorder?.cancel(); this.unsubscribe?.(); this.unsubscribeScope?.(); this.unsubscribeEnabled?.(); window.removeEventListener('sa:voice-wipe', this.onWipe); window.removeEventListener('sa:voice-audio-discarded', this.onDiscardedAudio); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.store.close(); this.dialog.remove(); this.launcher.remove(); }
 }

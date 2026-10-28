@@ -2,6 +2,11 @@ import { sendVoiceRecording, VOICE_ENDPOINT, VOICE_TEST_ENDPOINT } from '../modu
 import { VoiceMvpUI } from '../modules/features/voice/VoiceUI.js';
 const record = { uid: 'user', projectKey: 'legacy', requestId: 'same-recording', fileBase64: 'AQID', mimeType: 'audio/webm', fileName: 'voice.webm', context: {} };
 const call = response => sendVoiceRecording({ url: VOICE_ENDPOINT, record, getToken: async () => 'token', fetchImpl: async () => response });
+test('the processing deadline also bounds an unresponsive token provider', async () => {
+    const fetchImpl = jest.fn();
+    await expect(sendVoiceRecording({url:VOICE_ENDPOINT,record,getToken:()=>new Promise(()=>{}),fetchImpl,timeoutMs:5})).rejects.toMatchObject({code:'PROCESSING_TIMEOUT',retryable:true});
+    expect(fetchImpl).not.toHaveBeenCalled();
+});
 test.each([
     [400, { ok: false, error: { code: 'INVALID_AUDIO', message: 'El archivo de audio está vacío.' } }, 'INVALID_AUDIO', 'El archivo de audio está vacío.'],
     [404, { code: 404, message: 'The requested webhook is not registered.' }, '404', 'The requested webhook is not registered.'],

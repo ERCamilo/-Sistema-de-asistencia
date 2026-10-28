@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Real MediaRecorder/Web Audio/IndexedDB/History; synthetic signals and business
+// Real MediaRecorder/Web Audio/IndexedDB/History and local position resolution; synthetic signals and business
 // adapters only. No microphone permission, account, n8n or cloud writes.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -12,10 +12,12 @@ import {VoiceMvpUI} from '/js/modules/features/voice/VoiceUI.js';
 import {VoicePettyCashUI} from '/js/modules/features/voice/VoicePettyCashUI.js';
 import {VoiceRecorder} from '/js/modules/features/voice/VoiceRecorder.js';
 import {VoiceStore} from '/js/modules/features/voice/VoiceStore.js';
+import {VoiceSettingsUI} from '/js/modules/features/voice/VoiceSettingsUI.js';
 import {createAppHistory} from '/js/modules/core/AppHistory.js';
 let view={tab:'attendance',sub:null},uid='fixture',epoch=0;const subscriptions=new Set();
 window.volume=.004;window.nextIntent='crear_prestamo';window.requests=[];window.loanSaves=0;window.cashSaves=0;
-const employees=[{id:'carlos',number:'00125',name:'Carlos Méndez',active:true,positions:[],loans:[]}];
+const positions=[{id:'brick',name:'Albañil',icon:'bricks',color:'#f6c84a'},{id:'electric',name:'Electricista',icon:'electrical',color:'#568cf6'}];
+const employees=[{id:'carlos',number:'00125',name:'Carlos Méndez',active:true,positions:['brick'],loans:[]},{id:'juan-a',number:'00126',name:'Juan Méndez',active:true,positions:['brick'],loans:[]},{id:'juan-b',number:'00127',name:'Juan Pérez',active:false,positions:['brick','electric'],loans:[]}];
 const store=new VoiceStore({name:'voice-quality-browser-fixture'});
 const historyManager=createAppHistory({getView:()=>view,applyView:next=>{view=next;return true;}}).start();
 const subscribe=fn=>{subscriptions.add(fn);return()=>subscriptions.delete(fn);};
@@ -32,13 +34,30 @@ const signal=async()=>{
  return destination.stream;
 };
 let cash;
-const adapter={getUser:()=>({uid,getIdToken:async()=> 'fictitious'}),getScope:()=>({enabled:false}),getEmployees:()=>employees,getPositions:()=>[],getSettings:()=>({voiceReviewBeforeSend:false,voiceKeepLoanAudio:true}),isEnabled:()=>true,getEndpoint:()=> 'https://n8n.invalid/voice',notify:message=>{window.notice=message;},subscribeSession:subscribe,subscribeScope:subscribe,
+const adapter={getUser:()=>({uid,getIdToken:async()=> 'fictitious'}),getScope:()=>({enabled:false}),getEmployees:()=>employees,getPositions:()=>positions,getSettings:()=>({voiceReviewBeforeSend:false,voiceKeepLoanAudio:true}),isEnabled:()=>true,getEndpoint:()=> 'https://n8n.invalid/voice',notify:message=>{window.notice=message;},subscribeSession:subscribe,subscribeScope:subscribe,
  getLoanDefaults:()=>({periods:[{id:'future',payDate:'2030-12-31'}]}),validateLoan:()=>({valid:true,errors:[]}),previewLoan:(_e,draft)=>({total:draft.principal*1.2,current:0,projected:draft.principal*1.2}),beginReturn,
  onLoan:async()=>{loanSaves++;await new Promise(r=>setTimeout(r,80));view={tab:'export',sub:'ledger'};return{id:'loan-'+loanSaves,createdAt:Date.now()};},onLoans:()=>{view={tab:'export',sub:'ledger'};},onPettyCash:(record,bridge)=>cash.open(record,bridge)};
 window.voice=new VoiceMvpUI(adapter,{store,mediaDevices:{getUserMedia:signal},recorderFactory:options=>new VoiceRecorder({...options,mediaDevices:{getUserMedia:signal}})}).mount();
 cash=new VoicePettyCashUI({...adapter,getContext:()=>({projects:[{id:'work',name:'Obra'}],periods:[{id:'period',projectId:'work',label:'Actual'}],selectedPeriodId:'period',categories:['Transporte']}),save:async()=>{cashSaves++;return{id:'cash-'+cashSaves};},onSaved:()=>{view={tab:'pettycash',sub:null};}}).mount();
+window.hub=new VoiceSettingsUI({...adapter,
+ onResumePending:()=>voice.resumePending(),onProcessRecording:async id=>voice.process({record:await store.get(uid,id),background:true}),
+ onReviewRecording:id=>{hub.close();return voice.openSaved(id);}}, {store}).mount();
+window.queueScenario=async()=>{
+ voice.close();voice.record=null;window.nextIntent='crear_prestamo';
+ Object.defineProperty(navigator,'onLine',{configurable:true,value:false});
+ for(const id of ['pending-a','pending-b']){
+  const record={uid,projectKey:'legacy',requestId:id,createdAt:Date.now(),audio:window.fixtureAudio,mimeType:window.fixtureAudio.type,fileName:'voice.webm',durationMs:1500,context:{localDate:'2026-10-27',timeZone:'America/Santo_Domingo'},dirty:true,draft:{principal:688,concept:'Nota conservada'}};
+  await store.put(record);await voice.process({record,background:true});
+ }
+ await hub.open('recordings');await hub.action('record-filter','pending');
+};
 document.getElementById('capture').onclick=()=>voice.startHold({toggle:true});
-window.changeUser=()=>{uid='other';epoch++;subscriptions.forEach(fn=>fn());};
+window.changeUser=value=>{uid=value||'other';epoch++;subscriptions.forEach(fn=>fn());};
+window.positionScenario=async(name,text,number=null)=>{
+ voice.close();voice.record={uid,projectKey:'legacy',requestId:crypto.randomUUID(),createdAt:Date.now(),context:{timeZone:'America/Santo_Domingo'}};
+ voice.applyResult({transcript:text,intent:'crear_prestamo',employee:{spokenName:name,spokenNumber:number},loan:{principal:7000,interestRate:25,interestIncluded:false,installmentMode:'lump',installmentCount:1,installmentFrequencyWeeks:null,startDate:null,concept:'Nota de prueba'},issues:[],needsReview:false});
+ await voice.refreshMatches();await voice.routeResult();voice.render();if(!voice.dialog.open)voice.dialog.showModal();
+};
 window.back=()=>history.back();window.ready=true;
 </script></body></html>`;
 const server=http.createServer((req,res)=>{
@@ -62,7 +81,7 @@ const server=http.createServer((req,res)=>{
     await page.waitForFunction(()=>voice.recorder?.recorder?.state==='recording');
     await page.waitForFunction(()=>voice.recorder.rmsSamples.length>=15);
     await page.evaluate(()=>voice.recorder.stop());await page.waitForFunction(()=>!!voice.record?.audio&&!voice.busy);
-    await page.evaluate(()=>signalContext.close());
+    await page.evaluate(()=>{window.fixtureAudio=voice.record.audio;return signalContext.close();});
    };
    const axe=async selector=>{
     if(!await page.evaluate(()=>!!window.axe))await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});
@@ -91,8 +110,42 @@ const server=http.createServer((req,res)=>{
    await page.evaluate(()=>back());await page.waitForSelector('.voice-dialog[open][data-voice-view=done]');
    assert.match(await page.$eval('.voice-return-summary',el=>el.textContent),/Gasto registrado/);assert.equal(await page.evaluate(()=>cashSaves),1);assert.equal(await page.evaluate(()=>requests.length),2);await axe('.voice-dialog[open]');
    await page.evaluate(()=>changeUser());await page.waitForFunction(()=>!voice.dialog.open);
+   // Position hints stay local and keep identity scores/business edits intact.
+   await page.evaluate(()=>positionScenario('Juan','Préstamo a Juan el electricista'));
+   assert.equal(await page.evaluate(()=>voice.view),'employees');
+   assert.deepEqual(await page.$$eval('[data-voice-action=select]',els=>els.map(el=>el.dataset.id)),['juan-b','juan-a']);
+   assert.equal(await page.evaluate(()=>voice.record.selectedEmployeeId),null);await axe('.voice-dialog[open]');
+   if(process.env.VOICE_QUALITY_SHOTS)await page.screenshot({path:path.join(process.env.VOICE_QUALITY_SHOTS,width+'-posicion.png')});
+   await page.locator('[data-voice-action=select][data-id=juan-b]').click();await page.waitForFunction(()=>voice.view==='loan');
+   await page.$eval('[data-voice-field=principal]',el=>{el.value='7300';el.dispatchEvent(new Event('change',{bubbles:true}));});await page.waitForFunction(()=>voice.record.draft.principal===7300);
+   const draft=await page.evaluate(()=>JSON.stringify(voice.record.draft));
+   await page.locator('[data-voice-action=choose]').click();await axe('.voice-dialog[open]');
+   await page.locator('[data-voice-action=select][data-id=juan-a]').click();await page.waitForFunction(()=>voice.view==='loan');
+   assert.equal(await page.evaluate(()=>JSON.stringify(voice.record.draft)),draft);
+   await page.evaluate(()=>positionScenario('Juan','Juan el electricista número 00126','00126'));
+   assert.equal(await page.$eval('[data-voice-action=select]',el=>el.dataset.id),'juan-a');assert.equal(await page.evaluate(()=>voice.record.selectedEmployeeId),null);await axe('.voice-dialog[open]');
+   await page.evaluate(()=>positionScenario('Carlos Méndez','Carlos Méndez el electricista'));
+   assert.equal(await page.evaluate(()=>voice.view),'employees');assert.match(await page.$eval('.voice-position-warning',el=>el.textContent),/su posición no/);
+   await page.locator('[data-voice-action=position-hint]').click();await page.waitForFunction(()=>voice.record.ignoreVoicePosition===true);assert.equal(await page.evaluate(()=>voice.matches[0].employee.id),'carlos');
+   await page.evaluate(()=>positionScenario('electricista','Préstamo al electricista'));
+   assert.equal(await page.evaluate(()=>voice.view),'employees');assert.match(await page.$eval('.voice-position-warning',el=>el.textContent),/Solo hay una pista/);
+   await page.locator('[data-voice-action=select][data-id=juan-b]').click();await page.waitForFunction(()=>voice.view==='loan');assert.equal(await page.evaluate(()=>!!voice.aliasSelection),false);
+   assert.equal(await page.evaluate(()=>loanSaves),1);assert.equal(await page.evaluate(()=>cashSaves),1);assert.equal(await page.evaluate(()=>requests.length),2);
+   await page.evaluate(()=>changeUser('third'));await page.waitForFunction(()=>!voice.dialog.open);
+   await page.evaluate(()=>queueScenario());
+   assert.equal(await page.$$eval('.vs-record-row',rows=>rows.length),2);assert.equal(await page.$eval('[data-vs-action=resume-pending]',el=>el.disabled),true);
+   assert.equal(await page.evaluate(()=>requests.length),2);await axe('.voice-settings-dialog[open]');
+   const pendingDir=process.env.SA_VOICE_SCREENSHOT_DIR;if(pendingDir){fs.mkdirSync(pendingDir,{recursive:true});await page.screenshot({path:path.join(pendingDir,width+'-pendientes.png')});}
+   await page.evaluate(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,value:true});window.dispatchEvent(new Event('online'));});
+   await page.waitForFunction(async()=>!voice.queueFlight&&(await voice.store.get('third','pending-a'))?.processingState==='ready'&&(await voice.store.get('third','pending-b'))?.processingState==='ready');
+   assert.equal(await page.evaluate(()=>requests.length),4);assert.deepEqual(await page.evaluate(()=>requests.slice(2).map(r=>r.requestId).sort()),['pending-a','pending-b']);
+   assert.equal(await page.evaluate(()=>loanSaves),1);assert.equal(await page.evaluate(()=>cashSaves),1);
+   await page.evaluate(()=>hub.action('record-filter','available'));await axe('.voice-settings-dialog[open]');
+   await page.locator('[data-vs-action=review-record][data-value=pending-a]').click();await page.waitForSelector('.voice-dialog[open]');
+   assert.equal(await page.evaluate(()=>voice.record.draft.principal),688);assert.equal(await page.evaluate(()=>voice.record.draft.concept),'Nota conservada');
+   assert.equal(await page.evaluate(()=>voice.record.pendingResult.loan.principal),500);await axe('.voice-dialog[open]');
    assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-   console.log('PASS Voz '+width+' px: MediaRecorder real, bajo/silencio/normal, envío explícito, préstamo y gasto una vez, Atrás, cambio de cuenta y WCAG A/AA');
+   console.log('PASS Voz '+width+' px: audio real, préstamo/gasto una vez, Atrás, pistas locales de posición, homónimos, conflictos, edición conservada, cola offline/online sin registros, aislamiento y WCAG A/AA');
    await context.close();
   }
  } finally {if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}

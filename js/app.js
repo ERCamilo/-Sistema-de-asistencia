@@ -1252,7 +1252,7 @@ function reserveVoiceReturn(kind, summary = {}, restore = null) {
 }
 const voiceMvp = new VoiceMvpUI({
     beginReturn: reserveVoiceReturn,
-    onSettings: () => window.openVoiceSettings(),
+    onSettings: initial => window.openVoiceSettings(initial),
     onPettyCash: (record, bridge) => voicePettyCash.open(record, bridge),
     getUser: () => auth.currentUser,
     isEnabled: () => state.settings?.voiceMvpEnabled === true,
@@ -1319,6 +1319,15 @@ const voiceSettings = new VoiceSettingsUI({
     },
     onTeachName: employeeId => voiceNameEnrollment.open(employeeId),
     onLocalDataChanged: () => voiceMvp.refreshStorageStatus({ force: true }),
+    isProcessing: () => !!voiceMvp.processingFlight || !!voiceMvp.queueFlight,
+    onResumePending: () => voiceMvp.resumePending(),
+    onProcessRecording: async requestId => {
+        const identity = voiceMvp.identity();
+        const record = await voiceMvp.store.get(identity.uid, requestId);
+        voiceMvp.guard(record);
+        await voiceMvp.process({ record, background: true });
+    },
+    onReviewRecording: requestId => { voiceSettings.close(); return voiceMvp.openSaved(requestId); },
     onOpenLoan: employeeId => guardSettingsDraftOnLeave({
         showConfirm: options => voiceSettings.confirm(options.title, options.message, async generation => {
             voiceSettings.guard(generation); options.onConfirm();
@@ -1347,7 +1356,7 @@ voicePettyCash = new VoicePettyCashUI({
 }).mount();
 
 window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
-window.openVoiceSettings = () => voiceSettings.run(() => voiceSettings.open());
+window.openVoiceSettings = (initial = 'home') => voiceSettings.run(() => voiceSettings.open(typeof initial === 'string' ? initial : 'home'));
 window.openVoiceAudioStorage = () => voiceSettings.run(() => voiceSettings.open('recordings'));
 
 // Barra inferior de 5 posiciones (prueba): su botón central dicta con la misma Voz

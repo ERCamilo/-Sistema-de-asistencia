@@ -1,4 +1,4 @@
-import { openWhatsNew, checkAppUpdates } from './AppUpdates.js';
+import { openWhatsNew, checkAppUpdates, openInterfaceRepair } from './AppUpdates.js';
 import { DateUtils } from '../utils/DateUtils.js';
 import icons from './IconSystem.js';
 import { state, stateManager } from '../core/AppState.js';
@@ -23,7 +23,6 @@ import { createVersionTapper, isDeveloperMode, setDeveloperMode, versionTapMessa
 import './onboarding/OnboardingPreview.js';
 import { openSafeModalPreview } from './ModalPreviewGallery.js';
 import { openSafeNotificationPreview } from './NotificationPreviewGallery.js';
-import { clearAppCaches } from '../services/CacheManager.js';
 import { translateError } from '../services/ErrorTranslator.js';
 import { logError } from '../services/ErrorLog.js';
 import {
@@ -41,6 +40,14 @@ export { SyncCard, refreshDeviceSettingsDiagnostics } from './settings/SettingsD
 // EVENT DELEGATION (data-settings-action)
 // ============================================
 const versionTapper = createVersionTapper();
+
+function requestInterfaceRepair() {
+    if (isSettingsDraftDirty()) {
+        showSettingsFormError('Guarda o descarta los cambios pendientes antes de reparar la interfaz.');
+        return;
+    }
+    openInterfaceRepair();
+}
 
 const _SETTINGS_ACTION_MAP = {
     'test-nfc-read': () => openNfcReadTest(),
@@ -199,50 +206,9 @@ const _SETTINGS_ACTION_MAP = {
         window.showNotification?.('✅ URL de SplitX restablecida a https://splitx.erlin.do', 'success');
         context?.render?.();
     },
-    // Mantenimiento: limpiar el cache del navegador para forzar la última versión.
-    'clear-cache': () => {
-        const dirty = isSettingsDraftDirty();
-        const snapshot = captureSettingsDraft();
-        const signature = draft => JSON.stringify(draft && [draft.scope, draft.fields]);
-        let clearing = false;
-        const doClear = async () => {
-            if (clearing) return;
-            // A later edit must not be covered by an earlier confirmation.
-            if (signature(captureSettingsDraft()) !== signature(snapshot)) {
-                _SETTINGS_ACTION_MAP['clear-cache']();
-                return;
-            }
-            clearing = true;
-            try {
-                const { deletedCaches } = await clearAppCaches();
-                window.showNotification?.(
-                    `Caché limpiada (${deletedCaches}). Recargando para traer la última versión…`,
-                    'success'
-                );
-                setTimeout(() => window.location.reload(), 600);
-            } catch (err) {
-                clearing = false;
-                logError(err, 'limpiar el cache');
-                showSettingsFormError(`No se pudo limpiar la caché. Tus cambios pendientes se conservan. ${translateError(err, { fallbackContext: 'limpiar el cache' })}`);
-            }
-        };
-        if (window.showConfirm) {
-            window.showConfirm({
-                title: 'Limpiar caché y recargar',
-                message: dirty
-                    ? 'Hay cambios sin guardar. Si recargas, se descartarán. Los datos ya guardados se conservan.'
-                    : 'Se limpiarán los archivos de la aplicación y se recargará. Tus datos guardados se conservan.',
-                confirmText: dirty ? 'Descartar cambios y recargar' : 'Limpiar y recargar',
-                cancelText: dirty ? 'Seguir editando' : 'Cancelar',
-                type: 'warning',
-                onConfirm: doClear
-            });
-        } else if (dirty) {
-            showSettingsFormError('Guarda o descarta los cambios pendientes antes de limpiar la caché y recargar.');
-        } else {
-            doClear();
-        }
-    },
+    // Legacy entry points now use the same nondestructive repair flow.
+    'clear-cache': () => requestInterfaceRepair(),
+    'repair-app-interface': () => requestInterfaceRepair(),
     'clear-mini-attendance-aliases': () => {
         const doClear = async () => {
             try {
@@ -617,7 +583,7 @@ export function SettingsTab() {
                     <div class="stg-footer">
                         <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;">
                             <span>${icons.get('info', { size: 12 })}</span>
-                            <button type="button" class="stg-version-tap" data-settings-action="version-tap" aria-label="Versión ${APP_CONFIG.VERSION}"><strong>Versión ${APP_CONFIG.VERSION}</strong></button><div class="app-release-actions"><button type="button" class="btn btn-secondary" data-settings-action="whats-new">Novedades</button><button type="button" class="btn btn-primary" data-settings-action="check-app-updates">Buscar actualizaciones</button></div><p id="app-update-status" role="status" aria-live="polite"></p>
+                            <button type="button" class="stg-version-tap" data-settings-action="version-tap" aria-label="Versión ${APP_CONFIG.VERSION}"><strong>Versión ${APP_CONFIG.VERSION}</strong></button><div class="app-release-actions"><button type="button" class="btn btn-secondary" data-settings-action="whats-new">Novedades</button><button type="button" class="btn btn-primary" data-settings-action="check-app-updates">Buscar actualizaciones</button><button type="button" class="btn btn-secondary" data-settings-action="repair-app-interface">Reparar interfaz</button></div><p id="app-update-status" role="status" aria-live="polite"></p>
                             <span style="opacity: 0.5;">·</span>
                             <span title="Versión del Service Worker (caché PWA)">
                                 SW <strong>${state.swVersion || '…'}</strong>
