@@ -1,6 +1,15 @@
 {
-  "version": "1.7.117",
+  "version": "1.7.118",
   "changelog": [
+    {
+      "version": "1.7.118",
+      "date": "2026-10-28",
+      "title": "NFC sin inicio de sesión",
+      "items": [
+        "Activa y prueba la asociación de tarjetas desde Pruebas sin iniciar sesión en Google.",
+        "El webhook recibe los datos del empleado y la tarjeta sin token ni UID de cuenta Firebase; la configuración queda en este navegador."
+      ]
+    },
     {
       "version": "1.7.117",
       "date": "2026-10-28",

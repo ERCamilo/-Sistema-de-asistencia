@@ -1,18 +1,18 @@
-# Asociación NFC: cliente SA y contrato v1
+# Asociación NFC: MVP sin Firebase y contrato v1
 
 Seguimiento: [#320](https://github.com/ERCamilo/-Sistema-de-asistencia/issues/320), contrato [#321](https://github.com/ERCamilo/-Sistema-de-asistencia/issues/321), backend [#322](https://github.com/ERCamilo/-Sistema-de-asistencia/issues/322).
 
 ## Estado real
 
-El usuario confirmó lectura del mismo UID desde el Samsung y el ESP32, salvo separadores. Este cliente permite activar asociaciones, leer desde el editor y consultar/registrar con el contrato siguiente. **El usuario confirmó que el flujo n8n actual solo recibe datos. No se considera implementado ni probado el registro real en la base de datos.**
+El usuario confirmó lectura del mismo UID desde el Samsung y el ESP32, salvo separadores. Por indicación del usuario, este MVP funciona sin Firebase ni inicio de sesión. Permite activar asociaciones, leer desde el editor y consultar/registrar con el contrato siguiente. **El usuario confirmó que el flujo n8n actual solo recibe datos. No se considera implementado ni probado el registro real en la base de datos.**
 
-No basta con importar el cliente o responder HTTP 200 para registrar una tarjeta. La disponibilidad, unicidad, autenticación, persistencia y confirmación deben implementarse en n8n/almacenamiento antes de completar la prueba de extremo a extremo. Los tests de navegador usan un registro simulado y datos ficticios.
+No basta con importar el cliente o responder HTTP 200 para registrar una tarjeta. La disponibilidad, unicidad, persistencia y confirmación deben implementarse en n8n/almacenamiento antes de completar la prueba de extremo a extremo. Los tests de navegador usan un registro simulado y datos ficticios.
 
 ## Uso del cliente
 
-1. En Chrome para Android, entrar a SA e iniciar sesión. Activar Pruebas tocando siete veces la versión al pie de Ajustes si la pestaña no aparece.
-2. En Ajustes → Pruebas → Tarjetas NFC, activar **Asociación de tarjetas**. La preferencia se guarda solo para esta cuenta y navegador; por defecto está apagada.
-3. Elegir **Test** (predeterminado), **Producción** o **Personalizado**. El personalizado requiere una URL HTTPS válida y pulsar Guardar URL. El destino recibe la identidad de la sesión, así que debe ser un servidor controlado por el usuario. No incluir tokens en la URL.
+1. En Chrome para Android, entrar a SA. No hace falta iniciar sesión ni autorizar el dominio en Firebase para usar NFC. Activar Pruebas tocando siete veces la versión al pie de Ajustes si la pestaña no aparece.
+2. En Ajustes → Pruebas → Tarjetas NFC, activar **Asociación de tarjetas**. La preferencia se guarda solo en este navegador; por defecto está apagada.
+3. Elegir **Test** (predeterminado), **Producción** o **Personalizado**. El personalizado requiere una URL HTTPS válida y pulsar Guardar URL. Se envían datos del empleado al destino elegido; usar el webhook previsto para estas pruebas.
 4. Abrir un empleado guardado y pulsar Asociar tarjeta NFC. Un empleado nuevo se guarda primero. Se envían nombre y número guardados; los cambios pendientes del formulario no se pierden ni se confunden con datos guardados.
 5. Pulsar Leer tarjeta y autorizar NFC. El mismo modal del diagnóstico muestra el empleado, UID y destino.
 6. Si la consulta confirma disponible, revisar y pulsar Guardar asociación. Si ya es de ese empleado, se indica sin duplicar. Si pertenece a otro, no se permite reemplazar.
@@ -27,13 +27,15 @@ Ocultar Pruebas no desactiva la preferencia. Desactivar asociaciones cancela el 
 
 En Test se necesita activar Listen for test event para cada ejecución según el comportamiento de n8n. Para una prueba completa se reciben consulta y asociación como operaciones separadas; puede ser necesario reactivar la escucha antes de guardar. Producción requiere flujo publicado/activo. No hay cambio automático de Test a Producción ni reintentos en segundo plano.
 
-## Transporte e identidad
+## Transporte sin Firebase
 
-`POST`, `Content-Type: application/json`, `Authorization: Bearer <Firebase ID token de la sesión>`. SA omite cookies, redirecciones y caché. El token se envía solo en el header, no en cuerpo, preferencias, errores o diagnóstico copiado.
+`POST`, `Content-Type: application/json`. Este piloto no envía `Authorization`, ID token, cookies ni UID de cuenta Firebase, y no espera a Google para leer, consultar o registrar. No se necesita cambiar dominios autorizados de Firebase para este flujo.
 
-El backend debe verificar el token para **el proyecto Firebase configurado en el servidor** y obtener el UID autenticado. No confiar en `context.ownerUid`, en decodificar un JWT sin verificar su firma ni en una clave de proyecto recibida del cliente. Se puede usar el SDK Admin; otra opción es verificar el ID token mediante `accounts:lookup` de Identity Toolkit con la API key del proyecto esperado, desde el servidor, y comparar el `localId` devuelto con la cuenta solicitada.
+La configuración de activación/destino es local al navegador. Las preferencias anteriores por cuenta no se heredan: el piloto comienza apagado y en Test. Cambiar de obra, empresa, empleado, destino o reemplazar el editor invalida el trabajo pendiente. Los borrados de datos siguen cancelando operaciones.
 
-Configurar CORS/preflight en el webhook para los orígenes SA autorizados, permitiendo POST, OPTIONS y headers Content-Type/Authorization. Revisar la retención/redacción de ejecuciones en n8n para no guardar tokens en logs. Credenciales de Google/almacenamiento solo en el servidor.
+El registro/hoja de destino lo determina la configuración del flujo n8n, no una identidad inventada del cliente. Empresa y obra son metadatos, no autenticación ni prueba de pertenencia. Para el MVP usar el registro de pruebas configurado en ese webhook. La autenticación y el aislamiento por cuenta mediante Firebase se integrarán después.
+
+Configurar CORS/preflight para los orígenes de prueba, permitiendo POST, OPTIONS y Content-Type. Credenciales de Google Sheets/base de datos permanecen en n8n. SA sigue omitiendo caché y redirecciones y solo confirma las respuestas correlacionadas del contrato.
 
 ## Petición
 
@@ -44,13 +46,13 @@ Configurar CORS/preflight en el webhook para los orígenes SA autorizados, permi
   "requestId": "uuid-de-esta-operacion",
   "cardUid": "0400ABCDEF1234",
   "employee": { "id": "emp-107", "number": "00107", "name": "Juan Pérez" },
-  "context": { "ownerUid": "uid-cuenta-autenticada", "companyName": "Contrutek", "projectId": "obra-1" },
+  "context": { "companyName": "Contrutek", "projectId": "obra-1" },
   "source": "sa-web-nfc",
   "requestedAt": "2026-10-27T17:00:00Z"
 }
 ```
 
-Para registrar, `action` es `asociar` y tiene su propio requestId. Un reintento de ese registro conserva el mismo body, incluida la fecha solicitada, y la misma URL. Renovar el ID token no modifica el body. `projectId` es null en datos legacy; es contexto y no forma parte de la unicidad del UID por cuenta.
+Para registrar, `action` es `asociar` y tiene su propio requestId. Un reintento de ese registro conserva el mismo body, incluida la fecha solicitada, y la misma URL. `projectId` es null en datos legacy; es contexto y no decide qué registro/hoja abre el servidor.
 
 El UID se conserva como texto hexadecimal mayúsculo, sin espacios ASCII/Unicode, dos puntos ni guiones, y con ceros iniciales. Para asociación RC522 se aceptan 4, 7 o 10 bytes. Rechazar caracteres arbitrarios, UID vacío o incompleto. Número de empleado también es texto. No enviar salarios, préstamos, fotos ni todo el respaldo.
 
@@ -68,12 +70,12 @@ Mismo empleado:
 {"schemaVersion":1,"ok":true,"requestId":"uuid-de-esta-operacion","cardUid":"0400ABCDEF1234","status":"mismo_empleado","employeeId":"emp-107"}
 ```
 
-Otro empleado de la misma cuenta autorizada:
+Otro empleado del registro de este webhook:
 ```json
 {"schemaVersion":1,"ok":true,"requestId":"uuid-de-esta-operacion","cardUid":"0400ABCDEF1234","status":"otro_empleado","employeeId":"emp-999"}
 ```
 
-No es necesario devolver información personal del otro empleado; SA muestra que la tarjeta está ocupada. Una tarjeta registrada en otra cuenta no permite consultar sus datos.
+No es necesario devolver información personal del otro empleado; SA muestra que la tarjeta está ocupada. El servidor trabaja con la hoja/registro configurado para este piloto.
 
 ## Confirmación de asociación
 
@@ -84,13 +86,13 @@ Después de persistir, HTTP 200 o 201:
 
 Si ya estaba registrada para ese empleado, `status: mismo_empleado`, con el mismo employeeId y registeredAt original. Para una asociación, la fecha del servidor es obligatoria. Un `{ok:true}` genérico, HTML, datos incompletos o IDs diferentes no se aceptan como confirmación.
 
-Errores: HTTP 400/422 para payload inválido, 401/403 para acceso, 409 para asociación incompatible/requestId reutilizado con otros datos, 5xx para fallos de persistencia. No usar una respuesta exitosa cuando Sheets/base de datos falla. El cliente no imprime cuerpos técnicos con posibles credenciales.
+Errores: HTTP 400/422 para payload inválido, 401/403 si el destino rechaza acceso (no disparan un login de Firebase), 409 para asociación incompatible/requestId reutilizado con otros datos, 5xx para fallos de persistencia. No usar una respuesta exitosa cuando Sheets/base de datos falla. El cliente no imprime cuerpos técnicos con posibles credenciales.
 
 ## Reglas del registro pendientes de implementar en #322
 
-- Clave única `(cuenta autenticada, cardUid)`. Validar y bloquear la asociación en una operación atómica, no solamente consultar y luego append en Sheets.
+- Clave única `(registro configurado en el webhook, cardUid)`. Validar y bloquear la asociación en una operación atómica, no solamente consultar y luego append en Sheets.
 - Resolver explícitamente la política de una o varias tarjetas por empleado antes de publicar el backend. El cliente no reasigna ni elimina tarjetas existentes; cualquier asociación incompatible se rechaza con HTTP 409.
-- Idempotencia por `(cuenta, requestId)`: mismo contenido devuelve la confirmación original; otro contenido se rechaza. No crear otra fila por una respuesta perdida.
+- Idempotencia por `(registro, requestId)`: mismo contenido devuelve la confirmación original; otro contenido se rechaza. No crear otra fila por una respuesta perdida.
 - Conservar la fecha definitiva del primer guardado. No reescribir asistencia/historial al asociar una tarjeta.
 - Probar concurrencia real. Una cola simulada en los tests del cliente no demuestra unicidad del backend.
 
@@ -98,4 +100,4 @@ Errores: HTTP 400/422 para payload inválido, 401/403 para acceso, 409 para asoc
 
 Cliente: `npm test -- --runInBand js/tests/NfcCore.test.js js/tests/NfcIntegration.test.js js/tests/NfcReadTest.test.js` y `CHROMIUM_PATH=/usr/bin/chromium npm run test:nfc-read`.
 
-Backend pendiente: implementar primero consultar y asociar con estas respuestas, validación de identidad y persistencia; después realizar lectura física y registro de un empleado ficticio en Test, verificar el dato guardado y repetir sin duplicados. No marcar #322/#326 completos con pruebas simuladas del cliente.
+Backend pendiente: implementar primero consultar y asociar con estas respuestas, persistencia confirmada y unicidad; después realizar lectura física y registro de un empleado ficticio en Test, verificar el dato guardado y repetir sin duplicados. No marcar #322/#326 completos con pruebas simuladas del cliente.

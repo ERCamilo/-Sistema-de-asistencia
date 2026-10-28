@@ -17,12 +17,12 @@ import {EmployeeModal} from '/js/modules/ui/modals/EmployeeModal.js';
 import * as EmployeesUI from '/js/modules/features/employees/EmployeesUI.js';
 import {state,stateManager} from '/js/modules/core/AppState.js';
 stateManager.batchSetState(raw=>{raw.employees=[{id:'e1',key:'e1',number:'001',name:'Juan Pérez',active:true,positions:['job'],hireDate:'2026-01-01'}];raw.positions=[{id:'job',name:'Puesto',hourlyRate:100,active:true}];raw.leaders=[];raw.attendance={};Object.assign(raw.settings,{regularHoursPerDay:8,overtimeFactor:1,holidayFactor:2,holidays:[],payPeriod:{},projectsEnabled:false});});
-localStorage.removeItem('sa-nfc-preferences:v1:fixture-owner');
+localStorage.removeItem('sa-nfc-preferences:v1:local-device');
 const draw=()=>DOMDiff.apply(document.querySelector('#entry'),SettingsNfcReadTestCard(NfcSettingsFields()));
 
 window.fixtureEnv={isSecureContext:window.isSecureContext,NDEFReader:class{constructor(){window.lastReader=this}async scan({signal}){this.signal=signal}},navigator:{clipboard:{writeText:async text=>{window.copied=text}}}};
 window.nfcTest=new NfcReadTest({env:fixtureEnv}).mount();
-window.nfcIntegration=new NfcIntegration({getUser:()=>({uid:'fixture-owner'}),getDataOwner:()=> 'fixture-owner',getScope:()=>({enabled:false}),getEmployees:()=>state.employees,getCompanyName:()=> 'Empresa ficticia',getToken:async()=> 'synthetic-browser-token',render:draw,notify:message=>{window.notice=message}}, {reader:nfcTest}).mount();
+window.nfcIntegration=new NfcIntegration({getScope:()=>({enabled:false}),getEmployees:()=>state.employees,getCompanyName:()=> 'Empresa ficticia',render:draw,notify:message=>{window.notice=message}}, {reader:nfcTest}).mount();
 draw();
 EmployeesUI.init({state,render:()=>{},saveToLocalStorage:()=>{},services:{}});
 EmployeeModal.open('e1',{inlineHost:document.querySelector('#editor')});
@@ -53,10 +53,11 @@ window.ready=true;
         page.on('request', request => {
             if (new URL(request.url()).hostname === '127.0.0.1' || /^(data|blob):/.test(request.url())) request.continue();
             else if (new URL(request.url()).hostname === 'n8n.erlin.do') {
-                const headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization, content-type','Access-Control-Allow-Methods':'POST, OPTIONS','Content-Type':'application/json'};
+                const headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'content-type','Access-Control-Allow-Methods':'POST, OPTIONS','Content-Type':'application/json'};
                 if(request.method()==='OPTIONS'){request.respond({status:204,headers});return;}
                 const data=JSON.parse(request.postData());calls.push({url:request.url(),data});
-                const key=data.context.ownerUid+':'+data.cardUid;
+                assert.equal(request.headers().authorization,undefined);assert.equal(data.context.ownerUid,undefined);
+                const key=data.cardUid;
                 const saved=registry.get(key);
                 let result={ok:true,schemaVersion:1,requestId:data.requestId,cardUid:data.cardUid,employeeId:saved?.employeeId || null,status:saved?'mismo_empleado':'disponible'};
                 if(data.action==='asociar'){
@@ -72,6 +73,7 @@ window.ready=true;
             calls.length=0;registry.clear();
             await page.setViewport({ width, height: 740 });
             await page.goto(`http://127.0.0.1:${server.address().port}/nfc-fixture`); await page.waitForFunction('window.ready');
+            assert.equal(await page.evaluate(()=>typeof nfcIntegration.adapter.getUser),'undefined');
             await page.click('[data-settings-action=test-nfc-read]');
             await page.click('[data-nfc-test=start]');
             assert.equal(await page.evaluate(() => nfcTest.reading), true);

@@ -25,41 +25,19 @@ export function nfcEndpoint(config) {
 }
 
 export function buildNfcRequest(action, { requestId, cardUid, employee, context, requestedAt = new Date().toISOString() }) {
-    if (!['consultar', 'asociar'].includes(action) || !requestId || !employee?.id || !employee.name || !context?.ownerUid) {
-        throw Error('Inicia sesión y selecciona un empleado guardado.');
+    if (!['consultar', 'asociar'].includes(action) || !requestId || !employee?.id || !employee.name || !context) {
+        throw Error('Selecciona un empleado guardado y su contexto de trabajo.');
     }
     return {
         schemaVersion: NFC_SCHEMA_VERSION, action, requestId, cardUid: normalizeNfcUid(cardUid),
         employee: { id: String(employee.id), number: String(employee.number ?? ''), name: String(employee.name) },
-        context: { ownerUid: context.ownerUid, companyName: String(context.companyName || ''), projectId: context.projectId || null },
+        context: { companyName: String(context.companyName || ''), projectId: context.projectId || null },
         source: 'sa-web-nfc', requestedAt
     };
 }
 
 export class NfcRequestError extends Error {
     constructor(message, code) { super(message); this.name = 'NfcRequestError'; this.code = code; }
-}
-
-// Firebase token refresh may itself need the network. Bound that wait too and
-// release it immediately when the user closes or switches context.
-export function getNfcToken(provider, { signal, timeoutMs = 15000 } = {}) {
-    return new Promise((resolve, reject) => {
-        let done = false; let timer;
-        const finish = (error, value) => {
-            if (done) return; done = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
-            if (error) reject(error); else resolve(value);
-        };
-        const abort = () => finish(Object.assign(Error('Operación cancelada.'), { name: 'AbortError' }));
-        signal?.addEventListener('abort', abort, { once: true });
-        if (signal?.aborted) { abort(); return; }
-        timer = setTimeout(() => finish(new NfcRequestError('No se pudo renovar la sesión a tiempo. Revisa tu conexión e inicia sesión de nuevo.', 'AUTH')), timeoutMs);
-        try {
-            Promise.resolve(provider()).then(token => {
-                if (typeof token !== 'string' || !token.trim()) finish(new NfcRequestError('No se pudo validar tu sesión.', 'AUTH'));
-                else finish(null, token);
-            }, error => finish(error));
-        } catch (error) { finish(error); }
-    });
 }
 
 export function readNfcResponse(data, request) {
@@ -75,8 +53,7 @@ export function readNfcResponse(data, request) {
     return { status: data.status, employeeId: data.employeeId, registeredAt: data.registeredAt || null };
 }
 
-export async function sendNfcRequest(endpoint, request, { token, signal, fetchImpl = globalThis.fetch, timeoutMs = 15000 } = {}) {
-    if (!token) throw new NfcRequestError('No se pudo validar tu sesión. Inicia sesión de nuevo.', 'AUTH');
+export async function sendNfcRequest(endpoint, request, { signal, fetchImpl = globalThis.fetch, timeoutMs = 15000 } = {}) {
     const controller = new AbortController(); let timedOut = false;
     const abort = () => controller.abort();
     signal?.addEventListener('abort', abort, { once: true });
@@ -85,11 +62,11 @@ export async function sendNfcRequest(endpoint, request, { token, signal, fetchIm
     try {
         const response = await fetchImpl(normalizeNfcEndpoint(endpoint), {
             method: 'POST', mode: 'cors', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer', cache: 'no-store',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(request), signal: controller.signal
         });
         if (response.status === 409) throw new NfcRequestError('La tarjeta o el empleado ya tienen una asociación incompatible. Vuelve a consultar.', 'CONFLICT');
-        if ([401, 403].includes(response.status)) throw new NfcRequestError('El webhook rechazó tu sesión o el acceso a esta cuenta.', 'AUTH');
+        if ([401, 403].includes(response.status)) throw new NfcRequestError('El webhook rechazó el acceso. Revisa la configuración del destino.', 'ACCESS');
         if (response.status === 404) throw new NfcRequestError('El webhook no está disponible. En Test, activa «Listen for test event» en n8n.', 'NOT_FOUND');
         if (!response.ok) throw new NfcRequestError('El webhook no pudo completar la operación.', 'HTTP');
         let data;

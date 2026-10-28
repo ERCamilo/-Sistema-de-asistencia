@@ -1,8 +1,8 @@
 import { getNfcReadTest } from '../../ui/settings/NfcReadTest.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { DOMDiff } from '../../utils/DOMDiff.js';
-import { buildNfcRequest, normalizeNfcUid, nfcEndpoint, sendNfcRequest, getNfcToken } from './NfcCore.js';
-import { configureNfcIdentity, readNfcPreferences, saveNfcPreferences, nfcStorage, NFC_PREFS_EVENT, NFC_PREFS_PREFIX } from './NfcPreferences.js';
+import { buildNfcRequest, normalizeNfcUid, nfcEndpoint, sendNfcRequest } from './NfcCore.js';
+import { readNfcPreferences, saveNfcPreferences, nfcStorage, NFC_PREFS_EVENT, NFC_PREFS_KEY } from './NfcPreferences.js';
 import { nfcEmployeeSummary, NfcEmployeeEntry } from './NfcViews.js';
 
 // One shared reader/modal for diagnostic and enrollment. The webhook owns
@@ -12,12 +12,11 @@ export class NfcIntegration {
         this.adapter = adapter; this.reader = reader; this.send = send; this.storage = storage; this.requestId = requestId; this.generation = 0;
     }
     mount() {
-        configureNfcIdentity(() => this.adapter.getUser());
         this.onEntry = event => {
             const button = event.target.closest('[data-nfc-employee]');
             if (button && !button.disabled) this.open(button.dataset.nfcEmployee, button.closest('[data-nfc-editor]'));
             const saveUrl = event.target.closest('[data-nfc-setting-action="save-url"]');
-            if (saveUrl) this.setting('customUrl', saveUrl.closest('[data-nfc-settings-owner]').querySelector('[data-nfc-setting="customUrl"]').value);
+            if (saveUrl) this.setting('customUrl', saveUrl.closest('[data-nfc-settings-scope]').querySelector('[data-nfc-setting="customUrl"]').value);
         };
         this.onChange = event => {
             const field = event.target;
@@ -26,12 +25,12 @@ export class NfcIntegration {
         };
         this.check = () => { if (this.context && !this.sameContext()) this.reader?.close(); this.refreshEntries(); };
         this.onPreferences = () => { this.check(); this.adapter.render?.(); };
-        this.onStorage = event => { if (event.key === null || event.key?.startsWith(NFC_PREFS_PREFIX)) this.onPreferences(); };
+        this.onStorage = event => { if (event.key === null || event.key === NFC_PREFS_KEY) this.onPreferences(); };
         document.addEventListener('click', this.onEntry); document.addEventListener('change', this.onChange);
         window.addEventListener(NFC_PREFS_EVENT, this.onPreferences); window.addEventListener('storage', this.onStorage);
         this.onWipe = () => { this.wiped = true; this.reader?.close(); };
         window.addEventListener('sa:voice-wipe', this.onWipe);
-        this.unsubscribes = [this.adapter.subscribeSession?.(this.check), this.adapter.subscribeScope?.(this.check), this.adapter.subscribeData?.(this.check)];
+        this.unsubscribes = [this.adapter.subscribeScope?.(this.check), this.adapter.subscribeData?.(this.check)];
         return this;
     }
     refreshEntries() {
@@ -41,30 +40,27 @@ export class NfcIntegration {
         }
     }
     setting(key, value) {
-        const uid = this.adapter.getUser()?.uid;
         const node = document.querySelector('[data-nfc-settings-status]');
         try {
-            saveNfcPreferences(uid, { [key]: value }, this.storage);
+            saveNfcPreferences({ [key]: value }, this.storage);
             if (node) node.textContent = key === 'enabled' ? (value ? 'Asociación activada en este navegador.' : 'Asociación desactivada.') : 'Destino guardado en este navegador.';
         } catch (error) {
             if (node) node.textContent = error.message;
             const field = document.querySelector(`[data-nfc-setting="${key}"]`);
-            const config = readNfcPreferences(uid, this.storage);
+            const config = readNfcPreferences(this.storage);
             if (key === 'enabled' && field) field.checked = config.enabled;
             if (key === 'mode' && field) field.value = config.mode;
         }
     }
     capture(employeeId) {
-        const user = this.adapter.getUser(); const scope = this.adapter.getScope();
-        if (this.wiped || this.adapter.canProceed?.() === false || !user?.uid || (scope?.enabled && !scope.projectId)) throw Error('Inicia sesión y espera a que termine la preparación de la obra.');
-        const dataOwner = this.adapter.getDataOwner?.();
-        if (this.adapter.getDataOwner && dataOwner !== user.uid) throw Error('Espera a que termine el cambio de cuenta antes de enviar datos.');
-        const config = readNfcPreferences(user.uid, this.storage);
+        const scope = this.adapter.getScope();
+        if (this.wiped || this.adapter.canProceed?.() === false || (scope?.enabled && !scope.projectId)) throw Error('Espera a que termine la preparación de la obra.');
+        const config = readNfcPreferences(this.storage);
         if (!config.enabled) throw Error('Activa la asociación de tarjetas en Ajustes → Pruebas.');
         const current = this.adapter.getEmployees().find(employee => employee.id === employeeId && !employee.deletedAt);
         if (!current) throw Error('El empleado ya no está disponible en esta obra.');
         const employee = { id: current.id, number: String(current.number ?? ''), name: String(current.name || '') };
-        const context = { ownerUid: user.uid, projectId: scope?.enabled ? scope.projectId : null, companyName: String(this.adapter.getCompanyName() || '') };
+        const context = { projectId: scope?.enabled ? scope.projectId : null, companyName: String(this.adapter.getCompanyName() || '') };
         return { employee, context, config, endpoint: nfcEndpoint(config) };
     }
     sameContext() {
@@ -74,7 +70,7 @@ export class NfcIntegration {
     }
     valid(generation = this.generation) { return generation === this.generation && !!this.reader?.dialog.open && this.sameContext(); }
     guard(generation = this.generation) {
-        if (!this.valid(generation)) throw Error('Cambió la cuenta, la obra, el empleado o el destino. Vuelve a abrir NFC.');
+        if (!this.valid(generation)) throw Error('Cambió la empresa, la obra, el empleado o el destino. Vuelve a abrir NFC.');
     }
     open(employeeId, sourceEntry = null) {
         const reader = this.reader ||= getNfcReadTest();
@@ -138,8 +134,8 @@ export class NfcIntegration {
         this.busy = true; this.error = ''; this.note = request.action === 'asociar' ? 'Registrando… Si cierras ahora, el envío podría haberse guardado.' : 'Consultando la tarjeta…'; this.render();
         const controller = this.httpController = new AbortController();
         try {
-            const token = await getNfcToken(() => this.adapter.getToken(), { signal: controller.signal }); this.guard(generation);
-            const result = await this.send(context.endpoint, request, { token, signal: controller.signal });
+            this.guard(generation);
+            const result = await this.send(context.endpoint, request, { signal: controller.signal });
             this.guard(generation); this.result = result;
             this.note = result.status === 'disponible' ? 'Tarjeta disponible. Revisa el empleado y el destino antes de guardar.'
                 : result.status === 'otro_empleado' ? 'Esta tarjeta pertenece a otro empleado. No se puede reemplazar aquí.'
@@ -160,6 +156,6 @@ export class NfcIntegration {
         this.reader?.close(); this.cancel();
         document.removeEventListener('click', this.onEntry); document.removeEventListener('change', this.onChange);
         window.removeEventListener(NFC_PREFS_EVENT, this.onPreferences); window.removeEventListener('storage', this.onStorage); window.removeEventListener('sa:voice-wipe', this.onWipe);
-        this.unsubscribes?.forEach(unsubscribe => unsubscribe?.()); configureNfcIdentity(() => null);
+        this.unsubscribes?.forEach(unsubscribe => unsubscribe?.());
     }
 }

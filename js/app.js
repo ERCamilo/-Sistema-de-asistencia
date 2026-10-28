@@ -1227,22 +1227,19 @@ AnalyticsUI.init(moduleContext);
 PayrollUI.init(moduleContext);
 SyncUI.initSyncUI(moduleContext);
 
-// Device-local voice MVP. Transports audio only; confirmed loans use the
-// same registration path as the current account form.
+// Experimental NFC uses local data and a webhook, independently of sign-in.
 new NfcIntegration({
-    getUser: () => auth.currentUser,
-    getDataOwner: () => getLocalOwnerUid(),
     canProceed: () => !isLocalDataWipeInProgress(),
     getScope: () => peekEntityScope(),
     getEmployees: () => (state.employees || []).filter(employee => !employee.deletedAt && entityInScope(employee, peekEntityScope())),
     getCompanyName: () => state.settings?.companyName,
-    getToken: () => auth.currentUser?.getIdToken(),
-    subscribeSession: callback => subscribeVoiceSession(auth, callback),
     subscribeScope: callback => projectContext.subscribe(callback),
     subscribeData: callback => eventBus.on('render:complete', callback),
     render: () => render(),
     notify: (message, type) => window.showNotification?.(message, type)
 }).mount();
+// Device-local voice MVP. Transports audio only; confirmed loans use the
+// same registration path as the current account form.
 let voicePettyCash;
 let voiceReturnEpoch = 0, voiceReturnScope = '';
 function invalidateVoiceReturns() {

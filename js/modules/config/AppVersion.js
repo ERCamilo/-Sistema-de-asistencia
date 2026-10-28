@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.117';
+const APP_VERSION = '1.7.118';
 const CHANGELOG = [
+    { version: '1.7.118', date: '2026-10-28', title: 'NFC sin inicio de sesión', items: ['Activa y prueba la asociación de tarjetas desde Pruebas sin iniciar sesión en Google.', 'El webhook recibe los datos del empleado y la tarjeta sin token ni UID de cuenta Firebase; la configuración queda en este navegador.'] },
     { version: '1.7.117', date: '2026-10-28', title: 'Asociación de tarjetas NFC en prueba', items: ['Activa la asociación NFC desde Pruebas y abre el lector en el editor de cada empleado.', 'Elige el webhook de Test, Producción o uno personalizado para consultar y registrar tarjetas.', 'Revisa empleado, UID y destino antes de guardar; los registros requieren confirmación del webhook y conservan la solicitud al reintentar.'] },
     { version: '1.7.116', date: '2026-10-27', title: 'Retoma tus audios pendientes', items: ['Consulta el estado y el error de cada envío desde Voz → Grabaciones, y reintenta uno o todos los pendientes.', 'Los envíos solicitados sin conexión se retoman en la misma cuenta y obra; los resultados conservan tus ediciones para revisión.', 'Los reintentos conservan el identificador de la grabación y evitan envíos simultáneos, también entre pestañas.'] },
     { version: '1.7.115', date: '2026-10-27', title: 'Voz reconoce la posición como pista', items: ['Las posiciones mencionadas ayudan a ordenar empleados con nombres parecidos, incluyendo posiciones secundarias.', 'Los conflictos entre nombre, número y posición requieren selección; puedes ignorar una pista equivocada.', 'Cambiar de empleado conserva el monto, la tasa, las fechas y la nota del préstamo.'] },
