@@ -1,6 +1,7 @@
 import { VoiceMvpUI } from '../modules/features/voice/VoiceUI.js';
 import { VoiceStore } from '../modules/features/voice/VoiceStore.js';
 import { indexedDB } from 'fake-indexeddb';
+import { randomUUID } from 'node:crypto';
 import { SettingsVoiceCard } from '../modules/ui/settings/SettingsVoiceCard.js';
 
 // jsdom lacks structuredClone; preserve Blob semantics for fake IndexedDB.
@@ -23,6 +24,7 @@ function setup() {
 }
 
 const originalFetch = global.fetch;
+beforeAll(() => { crypto.randomUUID = randomUUID; });
 describe('Voice draft UI: confirmation and async boundaries', () => {
     afterEach(() => { global.fetch = originalFetch; jest.restoreAllMocks(); });
     test('General offers the voice modal entry instead of duplicating its controls', () => {
@@ -296,17 +298,17 @@ describe('Simplified voice workflow', () => {
         expect(ui.record.selectedEmployeeId).toBe('carla'); expect(ui.record.draft).toEqual(draft);
         await ui.action('previous-interest'); expect(ui.record.draft).toEqual({...draft,interestRate:30});
     });
-    test('cancel removes pending audio and a late provider response cannot restore it', async () => {
-        const {ui,store}=setup();let resolve;
+    test('closing pauses a requested submission, retains its audio and ignores a late response', async () => {
+        const {ui,store}=setup();let resolve,started;const ready=new Promise(done=>{started=done;});
         store.remove=jest.fn().mockResolvedValue();
-        global.fetch=jest.fn(()=>new Promise(done=>{resolve=done;}));
-        const processing=ui.process(); await Promise.resolve(); await Promise.resolve();
+        global.fetch=jest.fn(()=>new Promise(done=>{resolve=done;started();}));
+        const processing=ui.process(); await ready;
         ui.close=VoiceMvpUI.prototype.close.bind(ui); ui.dialog.close=jest.fn(); ui.launcher={focus:jest.fn(),setAttribute:jest.fn()};
         const record=ui.record; await ui.action('close');
-        expect(record.discarded).toBe(true); expect(store.remove).toHaveBeenCalledWith('one','request-1');
-        const writes=store.put.mock.calls.length;
+        expect(record.discarded).not.toBe(true); expect(store.remove).not.toHaveBeenCalled();
         resolve({ok:true,status:200,json:async()=>({ok:true,schemaVersion:1,requestId:'request-1',result:extracted()})});
-        await processing; expect(store.put.mock.calls.length).toBe(writes);
+        await processing; expect(store.put).toHaveBeenCalledWith(expect.objectContaining({processingState:'paused',requestId:'request-1'}));
+        expect(record.pendingResult).toBeUndefined();
         global.fetch=originalFetch;
     });
     test('no-retention keeps the normal loan registration but removes its audio', async () => {

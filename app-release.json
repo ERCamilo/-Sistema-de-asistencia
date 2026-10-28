@@ -1,6 +1,16 @@
 {
-  "version": "1.7.115",
+  "version": "1.7.116",
   "changelog": [
+    {
+      "version": "1.7.116",
+      "date": "2026-10-27",
+      "title": "Retoma tus audios pendientes",
+      "items": [
+        "Consulta el estado y el error de cada envío desde Voz → Grabaciones, y reintenta uno o todos los pendientes.",
+        "Los envíos solicitados sin conexión se retoman en la misma cuenta y obra; los resultados conservan tus ediciones para revisión.",
+        "Los reintentos conservan el identificador de la grabación y evitan envíos simultáneos, también entre pestañas."
+      ]
+    },
     {
       "version": "1.7.115",
       "date": "2026-10-27",

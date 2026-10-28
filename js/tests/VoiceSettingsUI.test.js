@@ -36,6 +36,23 @@ async function fixture({anonymous=false}={}) {
     ui=new VoiceSettingsUI(adapter,{store}).mount();await ui.open();
     return {adapter,settings,employees,persist,listeners,setUser:value=>{user=value;listeners.session();},setScope:value=>{scope=value;listeners.scope();}};
 }
+test('pending filter exposes scoped retry/review and escapes exact server errors',async()=>{
+    const {adapter}=await fixture();adapter.onProcessRecording=jest.fn();adapter.onReviewRecording=jest.fn();adapter.onResumePending=jest.fn();
+    await store.updateRecording('u','p','draft',row=>({...row,processingState:'error',error:{code:'HTTP_502',message:'HTTP 502 · <script>bad</script>',retryable:true}}));
+    await ui.action('recordings');await ui.action('record-filter','pending');
+    expect(ui.dialog.querySelectorAll('.vs-record-row')).toHaveLength(1);expect(ui.dialog.querySelector('script')).toBeNull();
+    expect(ui.dialog.textContent).toContain('HTTP 502 · <script>bad</script>');
+    await ui.action('process-record','draft');expect(adapter.onProcessRecording).toHaveBeenCalledWith('draft');
+    await ui.action('review-record','draft');expect(adapter.onReviewRecording).toHaveBeenCalledWith('draft');
+    await expect(ui.action('process-record','loan')).rejects.toThrow('no está pendiente');expect(adapter.onLoan).not.toHaveBeenCalled();
+});
+test('pending UI respects Retry-After and already active workers',async()=>{
+    const {adapter}=await fixture();adapter.onProcessRecording=jest.fn();adapter.isProcessing=()=>false;
+    await store.updateRecording('u','p','draft',row=>({...row,processingState:'error',retryAt:Date.now()+60000,error:{message:'Espera'}}));
+    await ui.action('recordings');expect(ui.dialog.querySelector('[data-vs-action=process-record]').disabled).toBe(true);
+    await store.updateRecording('u','p','draft',row=>({...row,retryAt:null}));adapter.isProcessing=()=>true;await ui.refresh();
+    expect(ui.dialog.querySelector('[data-vs-action=process-record]').disabled).toBe(true);
+});
 test('returning from a loan restores its audio or explains expiry without changing the loan',async()=>{
     const {employees,adapter}=await fixture();const before=JSON.stringify(employees);
     await ui.action('recordings');await ui.action('audio','loan');ui.close();
