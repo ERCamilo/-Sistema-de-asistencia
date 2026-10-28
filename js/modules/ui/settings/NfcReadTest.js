@@ -2,8 +2,8 @@
 const cardIcon = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9v6m3-6v6m4-5a3 3 0 0 1 0 4m3-7a7 7 0 0 1 0 10"/></svg>';
 const closeIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>';
 
-export function SettingsNfcReadTestCard() {
-    return `<section class="stg-card nfc-test-entry" aria-labelledby="nfc-read-test-title"><h3 id="nfc-read-test-title">Lectura NFC</h3><p>Comprueba si este teléfono puede leer el UID de tus tarjetas.</p><button type="button" class="btn btn-primary" data-settings-action="test-nfc-read">${cardIcon} Probar lectura NFC</button><small>Solo lectura: no asocia empleados ni envía información.</small></section>`;
+export function SettingsNfcReadTestCard(settings = '') {
+    return `<section class="stg-card nfc-test-entry" aria-labelledby="nfc-read-test-title"><h3 id="nfc-read-test-title">Tarjetas NFC</h3>${settings}<p>Comprueba si este teléfono puede leer el UID de tus tarjetas.</p><button type="button" class="btn btn-primary" data-settings-action="test-nfc-read">${cardIcon} Probar lectura NFC</button><small>Solo lectura: no asocia empleados ni envía información.</small></section>`;
 }
 
 export function nfcTestSupport(env = globalThis) {
@@ -24,7 +24,7 @@ export function nfcTestError(error) {
 
 export function nfcTestResult(event) {
     const serial = String(event?.serialNumber || '');
-    const uid = serial.replace(/[ :\-]/g, '').toUpperCase();
+    const uid = serial.replace(/[\s:\-]/gu, '').toUpperCase();
     return {
         uid: /^(?:[0-9A-F]{2})+$/.test(uid) ? uid : '',
         serial,
@@ -42,6 +42,15 @@ export class NfcReadTest {
         this.dialog.setAttribute('role', 'dialog');
         this.dialog.setAttribute('aria-labelledby', 'nfc-test-dialog-title');
         this.dialog.innerHTML = `<header>${cardIcon}<h2 id="nfc-test-dialog-title" tabindex="-1">Probar NFC</h2><button type="button" data-nfc-test="close" aria-label="Cerrar">${closeIcon}</button></header><div class="nfc-test-body"><p>Activa NFC, desbloquea el teléfono y acerca una tarjeta.</p><p data-nfc-test="support"></p><div class="nfc-test-result"><span>UID para comparar con el ESP32</span><output data-nfc-test="uid">Sin leer</output></div><p data-nfc-test="status" role="status" aria-live="polite"></p><p data-nfc-test="error" role="alert" hidden></p><details><summary>Detalles de la prueba</summary><pre data-nfc-test="details"></pre></details><small>Web NFC lee tarjetas NDEF compatibles. Que el teléfono tenga NFC no garantiza que pueda leer esta tarjeta desde la web.</small></div><footer><button type="button" data-nfc-test="copy" disabled>Copiar resultado</button><button type="button" data-nfc-test="start" class="nfc-test-primary">Leer tarjeta</button><button type="button" data-nfc-test="stop" hidden>Detener lectura</button></footer>`;
+        const enrollment = this.doc.createElement('section');
+        enrollment.dataset.nfcTest = 'enrollment'; enrollment.hidden = true;
+        this.dialog.querySelector('.nfc-test-body').prepend(enrollment);
+        for (const [action, label] of [['register', 'Guardar asociación'], ['retry', 'Reintentar']]) {
+            const button = this.doc.createElement('button'); button.type = 'button'; button.dataset.nfcTest = action;
+            button.textContent = label; button.hidden = true;
+            if (action === 'register') button.className = 'nfc-test-primary';
+            this.dialog.querySelector('footer').append(button);
+        }
         this.doc.body.append(this.dialog);
         this.dialog.addEventListener('click', event => {
             const button = event.target.closest('[data-nfc-test]');
@@ -50,21 +59,39 @@ export class NfcReadTest {
             if (button.dataset.nfcTest === 'stop') this.stop('Lectura detenida. Puedes volver a intentarlo.');
             if (button.dataset.nfcTest === 'close') this.close();
             if (button.dataset.nfcTest === 'copy') void this.copy();
+            if (['register', 'retry'].includes(button.dataset.nfcTest)) this.onAction?.(button.dataset.nfcTest);
         });
         this.dialog.addEventListener('cancel', event => { event.preventDefault(); this.close(); });
-        this.dialog.addEventListener('close', () => { if (!this.dialog.open) this.release(); });
+        this.dialog.addEventListener('close', () => { if (!this.dialog.open) { this.release(); this.endMode(); } });
         // Keep the employee/settings modal's document handlers underneath.
         this.dialog.addEventListener('keydown', event => { if (['Escape', 'Tab'].includes(event.key)) event.stopPropagation(); });
-        this.onHidden = () => { if (this.doc.hidden && this.reading) this.stop('Lectura detenida al salir de la pantalla. Vuelve a pulsar Leer tarjeta.'); };
+        this.onHidden = () => {
+            if (!this.doc.hidden) return;
+            if (this.onSuspend && this.dialog.open) this.onSuspend();
+            else if (this.reading) this.stop('Lectura detenida al salir de la pantalla. Vuelve a pulsar Leer tarjeta.');
+        };
         this.doc.addEventListener('visibilitychange', this.onHidden);
-        this.onPageHide = () => this.release();
+        this.onPageHide = () => { if (this.onSuspend) this.onSuspend(); else this.release(); };
         this.env.addEventListener?.('pagehide', this.onPageHide);
         return this;
     }
     node(name) { return this.dialog.querySelector(`[data-nfc-test="${name}"]`); }
-    open() {
+    open(options = {}) {
+        this.endMode();
+        this.onResult = options.onResult; this.onScan = options.onScan; this.onClose = options.onClose;
+        this.onAction = options.onAction; this.onSuspend = options.onSuspend;
+        this.externalBusy = false;
+        this.dialog.dataset.nfcMode = options.onResult ? 'enrollment' : 'diagnostic';
+        this.dialog.dataset.nfcHasCard = 'false';
+        this.dialog.querySelector('h2').textContent = options.title || 'Probar NFC';
+        this.node('enrollment').hidden = !options.onResult;
+        this.node('enrollment').replaceChildren();
+        this.node('register').hidden = true; this.node('retry').hidden = true;
+        this.node('start').classList.add('nfc-test-primary');
+        this.node('copy').hidden = !!options.onResult;
         this.release(); this.result = null; this.returnFocus = this.doc.activeElement;
         const reason = nfcTestSupport(this.env);
+        this.dialog.dataset.nfcAvailable = reason ? 'false' : 'true';
         this.node('support').textContent = reason || 'Web NFC está disponible. Falta comprobar la tarjeta.';
         this.node('uid').textContent = 'Sin leer'; this.node('error').hidden = true;
         this.node('copy').disabled = true;
@@ -76,7 +103,7 @@ export class NfcReadTest {
     }
     controls() {
         this.node('start').hidden = !!this.reading;
-        this.node('start').disabled = !!nfcTestSupport(this.env);
+        this.node('start').disabled = !!nfcTestSupport(this.env) || !!this.externalBusy;
         this.node('stop').hidden = !this.reading;
     }
     paintDetails() { this.node('details').textContent = JSON.stringify(this.diagnostic, null, 2); }
@@ -90,7 +117,8 @@ export class NfcReadTest {
         if (message) { this.node('status').textContent = message; this.diagnostic.status = 'stopped'; this.paintDetails(); }
     }
     async start() {
-        if (this.reading || !this.dialog.open || nfcTestSupport(this.env)) return;
+        if (this.reading || this.externalBusy || !this.dialog.open || nfcTestSupport(this.env)) return;
+        try { this.onScan?.(); } catch (error) { this.fail(error.message, 'CONTEXT'); return; }
         this.release(); const epoch = this.epoch;
         this.result = null; this.node('copy').disabled = true;
         this.node('uid').textContent = 'Sin leer'; this.node('error').hidden = true;
@@ -111,6 +139,7 @@ export class NfcReadTest {
                 this.node('uid').textContent = this.result.uid || 'No disponible';
                 this.node('status').textContent = this.result.uid ? 'UID leído. Compáralo con el del ESP32; ignora espacios y dos puntos.' : 'Se detectó una tarjeta, pero no se obtuvo un UID válido. Aún no sirve para asociarla por UID.';
                 this.node('copy').disabled = false; this.paintDetails();
+                this.onResult?.(this.result);
             };
             reader.onreadingerror = () => { if (valid()) this.fail('No se pudo leer la tarjeta. Prueba de nuevo; podría no ser compatible con NDEF.', 'ReadingError'); };
             // Must happen in the button's user gesture, before any await.
@@ -140,10 +169,19 @@ export class NfcReadTest {
         }
     }
     close() {
+        this.endMode();
         this.release(); this.result = null; this.diagnostic = null;
         this.node('uid').textContent = 'Sin leer'; this.node('details').textContent = '';
         if (this.dialog.open) this.dialog.close();
         if (this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
+    }
+    endMode() {
+        const callback = this.onClose;
+        this.onClose = this.onScan = this.onResult = this.onAction = this.onSuspend = null;
+        this.externalBusy = false;
+        const region = this.dialog?.querySelector('[data-nfc-test="enrollment"]');
+        if (region) { region.replaceChildren(); region.hidden = true; }
+        callback?.();
     }
     destroy() {
         this.close(); this.doc.removeEventListener('visibilitychange', this.onHidden);
@@ -152,7 +190,8 @@ export class NfcReadTest {
 }
 
 let test;
-export function openNfcReadTest() {
+export function getNfcReadTest() {
     if (!test?.dialog.isConnected) test = new NfcReadTest().mount();
-    test.open();
+    return test;
 }
+export function openNfcReadTest() { getNfcReadTest().open(); }
