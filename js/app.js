@@ -1,6 +1,6 @@
 import { startAppUpdates } from './modules/ui/AppUpdates.js';
 import { readPayrollClosuresForBackup, payrollClosureRestoreOptions } from './modules/features/payroll/PayrollClosureBackup.js';
-import { beginFullImportIsolation, endFullImportIsolation, resumeSuspendedSaveOptions, beginLocalDataWipe } from './modules/services/PersistenceService.js';
+import { beginFullImportIsolation, endFullImportIsolation, resumeSuspendedSaveOptions, beginLocalDataWipe, isLocalDataWipeInProgress } from './modules/services/PersistenceService.js';
 import { installCrossTabDatasetGuard } from './modules/services/CrossTabDatasetGuard.js';
 import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, purgeMergedPositionsFromLocalStore, loadDemoDataIntoDB, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
@@ -59,6 +59,7 @@ import { projectContext, peekEntityScope } from './modules/features/projects/Pro
 import { projectStore } from './modules/features/projects/ProjectStore.js';
 import { auth, onAuthStateChanged as subscribeVoiceSession } from './modules/data/firebase.js';
 import { VoiceNameEnrollmentUI } from './modules/features/voice/VoiceNameEnrollmentUI.js';
+import { NfcIntegration } from './modules/features/nfc/NfcIntegration.js';
 import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
 import { VoiceSettingsUI } from './modules/features/voice/VoiceSettingsUI.js';
 import { isDeveloperMode } from './modules/ui/settings/DeveloperMode.js';
@@ -1226,6 +1227,17 @@ AnalyticsUI.init(moduleContext);
 PayrollUI.init(moduleContext);
 SyncUI.initSyncUI(moduleContext);
 
+// Experimental NFC uses local data and a webhook, independently of sign-in.
+new NfcIntegration({
+    canProceed: () => !isLocalDataWipeInProgress(),
+    getScope: () => peekEntityScope(),
+    getEmployees: () => (state.employees || []).filter(employee => !employee.deletedAt && entityInScope(employee, peekEntityScope())),
+    getCompanyName: () => state.settings?.companyName,
+    subscribeScope: callback => projectContext.subscribe(callback),
+    subscribeData: callback => eventBus.on('render:complete', callback),
+    render: () => render(),
+    notify: (message, type) => window.showNotification?.(message, type)
+}).mount();
 // Device-local voice MVP. Transports audio only; confirmed loans use the
 // same registration path as the current account form.
 let voicePettyCash;

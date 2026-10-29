@@ -7,6 +7,8 @@
 
 import icons from '../IconSystem.js';
 import { createCameraDiagnostics } from '../../features/pettycash/PettyCashCameraDiagnostics.js';
+import { SettingsNfcReadTestCard } from './NfcReadTest.js';
+import { NfcSettingsFields } from '../../features/nfc/NfcViews.js';
 
 const NAV_CENTER_MODES = [
     ['auto', 'Automático', 'Micrófono con conexión; "+" sin conexión o sin permiso de micrófono.'],
@@ -167,7 +169,7 @@ export function SettingsTestsTab(context) {
     const state = context?.state || {};
     const splitxActiveUrl = state.settings?.splitxUrl || 'https://splitx.erlin.do';
 
-    const experiments = `${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}${newPettyCashScreenCard(state.settings)}${pettyCashReadConfidenceCard(state.settings)}`;
+    const experiments = `${SettingsNfcReadTestCard(NfcSettingsFields())}${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}${newPettyCashScreenCard(state.settings)}${pettyCashReadConfidenceCard(state.settings)}`;
     const diagnostics = `            <div class="stg-header" style="margin-bottom: 20px;">
                 <div>
                     <h3>Pruebas del Sistema</h3>

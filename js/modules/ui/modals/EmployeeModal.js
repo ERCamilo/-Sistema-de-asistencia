@@ -1,4 +1,5 @@
 import { VoiceNameEntry } from '../../features/voice/VoiceNameEnrollmentUI.js';
+import { NfcEmployeeEntry } from '../../features/nfc/NfcViews.js';
 import { getActivePayrollSettings } from '../../features/payroll/ActivePayrollSettings.js';
 import { Modal } from '../../components/Modal.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
@@ -103,6 +104,7 @@ export class EmployeeModal {
                 </div>
                 
                 ${VoiceNameEntry(emp, state.settings?.voiceMvpEnabled === true)}
+                ${NfcEmployeeEntry(emp)}
                 ${renderEmployeePositionEditor(state, emp, regularHours)}
                 
                 <!-- Botón para expandir campos opcionales -->
