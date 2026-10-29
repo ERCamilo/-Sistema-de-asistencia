@@ -4,9 +4,9 @@ Seguimiento: [#320](https://github.com/ERCamilo/-Sistema-de-asistencia/issues/32
 
 ## Estado real
 
-El usuario confirmó lectura del mismo UID desde el Samsung y el ESP32, salvo separadores. Por indicación del usuario, este MVP funciona sin Firebase ni inicio de sesión. Permite activar asociaciones, leer desde el editor y consultar/registrar con el contrato siguiente. **El usuario confirmó que el flujo n8n actual solo recibe datos. No se considera implementado ni probado el registro real en la base de datos.**
+El usuario confirmó lectura del mismo UID desde el Samsung y el ESP32, salvo separadores. Por indicación del usuario, este MVP funciona sin Firebase ni inicio de sesión. Permite activar asociaciones, leer desde el editor y consultar/registrar con el contrato siguiente. El usuario confirmó posteriormente la consulta y asociación real, el bloqueo de una tarjeta ocupada y el reintento tras una respuesta perdida en su instalación de n8n/Google Sheets. La evidencia y los criterios pendientes se conservan en [#326](https://github.com/ERCamilo/-Sistema-de-asistencia/issues/326).
 
-No basta con importar el cliente o responder HTTP 200 para registrar una tarjeta. La disponibilidad, unicidad, persistencia y confirmación deben implementarse en n8n/almacenamiento antes de completar la prueba de extremo a extremo. Los tests de navegador usan un registro simulado y datos ficticios.
+No basta con importar el cliente o responder HTTP 200 para registrar una tarjeta. El backend de referencia y sus instrucciones están en [EPS32-Asistencia](https://github.com/ERCamilo/EPS32-Asistencia/blob/main/apps_script/RegistroNFC.gs). La validación física es reportada por el usuario; los tests de navegador de SA usan un registro simulado y datos ficticios y no demuestran por sí solos persistencia real.
 
 ## Uso del cliente
 
@@ -36,6 +36,8 @@ La configuración de activación/destino es local al navegador. Las preferencias
 El registro/hoja de destino lo determina la configuración del flujo n8n, no una identidad inventada del cliente. Empresa y obra son metadatos, no autenticación ni prueba de pertenencia. Para el MVP usar el registro de pruebas configurado en ese webhook. La autenticación y el aislamiento por cuenta mediante Firebase se integrarán después.
 
 Configurar CORS/preflight para los orígenes de prueba, permitiendo POST, OPTIONS y Content-Type. Credenciales de Google Sheets/base de datos permanecen en n8n. SA sigue omitiendo caché y redirecciones y solo confirma las respuestas correlacionadas del contrato.
+
+Al pasar de la vista previa al sitio principal, activar la opción y elegir el destino nuevamente: localStorage no se comparte entre dominios. Usar el mismo registro existente si ese es el configurado en n8n; el cambio de dominio no requiere otra hoja ni migrar tarjetas. Si CORS está restringido a la preview, añadir también el origen exacto del sitio principal en el webhook. Esto no es un dominio autorizado de Firebase.
 
 ## Petición
 
@@ -88,16 +90,16 @@ Si ya estaba registrada para ese empleado, `status: mismo_empleado`, con el mism
 
 Errores: HTTP 400/422 para payload inválido, 401/403 si el destino rechaza acceso (no disparan un login de Firebase), 409 para asociación incompatible/requestId reutilizado con otros datos, 5xx para fallos de persistencia. No usar una respuesta exitosa cuando Sheets/base de datos falla. El cliente no imprime cuerpos técnicos con posibles credenciales.
 
-## Reglas del registro pendientes de implementar en #322
+## Reglas del registro
 
 - Clave única `(registro configurado en el webhook, cardUid)`. Validar y bloquear la asociación en una operación atómica, no solamente consultar y luego append en Sheets.
-- Resolver explícitamente la política de una o varias tarjetas por empleado antes de publicar el backend. El cliente no reasigna ni elimina tarjetas existentes; cualquier asociación incompatible se rechaza con HTTP 409.
+- El registro de referencia rechaza una segunda tarjeta distinta para el mismo empleado. El cliente no reasigna ni elimina tarjetas existentes; cualquier asociación incompatible se rechaza con HTTP 409.
 - Idempotencia por `(registro, requestId)`: mismo contenido devuelve la confirmación original; otro contenido se rechaza. No crear otra fila por una respuesta perdida.
 - Conservar la fecha definitiva del primer guardado. No reescribir asistencia/historial al asociar una tarjeta.
-- Probar concurrencia real. Una cola simulada en los tests del cliente no demuestra unicidad del backend.
+- Probar concurrencia real. El usuario aportó un ensayo integrado con una ganadora, una respuesta 409 y una sola asociación; revisar el solapamiento de ejecuciones si n8n impone una cola. Una cola simulada en los tests del cliente no demuestra unicidad del backend.
 
 ## Verificación y siguiente paso
 
 Cliente: `npm test -- --runInBand js/tests/NfcCore.test.js js/tests/NfcIntegration.test.js js/tests/NfcReadTest.test.js` y `CHROMIUM_PATH=/usr/bin/chromium npm run test:nfc-read`.
 
-Backend pendiente: implementar primero consultar y asociar con estas respuestas, persistencia confirmada y unicidad; después realizar lectura física y registro de un empleado ficticio en Test, verificar el dato guardado y repetir sin duplicados. No marcar #322/#326 completos con pruebas simuladas del cliente.
+La integración a main publica el mismo cliente validado en la rama de prueba. Comprobar de nuevo la consulta desde ese dominio, el destino elegido y CORS. Los pendientes de aceptación permanecen en #326; no dar por probadas la autorización futura de Firebase ni la importación de asistencia a SA. La gestión de correcciones históricas desde un menú de SA se planifica aparte.

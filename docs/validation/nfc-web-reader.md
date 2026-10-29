@@ -1,10 +1,10 @@
 # Prueba de lectura NFC desde SA
 
-Rama de prueba: `test/nfc-web-reader`. No fusionar en main como parte de esta prueba.
+El lector comenzó en `test/nfc-web-reader` y se incorpora a main junto al MVP de asociaciones. La prueba de lectura sigue disponible de forma independiente en Ajustes → Pruebas; el [flujo de asociación](../integrations/nfc-webhook.md) se activa por separado.
 
 ## Cómo probar en el Samsung
 
-1. Abrir la vista previa HTTPS de Cloudflare directamente en Chrome para Android, sin un navegador incrustado ni iframe.
+1. Abrir SA por HTTPS directamente en Chrome para Android, sin un navegador incrustado ni iframe. Se puede probar tanto la vista previa como el sitio principal que incluya esta versión.
 2. Activar NFC en el teléfono y mantener la pantalla desbloqueada.
 3. Entrar en Ajustes. Si no aparece Pruebas, tocar siete veces seguidas la versión al pie de Ajustes para activar el modo desarrollador.
 4. En Pruebas → Lectura NFC, pulsar **Probar lectura NFC** y después **Leer tarjeta**. Autorizar NFC cuando Chrome lo pida.
@@ -28,4 +28,4 @@ La prueba no escribe en la tarjeta, no guarda lecturas en localStorage/IndexedDB
 - Chromium comprueba el modal real, controles y tamaños móviles con eventos NFC simulados.
 - La lectura física y la igualdad del UID con el ESP32 requieren el teléfono y las tarjetas reales; ninguna prueba automática aquí sustituye esa verificación.
 
-Siguiente paso: si la misma tarjeta entrega el mismo UID en ambos dispositivos, diseñar el contrato de asociación SA → webhook. Si no, evaluar tarjetas NDEF compatibles, Android nativo o registro desde el ESP32 antes de implementar asociaciones.
+El usuario ya confirmó que su Samsung y el ESP32 entregan el mismo UID salvo separadores. El siguiente paso al entrar desde el sitio principal es activar las asociaciones en ese dominio y comprobar la consulta con el registro existente, siguiendo el contrato y la guía vinculados arriba. Otras combinaciones de teléfono/tarjeta siguen necesitando una prueba física.
