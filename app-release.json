@@ -1,6 +1,14 @@
 {
-  "version": "1.7.118",
+  "version": "1.7.119",
   "changelog": [
+    {
+      "version": "1.7.119",
+      "date": "2026-10-30",
+      "title": "La dirección de tu aplicación",
+      "items": [
+        "Consulta la dirección actual y el origen de conexión de SA en Ajustes → General, también desde la app instalada."
+      ]
+    },
     {
       "version": "1.7.118",
       "date": "2026-10-28",
