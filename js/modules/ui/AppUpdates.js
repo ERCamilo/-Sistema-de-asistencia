@@ -1,3 +1,4 @@
+import { createUpdateFeedback, updateUpdateFeedback, showUpdateSuccess } from './AppUpdateFeedback.js';
 import * as policy from '../config/AppVersion.js';
 import { createReleaseManager } from '../services/AppUpdateManager.js';
 import { createAppUpdateWorker, withUpdateDeadline } from '../services/AppUpdateWorker.js';
@@ -29,6 +30,7 @@ function status(message) {
     if (target) target.textContent = message;
 }
 function updateControls(state) {
+    document.querySelectorAll('[data-update-feedback]').forEach(el => updateUpdateFeedback(el, state));
     const modal = document.querySelector('#update-modal');
     if (modal) {
         const primary = modal.querySelector('[data-release-apply]'), reload = modal.querySelector('[data-release-reload]');
@@ -49,8 +51,9 @@ function updateControls(state) {
     }
 }
 function addStatus(content) {
+    const feedback = createUpdateFeedback(); content.prepend(feedback);
     const message = document.createElement('p'); message.dataset.releaseStatus = '';
-    message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite'); content.appendChild(message);
+    message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite'); feedback.after(message);
     return message;
 }
 function decorate(modal, id, regionLabel) {
@@ -73,6 +76,7 @@ function show(kind, releases, version, close, apply) {
         section.append(heading, date, list); content.appendChild(section);
     }
     const message = addStatus(content);
+    if (kind === 'news') { content.querySelector('[data-update-feedback]').remove(); message.hidden = true; }
     const modal = new Modal({
         title: `${kind === 'news' ? 'Novedades' : 'Actualización disponible'} · v${version}`,
         content, size: 'medium', onClose: close,
@@ -105,11 +109,13 @@ export function startAppUpdates() {
     if (manager) return manager;
     const worker = createAppUpdateWorker();
     manager = createReleaseManager({
-        policy, prefix: 'sa', read: key => localStorage.getItem(key), write: (key, value) => localStorage.setItem(key, value),
+        policy, prefix: 'sa',
+        read: key => (key === 'sa:updateReceipt' ? sessionStorage : localStorage).getItem(key),
+        write: (key, value) => (key === 'sa:updateReceipt' ? sessionStorage : localStorage).setItem(key, value),
         now: () => Date.now(), online: () => navigator.onLine !== false, fetchRelease: fetchPublishedRelease,
         canShow: () => !hasOtherDialog() && !repairModal?.isOpen && !isSettingsDraftDirty(document) && !document.querySelector('input:focus, textarea:focus'),
         canReload: () => !hasOtherDialog() && !isSettingsDraftDirty(document),
-        show, status, updateState: updateControls, beforeReload, reportError: logError,
+        show, showSuccess: showUpdateSuccess, status, updateState: updateControls, beforeReload, reportError: logError,
         prepareRelease: worker.prepare, activateRelease: worker.activate, reload: () => location.reload()
     });
     manager.boot(); void worker.confirmRunningVersion(policy.APP_VERSION);

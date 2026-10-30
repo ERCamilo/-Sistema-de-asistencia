@@ -1,6 +1,16 @@
 {
-  "version": "1.7.119",
+  "version": "1.7.120",
   "changelog": [
+    {
+      "version": "1.7.120",
+      "date": "2026-10-30",
+      "title": "Actualizaciones con progreso visible",
+      "items": [
+        "Sigue la descarga y la instalación con animaciones y un conteo cuando está disponible.",
+        "Al abrir la versión nueva, una confirmación animada te devuelve a tu trabajo.",
+        "Los reintentos y la reparación conservan tus datos, fotos y comprobantes."
+      ]
+    },
     {
       "version": "1.7.119",
       "date": "2026-10-30",
