@@ -3,7 +3,7 @@
  * Estilo visual: SyncCenter (stg-* classes)
  */
 import { normalizeHelpMode } from '../../components/HelpController.js';
-import { escapeAttr } from '../../utils/Sanitize.js';
+import { escapeAttr, escapeHTML } from '../../utils/Sanitize.js';
 import { SettingsVoiceCard } from './SettingsVoiceCard.js';
 
 
@@ -11,6 +11,18 @@ export function SettingsGeneralTab(context) {
     const state = context.state;
     const icons = context.icons;
     const helpMode = normalizeHelpMode(state.settings.helpMode);
+    let currentAddress = 'No disponible';
+    let currentOrigin = 'No disponible';
+    try {
+        const pageUrl = new URL(globalThis.location.href);
+        pageUrl.username = '';
+        pageUrl.password = '';
+        pageUrl.search = '';
+        pageUrl.hash = '';
+        currentAddress = pageUrl.href;
+        const origin = globalThis.location.origin;
+        currentOrigin = origin === 'null' ? 'Sin origen web (null)' : origin || 'No disponible';
+    } catch (_) { /* Some app containers do not expose a usable page location. */ }
     const iconSetOptions = icons.getAvailableSets()
         .map(set => `<option value="${set}" ${state.settings.iconSet === set ? 'selected' : ''}>${set}</option>`)
         .join('');
@@ -32,6 +44,16 @@ export function SettingsGeneralTab(context) {
                                placeholder="Ej: Constructora El Progreso">
                     </div>
                 </div>
+
+                <section class="stg-panel stg-access-address" aria-labelledby="settings-access-title">
+                    <div class="stg-header">
+                        <div><h3 id="settings-access-title">Dirección de SA</h3></div>
+                    </div>
+                    <dl>
+                        <div><dt>Página actual</dt><dd><code data-settings-current-address>${escapeHTML(currentAddress)}</code></dd></div>
+                        <div><dt>Origen de conexión</dt><dd><code data-settings-current-origin>${escapeHTML(currentOrigin)}</code></dd></div>
+                    </dl>
+                </section>
 
                 <!-- Proyectos -->
                 <div class="stg-panel">
