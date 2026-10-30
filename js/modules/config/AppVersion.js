@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.119';
+const APP_VERSION = '1.7.120';
 const CHANGELOG = [
+    { version: '1.7.120', date: '2026-10-30', title: 'Actualizaciones con progreso visible', items: ['Sigue la descarga y la instalación con animaciones y un conteo cuando está disponible.', 'Al abrir la versión nueva, una confirmación animada te devuelve a tu trabajo.', 'Los reintentos y la reparación conservan tus datos, fotos y comprobantes.'] },
     { version: '1.7.119', date: '2026-10-30', title: 'La dirección de tu aplicación', items: ['Consulta la dirección actual y el origen de conexión de SA en Ajustes → General, también desde la app instalada.'] },
     { version: '1.7.118', date: '2026-10-28', title: 'NFC sin inicio de sesión', items: ['Activa y prueba la asociación de tarjetas desde Pruebas sin iniciar sesión en Google.', 'El webhook recibe los datos del empleado y la tarjeta sin token ni UID de cuenta Firebase; la configuración queda en este navegador.'] },
     { version: '1.7.117', date: '2026-10-28', title: 'Asociación de tarjetas NFC en prueba', items: ['Activa la asociación NFC desde Pruebas y abre el lector en el editor de cada empleado.', 'Elige el webhook de Test, Producción o uno personalizado para consultar y registrar tarjetas.', 'Revisa empleado, UID y destino antes de guardar; los registros requieren confirmación del webhook y conservan la solicitud al reintentar.'] },

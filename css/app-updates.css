@@ -12,3 +12,29 @@
 .release-modal [hidden] { display: none !important; }
 .release-modal[aria-busy="true"] [data-release-status] { color: var(--stg-text-primary, #f8fafc); }
 .release-modal .modal-footer { flex-wrap: wrap; gap: .6rem; }
+
+.update-feedback { text-align: center; margin: 1rem 0; }
+.update-feedback[hidden], .update-feedback [hidden], .update-success[hidden] { display: none !important; }
+.update-visual { width: 112px; height: 112px; margin: auto; color: var(--stg-accent, var(--accent-color, #67e2ed)); }
+.update-visual svg { width: 100%; height: 100%; overflow: visible; }
+.update-track { fill: none; stroke: var(--stg-border-card, var(--border-color, #334155)); stroke-width: 5; }
+.update-arc { fill: none; stroke: currentColor; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 326.73; stroke-dashoffset: var(--update-offset, 0); transform: rotate(-90deg); transform-origin: 60px 60px; transition: stroke-dashoffset 200ms linear; }
+.update-visual[data-determinate="false"] .update-arc { stroke-dasharray: 80 246.73; stroke-dashoffset: 0; animation: update-progress-spin 1200ms linear infinite; }
+.update-glyph { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.update-download-arrow { animation: update-download-drop 1100ms ease-in-out infinite; }
+.update-feedback[data-activity="ready"] .update-visual { color: var(--stg-success, var(--success-color, #67dfa1)); }
+.update-feedback[data-activity="error"] .update-visual { color: var(--stg-danger, var(--danger-color, #ff9c9c)); }
+.update-feedback[data-activity="ready"] .update-arc, .update-feedback[data-activity="error"] .update-arc { animation: none; stroke-dasharray: 326.73; stroke-dashoffset: 0; }
+.update-feedback p { margin: .5rem 0 0; font-size: .85rem; }
+@keyframes update-progress-spin { to { transform: rotate(270deg); } }
+@keyframes update-download-drop { 0%, 100% { transform: translateY(-3px); opacity: .7; } 50% { transform: translateY(3px); opacity: 1; } }
+.update-success { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 24px; background: var(--stg-bg, var(--bg-color, #0b1320)); color: var(--stg-text-primary, var(--text-color, #f4f6fa)); pointer-events: none; }
+.update-success-card { text-align: center; max-width: 28rem; animation: update-success-enter 240ms ease-out both; }
+.update-success-card h2 { font-size: 1.3rem; }
+.update-success-card p { color: inherit; line-height: 1.5; }
+.update-success-check { width: clamp(144px, 40vw, 220px); height: auto; }
+.update-success-check circle { fill: var(--stg-success, var(--success-color, #67dfa1)); }
+.update-success-check path { fill: none; stroke: var(--stg-bg, var(--bg-color, #0b1320)); stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 80; stroke-dashoffset: 0; animation: update-success-draw 450ms ease-out both; }
+@keyframes update-success-enter { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes update-success-draw { from { stroke-dashoffset: 80; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .update-success-card, .update-success-check path, .update-arc, .update-download-arrow { animation: none !important; transition: none !important; } }

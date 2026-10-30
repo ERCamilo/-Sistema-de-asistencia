@@ -6,14 +6,14 @@ function createReleaseManager(options) {
     const write = (name, value) => { try { options.write(key(name), value); return true; } catch (_) { return false; } };
     let booted = false, dialogOpen = false, applying = false, applyGeneration = 0;
     let incoming = null, queuedIncoming = null, flight = null, preparationFlight = null;
-    let manualCheck = false, deferred = read('deferredVersion'), pendingNews = [];
+    let manualCheck = false, deferred = read('deferredVersion'), pendingNews = [], pendingSuccess = false;
     let lastCheckedAt = Number(read('lastUpdateCheck')) || 0;
-    let operationController = null, operation = null;
+    let operationController = null, operation = null, activity = null, downloadProgress = null;
     let preparation = { phase: 'idle', version: null, handle: null, message: '' };
-    const getState = () => ({ ...preparation, busy: applying, operation });
+    const getState = () => ({ ...preparation, busy: applying, operation, activity: activity || (preparation.phase === 'preparing' ? 'download' : preparation.phase), progress: downloadProgress });
     const notify = () => options.updateState?.(getState());
     const report = (error, context) => { try { options.reportError?.(error, context); } catch (_) {} };
-    function progress(message) { options.status(message); notify(); }
+    function progress(message, nextActivity) { if (nextActivity) { activity = nextActivity; if (nextActivity !== 'download') downloadProgress = null; } options.status(message); notify(); }
     function cancelOperation() { applyGeneration++; operationController?.abort(); }
     function closeNews() {
         dialogOpen = false;
@@ -31,19 +31,20 @@ function createReleaseManager(options) {
         const offered = incoming;
         if (!force && preparation.version === offered.version && preparation.phase === 'ready') return Promise.resolve(preparation.handle);
         if (!force && preparationFlight?.version === offered.version) return preparationFlight.promise;
+        downloadProgress = null;
         preparation = { phase: 'preparing', version: offered.version, handle: null, message: 'Preparando actualización en segundo plano…' };
         progress(preparation.message);
         const promise = Promise.resolve().then(() => options.prepareRelease(offered.version, {
             force, onProgress: event => {
                 if (incoming !== offered || preparation.phase !== 'preparing') return;
                 preparation.message = event.message || 'Descargando archivos de la aplicación…';
-                if (!applying) progress(preparation.message);
+                if (!applying) { downloadProgress = event; progress(preparation.message); }
             }
         })).then(handle => {
             if (incoming !== offered) return null;
             if (!handle || handle.version !== offered.version) throw new Error('Unexpected prepared version');
             preparation = { phase: 'ready', version: offered.version, handle, message: 'Actualización lista. Puedes continuar trabajando o actualizar ahora.' };
-            if (!applying) progress(preparation.message);
+            if (!applying) { downloadProgress = null; progress(preparation.message); }
             flush(); return handle;
         }).catch(error => {
             if (incoming === offered) {
@@ -51,7 +52,7 @@ function createReleaseManager(options) {
                 preparation = { phase: 'error', version: offered.version, handle: null,
                     message: error?.code === 'timeout' ? 'La preparación tardó demasiado. Puedes reintentar o recargar.'
                         : 'No se pudo preparar la actualización. Revisa tu conexión y reintenta.' };
-                if (!applying) progress(preparation.message);
+                if (!applying) { downloadProgress = null; progress(preparation.message); }
             }
             return null;
         }).finally(() => { if (preparationFlight?.promise === promise) preparationFlight = null; });
@@ -70,13 +71,16 @@ function createReleaseManager(options) {
         const current = () => generation === applyGeneration && !controller.signal.aborted;
         let saved = false;
         try {
-            progress('Guardando datos…');
+            progress('Guardando datos…', 'save');
             await options.beforeReload();
             if (!current()) return;
             saved = true; mayReload();
-            await action({ signal: controller.signal, current });
+            const targetVersion = await action({ signal: controller.signal, current });
             if (!current()) return;
-            mayReload(); progress('Reiniciando aplicación…'); options.reload();
+            mayReload();
+            if (typeof targetVersion === 'string' && policy.compareVersions(targetVersion, policy.APP_VERSION) > 0)
+                write('updateReceipt', JSON.stringify({ from: policy.APP_VERSION, target: targetVersion }));
+            progress('Reiniciando aplicación…', 'restart'); options.reload();
         } catch (error) {
             if (!current()) return;
             report(error, kind === 'repair' ? 'reparar interfaz' : 'actualizar aplicación');
@@ -87,34 +91,36 @@ function createReleaseManager(options) {
             progress(message);
         } finally {
             if (operationController === controller) operationController = null;
-            applying = false; operation = null; notify();
+            applying = false; operation = null; activity = null; downloadProgress = null; notify();
         }
     }
     async function apply() {
         if (!incoming || applying) return;
         if (options.prepareRelease && preparation.phase !== 'ready') return prepareIncoming(true);
-        const handle = preparation.handle;
+        const handle = preparation.handle, targetVersion = handle?.version || incoming.version;
         return runOperation('update', async ({ signal, current }) => {
             if (options.activateRelease) {
-                progress('Activando actualización…'); await options.activateRelease(handle, { signal });
+                progress('Activando actualización…', 'install'); await options.activateRelease(handle, { signal });
             } else {
-                progress('Descargando actualización…'); await options.prepareUpdate?.();
+                progress('Descargando actualización…', 'download'); await options.prepareUpdate?.();
             }
             if (!current()) return;
+            return targetVersion;
         });
     }
     async function repair() {
         return runOperation('repair', async ({ signal, current }) => {
-            progress('Preparando la reparación…');
+            progress('Preparando la reparación…', 'download');
             const release = await options.fetchRelease();
             if (!current()) return;
             if (!policy.isReleaseManifest(release)) throw new Error('Invalid release');
             const handle = await options.prepareRelease(release.version, {
-                force: true, signal, onProgress: event => { if (current()) progress(event.message || 'Renovando archivos de la interfaz…'); }
+                force: true, signal, onProgress: event => { if (current()) { downloadProgress = event; progress(event.message || 'Renovando archivos de la interfaz…', 'download'); } }
             });
             if (!current()) return;
-            mayReload(); progress('Activando la interfaz renovada…');
+            mayReload(); progress('Activando la interfaz renovada…', 'install');
             await options.activateRelease(handle, { signal });
+            return handle.version;
         });
     }
     const reloadSafely = () => runOperation('reload', async () => {});
@@ -133,10 +139,37 @@ function createReleaseManager(options) {
             offered.version, () => closeUpdate(offered.version), apply);
         notify();
     }
-    function flush() { if (pendingNews.length) showNews(); else showUpdate(); }
+    function flush() {
+        if (pendingSuccess) {
+            if (!dialogOpen && options.canShow()) {
+                dialogOpen = options.showSuccess?.(() => { dialogOpen = false; }) || false;
+                pendingSuccess = false;
+            }
+        } else if (pendingNews.length) showNews(); else showUpdate();
+    }
+    function consumeUpdateReceipt() {
+        const value = read('updateReceipt');
+        if (!value) return false;
+        try {
+            const receipt = JSON.parse(value);
+            if (receipt && typeof receipt.from === 'string' && typeof receipt.target === 'string'
+                && policy.compareVersions(receipt.target, receipt.from) > 0) {
+                if (policy.compareVersions(policy.APP_VERSION, receipt.from) >= 0
+                    && policy.compareVersions(policy.APP_VERSION, receipt.target) < 0) return false;
+                if (receipt.target === policy.APP_VERSION) return write('updateReceipt', '');
+            }
+        } catch (_) {}
+        write('updateReceipt', '');
+        return false;
+    }
     function boot() {
         if (booted) return; booted = true;
         const seen = read('lastSeenVersion');
+        if (consumeUpdateReceipt()) {
+            pendingSuccess = !!seen && policy.compareVersions(seen, policy.APP_VERSION) >= 0
+                || write('lastSeenVersion', policy.APP_VERSION);
+            if (pendingSuccess) { flush(); return; }
+        }
         if (!seen || !/^\d+\.\d+\.\d+$/.test(seen)) write('lastSeenVersion', policy.APP_VERSION);
         else pendingNews = policy.getUnseenReleases(seen, policy.CHANGELOG);
         flush();
