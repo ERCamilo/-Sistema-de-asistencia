@@ -1,6 +1,6 @@
 import { startAppUpdates } from './modules/ui/AppUpdates.js';
 import { readPayrollClosuresForBackup, payrollClosureRestoreOptions } from './modules/features/payroll/PayrollClosureBackup.js';
-import { beginFullImportIsolation, endFullImportIsolation, resumeSuspendedSaveOptions, beginLocalDataWipe } from './modules/services/PersistenceService.js';
+import { beginFullImportIsolation, endFullImportIsolation, resumeSuspendedSaveOptions, beginLocalDataWipe, isLocalDataWipeInProgress } from './modules/services/PersistenceService.js';
 import { installCrossTabDatasetGuard } from './modules/services/CrossTabDatasetGuard.js';
 import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, purgeMergedPositionsFromLocalStore, loadDemoDataIntoDB, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
@@ -59,6 +59,7 @@ import { projectContext, peekEntityScope } from './modules/features/projects/Pro
 import { projectStore } from './modules/features/projects/ProjectStore.js';
 import { auth, onAuthStateChanged as subscribeVoiceSession } from './modules/data/firebase.js';
 import { VoiceNameEnrollmentUI } from './modules/features/voice/VoiceNameEnrollmentUI.js';
+import { NfcIntegration } from './modules/features/nfc/NfcIntegration.js';
 import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
 import { VoiceSettingsUI } from './modules/features/voice/VoiceSettingsUI.js';
 import { isDeveloperMode } from './modules/ui/settings/DeveloperMode.js';
@@ -1226,6 +1227,17 @@ AnalyticsUI.init(moduleContext);
 PayrollUI.init(moduleContext);
 SyncUI.initSyncUI(moduleContext);
 
+// Experimental NFC uses local data and a webhook, independently of sign-in.
+new NfcIntegration({
+    canProceed: () => !isLocalDataWipeInProgress(),
+    getScope: () => peekEntityScope(),
+    getEmployees: () => (state.employees || []).filter(employee => !employee.deletedAt && entityInScope(employee, peekEntityScope())),
+    getCompanyName: () => state.settings?.companyName,
+    subscribeScope: callback => projectContext.subscribe(callback),
+    subscribeData: callback => eventBus.on('render:complete', callback),
+    render: () => render(),
+    notify: (message, type) => window.showNotification?.(message, type)
+}).mount();
 // Device-local voice MVP. Transports audio only; confirmed loans use the
 // same registration path as the current account form.
 let voicePettyCash;
@@ -1252,7 +1264,7 @@ function reserveVoiceReturn(kind, summary = {}, restore = null) {
 }
 const voiceMvp = new VoiceMvpUI({
     beginReturn: reserveVoiceReturn,
-    onSettings: () => window.openVoiceSettings(),
+    onSettings: initial => window.openVoiceSettings(initial),
     onPettyCash: (record, bridge) => voicePettyCash.open(record, bridge),
     getUser: () => auth.currentUser,
     isEnabled: () => state.settings?.voiceMvpEnabled === true,
@@ -1319,6 +1331,15 @@ const voiceSettings = new VoiceSettingsUI({
     },
     onTeachName: employeeId => voiceNameEnrollment.open(employeeId),
     onLocalDataChanged: () => voiceMvp.refreshStorageStatus({ force: true }),
+    isProcessing: () => !!voiceMvp.processingFlight || !!voiceMvp.queueFlight,
+    onResumePending: () => voiceMvp.resumePending(),
+    onProcessRecording: async requestId => {
+        const identity = voiceMvp.identity();
+        const record = await voiceMvp.store.get(identity.uid, requestId);
+        voiceMvp.guard(record);
+        await voiceMvp.process({ record, background: true });
+    },
+    onReviewRecording: requestId => { voiceSettings.close(); return voiceMvp.openSaved(requestId); },
     onOpenLoan: employeeId => guardSettingsDraftOnLeave({
         showConfirm: options => voiceSettings.confirm(options.title, options.message, async generation => {
             voiceSettings.guard(generation); options.onConfirm();
@@ -1347,7 +1368,7 @@ voicePettyCash = new VoicePettyCashUI({
 }).mount();
 
 window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
-window.openVoiceSettings = () => voiceSettings.run(() => voiceSettings.open());
+window.openVoiceSettings = (initial = 'home') => voiceSettings.run(() => voiceSettings.open(typeof initial === 'string' ? initial : 'home'));
 window.openVoiceAudioStorage = () => voiceSettings.run(() => voiceSettings.open('recordings'));
 
 // Barra inferior de 5 posiciones (prueba): su botón central dicta con la misma Voz

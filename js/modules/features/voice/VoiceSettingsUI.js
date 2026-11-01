@@ -1,4 +1,5 @@
 import { escapeHTML } from '../../utils/Sanitize.js';
+import { voiceCanProcess, voiceHasPendingWork } from './VoicePending.js';
 import { DOMDiff } from '../../utils/DOMDiff.js';
 import { normalizeVoiceName, voiceAutoMatchLevel } from './VoiceMatching.js';
 import { voiceRetentionPolicy } from './VoiceRetention.js';
@@ -49,6 +50,9 @@ export class VoiceSettingsUI {
         this.unsubscribeSession = this.adapter.subscribeSession?.(changed);
         this.unsubscribeScope = this.adapter.subscribeScope?.(changed);
         this.unsubscribeSettings = this.adapter.subscribeEnabled?.(changed);
+        this.onProcessing = () => { if (this.dialog.open && this.sameContext() && ['recordings','audio'].includes(this.view)) this.run(() => this.refresh()); };
+        window.addEventListener('sa:voice-processing-changed', this.onProcessing);
+        window.addEventListener('online', this.onProcessing); window.addEventListener('offline', this.onProcessing);
         this.onWipe = () => { this.wiped = true; this.close(); };
         this.onDiscard = () => { if (this.dialog.open && !this.busy) this.run(() => this.refresh()); };
         window.addEventListener('sa:voice-wipe', this.onWipe); window.addEventListener('sa:voice-audio-discarded', this.onDiscard);
@@ -137,7 +141,7 @@ export class VoiceSettingsUI {
             this.releaseAudio(); this.view = 'recordings'; this.stack = ['home']; this.error = 'El audio venció o ya no está disponible.';
         }
         if (['person','edit-alias'].includes(this.view) && !this.employee()) { this.view = 'aliases'; this.stack = ['home']; this.error = 'El empleado ya no está disponible en esta obra.'; }
-        if (this.view === 'audio' && this.dialog.querySelector('audio') && !this.error) {
+        if (this.view === 'audio' && this.dialog.querySelector('audio') && !this.error && !this.adapter.onProcessRecording) {
             const expiry = this.dialog.querySelector('[data-vs-expiry]');
             if (expiry) expiry.innerHTML = vsIcon('clock') + voiceExpiryText(voiceRecordingInfo(this.recording(), this.adapter.getSettings()).expiresAt);
         } else this.render();
@@ -220,11 +224,27 @@ export class VoiceSettingsUI {
             this.guard(this.generation, this.employeeId); this.pauseAudio();
             await this.adapter.onTeachName(this.employeeId); return;
         }
-        if (action === 'record-filter') { if (['available','soon','unavailable'].includes(value)) this.recordFilter = value; this.render(); return; }
+        if (action === 'record-filter') { if (['available','pending','soon','unavailable'].includes(value)) this.recordFilter = value; this.render(); return; }
         if (action === 'audio') {
             this.recordId = value;
             if (!this.recording() || !voiceRecordingInfo(this.recording(), this.adapter.getSettings()).available) throw Error('Audio no disponible. Actualiza la lista.');
             this.navigate('audio'); return;
+        }
+        if (action === 'review-record') {
+            this.recordId = value;
+            if (!voiceRecordingInfo(this.recording() || {}, this.adapter.getSettings()).available) throw Error('El audio venció o fue eliminado.');
+            await this.adapter.onReviewRecording?.(value); return;
+        }
+        if (action === 'resume-pending' || action === 'process-record') {
+            if (action === 'process-record') {
+                const record = this.records?.find(row => row.requestId === value);
+                if (!record || !voiceCanProcess(record, this.policy()) || !voiceHasPendingWork(record)) throw Error('El audio no está pendiente o ya no está disponible.');
+            }
+            this.feedback('Procesando pendientes, uno a la vez…');
+            if (action === 'process-record') await this.adapter.onProcessRecording?.(value);
+            else await this.adapter.onResumePending?.();
+            if (this.dialog.open && this.sameContext()) { await this.refresh(); this.feedback('Lista actualizada. Revisa el estado de cada audio.'); }
+            return;
         }
         if (action === 'play') {
             if (!this.recording() || !voiceRecordingInfo(this.recording(), this.adapter.getSettings()).available) { this.releaseAudio(); await this.refresh(); throw Error('El audio venció o fue eliminado.'); }
@@ -351,7 +371,7 @@ export class VoiceSettingsUI {
         const after = this.dialog.open ? this.dialog.getBoundingClientRect() : null;
         if (structural && before?.height && after?.height && before.height !== after.height && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) this.dialog.animate?.([{height:`${before.height}px`},{height:`${after.height}px`}],{duration:260,easing:'cubic-bezier(.2,.8,.2,1)'});
     }
-    destroy() {
+    destroy() { window.removeEventListener('sa:voice-processing-changed', this.onProcessing); window.removeEventListener('online', this.onProcessing); window.removeEventListener('offline', this.onProcessing);
         this.close(); clearInterval(this.timer); this.unsubscribeSession?.(); this.unsubscribeScope?.(); this.unsubscribeSettings?.();
         window.removeEventListener('sa:voice-wipe',this.onWipe); window.removeEventListener('sa:voice-audio-discarded',this.onDiscard); document.removeEventListener('visibilitychange',this.onVisibility); this.dialog.remove();
     }

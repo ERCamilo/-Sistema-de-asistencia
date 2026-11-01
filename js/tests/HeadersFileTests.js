@@ -55,6 +55,7 @@ testRunner.addSuite("Security headers — _headers en Cloudflare Pages", {
             'debe declarar una Permissions-Policy');
         testRunner.assert(/camera=\(self\)/i.test(src), 'camera solo para el origen propio (cámara de facturas)');
         testRunner.assert(/microphone=\(self\)/i.test(src), 'microphone solo para el origen propio');
+        testRunner.assert(/nfc=\(self\)/i.test(src), 'NFC solo para el origen propio (prueba de compatibilidad)');
         testRunner.assert(/geolocation=\(\)/i.test(src), 'geolocation deshabilitada por defecto');
     }
 

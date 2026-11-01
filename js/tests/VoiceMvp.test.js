@@ -171,13 +171,13 @@ describe('Voice recorder lifecycle', () => {
 });
 
 test('discarding a recording aborts the pending transport request', async () => {
-    const external = new AbortController(); let signal;
+    const external = new AbortController(); let signal,started; const ready=new Promise(resolve=>{started=resolve;});
     const fetchImpl = jest.fn((url, options) => new Promise((resolve, reject) => {
-        signal = options.signal;
+        signal = options.signal; started();
         signal.addEventListener('abort', () => reject(Object.assign(Error('cancelled'), {name:'AbortError'})), {once:true});
     }));
     const pending = sendVoiceRecording({url:'https://n8n.example/voice',record:{requestId:'cancel',fileBase64:'AQID',mimeType:'audio/webm',fileName:'voice.webm',context:{}},getToken:async()=> 'token',externalSignal:external.signal,fetchImpl});
-    await Promise.resolve(); external.abort();
+    await ready; external.abort();
     await expect(pending).rejects.toMatchObject({code:'PROCESSING_TIMEOUT'});
     expect(signal.aborted).toBe(true); expect(fetchImpl).toHaveBeenCalledTimes(1);
 });

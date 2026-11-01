@@ -245,3 +245,14 @@
 
 .settings-voice-entry:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 
+
+/* Pending voice submissions share the existing recording cards and modal shell. */
+.vs-record-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:480px){.vs-record-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.vs-pending-actions{padding:0 12px 12px;display:grid;gap:9px}
+.vs-pending-status{font-size:12px;font-weight:650;color:var(--accent)}
+.vs-pending-actions>div{display:flex;flex-wrap:wrap;gap:8px}
+.vs-pending-actions .vs-btn{flex:1;min-width:110px;min-height:44px}
+.vs-pending-actions details{font-size:12px;color:var(--text);overflow-wrap:anywhere}
+.vs-pending-actions details p{white-space:pre-wrap;margin:8px 0;line-height:1.5}
+.vs-pending-actions>small{font-size:11px;color:var(--dim)}

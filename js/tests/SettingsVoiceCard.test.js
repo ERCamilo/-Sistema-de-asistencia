@@ -45,6 +45,19 @@ describe('Voz en Configuración → General', () => {
 });
 
 describe('Pestaña Tests detrás del modo desarrollador', () => {
+    test('la prueba NFC abre desde la acción real de Ajustes y no aparece en General', () => {
+        render('general');
+        expect(document.querySelector('[data-settings-action="test-nfc-read"]')).toBeNull();
+        localStorage.setItem(DEV_MODE_KEY, '1'); render('tests');
+        const original = HTMLDialogElement.prototype.showModal;
+        HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+        try {
+            document.querySelector('[data-settings-action="test-nfc-read"]').click();
+            const dialog = document.querySelector('.nfc-test-dialog');
+            expect(dialog.open).toBe(true);
+            expect(dialog.textContent).toContain('UID para comparar con el ESP32');
+        } finally { HTMLDialogElement.prototype.showModal = original; }
+    });
     test('apagado: no hay botón Tests y una pestaña Tests guardada cae en General', () => {
         render('tests');
         expect(tabs()).toEqual(['data', 'general', 'calendar']);

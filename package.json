@@ -21,6 +21,7 @@
     "sw:precache": "node scripts/sw-precache.cjs",
     "build": "node scripts/release-manifest.cjs && node scripts/build.cjs",
     "test:settings-layout": "node scripts/check-settings-layout.cjs",
+    "test:nfc-read": "node scripts/check-nfc-read.cjs",
     "test:voice-settings": "node scripts/check-voice-settings.cjs",
     "test:voice-audio-quality": "node scripts/check-voice-audio-quality.cjs",
     "test:mini-review-layout": "node scripts/check-mini-review-layout.cjs",

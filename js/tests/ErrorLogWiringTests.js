@@ -61,7 +61,10 @@ testRunner.addSuite("ErrorLogWiring — app.js registra en el log los mismos cat
 
 });
 
-testRunner.addSuite("ErrorLogWiring — SettingsUI.js (clear-cache) también registra y traduce", {
+const APP_UPDATES_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/ui/AppUpdates.js'), 'utf8');
+const APP_UPDATE_MANAGER_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/services/AppUpdateManager.js'), 'utf8');
+
+testRunner.addSuite("ErrorLogWiring — reparación de interfaz registra el error y muestra un mensaje de recuperación", {
 
     "SettingsUI.js importa logError y translateError"() {
         testRunner.assert(/from\s+['"]\.\.\/services\/ErrorLog\.js['"]/.test(SETTINGS_UI_SRC),
@@ -70,16 +73,15 @@ testRunner.addSuite("ErrorLogWiring — SettingsUI.js (clear-cache) también reg
             "debe importar de ErrorTranslator.js");
     },
 
-    "el catch de clear-cache llama a logError y translateError, no error.message crudo"() {
-        const idx = SETTINGS_UI_SRC.indexOf("'clear-cache'");
-        testRunner.assert(idx !== -1, "debe existir la acción clear-cache");
-        const end = SETTINGS_UI_SRC.indexOf("'clear-mini-attendance-aliases'", idx);
-        const block = SETTINGS_UI_SRC.slice(idx, end);
-        testRunner.assert(/logError\s*\(\s*err\s*,/.test(block), "debe registrar el error en el log");
-        testRunner.assert(/translateError\s*\(\s*err\s*,\s*\{\s*fallbackContext\s*:/.test(block),
-            "debe traducir el error con translateError(err, {fallbackContext: ...})");
-        testRunner.assert(!/err\.message/.test(block) || /translateError/.test(block),
-            "err.message solo debe aparecer envuelto por translateError, no concatenado crudo");
+    "clear-cache delega en la reparación y sus errores se registran en el propietario de la operación"() {
+        testRunner.assert(/'clear-cache':\s*\(\)\s*=>\s*requestInterfaceRepair\(\)/.test(SETTINGS_UI_SRC),
+            "la acción compatible debe abrir la reparación segura");
+        testRunner.assert(/reportError:\s*logError/.test(APP_UPDATES_SRC),
+            "la interfaz debe conectar el registro de errores");
+        testRunner.assert(APP_UPDATE_MANAGER_SRC.includes("report(error, kind === 'repair' ? 'reparar interfaz'"),
+            "el gestor debe registrar el contexto de reparación");
+        testRunner.assert(APP_UPDATE_MANAGER_SRC.includes('tus datos guardados se conservan'),
+            "el fallo debe mostrar una acción recuperable y el alcance sobre los datos");
     }
 
 });
