@@ -1,3 +1,4 @@
+const { setImmediate } = require('node:timers');
 const assert = require('node:assert/strict');
 const base = require('../modules/config/AppVersion.js');
 const { createReleaseManager } = require('../modules/services/AppUpdateManager.js');
@@ -154,4 +155,139 @@ test('repair saves first, forces a fresh snapshot and does not reload before act
     f.preparing.resolve({version:'1.10.0',cacheName:'fresh'});for(let i=0;i<8;i++)await Promise.resolve();
     assert.equal(f.calls.at(-1),'activate');assert.equal(f.calls.includes('reload'),false);
     f.activating.resolve();await pending;assert.equal(f.calls.at(-1),'reload');
+});
+
+function updateReceiptFixture({ version = '1.9.0', storage = new Map(), failWrite = false, prepare = async () => {}, save = async () => {} } = {}) {
+  const shown = [], calls = [];
+  const manager = createReleaseManager({
+    policy: { ...base, APP_VERSION: version, CHANGELOG: releases.filter(r => base.compareVersions(r.version, version) <= 0) },
+    prefix: 'receipt', read: key => storage.get(key) || null,
+    write: (key, value) => { if (failWrite) throw new Error('storage'); storage.set(key, value); },
+    now: () => 1000, online: () => true, canShow: () => true,
+    fetchRelease: async () => ({ version: '1.10.0', changelog: releases }),
+    show: (kind, entries, version, close) => { shown.push({ kind, close }); return true; },
+    showSuccess: close => { shown.push({ kind: 'success', close }); return true; },
+    beforeReload: async () => { calls.push('save'); await save(); },
+    prepareUpdate: async () => { calls.push('prepare'); await prepare(); },
+    reload: () => calls.push('reload'), status() {}
+  });
+  return { manager, storage, shown, calls };
+}
+test('explicit update confirms the new boot once, without another news confirmation', async () => {
+  const old = updateReceiptFixture(); old.storage.set('receipt:lastSeenVersion', '1.9.0');
+  old.manager.boot(); await old.manager.check(true); await old.manager.apply();
+  assert.deepEqual(old.calls, ['save', 'prepare', 'reload']);
+  assert.deepEqual(JSON.parse(old.storage.get('receipt:updateReceipt')), { from: '1.9.0', target: '1.10.0' });
+  const fresh = updateReceiptFixture({ version: '1.10.0', storage: old.storage });
+  fresh.manager.boot(); assert.deepEqual(fresh.shown.map(s => s.kind), ['success']);
+  fresh.shown[0].close(); fresh.manager.flush(); assert.equal(fresh.shown.length, 1);
+  assert.equal(fresh.storage.get('receipt:lastSeenVersion'), '1.10.0');
+  const reload = updateReceiptFixture({ version: '1.10.0', storage: old.storage });
+  reload.manager.boot(); assert.equal(reload.shown.length, 0);
+  reload.manager.showNews(true); assert.equal(reload.shown[0].kind, 'news');
+});
+test('failed save, failed preparation and receipt storage never report a completed update', async () => {
+  for (const options of [{ save: async () => { throw new Error('disk'); } }, { prepare: async () => { throw new Error('network'); } }, { failWrite: true }]) {
+    const f = updateReceiptFixture(options); await f.manager.check(true); await f.manager.apply();
+    assert.equal(f.storage.has('receipt:updateReceipt'), false);
+    assert.equal(f.shown.some(s => s.kind === 'success'), false);
+    assert.equal(f.calls.includes('reload'), !options.save && !options.prepare);
+  }
+});
+test('invalid and non-increasing update receipts do not announce success', () => {
+  for (const receipt of [ { from: '1.9.0', target: '1.9.0' }, { from: 'invalid', target: '1.9.0' }, {}]) {
+    const f = updateReceiptFixture(); f.storage.set('receipt:lastSeenVersion', '1.9.0');
+    f.storage.set('receipt:updateReceipt', JSON.stringify(receipt)); f.manager.boot();
+    assert.equal(f.shown.length, 0); assert.equal(f.storage.get('receipt:updateReceipt'), '');
+  }
+});
+test('fresh success never moves a newer seen reference backwards', () => {
+  const f = updateReceiptFixture({ version: '1.10.0' });
+  f.storage.set('receipt:lastSeenVersion', '1.11.0');
+  f.storage.set('receipt:updateReceipt', JSON.stringify({ from: '1.9.0', target: '1.10.0' }));
+  f.manager.boot(); assert.equal(f.storage.get('receipt:lastSeenVersion'), '1.11.0');
+});
+test('closing during preparation cannot leave a successful receipt', async () => {
+  let finish;
+  const f = updateReceiptFixture({ prepare: () => new Promise(resolve => { finish = resolve; }) });
+  await f.manager.check(true); const pending = f.manager.apply();
+  await new Promise(resolve => setImmediate(resolve)); f.shown[0].close(); finish(); await pending;
+  assert.equal(f.storage.has('receipt:updateReceipt'), false); assert.equal(f.calls.includes('reload'), false);
+});
+test('success waits until another editing screen closes', () => {
+  let busy = true, close; const shown = [];
+  const storage = new Map([['busy:lastSeenVersion', '1.9.0'], ['busy:updateReceipt', JSON.stringify({ from: '1.9.0', target: '1.10.0' })]]);
+  const manager = createReleaseManager({
+    policy: { ...base, APP_VERSION: '1.10.0', CHANGELOG: releases }, prefix: 'busy',
+    read: key => storage.get(key), write: (key, value) => storage.set(key, value),
+    now: () => 1000, online: () => true, fetchRelease: async () => ({}), canShow: () => !busy,
+    show: () => { shown.push('news'); return true; }, showSuccess: done => { shown.push('success'); close = done; return true; },
+    beforeReload: async () => {}, reload() {}, status() {}
+  });
+  manager.boot(); assert.deepEqual(shown, []); busy = false; manager.flush();
+  assert.deepEqual(shown, ['success']); close(); manager.flush(); assert.deepEqual(shown, ['success']);
+});
+test('unavailable receipt storage cannot repeatedly announce success', () => {
+  const storage = new Map([['receipt:lastSeenVersion', '1.9.0'], ['receipt:updateReceipt', JSON.stringify({ from: '1.9.0', target: '1.10.0' })]]);
+  const f = updateReceiptFixture({ version: '1.10.0', storage, failWrite: true }); f.manager.boot();
+  assert.equal(f.shown.some(s => s.kind === 'success'), false);
+});
+
+
+test('stale and intermediate boots retain a genuine receipt until the exact target runs once', async () => {
+  const old = updateReceiptFixture(); old.storage.set('receipt:lastSeenVersion', '1.9.0');
+  await old.manager.check(true); await old.manager.apply();
+  const receipt = old.storage.get('receipt:updateReceipt');
+  for (const version of ['1.9.0', '1.9.1']) {
+    const stale = updateReceiptFixture({ version, storage: old.storage }); stale.manager.boot();
+    assert.equal(stale.shown.some(s => s.kind === 'success'), false);
+    assert.equal(stale.storage.get('receipt:updateReceipt'), receipt, `retain at ${version}`);
+  }
+  const fresh = updateReceiptFixture({ version: '1.10.0', storage: old.storage }); fresh.manager.boot();
+  assert.deepEqual(fresh.shown.map(s => s.kind), ['success']);
+  assert.equal(fresh.storage.get('receipt:updateReceipt'), '');
+  const repeated = updateReceiptFixture({ version: '1.10.0', storage: old.storage }); repeated.manager.boot();
+  assert.equal(repeated.shown.length, 0);
+});
+test('before-source, overshot and malformed receipts are discarded without success', () => {
+  for (const [version, raw] of [
+    ['1.8.0', JSON.stringify({ from: '1.9.0', target: '1.10.0' })],
+    ['1.11.0', JSON.stringify({ from: '1.9.0', target: '1.10.0' })],
+    ['1.9.0', '{'], ['1.9.0', 'null'],
+    ['1.9.0', JSON.stringify({ from: '1.8.0', target: 'invalid' })],
+    ['1.9.0', JSON.stringify({ from: '1.10.0', target: '1.9.0' })]
+  ]) {
+    const f = updateReceiptFixture({ version }); f.storage.set('receipt:lastSeenVersion', version);
+    f.storage.set('receipt:updateReceipt', raw); f.manager.boot();
+    assert.equal(f.shown.some(s => s.kind === 'success'), false);
+    assert.equal(f.storage.get('receipt:updateReceipt'), '');
+  }
+});
+
+
+const deferredMotion=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return{promise,resolve};};
+test('visual stages follow real work and never reuse download counts during installation',async()=>{
+ const storage=new Map(),save=deferredMotion(),install=deferredMotion(),download=deferredMotion();
+ let onProgress,reloads=0;
+ const manager=createReleaseManager({
+  policy:{...base,APP_VERSION:'1.0.0'},prefix:'motion',read:key=>storage.get(key)||null,write:(key,value)=>storage.set(key,value),
+  now:()=>1000,online:()=>true,canShow:()=>true,canReload:()=>true,show:()=>true,status(){},
+  fetchRelease:async()=>({version:'1.1.0',changelog:[{version:'1.1.0',date:'2026-10-27',title:'Test',items:['Test']}]}),
+  prepareRelease:(version,options)=>{onProgress=options.onProgress;return download.promise;},
+  beforeReload:()=>save.promise,activateRelease:()=>install.promise,reload:()=>reloads++
+ });
+ await manager.check(true);await Promise.resolve();
+ onProgress({completed:12,total:40,message:'12 de 40 archivos'});
+ assert.equal(manager.getState().activity,'download');assert.deepEqual(manager.getState().progress.completed,12);
+ download.resolve({version:'1.1.0',cacheName:'prepared',worker:{},previousCacheName:'old'});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(manager.getState().phase,'ready');
+ const applying=manager.apply();assert.equal(manager.getState().activity,'save');assert.equal(manager.getState().progress,null);
+ save.resolve();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(manager.getState().activity,'install');assert.equal(manager.getState().progress,null);
+ onProgress({completed:999,total:40,message:'late progress'});
+ assert.equal(manager.getState().activity,'install');assert.equal(manager.getState().progress,null);
+ assert.equal(reloads,0);assert.equal(storage.has('motion:updateReceipt'),false);
+ install.resolve();await applying;
+ assert.equal(reloads,1);assert.deepEqual(JSON.parse(storage.get('motion:updateReceipt')),{from:'1.0.0',target:'1.1.0'});
 });

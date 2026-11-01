@@ -406,6 +406,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/services/SyncWatermark.js",
     "./js/modules/services/ValidationService.js",
     "./js/modules/services/index.js",
+    "./js/modules/ui/AppUpdateFeedback.js",
     "./js/modules/ui/AppUpdates.js",
     "./js/modules/ui/AttendanceHandlers.js",
     "./js/modules/ui/AttendanceUI.js",
