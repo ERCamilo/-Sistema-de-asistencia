@@ -158,6 +158,8 @@ export class VoicePettyCashUI {
         }
         if (action === 'save') {
             const problem = this.problem(); if (problem) throw Error(problem);
+            const navigation = this.adapter.beginReturn?.('cash', { amount: this.draft.amount, name: this.draft.concept, requestId: this.record.requestId });
+            let navigated = false;
             this.busy = true; this.message = 'Registrando…'; this.render();
             try {
                 await this.bridge.save(); this.guard(generation);
@@ -168,7 +170,8 @@ export class VoicePettyCashUI {
                 this.record.completedCashId = movement.id;
                 try { await this.bridge.remove(); } catch (_) { this.adapter.notify?.('El cargo se guardó; el audio temporal no pudo eliminarse.', 'warning'); }
                 this.close(); this.adapter.onSaved(movement);
-            } finally { if (generation === this.generation) { this.busy = false; this.render(); } }
+                navigation?.commit(); navigated = true;
+            } finally { if (!navigated) navigation?.cancel(); if (generation === this.generation) { this.busy = false; this.render(); } }
         }
     }
     render() {

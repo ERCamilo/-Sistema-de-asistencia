@@ -488,19 +488,22 @@ describe('PayrollScopedAdjustmentsFocal — Multi-Project Adjustments & Exports'
             expect(pingCall[0].type).toBe('SPLITX_PING');
 
             // Simulate SPLITX_READY event
-            const messageHandler = window.addEventListener.mock?.calls?.find?.(c => c[0] === 'message')?.[1];
-            if (messageHandler) {
-                messageHandler({
-                    origin: 'https://splitx.erlin.do',
-                    source: mockTargetWindow,
-                    data: { type: 'SPLITX_READY' }
-                });
-                const payloadCall = mockTargetWindow.postMessage.mock.calls.find(c => c[0]?.type === 'SPLITX_IMPORT_PAYROLL');
-                expect(payloadCall).toBeTruthy();
-                expect(payloadCall[0].projectId).toBe(PROJECT_A);
-                expect(payloadCall[0].employees).toHaveLength(1);
-                expect(payloadCall[0].employees[0].nombre).toContain('Juan Perez');
-            }
+            window.dispatchEvent(new MessageEvent('message', {
+                origin: 'https://splitx.erlin.do', source: mockTargetWindow,
+                data: { type: 'SPLITX_READY' }
+            }));
+            const payloadCall = mockTargetWindow.postMessage.mock.calls.find(c => c[0]?.type === 'SPLITX_IMPORT_PAYROLL');
+            expect(payloadCall).toBeTruthy();
+            expect(payloadCall[0].projectId).toBe(PROJECT_A);
+            expect(payloadCall[0].employees).toHaveLength(1);
+            expect(payloadCall[0].employees[0].nombre).toContain('Juan Perez');
+            expect(payloadCall[0].employees[0].sourceEmployeeId).toBe('EMP-A-12');
+            expect(payloadCall[0].employees[0].exportContext).toMatchObject({ projectId: PROJECT_A, totals: { employeeCount: 1 } });
+            expect(JSON.stringify(payloadCall[0])).not.toContain('Beto Rodriguez');
+            window.dispatchEvent(new MessageEvent('message', {
+                origin: 'https://splitx.erlin.do', source: mockTargetWindow,
+                data: { type: 'SPLITX_IMPORT_SUCCESS', transferId: payloadCall[0].transferId, count: 1 }
+            }));
         });
     });
 

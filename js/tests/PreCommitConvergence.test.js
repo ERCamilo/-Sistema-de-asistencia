@@ -25,6 +25,9 @@ describe('pre-commit build preparation', () => {
         fs.mkdirSync(path.join(repo, 'scripts'));
         fs.mkdirSync(path.join(repo, 'js', 'modules', 'config'), { recursive: true });
         fs.copyFileSync(hookSource, path.join(repo, '.githooks', 'pre-commit'));
+        for (const rel of ['scripts/release-manifest.cjs', 'js/modules/config/AppVersion.js', 'app-release.json']) {
+            fs.copyFileSync(path.join(projectRoot, rel), path.join(repo, rel));
+        }
         fs.copyFileSync(path.join(projectRoot, 'scripts', 'check-state-writes.mjs'), path.join(repo, 'scripts', 'check-state-writes.mjs'));
         fs.writeFileSync(path.join(repo, 'scripts', 'state-writes-baseline.json'), '{}\n');
         fs.writeFileSync(path.join(repo, 'sw.js'), "const CACHE_VERSION = '2026.0101.000000';\n");
@@ -46,6 +49,15 @@ describe('pre-commit build preparation', () => {
     });
 
     test('generate/stage then run again preserves the exact staged tree and diff', () => {
+        const previous = JSON.parse(fs.readFileSync(path.join(repo, 'app-release.json'), 'utf8'));
+        const next = previous.version.replace(/\d+$/, patch => String(Number(patch) + 1));
+        const entry = { version: next, date: '2026-10-21', title: 'Prueba del hook', items: ['Nuevo contenido para esta entrega.'] };
+        const versionPath = path.join(repo, 'js/modules/config/AppVersion.js');
+        fs.writeFileSync(versionPath, fs.readFileSync(versionPath, 'utf8')
+            .replace(/const APP_VERSION = '[^']+'/, `const APP_VERSION = '${next}'`)
+            .replace('const CHANGELOG = [', 'const CHANGELOG = [' + JSON.stringify(entry) + ','));
+        fs.writeFileSync(path.join(repo, 'app-release.json'), JSON.stringify({ version: next, changelog: [entry, ...previous.changelog] }, null, 2) + '\n');
+        git(repo, 'add', 'js/modules/config/AppVersion.js', 'app-release.json');
         fs.appendFileSync(path.join(repo, 'index.html'), '<main>candidate</main>\n');
         git(repo, 'add', 'index.html');
 
@@ -76,4 +88,11 @@ describe('pre-commit build preparation', () => {
         expect(fs.readFileSync(swPath)).toEqual(workingBefore[0]);
         expect(fs.readFileSync(buildPath)).toEqual(workingBefore[1]);
     });
+    test('rechaza un catálogo preparado que no coincide con la política sin alterar el índice', () => {
+        fs.writeFileSync(path.join(repo, 'app-release.json'), '{}'); git(repo, 'add', 'app-release.json');
+        const before = git(repo, 'write-tree');
+        expect(() => execFileSync(shell(), ['.githooks/pre-commit'], { cwd: repo, stdio: 'pipe' })).toThrow();
+        expect(git(repo, 'write-tree')).toBe(before);
+    });
+
 });

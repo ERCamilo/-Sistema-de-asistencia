@@ -8,6 +8,7 @@ import { isProjectsEnabled } from '../config/FeatureFlags.js';
 const _HEADER_ACTION_MAP = {
     'export-data': () => window.exportData?.(),
     'open-p2p-transfer': () => window.openP2PRosterTransfer?.(),
+    'open-projects': () => window.openProjectListModal?.(),
     'change-tab': (tab) => window.changeTab?.(tab)
 };
 
@@ -106,15 +107,16 @@ export const Header = ({
         }
     } catch (_) { showProjectName = ''; }
     const projectIndicator = showProjectName ? `
-        <div class="header-project-indicator" data-active-project-indicator
-             title="Obra activa: ${escapeAttr(showProjectName)}"
-             aria-label="Obra activa: ${escapeAttr(showProjectName)}">
+        <button type="button" class="header-project-indicator" data-active-project-indicator
+             data-header-action="open-projects" aria-haspopup="dialog"
+             title="Abrir menú de obras · ${escapeAttr(showProjectName)}"
+             aria-label="Abrir menú de obras. Obra activa: ${escapeAttr(showProjectName)}">
             <svg class="header-project-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M4 20V7l8-4 8 4v13"></path>
                 <path d="M8 20v-5h8v5"></path>
             </svg>
             <span class="header-project-name">${escapeHTML(showProjectName)}</span>
-        </div>` : '';
+        </button>` : '';
     return `
         <header class="header glass-effect">
             <div class="container">

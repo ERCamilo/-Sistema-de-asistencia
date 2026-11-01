@@ -164,3 +164,15 @@ describe('Pantalla «Consolidaciones»', () => {
         expect(ConsolidationReviewButton({ scoped: [{ id: 'x', loans: [] }] })).toBe('');
     });
 });
+
+
+test('movimientos posteriores no convierten la referencia de consolidación en deuda faltante', () => {
+    const {emp}=chain(1);
+    for(const c of consolidationUndoOrder(emp)) undoConsolidation(emp,c.loan.id,{projectScope:scope,at:10});
+    const open=emp.loans.find(l=>l.status==='active');
+    recordPayment(emp,open.id,{amount:50,date:'2026-10-01',recordedAt:20});
+    const before=JSON.stringify(emp), review=reviewEmployeeConsolidations(emp);
+    expect(review).toMatchObject({status:REVIEW_STATUS.UPDATED,comparable:false,canRepair:false});
+    expect(reviewConsolidations([emp]).stats.updated).toBe(1);
+    expect(JSON.stringify(emp)).toBe(before);
+});

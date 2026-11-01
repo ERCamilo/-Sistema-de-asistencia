@@ -55,7 +55,8 @@ describe('Service Worker — coherencia de módulos JavaScript', () => {
         const helperEnd = source.indexOf('async function networkFirst(', helperStart);
         const helperSource = source.slice(helperStart, helperEnd);
         expect(helperStart).toBeGreaterThan(-1);
-        expect(helperSource).toContain('const cached = await caches.match(request)');
+        expect(helperSource).toContain('const selected = await getSelectedShellResponse(request, event)');
+        expect(helperSource).toContain('const cached = await (await caches.open(CACHE_NAME)).match(request) || await caches.match(request)');
         expect(helperSource).toContain('return cached');
     });
 });

@@ -23,30 +23,41 @@ const tabs = () => [...document.querySelectorAll('.nav-tabs [data-settings-actio
 afterEach(() => localStorage.removeItem(DEV_MODE_KEY));
 
 describe('Voz en Configuración → General', () => {
-    test('General muestra Voz con sus interruptores; Tests ya no', () => {
-        render('general', { voiceMvpEnabled: true, voiceAudioRetentionDays: 3 });
-        const card = document.querySelector('[data-settings-voice]');
-        expect(card).not.toBeNull();
-        expect(card.querySelector('#voice-settings-title').textContent).toContain('Voz');
-        expect(document.getElementById('voiceMvpEnabled').checked).toBe(true);
-        expect(document.querySelector('input[name="voiceAudioRetentionDays"]:checked').value).toBe('3');
-        expect(document.querySelector('[data-voice-storage-status]').textContent).toMatch(/Inicia sesión/);
-
+    test('General muestra una entrada al modal de Voz sin añadir pestañas', () => {
+        render('general', { voiceMvpEnabled: true });
+        const button = document.querySelector('[data-settings-action="open-voice-settings"]');
+        expect(button).not.toBeNull();
+        expect(button.textContent).toContain('Voz');
+        expect(button.textContent).toContain('Configuración, pronunciaciones y audios');
+        expect(document.getElementById('voiceMvpEnabled')).toBeNull();
+        expect(tabs()).toEqual(['data','general','calendar']);
+        window.openVoiceSettings = jest.fn(); button.click();
+        expect(window.openVoiceSettings).toHaveBeenCalledTimes(1);
+        delete window.openVoiceSettings;
         document.body.innerHTML = SettingsTestsTab({ state: { settings: {} } });
         expect(document.getElementById('voiceMvpEnabled')).toBeNull();
+        expect(document.getElementById('voiceReviewBeforeSend')).toBeNull();
     });
-
-    test('valores por defecto: audio y sonido encendidos, 5 días', () => {
-        document.body.innerHTML = SettingsVoiceCard({ state: { settings: {} } });
-        expect(document.getElementById('voiceMvpEnabled').checked).toBe(false);
-        expect(document.getElementById('voiceKeepLoanAudio').checked).toBe(true);
-        expect(document.getElementById('voiceFeedback').checked).toBe(true);
-        expect(document.querySelector('input[name="voiceAudioRetentionDays"]:checked').value).toBe('5');
-        expect(document.querySelector('[data-settings-action="manage-voice-audio"]').disabled).toBe(true);
+    test('la entrada está disponible con Voz apagada y sin sesión para poder configurarla', () => {
+        document.body.innerHTML = SettingsVoiceCard({state:{settings:{voiceMvpEnabled:false}}});
+        expect(document.querySelector('button').disabled).toBe(false);
     });
 });
 
 describe('Pestaña Tests detrás del modo desarrollador', () => {
+    test('la prueba NFC abre desde la acción real de Ajustes y no aparece en General', () => {
+        render('general');
+        expect(document.querySelector('[data-settings-action="test-nfc-read"]')).toBeNull();
+        localStorage.setItem(DEV_MODE_KEY, '1'); render('tests');
+        const original = HTMLDialogElement.prototype.showModal;
+        HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+        try {
+            document.querySelector('[data-settings-action="test-nfc-read"]').click();
+            const dialog = document.querySelector('.nfc-test-dialog');
+            expect(dialog.open).toBe(true);
+            expect(dialog.textContent).toContain('UID para comparar con el ESP32');
+        } finally { HTMLDialogElement.prototype.showModal = original; }
+    });
     test('apagado: no hay botón Tests y una pestaña Tests guardada cae en General', () => {
         render('tests');
         expect(tabs()).toEqual(['data', 'general', 'calendar']);

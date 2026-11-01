@@ -14,6 +14,12 @@ import { mountProjectOnboarding } from './ProjectOnboarding.js';
 import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
 import { openProjectReconciliation } from './ProjectReconciliationUI.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
+import { openProjectNameConflicts } from './ProjectNameConflictUI.js';
+import { prepareStoredProjectNameConflicts, PROJECT_NAME_CONFLICT_EVENT } from './ProjectNameConflicts.js';
+import { isProjectsEnabled, isProjectDuplicatesEnabled } from '../../config/FeatureFlags.js';
+import { buildProjectPairReviews } from './ProjectDuplicateReview.js';
+import { openProjectDuplicatesScreen } from '../../ui/ProjectDuplicatesScreenBoot.js';
+import { state as appState } from '../../core/AppState.js';
 
 const MODAL_ID = 'project-setup-modal';
 let detachSetupDialogA11y = null;
@@ -62,6 +68,22 @@ function primary(label, attrs = '') {
     return `<button type="button" class="project-action is-primary" ${attrs}>${label}</button>`;
 }
 
+/** Pares de obras que parecen la misma. Nunca rompe el modal: ante un fallo, cero. */
+function countRepeatedProjects(setup) {
+    if (!isProjectDuplicatesEnabled()) return 0;
+    try {
+        return buildProjectPairReviews({
+            projects: setup.projects || [],
+            employees: appState.employees || [],
+            attendance: appState.attendance || {},
+            defaultProjectId: setup.defaultProjectId || ''
+        }).length;
+    } catch (error) {
+        console.warn('Obras repetidas: no se pudo comparar:', error?.message || error);
+        return 0;
+    }
+}
+
 async function renderState() {
     shell();
     const state = await projectSetupService.getState();
@@ -91,7 +113,11 @@ async function renderState() {
     }
 
     const project = state.activeProject;
+    const pendingNames = state.projects.filter(row => row.metadata?.nameConflict).length;
+    const repeated = countRepeatedProjects(state);
     body().innerHTML = `
+        ${repeated ? `<div class="project-notice is-warning" data-project-duplicates><strong>${repeated} posible${repeated === 1 ? '' : 's'} obra${repeated === 1 ? '' : 's'} repetida${repeated === 1 ? '' : 's'}</strong><p>Hay obras con casi el mismo personal. Revísalas antes de que se acumulen datos en las dos.</p><div class="project-actions" style="margin-top:10px">${primary('Revisar obras repetidas', 'data-project-duplicates-open')}</div></div>` : ''}
+        ${pendingNames ? `<div class="project-notice is-warning"><strong>${pendingNames} nombre${pendingNames === 1 ? '' : 's'} pendiente${pendingNames === 1 ? '' : 's'}</strong><div class="project-actions" style="margin-top:10px">${primary('Resolver nombres', 'data-project-resolve-names')}</div></div>` : ''}
         <div class="project-active-card">
             <div class="project-kicker">Proyecto activo</div>
             <div class="project-active-name">${esc(project.name)}</div>
@@ -117,6 +143,15 @@ async function renderState() {
             <p class="project-help">Comprueba si hay empleados sin obra o relaciones que requieren revisión.</p>
             <div class="project-actions is-stacked">${primary('Revisar asignaciones', 'data-project-review-assignments')}</div>
         </section>`;
+    body().querySelector('[data-project-duplicates-open]')?.addEventListener('click', () => {
+        closeProjectSetupModal();
+        openProjectDuplicatesScreen({ onClose: () => setTimeout(openProjectSetupModal, 320) })
+            .catch(error => notify(`No se pudieron revisar las obras: ${error.message || error}`, 'error'));
+    });
+    body().querySelector('[data-project-resolve-names]')?.addEventListener('click', () => {
+        closeProjectSetupModal();
+        openProjectNameConflicts().catch(error => notify(error.message, 'error'));
+    });
     body().querySelector('[data-project-review-assignments]').addEventListener('click', async event => {
         const button = event.currentTarget;
         if (button.disabled) return;
@@ -258,6 +293,14 @@ export function registerProjectSetupGlobals() {
     window.closeProjectCreateModal = closeProjectCreateModal;
     window.mountProjectCreateForm = mountProjectCreateForm;
     window.switchActiveProject = (id) => projectSetupService.switchActiveProject(id);
+    window.openProjectNameConflicts = openProjectNameConflicts;
+    // No resolver/crear un default antes de hidratar la app. Aquí solo se
+    // distinguen nombres de las obras que ya existen en el dispositivo.
+    if (isProjectsEnabled()) {
+        prepareStoredProjectNameConflicts().then(rows => {
+            if (rows.length) window.dispatchEvent(new CustomEvent(PROJECT_NAME_CONFLICT_EVENT));
+        }).catch(() => {});
+    }
 }
 
 export const switchActiveProject = (id) => projectSetupService.switchActiveProject(id);

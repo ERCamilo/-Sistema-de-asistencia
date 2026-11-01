@@ -1,0 +1,170 @@
+name: Multiobra issue acceptance
+'on':
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue a validar
+        type: choice
+        required: true
+        options:
+        - '296'
+        - '297'
+        - '298'
+        - '299'
+        - '300'
+        - '301'
+        - '302'
+        default: '296'
+      target_ref:
+        description: Rama o SHA de la aplicación; solo el main vigente permite cerrar
+        type: string
+        required: true
+        default: main
+      close_if_passed:
+        description: Cerrar solo si pasan tests, criterios y main vigente
+        type: boolean
+        required: true
+        default: false
+  issues:
+    types:
+    - closed
+permissions: {}
+concurrency:
+  group: multiobra-issue-${{ github.event.issue.number || inputs.issue }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      allowed: ${{ steps.scope.outputs.allowed }}
+      issue: ${{ steps.scope.outputs.issue }}
+      point: ${{ steps.scope.outputs.point }}
+      target_sha: ${{ steps.scope.outputs.target_sha }}
+      pack_sha: ${{ steps.scope.outputs.pack_sha }}
+      close_requested: ${{ steps.scope.outputs.close_requested }}
+    steps:
+    - name: Resolve tracked issue and immutable refs
+      id: scope
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ github.token }}
+        script: "\nconst {owner,repo}=context.repo;\nconst isClosure=context.eventName==='issues';\nconst issue=Number(isClosure?context.payload.issue.number:core.getInput('issue'));\n\
+          if(!Number.isInteger(issue)||issue<296||issue>302){core.setOutput('allowed','false');return;}\nconst {data:repository}=await\
+          \ github.rest.repos.get({owner,repo});\nconst {data:ticket}=await github.rest.issues.get({owner,repo,issue_number:issue});\n\
+          if(ticket.pull_request)throw Error('Expected a tracked issue, not a pull request');\nconst branch=repository.default_branch;\n\
+          const {data:main}=await github.rest.repos.getCommit({owner,repo,ref:branch});\nconst ref=isClosure?branch:(core.getInput('target_ref')||branch);\n\
+          const {data:target}=await github.rest.repos.getCommit({owner,repo,ref});\nif(isClosure){\n  await github.rest.issues.update({owner,repo,issue_number:issue,state:'open',state_reason:'reopened'});\n\
+          \  await github.rest.issues.createComment({owner,repo,issue_number:issue,body:'Cierre pendiente de validación automática.\
+          \ El issue permanece abierto mientras se ejecutan sus pruebas independientes; esto no bloquea la CI normal de main.'});\n\
+          }\ncore.setOutput('allowed','true');\ncore.setOutput('issue',String(issue));\ncore.setOutput('point','R'+(issue-295));\n\
+          core.setOutput('target_sha',target.sha);\ncore.setOutput('pack_sha',main.sha);\ncore.setOutput('close_requested',isClosure||core.getInput('close_if_passed')==='true'?'true':'false');\n"
+      env:
+        INPUT_ISSUE: ${{ inputs.issue }}
+        INPUT_TARGET_REF: ${{ inputs.target_ref }}
+        INPUT_CLOSE_IF_PASSED: ${{ inputs.close_if_passed }}
+  tests:
+    needs: prepare
+    if: needs.prepare.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout trusted acceptance pack from default branch
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.prepare.outputs.pack_sha }}
+        path: trusted
+        persist-credentials: false
+    - name: Checkout application version to test
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.prepare.outputs.target_sha }}
+        path: application
+        persist-credentials: false
+    - name: Install trusted acceptance pack in disposable application checkout
+      run: "python3 - <<'PY'\nfrom pathlib import Path\nimport shutil\nqa=Path('application/qa')\nif qa.is_symlink():\n  \
+        \  raise SystemExit('Refusing a symlinked QA directory')\nqa.mkdir(exist_ok=True)\ntarget=qa/'multiobra360'\nif target.is_symlink():\n\
+        \    target.unlink()\nelif target.exists():\n    shutil.rmtree(target)\nshutil.copytree('trusted/qa/multiobra360',target)\n\
+        PY"
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Set up Java 21
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '21'
+    - name: Install application test dependencies
+      run: npm ci --ignore-scripts
+      working-directory: application
+    - name: Install pinned emulator SDK
+      run: npm install --prefix "$RUNNER_TEMP/multiobra-sdk" --no-save --ignore-scripts firebase@12.19.0
+    - name: Download and verify pinned Firestore emulator
+      run: 'curl --fail --silent --show-error --location --retry 3 "https://storage.googleapis.com/firebase-preview-drop/emulator/cloud-firestore-emulator-v1.22.0.jar"
+        --output "$RUNNER_TEMP/firestore.jar"
+
+        printf ''9b6498b7f62714d67f48f59b3818883cd682dbcd46b9f59511de81c97bb5166c  %s\n'' "$RUNNER_TEMP/firestore.jar" | sha256sum
+        --check'
+    - name: Run only the selected issue and shared positive controls
+      env:
+        ISSUE_NUMBER: ${{ needs.prepare.outputs.issue }}
+      run: 'export MULTIOBRA_JAVA="$JAVA_HOME/bin/java"
+
+        export FIRESTORE_EMULATOR_JAR="$RUNNER_TEMP/firestore.jar"
+
+        export SA_EMULATOR_NODE_MODULES="$RUNNER_TEMP/multiobra-sdk/node_modules"
+
+        export CHROMIUM_PATH="$(command -v google-chrome || command -v chromium)"
+
+        node qa/multiobra360/run.cjs --all "--issue=$ISSUE_NUMBER"'
+      working-directory: application
+    - name: Preserve acceptance evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: multiobra-issue-${{ needs.prepare.outputs.issue }}-${{ needs.prepare.outputs.target_sha }}
+        path: application/qa/multiobra360/results/latest
+        if-no-files-found: warn
+        retention-days: 14
+  report:
+    needs:
+    - prepare
+    - tests
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+    - name: Report outcome and enforce closure policy
+      uses: actions/github-script@v7
+      env:
+        ISSUE: ${{ needs.prepare.outputs.issue }}
+        POINT: ${{ needs.prepare.outputs.point }}
+        TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
+        TEST_RESULT: ${{ needs.tests.result }}
+        CLOSE_REQUESTED: ${{ needs.prepare.outputs.close_requested }}
+      with:
+        github-token: ${{ github.token }}
+        script: "\nconst {owner,repo}=context.repo;\nconst issue=Number(process.env.ISSUE);\nif(!Number.isInteger(issue)||issue<296||issue>302)throw\
+          \ Error('Invalid tracked issue');\nconst sha=process.env.TARGET_SHA;\nif(!/^[0-9a-f]{40}$/.test(sha||''))throw Error('Missing\
+          \ immutable commit');\nconst passed=process.env.TEST_RESULT==='success';\nconst requested=process.env.CLOSE_REQUESTED==='true';\n\
+          const {data:ticket}=await github.rest.issues.get({owner,repo,issue_number:issue});\nconst checklist=(ticket.body||'').match(/^\\\
+          s*[-*]\\s+\\[[ xX]\\]\\s+.+$/gm)||[];\nconst complete=checklist.length>0&&!checklist.some(line=>/\\[ \\]/.test(line));\n\
+          const {data:repository}=await github.rest.repos.get({owner,repo});\nconst {data:current}=await github.rest.repos.getCommit({owner,repo,ref:repository.default_branch});\n\
+          const currentMain=current.sha===sha;\nconst canClose=passed&&complete&&currentMain&&requested;\nconst url=context.serverUrl+'/'+owner+'/'+repo+'/actions/runs/'+context.runId;\n\
+          const lines=[\n  '**Validación independiente '+process.env.POINT+'**',\n  '- Commit de la aplicación: '+sha,\n \
+          \ '- Tests y controles: '+(passed?'PASS (todas las capas exigidas)':'NO APROBADO ('+process.env.TEST_RESULT+')'),\n\
+          \  '- Criterios del issue marcados: '+(complete?'sí':'pendientes'),\n  '- Coincide con el main vigente: '+(currentMain?'sí':'no;\
+          \ validar de nuevo después de integrar/actualizar'),\n  '- Evidencias y capturas: [ejecución y artefactos]('+url+')',\n\
+          \  '',\n  canClose?'Validación y criterios completos: se cierra como resuelto.':requested?'El cierre no se aprueba;\
+          \ el issue debe permanecer abierto.':'Ejecución de consulta: no se solicitó cerrar el issue.',\n  '',\n  'La suite\
+          \ normal de main es independiente de esta validación. OAuth externo y arranque completo siguen sujetos a los criterios\
+          \ manuales del issue.'\n];\nawait github.rest.issues.createComment({owner,repo,issue_number:issue,body:lines.join('\\\
+          n')});\nif(canClose)await github.rest.issues.update({owner,repo,issue_number:issue,state:'closed',state_reason:'completed'});\n\
+          else if(requested&&ticket.state==='closed')await github.rest.issues.update({owner,repo,issue_number:issue,state:'open',state_reason:'reopened'});\n"

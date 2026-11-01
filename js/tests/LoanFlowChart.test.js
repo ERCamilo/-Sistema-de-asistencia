@@ -68,7 +68,7 @@ describe('LoanFlowChart — dibujo', () => {
         expect(svg).toContain('venía de antes $');
         expect(svg).not.toContain('faltó por cobrar');
         const panel = renderFlowPanel({ kind: 'period', bucket: buckets[1], flow: flows.get(buckets[1].key), buckets, today: '2026-10-03' });
-        expect(panel).toContain('Faltó por cobrar de lo que venía');
+        expect(panel).toContain('Saldo pendiente de préstamos anteriores');
         expect(panel).toContain('de eso, refinanciado (2)');
     });
 

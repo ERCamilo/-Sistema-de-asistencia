@@ -1,0 +1,61 @@
+.nfc-test-entry > p { color: var(--stg-text-secondary); line-height: 1.5; }
+.nfc-test-entry > small { display: block; margin-top: 10px; color: var(--stg-text-secondary); }
+.nfc-test-entry button { min-height: 44px; gap: 8px; white-space: normal; }
+.nfc-test-entry .btn-primary { background: var(--accent, #06b6d4); color: var(--on-accent, #081a24); }
+.nfc-test-dialog {
+    --nfc-panel: var(--panel, #131d2e);
+    --nfc-surface: var(--panel-2, #1b273d);
+    --nfc-text: var(--text, #f4f6fa);
+    --nfc-dim: var(--text-dim, #a4b1c7);
+    --nfc-border: var(--border, #2a3a56);
+    padding: 0; width: min(480px, calc(100vw - 24px)); max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px); margin: auto; border: 1px solid var(--nfc-border);
+    border-radius: 20px; color: var(--nfc-text); background: var(--nfc-panel); overflow: hidden;
+    box-shadow: 0 24px 60px -24px #000c; font-family: inherit;
+}
+.nfc-test-dialog[open] { display: flex; flex-direction: column; }
+.nfc-test-dialog::backdrop { background: #07101cbd; }
+.nfc-test-dialog > header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--nfc-border); }
+.nfc-test-dialog h2 { flex: 1; min-width: 0; margin: 0; font-size: 23px; }
+.nfc-test-dialog button { min-height: 44px; min-width: 44px; padding: 10px 14px; border: 0; border-radius: 12px; color: var(--nfc-text); background: var(--nfc-surface); font: inherit; font-weight: 600; cursor: pointer; }
+.nfc-test-dialog button:disabled { opacity: .5; cursor: default; }
+.nfc-test-dialog button:focus-visible { outline: 3px solid var(--accent, #06b6d4); outline-offset: 2px; }
+.nfc-test-dialog button.nfc-test-primary { background: var(--accent, #06b6d4); color: var(--on-accent, #081a24); }
+.nfc-test-dialog [hidden] { display: none !important; }
+.nfc-test-body { overflow-y: auto; min-height: 0; padding: 18px; overscroll-behavior: contain; }
+.nfc-test-body p { margin: 0 0 14px; line-height: 1.5; }
+.nfc-test-body > p:first-child, .nfc-test-body small { color: var(--nfc-dim); }
+.nfc-test-body small { display: block; margin-top: 16px; font-size: 12px; line-height: 1.5; }
+.nfc-test-result { display: grid; gap: 8px; padding: 16px; margin-bottom: 16px; border-radius: 12px; background: var(--nfc-surface); }
+.nfc-test-result span { color: var(--nfc-dim); font-size: 12px; }
+.nfc-test-result output { font-family: 'IBM Plex Mono', monospace; font-size: clamp(16px, 5vw, 23px); overflow-wrap: anywhere; user-select: text; }
+.nfc-test-dialog [role="alert"] { background: #57262c; color: #ffe3e5; padding: 12px; border-radius: 12px; }
+.nfc-test-dialog summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.nfc-test-dialog pre { padding: 12px; border-radius: 12px; background: var(--nfc-surface); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
+.nfc-test-dialog footer { flex-shrink: 0; display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 18px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--nfc-border); }
+.nfc-test-dialog footer button { flex: 1 1 130px; }
+.nfc-settings-fields { display: grid; gap: 10px; margin-bottom: 20px; }
+.nfc-settings-fields > label:not(.stg-switch-row), .nfc-settings-fields div > label { display: block; font-size: 13px; font-weight: 600; }
+.nfc-settings-fields select, .nfc-settings-fields input[type="url"] { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; border-radius: 10px; border: 1px solid var(--border, #2a3a56); padding: 10px; background: var(--panel-2, #1b273d); color: var(--text, #f4f6fa); font: inherit; }
+.nfc-settings-fields small { line-height: 1.5; color: var(--stg-text-secondary, #a4b1c7); }
+.nfc-settings-fields [hidden] { display: none !important; }
+.nfc-settings-fields [data-nfc-setting-action] { margin-top: 10px; padding: 10px 16px; min-height: 44px; border: 0; border-radius: 10px; font: inherit; color: var(--text, #f4f6fa); background: var(--panel-2, #1b273d); }
+.nfc-settings-fields [data-nfc-settings-status]:empty { display: none; }
+.nfc-endpoint { overflow-wrap: anywhere; word-break: break-word; }
+.employee-nfc-entry { display: grid; gap: 8px; margin: 16px 0; }
+.employee-nfc-entry[hidden] { display: none !important; }
+.employee-nfc-entry button { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; border: 0; border-radius: 12px; padding: 12px; background: var(--panel-2, #1b273d); color: var(--text, #f4f6fa); font: inherit; cursor: pointer; }
+.employee-nfc-entry button:disabled { opacity: .5; }
+.employee-nfc-entry small { font-size: 12px; color: var(--text-dim, #a4b1c7); }
+.nfc-person { display: grid; gap: 5px; margin-bottom: 10px; }
+.nfc-person strong { font-size: 18px; overflow-wrap: anywhere; }
+.nfc-person span { color: var(--nfc-dim); }
+.nfc-mode { display: inline-block; background: var(--nfc-surface); padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+.nfc-test-body [data-nfc-test="enrollment"] { margin-bottom: 18px; }
+.nfc-test-body [data-nfc-test="enrollment"] small { margin: 10px 0; }
+.nfc-enrollment-status { margin-top: 14px !important; }
+.nfc-enrollment-error { background: #57262c; color: #ffe3e5; border-radius: 12px; padding: 12px; }
+.nfc-test-dialog[data-nfc-mode="enrollment"] .nfc-test-body > p:first-of-type,
+.nfc-test-dialog[data-nfc-mode="enrollment"][data-nfc-available="true"] [data-nfc-test="support"],
+.nfc-test-dialog[data-nfc-mode="enrollment"][data-nfc-has-card="true"] [data-nfc-test="status"],
+.nfc-test-dialog[data-nfc-mode="enrollment"][data-nfc-has-card="true"] .nfc-test-body > small { display: none; }

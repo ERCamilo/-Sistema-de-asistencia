@@ -44,6 +44,7 @@ export async function putConfig(config, opts = {}) {
     const payload = clone(config);
     payload.projectId = String(payload.projectId);
     payload.schemaVersion = SCHEMA_VERSION;
+    delete payload.seeded;
     payload.updatedAt = Date.now();
     await idb.update(STORE_NAME, payload);
     return clone(payload);

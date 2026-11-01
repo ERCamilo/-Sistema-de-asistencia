@@ -1,6 +1,7 @@
 import { VoiceMvpUI } from '../modules/features/voice/VoiceUI.js';
 import { VoiceStore } from '../modules/features/voice/VoiceStore.js';
 import { indexedDB } from 'fake-indexeddb';
+import { randomUUID } from 'node:crypto';
 import { SettingsVoiceCard } from '../modules/ui/settings/SettingsVoiceCard.js';
 
 // jsdom lacks structuredClone; preserve Blob semantics for fake IndexedDB.
@@ -23,13 +24,14 @@ function setup() {
 }
 
 const originalFetch = global.fetch;
+beforeAll(() => { crypto.randomUUID = randomUUID; });
 describe('Voice draft UI: confirmation and async boundaries', () => {
     afterEach(() => { global.fetch = originalFetch; jest.restoreAllMocks(); });
-    test('General offers an opt-in voice switch and renders its saved state', () => {
+    test('General offers the voice modal entry instead of duplicating its controls', () => {
         document.body.innerHTML = SettingsVoiceCard({ state: { settings: {} } });
-        expect(document.getElementById('voiceMvpEnabled').checked).toBe(false);
+        expect(document.querySelector('[data-settings-action=\"open-voice-settings\"]')).not.toBeNull();
         document.body.innerHTML = SettingsVoiceCard({ state: { settings: { voiceMvpEnabled: true } } });
-        expect(document.getElementById('voiceMvpEnabled').checked).toBe(true);
+        expect(document.getElementById('voiceMvpEnabled')).toBeNull();
     });
     test('disabling voice hides the launcher, stops capture and retains saved drafts', async () => {
         const { ui, store } = setup(); let enabled = false; let notify;
@@ -39,7 +41,7 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
         ui.close = VoiceMvpUI.prototype.close.bind(ui);
         ui.mount(); ui.dialog.close = () => { ui.dialog.open = false; };
         expect(ui.launcher.hidden).toBe(true);
-        await expect(ui.open()).rejects.toThrow('Configuración');
+        await expect(ui.open()).rejects.toThrow('Ajustes → General → Voz');
         enabled = true; notify(); expect(ui.launcher.hidden).toBe(false);
         const cancel = jest.fn(); ui.recorder = { cancel }; ui.recording = true; ui.dialog.open = true;
         enabled = false; notify();
@@ -75,6 +77,11 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
         await expect(ui.action('loan')).rejects.toThrow('Selecciona');
         expect(onLoan).not.toHaveBeenCalled();
     });
+    test('successful loans commit the Voice return; duplicate cancellation keeps the editable draft', async () => {
+        const {ui,onLoan}=setup();const point={commit:jest.fn(),cancel:jest.fn()};ui.adapter.beginReturn=jest.fn(()=>point);
+        onLoan.mockResolvedValue(null);await ui.action('loan');expect(point.cancel).toHaveBeenCalledTimes(1);expect(point.commit).not.toHaveBeenCalled();expect(ui.record.draft.principal).toBe(6000);
+        onLoan.mockResolvedValue({id:'saved-loan'});await ui.action('loan');expect(point.commit).toHaveBeenCalledTimes(1);expect(ui.record.completedLoanId).toBe('saved-loan');
+    });
     test('switching account during a request does not apply returned data to the new account', async () => {
         const { ui, setUser, onLoan } = setup(); let finish; let notifyStarted; const started = new Promise(resolve => { notifyStarted = resolve; });
         global.fetch = jest.fn(() => new Promise(resolve => { finish = resolve; notifyStarted(); }));
@@ -108,11 +115,11 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
         const response = extracted(); response.loan.interestRate = null;
         ui.applyResult(response);
         expect(ui.record.draft.interestRate).toBe(20);
-        await ui.action('select', 'carlos'); expect(ui.record.draft.interestRate).toBe(15);
+        await ui.action('select', 'carlos'); if (ui.aliasSelection) await ui.action('alias-skip'); expect(ui.record.draft.interestRate).toBe(15);
         await ui.change({ dataset: { voiceField: 'interestRate' }, value: '0' });
-        await ui.action('select', 'carlos'); expect(ui.record.draft.interestRate).toBe(0);
+        await ui.action('select', 'carlos'); if (ui.aliasSelection) await ui.action('alias-skip'); expect(ui.record.draft.interestRate).toBe(0);
         response.loan.interestRate = 30; ui.applyResult(response);
-        await ui.action('select', 'carlos'); expect(ui.record.draft.interestRate).toBe(30);
+        await ui.action('select', 'carlos'); if (ui.aliasSelection) await ui.action('alias-skip'); expect(ui.record.draft.interestRate).toBe(30);
     });
     test('a confirmed recording registers once and keeps the draft if duplicate review is cancelled', async () => {
         const { ui, onLoan } = setup();
@@ -149,8 +156,9 @@ describe('Voice draft UI: confirmation and async boundaries', () => {
             await ui.change({ dataset: { voiceMention: 'spokenName' }, value: 'Yanpié' });
             expect(ui.matches[0]).toMatchObject({ employee: { id: 'jean' }, reason: 'Nombre parecido', threshold: .5 });
             await ui.action('select', 'jean');
-            expect(ui.dialog.querySelector('[data-voice-alias]').value).toBe('Yanpié');
-            await ui.action('learn');
+            expect(ui.view).toBe('remember');
+            expect(ui.dialog.textContent).toContain('Yanpié');
+            await ui.action('alias-save');
             expect(ui.dialog.textContent).toContain('Variantes guardadas: yanpie');
             // A new recording has no selection; the saved alias offers Jean as a suggestion.
             ui.record.selectedEmployeeId = null; ui.record.requestId = 'request-2';
@@ -219,9 +227,11 @@ describe('Simplified voice workflow', () => {
         ui.adapter.getEmployees=()=>[{id:'cliff',name:'Cliff'},{id:'cleeft',name:'Cleeft'}];
         ui.record.result.intent='buscar_empleado';ui.record.mention.spokenName='Clift';ui.record.selectedEmployeeId=null;
         ui.adapter.onAttendance=jest.fn();
-        ui.dialog.querySelector=()=>({checked:true});
         await ui.action('select','cleeft');
-        expect(store.saveAlias).toHaveBeenCalledWith('one','legacy','cleeft','Clift');
+        expect(store.saveAlias).not.toHaveBeenCalled();
+        expect(ui.view).toBe('remember');
+        await ui.action('alias-save');
+        expect(store.saveAlias).toHaveBeenCalledWith('one','legacy','cleeft','Clift',expect.objectContaining({guard:expect.any(Function)}));
         expect(ui.adapter.onAttendance).toHaveBeenCalledWith('cleeft');expect(ui.record).toBeNull();
         const second=setup();second.store.saveAlias=jest.fn();
         second.ui.matches=[{employee:second.ui.adapter.getEmployees()[0],score:1}];second.ui.record.result.intent='buscar_empleado';second.ui.record.selectedEmployeeId=null;second.ui.adapter.onAttendance=jest.fn();
@@ -284,21 +294,21 @@ describe('Simplified voice workflow', () => {
         ui.adapter.getLoanDefaults=()=>({previousRate:30});
         ui.record.rateDefault=true; ui.record.employeeDefaultsApplied=true;
         const draft={...ui.record.draft};
-        await ui.action('choose'); await ui.action('select','carla');
+        await ui.action('choose'); await ui.action('select','carla'); await ui.action('alias-skip');
         expect(ui.record.selectedEmployeeId).toBe('carla'); expect(ui.record.draft).toEqual(draft);
         await ui.action('previous-interest'); expect(ui.record.draft).toEqual({...draft,interestRate:30});
     });
-    test('cancel removes pending audio and a late provider response cannot restore it', async () => {
-        const {ui,store}=setup();let resolve;
+    test('closing pauses a requested submission, retains its audio and ignores a late response', async () => {
+        const {ui,store}=setup();let resolve,started;const ready=new Promise(done=>{started=done;});
         store.remove=jest.fn().mockResolvedValue();
-        global.fetch=jest.fn(()=>new Promise(done=>{resolve=done;}));
-        const processing=ui.process(); await Promise.resolve(); await Promise.resolve();
+        global.fetch=jest.fn(()=>new Promise(done=>{resolve=done;started();}));
+        const processing=ui.process(); await ready;
         ui.close=VoiceMvpUI.prototype.close.bind(ui); ui.dialog.close=jest.fn(); ui.launcher={focus:jest.fn(),setAttribute:jest.fn()};
         const record=ui.record; await ui.action('close');
-        expect(record.discarded).toBe(true); expect(store.remove).toHaveBeenCalledWith('one','request-1');
-        const writes=store.put.mock.calls.length;
+        expect(record.discarded).not.toBe(true); expect(store.remove).not.toHaveBeenCalled();
         resolve({ok:true,status:200,json:async()=>({ok:true,schemaVersion:1,requestId:'request-1',result:extracted()})});
-        await processing; expect(store.put.mock.calls.length).toBe(writes);
+        await processing; expect(store.put).toHaveBeenCalledWith(expect.objectContaining({processingState:'paused',requestId:'request-1'}));
+        expect(record.pendingResult).toBeUndefined();
         global.fetch=originalFetch;
     });
     test('no-retention keeps the normal loan registration but removes its audio', async () => {
@@ -345,7 +355,7 @@ describe('Voice entry points outside the launcher (bottom-nav centre button)', (
         const { ui } = setup(); const notify = jest.fn();
         ui.adapter.notify = notify; ui.adapter.isEnabled = () => false;
         await expect(ui.startHold()).resolves.toBe(false);
-        expect(notify).toHaveBeenCalledWith(expect.stringContaining('Configuración'), 'warning');
+        expect(notify).toHaveBeenCalledWith(expect.stringContaining('Ajustes → General → Voz'), 'warning');
         // The failed hold is released: once enabled, the next attempt runs.
         expect(ui.held).toBe(false);
         ui.adapter.isEnabled = () => true;

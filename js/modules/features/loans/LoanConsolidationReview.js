@@ -29,7 +29,8 @@ export const REVIEW_STATUS = {
     DAMAGED: 'damaged',
     REPAIRED: 'repaired',
     PENDING: 'pending',
-    MISMATCH: 'mismatch'
+    MISMATCH: 'mismatch',
+    UPDATED: 'updated'
 };
 
 /** Tope de seguridad: ninguna cuenta real tiene tantas consolidaciones una dentro de otra. */
@@ -127,6 +128,23 @@ function depthOf(nodes) {
 const paidTotal = emp => round2((emp.loans || []).flatMap(loan => loan.payments || [])
     .filter(p => !p.voided).reduce((sum, p) => sum + (Number(p.amount) || 0), 0));
 
+// A historical consolidated snapshot cannot verify later source-loan activity.
+function changedAfterUndo(emp, cons) {
+    const snapshot = cons.consolidationUndone?.snapshot;
+    if (!Array.isArray(snapshot)) return false;
+    const at = Number(cons.consolidationUndone.at) || 0;
+    return snapshot.filter(old=>String(old.id)!==String(cons.id)).some(old=>{
+        const current=(emp.loans||[]).find(l=>String(l.id)===String(old.id));
+        if(!current)return true;
+        return ['payments','refinancings'].some(field=>(current[field]||[]).some(item=>{
+            if(String(item.convertedFrom?.loanId||'')===String(cons.id))return item.voided && Number(item.voidedAt)>at;
+            const previous=(old[field]||[]).find(p=>String(p.id)===String(item.id));
+            if(!previous)return true;
+            return ['amount','interestAmount','voided','date'].some(key=>String(item[key]??'')!==String(previous[key]??''));
+        }));
+    });
+}
+
 /** Revisión de un empleado (null si no tiene consolidaciones). No modifica nada. */
 export function reviewEmployeeConsolidations(emp) {
     const loans = emp?.loans || [];
@@ -150,8 +168,10 @@ export function reviewEmployeeConsolidations(emp) {
     }
     const diff = round2(today - real);
     const matches = Math.abs(diff) < TOLERANCE;
+    const laterActivity = consolidations.some(cons=>changedAfterUndo(emp,cons));
     let status;
     if (damaged.length) status = REVIEW_STATUS.DAMAGED;
+    else if (!matches && laterActivity) status = REVIEW_STATUS.UPDATED;
     else if (!rebuilt.complete || !matches) status = REVIEW_STATUS.MISMATCH;
     else if (pending.length) status = REVIEW_STATUS.PENDING;
     else if (consolidations.some(isRepairedConsolidation)) status = REVIEW_STATUS.REPAIRED;
@@ -170,6 +190,7 @@ export function reviewEmployeeConsolidations(emp) {
         real,
         today,
         diff,
+        comparable: status !== REVIEW_STATUS.UPDATED,
         paid: paidTotal(emp),
         doubled,
         pending: pending.length,
@@ -190,6 +211,7 @@ export function reviewConsolidations(employees = []) {
             ok: count(REVIEW_STATUS.OK),
             damaged: count(REVIEW_STATUS.DAMAGED),
             mismatch: count(REVIEW_STATUS.MISMATCH),
+            updated: count(REVIEW_STATUS.UPDATED),
             repaired: count(REVIEW_STATUS.REPAIRED),
             pending: count(REVIEW_STATUS.PENDING)
         }

@@ -4,7 +4,7 @@ import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
 import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
 import {
     laOpen, laField, laFieldQuiet, laSave, laSetTab, laAsk, laAdjust, laFix, laFixWhy, laVoid, laClose,
-    laToggleLoan, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment, lpAlertPanel, lpRiskLevel, lpTip, lpCard, lpToggleAlerts
+    laToggleLoan, laCancelAsk, laToggleShowVoid, laUseClassicView, useAccountView, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment, lpAlertPanel, lpRiskLevel, lpTip, lpCard, lpToggleAlerts
 } from '../modules/features/loans/LoanAccountController.js';
 import { getAccountSummary, getAccountMovements, getActiveLoanAgreement } from '../modules/features/loans/LoanAccount.js';
 import { movementKey } from '../modules/features/loans/LoanAccountView.js';
@@ -73,7 +73,7 @@ describe('Ficha cuenta de préstamos', () => {
         const t = text();
         expect(t).toContain('Debe en total · 5 préstamos abiertos');
         expect(t).toContain('$12,600.00');
-        expect(t).toContain('Próxima nómina · pago 03/10');
+        expect(t).toContain('Vence para nómina · pago 03/10');
         for (const label of ['Abonar', 'Refinanciar', '+ Préstamo', 'Acuerdo', 'Movimientos de la cuenta']) expect(t).toContain(label);
         expect(document.querySelectorAll('.la-row .la-idx')[0].textContent).toBe('#1');
         expect(t).toContain('🔒 con cierre');
@@ -264,8 +264,8 @@ describe('Ficha cuenta de préstamos', () => {
         const t = text();
         expect(t).toContain('Octubre: lo que deben');
         expect(t).toContain('Avisos que necesitan una decisión');
-        expect(t).toContain('Resumen de cartera');
-        expect(t).toContain('Por cobrar$12,600.00');
+        expect(t).toContain('Cartera actual e histórico');
+        expect(t).toContain('Saldo actual$12,600.00');
         expect(t).toContain('1 empleado en riesgo');
         lpAlertPanel('risk');
         const r = text();
@@ -289,7 +289,7 @@ describe('Ficha cuenta de préstamos', () => {
         expect(body.querySelector('.lp-add').textContent).toBe('+ Agregar nuevo');
         // Historial: cabecera de la maqueta y sin botones de rango en «Por periodo».
         expect(body.querySelector('.lp-hist-s').textContent).toContain('Historial del saldo');
-        expect(body.querySelector('.is-portfolio-hist .loan-history__ranges')).toBeNull();
+        expect(body.querySelector('.is-portfolio-hist .loan-history__ranges')).not.toBeNull();
         expect(body.querySelector('.lf-foot')).not.toBeNull();
         expect(body.querySelector('.lp-pop')).toBeNull();
         lpTip('month');
@@ -302,7 +302,7 @@ describe('Ficha cuenta de préstamos', () => {
         lpCard('cobrar');
         const detail = html().querySelector('.lp-mobile .lp-mdetail');
         expect(detail.textContent).toContain('Capital por devolver');
-        expect(html().querySelector('.lp-mcard[aria-expanded="true"]').textContent).toContain('Por cobrar');
+        expect(html().querySelector('.lp-mcard[aria-expanded="true"]').textContent).toContain('Saldo actual');
     });
 
     test('los botones de la pantalla principal funcionan aunque todavía no exista el estado de Préstamos', () => {
@@ -310,7 +310,7 @@ describe('Ficha cuenta de préstamos', () => {
         state.loansLedger = undefined;
         lpCard('ganado');
         expect(state.loansLedger.portfolio.card).toBe('ganado');
-        expect(html().querySelector('.lp-mdetail').textContent).toContain('Ganado del interés inicial');
+        expect(html().querySelector('.lp-mdetail').textContent).toContain('Cobrado del interés inicial');
         // Panel derecho: una cifra abierta a la vez; «Por cobrar» por defecto.
         expect(html().querySelector('.lp-aside .lp-card.is-open').dataset.card).toBe('cobrar');
         lpCard('cobrado', 'aside');
@@ -380,5 +380,54 @@ describe('Ficha cuenta de préstamos', () => {
         expect(row.querySelector('.la-mv__a .la-t-cap').textContent).toBe('$3,000 capital');
         expect(row.querySelector('.la-mv__a .la-t-int').textContent).toBe('$600 interés');
         expect(emp.loans.length).toBe(5);
+    });
+});
+
+
+describe('Alcance de movimientos agrupados', () => {
+    function group() {
+        const emp={id:'group-test',name:'Persona de prueba',number:'900',loans:[]};
+        for (const [index,number] of [1,6,9,12].entries()) {
+            const l=loan(emp,2000,'2026-09-01',{number,dueDate:'2026-10-03'});
+            l.payments=[{id:'P'+number,amount:[110,1350,30,210][index],date:'2026-09-10',recordedAt:100,origin:'conversion',accountTxId:'TX-test',allocation:{capital:[110,1350,30,210][index],interest:0}}];
+        }
+        state.employees=[emp]; selectLoansEmployee(emp.id);
+        return state.employees[0];
+    }
+    test('desde #6 se ve su parte; confirmar anuncia y anula las cuatro partes', () => {
+        const emp=group(), selected=emp.loans[1];
+        laToggleLoan(selected.id);
+        const row=html().querySelector('.la-row.is-open');
+        expect(row.textContent).toContain('Abono aplicado al préstamo #6');
+        expect(row.textContent).toContain('$1,350.00');
+        const key=movementKey(getAccountMovements(emp).find(m=>m.kind==='payment'));
+        const snapshot=JSON.stringify(emp);
+        laAsk(key,'L'+selected.id);
+        expect(text()).toContain('transacción completa de $1,700.00: #1, #6, #9, #12');
+        laCancelAsk(); expect(JSON.stringify(emp)).toBe(snapshot);
+        laAsk(key,'L'+selected.id); laVoid(key);
+        expect(emp.loans.every(l=>l.payments[0].voided)).toBe(true);
+    });
+    test('una parte anulada queda oculta y sin otra acción de anulación', () => {
+        const emp=group(), selected=emp.loans[2];
+        selected.refinancings=[{id:'R9',date:'2026-09-15',interestAmount:30,voided:true,origin:'conversion',accountTxId:'ref-group'}];
+        emp.loans[0].refinancings=[{id:'R1',date:'2026-09-15',interestAmount:20,origin:'conversion',accountTxId:'ref-group'}];
+        laToggleLoan(selected.id);
+        expect(html().querySelector('.la-row.is-open .la-inner').textContent).not.toContain('Refinanciamiento');
+        laToggleShowVoid();
+        const voidRow=html().querySelector('.la-row.is-open .la-mv.is-void');
+        expect(voidRow.textContent).toContain('anulado');
+        expect(voidRow.querySelector('[data-app-fn=laAsk]')).toBeNull();
+    });
+    test.each(['void','adjust','fix'])('rechaza una confirmación obsoleta antes de %s', mode => {
+        const emp=group();
+        if(mode!=='void') for(const l of emp.loans) l.payments[0].payrollClosureId='closure-test';
+        const key=movementKey(getAccountMovements(emp).find(m=>m.kind==='payment'));
+        laAsk(key,'acc'); laFixWhy('prueba de cambio concurrente');
+        emp.loans[0].payments[0].amount+=1;
+        const snapshot=JSON.stringify(emp);
+        if(mode==='void')laVoid(key); else if(mode==='adjust')laAdjust(key,'2026-10-03'); else laFix(key);
+        expect(window.showAlert).toHaveBeenCalledWith(expect.stringContaining('Los movimientos cambiaron'), 'error');
+        expect(JSON.stringify(emp)).toBe(snapshot);
     });
 });

@@ -65,3 +65,17 @@ describe('Exportar préstamos: contenido', () => {
         expect(withVoided.sheets.prestamos.slice(1).some(r => r.at(-1) === 'Anulado')).toBe(true);
     });
 });
+
+
+test('exporta cobro vigente y original, canal de nómina y recibido sin confundir aplicado', () => {
+    const emp=obra(), loan=emp.loans[0];
+    loan.dueDate='2026-09-12';
+    loan.refinancings[0].nextDueDate='2026-10-24';
+    Object.assign(loan.payments[0],{source:null,origin:'conversion',channel:'payroll'});
+    const out=buildLoanExport([emp],{range:{from:'2026-09-01',to:'2026-09-30'},today:'2026-10-20',payPeriod:PAY});
+    const header=out.sheets.prestamos[0], row=out.sheets.prestamos.find(r=>r[2]==='#1');
+    expect(row[header.indexOf('Cobro vigente')]).toBe('24/10/2026');
+    expect(row[header.indexOf('Cobro original')]).toBe('12/09/2026');
+    expect(out.sheets.movimientos.find(r=>r[4]==='Abono')[8]).toBe('Nómina');
+    expect(out.preview.received).toBe(6600);
+});

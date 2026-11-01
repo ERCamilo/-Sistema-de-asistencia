@@ -3,6 +3,8 @@ import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 
 export function payrollClosureBlockerMessage(gate) {
+    if (gate?.reason === 'preview-stale') return 'Actualiza la vista previa: cambiaron los datos de la nómina.';
+    if (gate?.reason === 'invalid-loan-amount') return 'Corrige «Otro monto» antes de confirmar la nómina.';
     if (gate?.reason === 'no-rows') return 'No hay empleados con un pago válido en esta vista previa.';
     if (gate?.reason === 'invalid-net') {
         return `Resuelve ${gate.invalidCount} pago${gate.invalidCount === 1 ? '' : 's'} con saldo negativo.`;
@@ -13,6 +15,7 @@ export function payrollClosureBlockerMessage(gate) {
     if (gate?.reason === 'payroll-not-confirmed') return 'Confirma que la nómina mostrada fue pagada.';
     if (gate?.reason === 'already-closed') return 'Esta vista previa ya fue cerrada.';
     if (gate?.reason === 'leader-filtered') return 'Quita el filtro de líder para cerrar la nómina completa de la obra.';
+    if (gate?.reason === 'employee-filtered') return 'Desmarca «Solo empleados seleccionados» para cerrar la nómina completa de la obra.';
     if (gate?.reason === 'correction-required') {
         return 'Este período ya tiene un cierre. Prepará una corrección para conservar la auditoría.';
     }
@@ -26,7 +29,7 @@ export function renderPayrollClosurePanel({ gate, now = Date.now() } = {}) {
     const canUndo = Boolean(periodClosure?.status === 'closed');
     const canConfirm = Boolean(
         gate?.hasRows && gate?.invalidCount === 0 &&
-        !['history-loading', 'in-progress', 'already-closed', 'leader-filtered'].includes(gate?.reason)
+        !['history-loading', 'in-progress', 'already-closed', 'leader-filtered', 'employee-filtered', 'preview-stale', 'invalid-loan-amount'].includes(gate?.reason)
     );
 
     return `

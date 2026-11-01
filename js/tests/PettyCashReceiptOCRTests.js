@@ -119,6 +119,29 @@ testRunner.addSuite('Caja chica — contrato OCR compartido', {
         testRunner.assertEquals(Object.hasOwn(body, 'imageBase64'), false);
     },
 
+    async 'el tipo de archivo sale de lo que realmente se envía, no del tipo de la foto original'() {
+        // La foto original puede ser WebP, pero lo que viaja ya se re-codificó como JPEG.
+        let body = null;
+        await requestReceiptOcr({
+            url: 'x', idToken: 't',
+            fileDataUrl: 'data:image/jpeg;base64,/9j/4AAQ',
+            mimeType: 'image/webp',
+            fetchImpl: async (_url, options) => { body = JSON.parse(options.body); return { ok: true, json: async () => ({ ok: true }) }; }
+        });
+        testRunner.assertEquals(body.mimeType, 'image/jpeg');
+        testRunner.assertEquals(body.fileBase64, '/9j/4AAQ');
+        testRunner.assertEquals(body.imageBase64, '/9j/4AAQ');
+    },
+
+    async 'sin prefijo en los datos se usa el tipo indicado'() {
+        let body = null;
+        await requestReceiptOcr({
+            url: 'x', idToken: 't', fileDataUrl: 'QUJD', mimeType: 'image/png',
+            fetchImpl: async (_url, options) => { body = JSON.parse(options.body); return { ok: true, json: async () => ({ ok: true }) }; }
+        });
+        testRunner.assertEquals(body.mimeType, 'image/png');
+    },
+
     async 'propaga HTTP y respuestas vacías como error'() {
         let failedHttp = false;
         try {

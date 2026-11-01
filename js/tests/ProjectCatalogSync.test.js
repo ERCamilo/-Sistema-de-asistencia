@@ -41,6 +41,44 @@ describe('planCatalogMerge', () => {
     });
 });
 
+describe('«No son la misma» viaja con el catálogo', () => {
+    const withList = (id, list, updatedAt = 1) => project(id, 'Obra ' + id, updatedAt, { notSameAs: list });
+
+    test('el descarte viaja en el documento publicado', () => {
+        const [doc] = planCatalogMerge([withList('A', ['B'])], []).publish;
+        expect(doc.notSameAs).toEqual(['B']);
+    });
+    test('una obra recibida con descarte lo conserva', () => {
+        expect(planCatalogMerge([], [withList('A', ['B'])]).storeLocal[0].notSameAs).toEqual(['B']);
+    });
+    test('une los descartes de ambos lados aunque gane la versión más nueva', () => {
+        const plan = planCatalogMerge([withList('A', ['B'], 1)], [withList('A', ['C'], 5)]);
+        expect(plan.storeLocal[0]).toMatchObject({ id: 'A', updatedAt: 5, notSameAs: ['B', 'C'] });
+        expect(plan.publish[0]).toMatchObject({ id: 'A', updatedAt: 5, notSameAs: ['B', 'C'] });
+    });
+    test('si gana lo local, la nube recibe la unión y lo local también', () => {
+        const plan = planCatalogMerge([withList('A', ['B'], 9)], [withList('A', ['C'], 2)]);
+        expect(plan.publish[0]).toMatchObject({ id: 'A', updatedAt: 9, notSameAs: ['B', 'C'] });
+        expect(plan.storeLocal[0]).toMatchObject({ id: 'A', notSameAs: ['B', 'C'] });
+    });
+    test('con la misma fecha y listas distintas, ambos lados se completan', () => {
+        const plan = planCatalogMerge([withList('A', ['B'], 3)], [withList('A', ['C'], 3)]);
+        expect(plan.storeLocal[0].notSameAs).toEqual(['B', 'C']);
+        expect(plan.publish[0].notSameAs).toEqual(['B', 'C']);
+    });
+    test('listas iguales y misma fecha no escriben nada', () => {
+        expect(planCatalogMerge([withList('A', ['B'], 3)], [withList('A', ['B'], 3)])).toEqual({ storeLocal: [], publish: [] });
+    });
+    test('sin descartes no inventa el campo', () => {
+        const plan = planCatalogMerge([project('A', 'X', 1)], [project('A', 'X', 5)]);
+        expect('notSameAs' in plan.storeLocal[0]).toBe(false);
+    });
+    test('un campo notSameAs inválido se ignora', () => {
+        const plan = planCatalogMerge([project('A', 'X', 1, { notSameAs: 'B' })], [project('A', 'X', 5, { notSameAs: ['C', 7, '', null] })]);
+        expect(plan.storeLocal[0].notSameAs).toEqual(['C']);
+    });
+});
+
 test('detecta obras con el mismo nombre sin distinguir mayúsculas ni espacios', () => {
     const groups = findCatalogNameDuplicates([project('A', 'Mi obra'), project('B', ' mi  OBRA '), project('C', 'Otra')]);
     expect(groups).toHaveLength(1);
@@ -113,6 +151,15 @@ describe('syncProjectCatalog', () => {
         expect(result.duplicates).toHaveLength(1);
         expect(await db.get('projects', 'A')).toBeTruthy();
         expect(await db.get('projects', 'B')).toBeTruthy();
+    });
+
+    test('recibe el descarte de otro dispositivo y publica el local una sola vez', async () => {
+        await db.update('projects', project('A', 'Torre', 4, { notSameAs: ['Z'] }));
+        await db.update('projects', project('B', 'Sur', 4));
+        const remote = [project('A', 'Torre', 4, { notSameAs: ['B'] }), project('B', 'Sur', 4)];
+        await syncProjectCatalog({ uid: 'u1', idb: db, writeDoc, readDocs: async () => snapshotOf(remote) });
+        expect((await db.get('projects', 'A')).notSameAs).toEqual(['B', 'Z']);
+        expect(written.filter(doc => doc.notSameAs).map(doc => [doc.id, doc.notSameAs])).toEqual([['A', ['B', 'Z']]]);
     });
 
     test('sin sesión o sin red no hace nada y no lanza', async () => {

@@ -19,12 +19,17 @@ import {
     setPayrollLoanChargeCount,
     setPayrollLoanMode,
     getPayrollLoanMode,
+    resolvePayrollLoanSelection,
     PAYROLL_LOAN_MODE,
     summarizePayrollLoans,
-    togglePayrollLoan,
-    toSplitXRows
+    togglePayrollLoan
 } from './PayrollLoans.js';
+import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
+import { getPayrollReviewEmployeeSelection, filterPayrollReviewEmployees, renderPayrollReviewEmployeeFilter } from './PayrollReviewEmployees.js';
+import { parsePayrollLoanAmount } from './PayrollLoanAmount.js';
+import { payrollPreviewInputKey } from './PayrollPreviewInputs.js';
+import { DEFAULT_PAYROLL_LOAN_PERCENTAGE, getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage, buildPayrollLoanSalarySelection } from './PayrollLoanSalary.js';
 import {
     buildPayrollPreviewFingerprint,
     confirmPayrollPaid
@@ -40,7 +45,8 @@ import {
 } from './PayrollPreview.js';
 import {
     openPayrollClosureModal,
-    renderPayrollClosurePanel
+    renderPayrollClosurePanel,
+    payrollClosureBlockerMessage
 } from './PayrollClosureUI.js';
 import { renderPayrollHistoryView } from './PayrollHistoryUI.js';
 import { buildClosureReview, voidDuplicatePayrollClosure } from './PayrollClosureReview.js';
@@ -152,6 +158,16 @@ let payrollService = null;
 let payrollRuntime = null;
 let unsubscribeRuntimeInvalidation = null;
 let latestPayrollPreviewRows = [];
+const payrollLoanAmountDrafts = new Map();
+const payrollLoanPercentageDrafts = new Map();
+const STALE_PAYROLL_MESSAGE = 'La asistencia, las tarifas o la configuración cambiaron. Actualiza la vista previa antes de exportar o confirmar la nómina.';
+
+function payrollPreviewBlocker(view) {
+    if (view?.enabled && view.previewStale) return STALE_PAYROLL_MESSAGE;
+    if (payrollLoanPercentageDrafts.size) return 'Corrige el porcentaje antes de exportar o confirmar la nómina.';
+    if (payrollLoanAmountDrafts.size) return 'Corrige el campo «Otro monto» o elige Todo o Solo interés antes de exportar o confirmar la nómina.';
+    return null;
+}
 let payrollClosureInProgress = false;
 let payrollPeriodClosureCache = {
     key: null,
@@ -203,6 +219,7 @@ const _ACTION_MAP = {
     'add-employee-bonuses-to-export': () => window.PayrollUI?.addEmployeeBonusesToExport?.(),
     'add-employee-bonus-from-form': () => window.PayrollUI?.addEmployeeBonusFromForm?.(),
     'add-payroll-loans': () => window.PayrollUI?.addPayrollLoansToExport?.(),
+    'set-payroll-loans-salary-bulk': (_id, target) => window.PayrollUI?.setPayrollLoansSalaryBulk?.(target.dataset.kind),
     'remove-employee-payroll-loans': (employeeId) => window.PayrollUI?.removeEmployeePayrollLoans?.(employeeId),
     'clear-payroll-loans': () => window.PayrollUI?.clearPayrollLoans?.(),
     'toggle-payroll-loan-employee': (employeeId, _target, event) => {
@@ -226,6 +243,11 @@ const _ACTION_MAP = {
         event.stopPropagation();
         window.PayrollUI?.setPayrollLoanModeFor?.(employeeId, target.dataset.mode);
     },
+    'set-payroll-loan-salary-amount': (employeeId, target, event) => {
+        event.stopPropagation();
+        const percentage = DEFAULT_PAYROLL_LOAN_PERCENTAGE;
+        window.PayrollUI?.setPayrollLoanSalaryAmount?.(employeeId, target.dataset.kind, percentage);
+    },
     'select-all-payroll-loan-charges': (employeeId, target, event) => {
         event.stopPropagation();
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
@@ -233,6 +255,8 @@ const _ACTION_MAP = {
     'toggle-payroll-review-detail': (key) => window.PayrollUI?.togglePayrollReviewDetail?.(key),
     'clear-payroll-leader-filter': () => window.PayrollUI?.setLeaderFilter?.('all'),
     'set-payroll-leader-hours-scope': (scope) => window.PayrollUI?.setLeaderHoursScope?.(scope),
+    'toggle-payroll-review-employee-filter': (_id, target) => window.PayrollUI?.togglePayrollReviewEmployeeFilter?.(target.checked),
+    'open-payroll-review-employees': () => window.PayrollUI?.openPayrollReviewEmployees?.(),
     'toggle-payroll-paid': (_id, target) => window.PayrollUI?.togglePayrollPaidConfirmation?.(target.checked),
     'toggle-payroll-preview-category': (category, target) => window.PayrollUI?.togglePayrollPreviewCategory?.(
         category,
@@ -339,6 +363,60 @@ function _handlePayrollAdjustmentChoiceCapture(e) {
     _handlePayrollAdjustmentInput(e);
 }
 
+function _handlePayrollLoanPercentageInput(event) {
+    const input = event.target.closest?.('[data-payroll-loan-percentage], [data-payroll-loan-custom-amount]');
+    if (!input) return;
+    const panel = input.closest('.payroll-loan-mode');
+    if (!panel) return;
+    const id = String(input.dataset.id);
+    const isPercentage = input.hasAttribute('data-payroll-loan-percentage');
+    if (event.type === 'change') {
+        if (!isPercentage) return; // The money field commits through its existing onchange handler.
+        const percent = panel.dataset.pendingPercentage ?? input.value;
+        delete panel.dataset.pendingPercentage;
+        window.PayrollUI?.setPayrollLoanSalaryAmount?.(id, 'percentage', percent);
+        return;
+    }
+    const salary = Number(panel.dataset.salaryAvailable) || 0;
+    const debt = Number(panel.dataset.collectibleDebt) || 0;
+    let amount;
+    if (isPercentage) {
+        const amounts = getPayrollLoanSalaryAmounts({ _montoBeforeLoans: salary }, debt, input.value);
+        const error = panel.querySelector('[data-payroll-loan-percentage-error]');
+        if (error) error.hidden = amounts.validPercentage;
+        input.setAttribute('aria-invalid', String(!amounts.validPercentage));
+        if (!amounts.validPercentage) {
+            payrollLoanPercentageDrafts.set(id, { value: input.value, error: 'Indica un porcentaje entre 0 y 100.' });
+            return;
+        }
+        payrollLoanPercentageDrafts.delete(id);
+        panel.dataset.pendingPercentage = input.value;
+        amount = amounts.suggested;
+        const money = panel.querySelector('[data-payroll-loan-custom-amount]');
+        if (money) money.value = amount.toFixed(2);
+    } else {
+        const parsed = parsePayrollLoanAmount(input.value);
+        if (parsed === null) return;
+        amount = Math.min(parsed, debt);
+        payrollLoanPercentageDrafts.delete(id);
+        delete panel.dataset.pendingPercentage;
+    }
+    const equivalent = getPayrollLoanEquivalentPercentage(amount, salary);
+    const error = panel.querySelector('[data-payroll-loan-percentage-error]');
+    if (error) error.hidden = true;
+    panel.querySelectorAll('[data-payroll-loan-percentage]').forEach(control => {
+        if (control === input && control.type === 'number') return;
+        control.value = control.type === 'range' ? Math.min(100, equivalent || 0) : equivalent === null ? '' : Number(equivalent.toFixed(4));
+        control.setAttribute('aria-invalid', 'false');
+        if (control.type === 'range') control.setAttribute('aria-valuetext', equivalent === null ? 'Sin sueldo disponible' : `${Number(equivalent.toFixed(4))} % del sueldo disponible`);
+    });
+    const net = panel.querySelector('[data-payroll-loan-live-net]');
+    if (net) {
+        net.textContent = formatCurrency(salary - amount);
+        net.classList.toggle('is-negative', salary - amount < -0.004);
+    }
+}
+
 function _handlePayrollAdjustmentInput(e) {
     if (e.type === 'change' && e.target.matches?.('[data-payroll-adjustment-period-selection]')) {
         window.PayrollUI?.setScheduledAdjustmentPeriodSelection?.(
@@ -371,11 +449,19 @@ let _payrollDelegationAttached = false;
 
 export function init(ctx) {
     unsubscribeRuntimeInvalidation?.();
+    payrollLoanAmountDrafts.clear();
+    payrollLoanPercentageDrafts.clear();
     context = ctx;
     payrollService = ctx.services.payroll;
     payrollRuntime = ctx.services.payrollRuntime || null;
-    unsubscribeRuntimeInvalidation = payrollRuntime?.subscribeInvalidation?.(() => {
+    unsubscribeRuntimeInvalidation = payrollRuntime?.subscribeInvalidation?.(change => {
+        if (change?.reason === 'config-changed') {
+            context?.render?.();
+            return;
+        }
         latestPayrollPreviewRows = [];
+        payrollLoanAmountDrafts.clear();
+        payrollLoanPercentageDrafts.clear();
         clearPayrollAdjustmentPeriodRuntime();
         const state = getState();
         if (state?.exportConfig) {
@@ -408,6 +494,8 @@ export function init(ctx) {
         document.addEventListener('click', _handlePayrollClick);
         document.addEventListener('keydown', _handlePayrollKeydown);
         document.addEventListener('input', _handlePayrollAdjustmentInput);
+        document.addEventListener('input', _handlePayrollLoanPercentageInput);
+        document.addEventListener('change', _handlePayrollLoanPercentageInput);
         document.addEventListener('change', _handlePayrollAdjustmentInput);
         _payrollDelegationAttached = true;
     }
@@ -590,12 +678,10 @@ function getScopedProjectEmployees(projectId, state = getState()) {
 
 function getScopedEffectivePreviewRows(scopedView = null, state = getState()) {
     const view = scopedView || payrollRuntime?.getCurrentView?.();
-    if (!view?.enabled || view.status !== 'ready') {
+    if (!view?.enabled || view.status !== 'ready' || view.previewStale) {
         return [];
     }
-    const baseRows = (view.previewRows && view.previewRows.length > 0)
-        ? view.previewRows
-        : (latestPayrollPreviewRows || []);
+    const baseRows = view.previewRows || [];
     const activePid = view.projectId ? String(view.projectId).trim() : null;
     if (!activePid) return baseRows;
 
@@ -661,18 +747,26 @@ function getScopedLeaderFilter(view, state = getState()) {
  * según sus casillas en la vista previa, y solo los empleados del líder
  * elegido. El cierre usa byLeader:false (siempre cierra la obra completa).
  */
-function getScopedReviewRows(view = null, state = getState(), { byLeader = true, withInclusion = true } = {}) {
+function getScopedReviewRows(view = null, state = getState(), { byLeader = true, withInclusion = true, withEmployeeSelection = true } = {}) {
     const resolved = view || payrollRuntime?.getCurrentView?.();
     const effective = getScopedEffectivePreviewRows(resolved, state);
     const rows = withInclusion
         ? applyPayrollPreviewInclusion(effective, state?.exportConfig?.payrollPreviewInclusion)
         : effective;
     if (!byLeader) return rows;
-    return filterPayrollRowsByLeader(rows, {
+    const byTeam = filterPayrollRowsByLeader(rows, {
         leaderId: getScopedLeaderFilter(resolved, state),
         positions: state?.positions || [],
         employees: getScopedProjectEmployees(resolved?.projectId, state),
         hoursScope: state?.exportConfig?.leaderHoursScope
+    });
+    return withEmployeeSelection ? filterPayrollReviewEmployees(byTeam, payrollReviewEmployeeSelection(resolved, state)) : byTeam;
+}
+
+function payrollReviewEmployeeSelection(view, state = getState()) {
+    return getPayrollReviewEmployeeSelection(state.exportConfig.payrollReviewEmployees, {
+        projectId: view?.projectId, period: view?.period,
+        employees: getScopedProjectEmployees(view?.projectId, state)
     });
 }
 
@@ -763,7 +857,7 @@ function ScopedPayrollTab(view) {
     // Sin período vigente (primera carga o la configuración de la obra cambió):
     // se genera una vez por configuración, sin reintentos en cada render.
     const refreshKey = `${view.projectId}:${view.config?.updatedAt || ''}`;
-    if (view.status === 'idle' || (view.status === 'ready' && !view.period && scopedPreviewRefreshKey !== refreshKey)) {
+    if (view.status === 'idle' || (view.status === 'ready' && !view.previewStale && !view.period && scopedPreviewRefreshKey !== refreshKey)) {
         scopedPreviewRefreshKey = refreshKey;
         queueMicrotask(() => refreshScopedPayrollPreview().catch(() => {}));
     }
@@ -790,6 +884,19 @@ function ScopedPayrollTab(view) {
             </div>
         `;
     }
+    if (view.previewStale) {
+        return `
+            <section class="payroll-generator payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
+                <div class="payroll-preview-stale">
+                    <h2>Nómina · Actualizar cálculo</h2>
+                    <p role="alert">${STALE_PAYROLL_MESSAGE}</p>
+                    <p>Se conserva tu selección de préstamos.</p>
+                    <button type="button" class="payroll-preview-stale__refresh"
+                            data-payroll-action="refresh-scoped-payroll-preview">Actualizar vista previa</button>
+                </div>
+            </section>
+        `;
+    }
 
     const state = getState();
     const exportConfig = state?.exportConfig || {};
@@ -812,6 +919,7 @@ function ScopedPayrollTab(view) {
     const activeLeader = leaders.find(leader => String(leader.id) === leaderFilter) || null;
     const leaderHoursScope = normalizeLeaderHoursScope(exportConfig.leaderHoursScope);
     const previewInclusion = getPayrollPreviewInclusion(exportConfig.payrollPreviewInclusion);
+    const reviewEmployeeSelection = payrollReviewEmployeeSelection(view, state);
     const totalAmount = rows.reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
     const grossAmount = rows.reduce((sum, row) => sum + (Number(row._brutoOriginal) || 0), 0);
     const bonusAmount = rows.reduce((sum, row) => sum + (Number(row._bonuses) || 0), 0);
@@ -972,8 +1080,11 @@ function ScopedPayrollTab(view) {
                         ${guideStep === 'loans' && !activeRegistration ? renderPayrollLoansDesktop({
                             employees: scopedEmployees,
                             selection: exportConfig.payrollLoanSelection || [],
-                            payrollRows: rows,
+                            payrollRows: getScopedReviewRows(view, state, { withEmployeeSelection: false }),
                             expandedEmployeeIds: exportConfig.payrollLoanExpandedEmployees || [],
+                            customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
+                            percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
+                            bulkEnabled: previewInclusion.loans,
                             periodEnd: period.periodEnd
                         }) : ''}
                     </section>
@@ -1019,6 +1130,7 @@ function ScopedPayrollTab(view) {
                                         <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder">${icons.get('close', { size: 12 })}</button>
                                     </span>
                                 ` : ''}
+                                ${renderPayrollReviewEmployeeFilter(reviewEmployeeSelection)}
                                 <button type="button"
                                         data-payroll-action="export-payroll-pdf"
                                         class="payroll-btn-secondary payroll-review-toolbar__pdf"
@@ -1036,7 +1148,9 @@ function ScopedPayrollTab(view) {
                                 sourceRows,
                                 inclusion: previewInclusion,
                                 expanded: payrollReviewExpanded,
-                                emptyMessage: activeLeader
+                                emptyMessage: reviewEmployeeSelection.enabled
+                                    ? 'Ningún empleado seleccionado tiene trabajo en este filtro. Cambia los empleados o el líder.'
+                                    : activeLeader
                                     ? `Ningún empleado de ${activeLeader.name || 'este líder'} tiene asistencia en el período.`
                                     : 'No hay registros de asistencia para esta obra en el período seleccionado.'
                             })}
@@ -1131,6 +1245,7 @@ export async function refreshScopedPayrollPreview(options = {}) {
     if (!payrollRuntime) throw new Error('Project payroll UI runtime unavailable');
     try {
         const result = await payrollRuntime.generatePreview(options);
+        result.current = result.current && (!payrollRuntime.isCurrent || payrollRuntime.isCurrent(result.request));
         if (result.current) {
             const state = getState();
             const { periodStart, periodEnd } = result.period;
@@ -1146,7 +1261,8 @@ export async function refreshScopedPayrollPreview(options = {}) {
             const deductions = state.exportConfig?.deductions || [];
             const bonuses = state.exportConfig?.bonuses || [];
             const adjustmentSelections = getPayrollAdjustmentPeriodRuntimeSelections(periodStart, periodEnd);
-            const ctx = createPayrollProjectContext({ state, scope: { enabled: true, projectId: result.projectId } });
+            const captured = result.request?.ctx || createPayrollProjectContext({ state, scope: { enabled: true, projectId: result.projectId } });
+            const ctx = { ...captured, exportConfig: { ...captured.exportConfig, deductions, bonuses } };
 
             result.rows.forEach(row => {
                 const payroll = calculateEmployeePayrollWithContext(
@@ -1180,6 +1296,7 @@ export async function refreshScopedPayrollPreview(options = {}) {
             result.rows = effectiveRows;
             if (result.request?.session) {
                 result.request.session.previewRows = effectiveRows;
+                result.request.session.previewKey = payrollPreviewInputKey(ctx, result.config, result.period, adjustmentSelections);
             }
             latestPayrollPreviewRows = effectiveRows;
             context?.render?.();
@@ -1644,6 +1761,9 @@ function PayrollGeneratorTab() {
                             selection: state.exportConfig.payrollLoanSelection || [],
                             payrollRows: exportData,
                             expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || [],
+                            customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
+                            percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
+                            bulkEnabled: previewInclusion.loans,
                             periodEnd: state.exportConfig.periodEnd
                         })}`}
                     </section>
@@ -2098,11 +2218,16 @@ function buildAdjustmentEmployeePickerEntries() {
     const operationScope = (isScoped && activeProjectId)
         ? { ...captureEntityProjectScope(), enabled: true, projectId: String(activeProjectId) }
         : null;
-    const period = resolveActivePayrollPeriod(state);
+    const period = scopedView?.period || state?.exportConfig || {};
     const { periodStart, periodEnd } = period;
+    // One snapshot for the whole picker; active employees already have a calculated gross.
+    const ctx = isScoped && scopedView.config
+        ? (scopedView.request?.ctx || createPayrollProjectContext({ state, scope: operationScope }))
+        : null;
+    const previewById = new Map((scopedView?.previewRows || []).map(row => [String(row._employeeId), row]));
 
-    let employees = state.employees || [];
-    if (operationScope) {
+    let employees = ctx?.employees || state.employees || [];
+    if (operationScope && !ctx) {
         employees = employees.filter(emp => entityInScope(emp, operationScope));
     }
 
@@ -2113,8 +2238,9 @@ function buildAdjustmentEmployeePickerEntries() {
             if (periodStart && periodEnd) {
                 try {
                     if (isScoped && scopedView.config) {
-                        const ctx = createPayrollProjectContext({ state, scope: { enabled: true, projectId: activeProjectId } });
-                        payroll = calculateEmployeePayrollWithContext(
+                        const cached = previewById.get(String(employee.id));
+                        payroll = cached ? { brutoOriginal: cached._brutoOriginal, breakdown: cached._positionBreakdown || [] }
+                            : calculateEmployeePayrollWithContext(
                             ctx,
                             scopedView.config,
                             employee.id,
@@ -2140,8 +2266,8 @@ function buildAdjustmentEmployeePickerEntries() {
             const organization = buildPayrollHistoricalOrganization({
                 employee,
                 breakdown: payroll.breakdown || [],
-                positions: state.positions || [],
-                leaders: state.leaders || []
+                positions: ctx?.positions || state.positions || [],
+                leaders: ctx?.leaders || state.leaders || []
             });
             const positions = organization.positionName === 'Sin posicion'
                 ? []
@@ -2151,6 +2277,7 @@ function buildAdjustmentEmployeePickerEntries() {
                 number: employee.number,
                 name: employee.name,
                 active: employee.active !== false,
+                inPayroll: isScoped && scopedView.period && !scopedView.previewStale ? previewById.has(String(employee.id)) : null,
                 positions,
                 gross: Number(payroll.brutoOriginal) || 0
             };
@@ -3367,6 +3494,8 @@ export function addPayrollLoansToExport() {
 }
 
 export function removeEmployeePayrollLoans(employeeId) {
+    payrollLoanAmountDrafts.delete(String(employeeId));
+    payrollLoanPercentageDrafts.delete(String(employeeId));
     const state = getState();
     stateManager.batchSetState(() => {
         state.exportConfig.payrollLoanSelection = removeEmployeePayrollLoansFromSelection(
@@ -3414,6 +3543,55 @@ export function setLeaderFilter(leaderId) {
         state.exportConfig.payrollPaidConfirmation = null;
     });
     context.render();
+}
+
+function storePayrollReviewEmployees(view, ids, enabled) {
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.exportConfig.payrollReviewEmployees = {
+            projectId: view.projectId, periodStart: view.period.periodStart, periodEnd: view.period.periodEnd,
+            enabled, ids
+        };
+        state.exportConfig.payrollPaidConfirmation = null;
+    });
+    context.render();
+}
+
+export async function togglePayrollReviewEmployeeFilter(checked) {
+    const view = getScopedPayrollView();
+    if (!view?.enabled || view.status !== 'ready' || view.previewStale) return false;
+    const selection = payrollReviewEmployeeSelection(view);
+    if (checked && !selection.ids.length) return openPayrollReviewEmployees();
+    storePayrollReviewEmployees(view, selection.ids, Boolean(checked));
+    return true;
+}
+
+export async function openPayrollReviewEmployees() {
+    const view = getScopedPayrollView();
+    if (!view?.enabled || view.status !== 'ready' || view.previewStale) return false;
+    const state = getState();
+    const rows = getScopedReviewRows(view, state, { byLeader: false });
+    const byId = new Map(getScopedProjectEmployees(view.projectId, state).map(employee => [String(employee.id), employee]));
+    const positionNames = new Map(state.positions.map(position => [String(position.id), position.name]));
+    const candidates = rows.map(row => {
+        const employee = byId.get(String(row._employeeId));
+        return employee ? { id: String(employee.id), number: employee.number, name: employee.name,
+            active: employee.active, gross: row._brutoOriginal,
+            positions: (row._positionBreakdown || []).map(part => part.positionName || positionNames.get(String(part.positionId))).filter(Boolean) } : null;
+    }).filter(Boolean);
+    const ids = await openPayrollAdjustmentEmployeePicker({
+        employees: candidates, selectedIds: payrollReviewEmployeeSelection(view, state).ids,
+        subtitle: 'Elige las personas que quieres incluir en este reporte.'
+    });
+    const current = getScopedPayrollView();
+    if (ids === null || !current?.enabled || current.projectId !== view.projectId
+        || current.period?.periodStart !== view.period?.periodStart || current.period?.periodEnd !== view.period?.periodEnd) {
+        context.render();
+        return false;
+    }
+    const allowed = new Set(candidates.map(employee => employee.id));
+    storePayrollReviewEmployees(current, ids.filter(id => allowed.has(String(id))).map(String), true);
+    return true;
 }
 
 /** Despliega o pliega el detalle de una categoría de un empleado en la vista previa. */
@@ -3508,6 +3686,11 @@ export function setExportPreset(preset) {
 
 function getEffectiveExportRows() {
     const scopedView = getScopedPayrollView();
+    const blocker = payrollPreviewBlocker(scopedView);
+    if (blocker) {
+        window.showNotification?.(blocker, 'warning');
+        return null;
+    }
     if (scopedView?.enabled) {
         return getScopedReviewRows(scopedView, getState());
     }
@@ -3516,6 +3699,7 @@ function getEffectiveExportRows() {
 
 function getSplitXExportData() {
     const previewRows = getEffectiveExportRows();
+    if (!previewRows) return null;
     const invalidRows = getInvalidPayrollLoanRows(previewRows);
     if (invalidRows.length > 0) {
         if (window.showNotification) {
@@ -3526,7 +3710,27 @@ function getSplitXExportData() {
         }
         return null;
     }
-    return toSplitXRows(previewRows);
+    const state = getState();
+    const view = getScopedPayrollView();
+    const projectId = view?.enabled ? view.projectId : null;
+    const scope = projectId ? { ...captureEntityProjectScope(), enabled: true, projectId } : null;
+    const scoped = collection => (collection || []).filter(item => !scope || entityInScope(item, scope));
+    try {
+        return buildSplitXExport(previewRows, {
+            period: {
+                start: view?.enabled ? view.period?.periodStart : state.exportConfig?.periodStart,
+                end: view?.enabled ? view.period?.periodEnd : state.exportConfig?.periodEnd
+            },
+            currency: state.settings?.currency || 'DOP',
+            companyName: state.settings?.companyName,
+            regularHoursPerDay: view?.enabled ? view.config?.regularHoursPerDay : state.settings?.regularHoursPerDay,
+            projectId, projectName: view?.projectName,
+            employees: scoped(state.employees), positions: scoped(state.positions), leaders: scoped(state.leaders)
+        }).employees;
+    } catch (error) {
+        window.showNotification?.(`❌ No se puede exportar: ${error.message}`, 'error');
+        return null;
+    }
 }
 
 export function copyExportJSON() {
@@ -3564,7 +3768,8 @@ export function downloadExportJSON() {
 
 export async function exportPayrollPDF() {
     const previewRows = getEffectiveExportRows();
-    if (!previewRows || previewRows.length === 0) {
+    if (!previewRows) return;
+    if (previewRows.length === 0) {
         if (window.showNotification) {
             window.showNotification('❌ No hay datos para exportar', 'error');
         }
@@ -3654,6 +3859,10 @@ export async function exportPayrollPDF() {
                 : ' · horas de todos los puestos';
             doc.text(`Líder: ${pdfLeader.name || ''}${pdfHoursScope}`, 14, yPosition + 5);
             doc.setFont('helvetica', 'normal');
+            yPosition += 5;
+        }
+        if (scopedView?.enabled && payrollReviewEmployeeSelection(scopedView, state).enabled) {
+            doc.text(`Empleados seleccionados: ${previewRows.length}`, 14, yPosition + 5);
             yPosition += 5;
         }
 
@@ -3797,7 +4006,6 @@ export function sendToSplitX(targetUrl) {
     if (!data || data.length === 0) return null;
 
     const state = getState();
-    const scopedView = getScopedPayrollView();
     const resolvedTargetUrl = targetUrl || state?.settings?.splitxUrl || 'https://splitx.erlin.do';
     let targetOrigin;
     try {
@@ -3805,16 +4013,6 @@ export function sendToSplitX(targetUrl) {
     } catch {
         targetOrigin = 'https://splitx.erlin.do';
     }
-
-    const currency = state?.settings?.currency || 'DOP';
-    const period = {
-        start: scopedView?.enabled
-            ? (scopedView.period?.periodStart || null)
-            : (state?.exportConfig?.periodStart || null),
-        end: scopedView?.enabled
-            ? (scopedView.period?.periodEnd || null)
-            : (state?.exportConfig?.periodEnd || null)
-    };
 
     const transferId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
         ? crypto.randomUUID()
@@ -3826,9 +4024,7 @@ export function sendToSplitX(targetUrl) {
         source: 'Sistema-de-Asistencia',
         version: '1.0',
         timestamp: new Date().toISOString(),
-        currency,
-        period,
-        ...(scopedView?.enabled && scopedView?.projectId ? { projectId: scopedView.projectId, projectName: scopedView.projectName } : {}),
+        ...data[0].exportContext,
         employees: data,
         data: data,
         payroll: data,
@@ -3976,7 +4172,46 @@ function updatePayrollLoanSelection(nextSelection) {
 }
 
 export function clearPayrollLoans() {
+    payrollLoanAmountDrafts.clear();
+    payrollLoanPercentageDrafts.clear();
     updatePayrollLoanSelection([]);
+}
+
+/** Apply one salary-limited selection to the current project/leader, with one render. */
+export function setPayrollLoansSalaryBulk(kind) {
+    if (!['available', 'recommended'].includes(kind)) return false;
+    const state = getState();
+    const view = getScopedPayrollView();
+    if (isProjectsEnabled() && (!view?.enabled || view.status !== 'ready' || view.previewStale || !view.projectId)) {
+        window.showNotification?.(STALE_PAYROLL_MESSAGE, 'warning');
+        return false;
+    }
+    const period = view?.enabled ? view.period : state.exportConfig;
+    if (!period?.periodStart || !period?.periodEnd || period.periodStart > period.periodEnd) return false;
+    if (getActivePayrollRegistration(state.exportConfig.payrollRegistration, period.periodStart, period.periodEnd)) {
+        window.showNotification?.('Este período ya está pagado; consulta los abonos registrados.', 'warning');
+        return false;
+    }
+    if (!getPayrollPreviewInclusion(state.exportConfig.payrollPreviewInclusion).loans) {
+        window.showNotification?.('Activa Préstamos en la vista previa para aplicar estos cobros.', 'warning');
+        return false;
+    }
+    const rows = view?.enabled ? getScopedReviewRows(view, state, { withEmployeeSelection: false }) : generateExportData();
+    let employees = view?.enabled ? getScopedProjectEmployees(view.projectId, state) : getLeaderFilteredEmployees(state);
+    const leader = view?.enabled ? getScopedLeaderFilter(view, state) : state.exportConfig.leaderFilter;
+    if (view?.enabled && leader && leader !== 'all') {
+        employees = getPayrollEmployeesForPeriod({ ...state, employees,
+            exportConfig: { ...state.exportConfig, leaderFilter: leader } }, period.periodStart, period.periodEnd);
+    }
+    const affectedIds = new Set(employees.map(employee => String(employee.id)));
+    const selection = buildPayrollLoanSalarySelection(employees, rows, period.periodEnd, kind);
+    const preserved = (state.exportConfig.payrollLoanSelection || []).filter(item => !affectedIds.has(String(item.employeeId)));
+    for (const id of affectedIds) {
+        payrollLoanAmountDrafts.delete(id);
+        payrollLoanPercentageDrafts.delete(id);
+    }
+    updatePayrollLoanSelection([...preserved, ...selection]);
+    return true;
 }
 
 function getEffectivePayrollPeriodEnd(state) {
@@ -4019,6 +4254,8 @@ export function toggleEmployeePayrollLoans(employeeId) {
  * no tenía préstamos marcados, se marcan los de esta nómina.
  */
 export function setPayrollLoanModeFor(employeeId, mode, amount = null) {
+    payrollLoanAmountDrafts.delete(String(employeeId));
+    payrollLoanPercentageDrafts.delete(String(employeeId));
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
     if (!employee) return;
@@ -4029,16 +4266,71 @@ export function setPayrollLoanModeFor(employeeId, mode, amount = null) {
         selection = setEmployeePayrollLoans(selection, employee.id, getEligiblePayrollLoans(employee, periodEnd)
             .map(loan => ({ loanId: loan.loanId, chargeCount: Math.max(1, loan.defaultChargeCount) })));
     }
-    updatePayrollLoanSelection(setPayrollLoanMode(selection, employee.id, mode, amount));
+    let next = setPayrollLoanMode(selection, employee.id, mode, amount);
+    if (mode === PAYROLL_LOAN_MODE.CUSTOM) {
+        const actual = resolvePayrollLoanSelection([employee], next, getEffectivePayrollPeriodEnd(state))[0]?.total || 0;
+        next = setPayrollLoanMode(next, employee.id, mode, actual);
+    }
+    updatePayrollLoanSelection(next);
 }
 
 export function setPayrollLoanCustomAmount(employeeId, value) {
-    const amount = Number(String(value ?? '').replace(/[^0-9.]/g, ''));
-    if (!Number.isFinite(amount) || amount <= 0) {
-        setPayrollLoanModeFor(employeeId, PAYROLL_LOAN_MODE.ALL);
-        return;
+    const amount = parsePayrollLoanAmount(value);
+    if (amount === null) {
+        payrollLoanAmountDrafts.set(String(employeeId), {
+            value: String(value ?? ''),
+            error: 'Ingresa un monto mayor que cero, por ejemplo 900,50. Se conserva el descuento anterior.'
+        });
+        context?.render?.();
+        return false;
     }
     setPayrollLoanModeFor(employeeId, PAYROLL_LOAN_MODE.CUSTOM, amount);
+    return true;
+}
+
+/** Quick amounts are explicit choices, saved as a custom amount until the user chooses again. */
+export function setPayrollLoanSalaryAmount(employeeId, kind, percentage = DEFAULT_PAYROLL_LOAN_PERCENTAGE) {
+    if (!['available', 'percentage'].includes(kind)) return false;
+    const state = getState();
+    const view = getScopedPayrollView();
+    if (view?.enabled && (view.status !== 'ready' || view.previewStale)) {
+        window.showNotification?.(STALE_PAYROLL_MESSAGE, 'warning');
+        return false;
+    }
+    const rows = view?.enabled ? getScopedReviewRows(view, state, { withEmployeeSelection: false }) : generateExportData();
+    const row = rows.find(item => String(item._employeeId) === String(employeeId));
+    const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    if (!employee) return false;
+    const periodEnd = view?.enabled ? view.period?.periodEnd : state.exportConfig.periodEnd;
+    let selection = state.exportConfig.payrollLoanSelection || [];
+    const selected = selection.find(item => String(item.employeeId) === String(employeeId));
+    if (!(selected?.loans || selected?.loanIds || []).length) {
+        selection = setEmployeePayrollLoans(selection, employeeId, getEligiblePayrollLoans(employee, periodEnd)
+            .map(loan => ({ loanId: loan.loanId, chargeCount: loan.defaultChargeCount })));
+    }
+    const debt = resolvePayrollLoanSelection([employee], selection, periodEnd)[0]?.fullTotal || 0;
+    const amounts = getPayrollLoanSalaryAmounts(row, debt, kind === 'available' ? 100 : percentage);
+    const amount = kind === 'available' ? amounts.available : amounts.suggested;
+    if (kind === 'percentage' && amounts.validPercentage && (amounts.percentage === 0 || amount === 0 && amounts.salaryAvailable > 0 && debt > 0)) {
+        payrollLoanPercentageDrafts.delete(String(employeeId));
+        payrollLoanAmountDrafts.delete(String(employeeId));
+        updatePayrollLoanSelection(removeEmployeePayrollLoansFromSelection(selection, employeeId));
+        return true;
+    }
+    if (!amounts.validPercentage || amount <= 0) {
+        if (!amounts.validPercentage && kind === 'percentage') {
+            payrollLoanPercentageDrafts.set(String(employeeId), { value: String(percentage ?? ''), error: 'Indica un porcentaje entre 0 y 100.' });
+        }
+        window.showNotification?.(!amounts.validPercentage
+            ? 'Indica un porcentaje entre 0 y 100.'
+            : 'No hay sueldo disponible o cargos seleccionables en este período.', 'warning');
+        return false;
+    }
+
+    payrollLoanAmountDrafts.delete(String(employeeId));
+    payrollLoanPercentageDrafts.delete(String(employeeId));
+    updatePayrollLoanSelection(setPayrollLoanMode(selection, employeeId, PAYROLL_LOAN_MODE.CUSTOM, amount));
+    return true;
 }
 
 export function togglePayrollLoanSelection(employeeId, loanId) {
@@ -4138,9 +4430,14 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
         inProgress: ignoreInProgress ? false : payrollClosureInProgress
     });
     if (cache.error) gate = { ...gate, enabled: false, reason: 'history-error' };
+    const blocker = payrollPreviewBlocker(scopedView);
+    if (blocker) gate = { ...gate, enabled: false, reason: scopedView?.previewStale ? 'preview-stale' : 'invalid-loan-amount' };
     // La tabla muestra solo un líder, pero el cierre guarda la obra completa.
     if (isScoped && getScopedLeaderFilter(scopedView, state) !== 'all') {
         gate = { ...gate, enabled: false, reason: 'leader-filtered' };
+    }
+    if (isScoped && payrollReviewEmployeeSelection(scopedView, state).enabled) {
+        gate = { ...gate, enabled: false, reason: 'employee-filtered' };
     }
     return { state, rows, fingerprint, activeClosures: cache.items, gate, isScoped, projectId, periodStart, periodEnd };
 }
@@ -4211,6 +4508,17 @@ export function togglePayrollPaidConfirmation(checked) {
             current.state.exportConfig.payrollPaidConfirmation = null;
         }
         context.render();
+        return;
+    }
+    const blocker = payrollPreviewBlocker(scopedView);
+    if (blocker) {
+        window.showNotification?.(blocker, 'warning');
+        context?.render?.();
+        return;
+    }
+    if (current.gate.reason === 'employee-filtered') {
+        window.showNotification?.(payrollClosureBlockerMessage(current.gate), 'warning');
+        context?.render?.();
         return;
     }
     if (!current.gate.hasRows || current.gate.invalidCount > 0 ||
@@ -4617,6 +4925,16 @@ export async function openPayrollClosure() {
         if (!activePid || activePid.startsWith('legacy-unresolved:')) {
             assertTandaBBlockedWhenScoped('PayrollUI.openPayrollClosure');
         }
+    }
+    const blocker = payrollPreviewBlocker(scopedView);
+    if (blocker) {
+        window.showNotification?.(blocker, 'warning');
+        context?.render?.();
+        return;
+    }
+    if (scopedView?.enabled && payrollReviewEmployeeSelection(scopedView).enabled) {
+        window.showNotification?.(payrollClosureBlockerMessage({ reason: 'employee-filtered' }), 'warning');
+        return;
     }
     const startingScope = captureEntityProjectScope();
     const startingProjectId = (isProjectsEnabled() && startingScope?.enabled && startingScope?.projectId)

@@ -82,8 +82,9 @@ describe('scripts/build.cjs', () => {
         expect(manifest).toContain('"./js/app.js"');
         expect(manifest).toContain('"./js/boot-loader.js"');
         expect(manifest).toContain('"./css/employee_profile.css?v=2"');
-        // El script inline del index.html sigue importando Config/BuildInfo sueltos.
-        expect(manifest).toContain('"./js/modules/config/Config.js"');
+        // El catálogo declarativo se publica/cachea; la política vive dentro del paquete.
+        expect(manifest).toContain('"./app-release.json"');
+        expect(JSON.parse(read('app-release.json')).version).toBe(JSON.parse(fs.readFileSync(path.join(projectRoot, 'app-release.json'), 'utf8')).version);
         expect(manifest).not.toContain('"./js/modules/services/PersistenceService.js"');
         expect(manifest).not.toContain('"./js/modules/features/payroll/PayrollUI.js"');
         expect(result.precache.length).toBeLessThan(60);

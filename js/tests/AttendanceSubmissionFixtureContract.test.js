@@ -168,7 +168,10 @@ describe('attendance-submission/v1 fixture — frozen F3.4 contract', () => {
                 // Optional, additive (Mini >= 2.15): day position of employees with
                 // more than one position. Older Minis never send them.
                 'positionName',
-                'saPositionId'
+                'saPositionId',
+                // Optional, additive: daily salary (DOP) of an employee that was marked
+                // present, so SA can create or link and update the employee.
+                'dailySalary'
             ].sort()
         );
     });

@@ -111,6 +111,7 @@ async function resolveRecoveredProjectContext() {
 async function prepareRecoveredProjectStep(result) {
     st.readySummary = result?.summary || null;
     const projectState = await resolveRecoveredProjectContext();
+    st.recoveredProjects = (projectState.projects || []).map(project => ({ id: project.id, name: project.name }));
     const suggestedName = String(projectState?.activeProject?.name || '').trim();
     st.projectName = suggestedName || String(st.readySummary?.company || '').trim() || 'Mi obra';
     st._projectError = null;

@@ -182,6 +182,9 @@ describe('Programados con obras activas', () => {
     test('Borrar also works for a plan that starts after the open payroll', async () => {
         const later = plansOf(harness.state, 'emp-26')[0];
         later.firstPeriodStart = '2026-10-02';
+        // Changing an input after calculation requires a fresh preview before editing it.
+        expect(harness.runtime.getCurrentView().previewStale).toBe(true);
+        await PayrollUI.refreshScopedPayrollPreview();
         renderDeductionsStep(harness.state);
         const button = actionFor('remove-scheduled-adjustment-plan', 'Empleado 026');
 

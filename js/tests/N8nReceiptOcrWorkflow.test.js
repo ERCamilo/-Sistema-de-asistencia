@@ -100,6 +100,19 @@ describe('Preparar solicitud Gemini', () => {
         expect(out.geminiBody.generationConfig.responseMimeType).toBe('application/json');
     });
 
+    test('el tipo se toma del contenido: bytes de JPEG etiquetados como WebP se envían como JPEG', async () => {
+        const send = async (data, mimeType) => (await runCode('Preparar solicitud Gemini', { body: { fileBase64: data, mimeType } })).geminiBody.contents[0].parts[1].inlineData.mimeType;
+        expect(await send('/9j/4AAQSkZJRg==', 'image/webp')).toBe('image/jpeg');
+        expect(await send('iVBORw0KGgo=', 'image/jpeg')).toBe('image/png');
+        expect(await send('UklGRiQAAABXRUJQ', 'image/jpeg')).toBe('image/webp');
+        expect(await send('JVBERi0xLjQ=', 'image/jpeg')).toBe('application/pdf');
+    });
+
+    test('si el contenido no se reconoce, se respeta el tipo indicado', async () => {
+        const out = await runCode('Preparar solicitud Gemini', { body: { fileBase64: 'QUJD', mimeType: 'image/webp' } });
+        expect(out.geminiBody.contents[0].parts[1].inlineData.mimeType).toBe('image/webp');
+    });
+
     test('pide descuento, propina, exento e itbis_incluido', async () => {
         const out = await runCode('Preparar solicitud Gemini', { body: { fileBase64: 'QUJD' } });
         const prompt = out.geminiBody.contents[0].parts[0].text;

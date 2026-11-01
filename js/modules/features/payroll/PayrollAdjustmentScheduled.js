@@ -1,5 +1,6 @@
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
+import { renderPayrollStatus } from './PayrollStatus.js';
 import {
     ADJUSTMENT_INSTALLMENT_STATUS,
     ADJUSTMENT_PLAN_KIND,
@@ -502,11 +503,13 @@ function renderEmployee(item, index, group, projectionRevision) {
     return `
         <details class="payroll-scheduled__employee" data-scheduled-employee="${index}">
             <summary>
-                <span><strong>${identity}</strong>${item.isMissing ? '<small>Registro del empleado no disponible</small>' : ''}</span>
+                <span><strong>${identity}</strong>${item.isMissing ? renderPayrollStatus('Registro del empleado no disponible') : ''}</span>
                 <span>Total <strong>${formatCurrency(item.totalAmount)}</strong></span>
                 <span>Aplicado <strong>${formatCurrency(item.appliedAmount)}</strong></span>
                 <span>Saldo <strong>${formatCurrency(item.balance)}</strong></span>
-                <span>${safe(item.statusLabel)}</span>
+                <span>${item.status === ADJUSTMENT_PLAN_STATUS.PAUSED ? renderPayrollStatus('Pausado', 'attention', 'pause')
+                    : item.periodSelection?.mode === 'pause' ? renderPayrollStatus('Pausado en esta nómina', 'attention', 'pause')
+                    : safe(item.statusLabel)}</span>
                 <span class="payroll-scheduled__toggle"><span>Editar o borrar</span><span>Ocultar</span></span>
             </summary>
             <div class="payroll-scheduled__employee-body">
@@ -529,7 +532,7 @@ function renderEmployee(item, index, group, projectionRevision) {
                         <p>Total en esta nómina: <strong>${formatCurrency(item.periodSelection.total)}</strong></p>
                     </div>
                 ` : item.status === ADJUSTMENT_PLAN_STATUS.PAUSED ? `
-                    <p class="payroll-scheduled__period-note">Este pago está pausado hasta que lo reanudes.</p>
+                    <p class="payroll-scheduled__period-note">${renderPayrollStatus('Pausado hasta que lo reanudes', 'attention', 'pause')}</p>
                 ` : item.status === ADJUSTMENT_PLAN_STATUS.CANCELLED ? `
                     <p class="payroll-scheduled__period-note">Programación cancelada${item.cancellation?.cancelledAt ? ` el ${safe(formatDate(item.cancellation.cancelledAt))}` : ''}. El saldo y los pagos anteriores se conservan.</p>
                 ` : ''}
@@ -582,7 +585,8 @@ export function renderScheduledAdjustmentSummaryDetail(rule, projectionRevision,
                 <small>Programado</small>
             </span>
             <span>
-                ${safe(rule.selectionLabel || item.statusLabel)}
+                ${item.status === ADJUSTMENT_PLAN_STATUS.PAUSED || item.periodSelection?.mode === 'pause'
+                    ? renderPayrollStatus(rule.selectionLabel || 'Pausado', 'attention', 'pause') : safe(rule.selectionLabel || item.statusLabel)}
                 <small>${safe(item.statusLabel)}</small>
             </span>
             <strong>${formatCurrency(rule.amount)}</strong>

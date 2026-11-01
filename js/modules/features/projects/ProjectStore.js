@@ -1,4 +1,7 @@
 import indexedDBService from '../../services/IndexedDBService.js';
+import { mutateProjectCatalog, stageProjectNameConflicts } from './ProjectNameConflicts.js';
+import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
+import { readProjectUsageData, summarizeProjectUsage, protectDeletedProjects } from './ProjectUsage.js';
 
 export const PROJECTS_STORE = 'projects';
 
@@ -29,16 +32,55 @@ export class ProjectStore {
 
     async create(project) {
         const payload = toPayload(project);
-        await this.db.update(PROJECTS_STORE, payload);
-        return clone(payload);
+        return this._saveUnique(payload);
+    }
+
+    async _saveUnique(payload) {
+        return mutateProjectCatalog(this.db, rows => {
+            if (rows.some(row => row.id === payload.id && row.deletedAt != null)) throw new Error('La obra fue borrada. Actualiza la lista antes de modificarla.');
+            const reserved = rows.flatMap(row => row.metadata?.nameConflict
+                ? [row, { ...row, name: row.metadata.nameConflict.requestedName }] : [row]);
+            const duplicate = findProjectNameConflict(payload.name, reserved, { excludeId: payload.id });
+            if (duplicate) throw new Error(duplicateProjectNameMessage(duplicate));
+            const current = rows.find(row => row.id === payload.id);
+            if (current?.metadata?.nameConflict) {
+                payload.metadata = { ...current.metadata, ...payload.metadata };
+                if (payload.name !== current.name) {
+                    payload.updatedAt = Math.max(Date.now(), (Number(current.updatedAt) || 0) + 1);
+                    delete payload.metadata.nameConflict;
+                }
+            }
+            return { writes: [payload], result: clone(payload) };
+        });
     }
 
     async get(id) {
-        return clone(await this.db.get(PROJECTS_STORE, String(id || '')) || null);
+        const row = await this.db.get(PROJECTS_STORE, String(id || ''));
+        if (row?.deletedAt != null) return (await this._visibleCatalog()).find(project => project.id === row.id) || null;
+        return clone(row || null);
+    }
+
+    async _visibleCatalog() {
+        let records = await this.db.getAll(PROJECTS_STORE) || [];
+        if (records.some(row => row.deletedAt != null)) {
+            const data = await readProjectUsageData({ idb: this.db });
+            const usage = summarizeProjectUsage(records, data);
+            const deletedIds = new Set(records.filter(row => row.deletedAt != null).map(row => row.id));
+            const protectedRows = protectDeletedProjects(records, usage).filter(row => deletedIds.has(row.id) && row.deletedAt == null);
+            if (protectedRows.length) {
+                records = await mutateProjectCatalog(this.db, current => {
+                    const recovered = new Map(protectedRows.map(row => [row.id, row]));
+                    const final = stageProjectNameConflicts(current.map(row => row.deletedAt != null && recovered.has(row.id) ? recovered.get(row.id) : row));
+                    const before = new Map(current.map(row => [row.id, JSON.stringify(row)]));
+                    return { writes: final.filter(row => JSON.stringify(row) !== before.get(row.id)), result: final };
+                });
+            }
+        }
+        return records.filter(row => row.deletedAt == null);
     }
 
     async listAll() {
-        const records = await this.db.getAll(PROJECTS_STORE);
+        const records = await this._visibleCatalog();
         return (records || [])
             .sort((left, right) => (left.createdAt - right.createdAt) ||
                 String(left.id).localeCompare(String(right.id)))
@@ -54,8 +96,7 @@ export class ProjectStore {
     async update(project) {
         const payload = toPayload(project);
         payload.updatedAt = Date.now();
-        await this.db.update(PROJECTS_STORE, payload);
-        return clone(payload);
+        return this._saveUnique(payload);
     }
 }
 

@@ -3,7 +3,7 @@
  * Estilo visual: SyncCenter (stg-* classes)
  */
 import { normalizeHelpMode } from '../../components/HelpController.js';
-import { escapeAttr } from '../../utils/Sanitize.js';
+import { escapeAttr, escapeHTML } from '../../utils/Sanitize.js';
 import { SettingsVoiceCard } from './SettingsVoiceCard.js';
 
 
@@ -11,6 +11,18 @@ export function SettingsGeneralTab(context) {
     const state = context.state;
     const icons = context.icons;
     const helpMode = normalizeHelpMode(state.settings.helpMode);
+    let currentAddress = 'No disponible';
+    let currentOrigin = 'No disponible';
+    try {
+        const pageUrl = new URL(globalThis.location.href);
+        pageUrl.username = '';
+        pageUrl.password = '';
+        pageUrl.search = '';
+        pageUrl.hash = '';
+        currentAddress = pageUrl.href;
+        const origin = globalThis.location.origin;
+        currentOrigin = origin === 'null' ? 'Sin origen web (null)' : origin || 'No disponible';
+    } catch (_) { /* Some app containers do not expose a usable page location. */ }
     const iconSetOptions = icons.getAvailableSets()
         .map(set => `<option value="${set}" ${state.settings.iconSet === set ? 'selected' : ''}>${set}</option>`)
         .join('');
@@ -32,6 +44,16 @@ export function SettingsGeneralTab(context) {
                                placeholder="Ej: Constructora El Progreso">
                     </div>
                 </div>
+
+                <section class="stg-panel stg-access-address" aria-labelledby="settings-access-title">
+                    <div class="stg-header">
+                        <div><h3 id="settings-access-title">Dirección de SA</h3></div>
+                    </div>
+                    <dl>
+                        <div><dt>Página actual</dt><dd><code data-settings-current-address>${escapeHTML(currentAddress)}</code></dd></div>
+                        <div><dt>Origen de conexión</dt><dd><code data-settings-current-origin>${escapeHTML(currentOrigin)}</code></dd></div>
+                    </dl>
+                </section>
 
                 <!-- Proyectos -->
                 <div class="stg-panel">
@@ -386,11 +408,11 @@ export function SettingsGeneralTab(context) {
                     </div>
                     <div class="settings-inline-action" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
                         <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
-                            ¿No ves la última versión de la app? Limpia el cache del navegador para forzar la actualización.
-                            <strong style="color: #cbd5e1;">No se borran tus datos</strong> (empleados, asistencia, configuración).
+                            ¿La interfaz se ve incompleta? Renueva los archivos de la aplicación.
+                            <strong style="color: #cbd5e1;">Conserva tus datos, fotos y comprobantes.</strong>
                         </span>
                         <button type="button" data-settings-action="clear-cache" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.8rem; white-space: nowrap;">
-                            Limpiar cache y recargar
+                            Reparar interfaz
                         </button>
                     </div>
                     <div class="settings-inline-action" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
@@ -402,21 +424,22 @@ export function SettingsGeneralTab(context) {
                         </button>
                     </div>
                     <fieldset class="stg-choice-fieldset" style="margin-top: 12px;">
-                        <legend>Revisión de Mini conectados</legend>
+                        <legend>Revisión de asistencia de Mini</legend>
+                        <p class="settings-help">Se aplica al texto pegado y a los Mini conectados.</p>
                         <div class="stg-choice-group">
                             <label class="stg-choice-option ${state.settings.miniConnectedReviewMode !== 'compare' ? 'is-selected' : ''}">
                                 <input type="radio"
                                        name="miniConnectedReviewMode"
                                        value="daily"
                                        ${state.settings.miniConnectedReviewMode !== 'compare' ? 'checked' : ''}>
-                                <span>Día por día, como el texto pegado</span>
+                                <span>Revisión guiada por empleado</span>
                             </label>
                             <label class="stg-choice-option ${state.settings.miniConnectedReviewMode === 'compare' ? 'is-selected' : ''}">
                                 <input type="radio"
                                        name="miniConnectedReviewMode"
                                        value="compare"
                                        ${state.settings.miniConnectedReviewMode === 'compare' ? 'checked' : ''}>
-                                <span>Comparar con SA (todos los días juntos)</span>
+                                <span>Comparar con SA en una lista</span>
                             </label>
                         </div>
                     </fieldset>

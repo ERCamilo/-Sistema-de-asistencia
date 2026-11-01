@@ -1,0 +1,11 @@
+#!/bin/sh
+# Validate the exact commits being sent; local unstaged fixes cannot hide a bad release.
+set -e
+while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$local_sha" in ''|0000000000000000000000000000000000000000) continue ;; esac
+    if [ "$remote_ref" = refs/heads/main ] && [ "$remote_sha" != 0000000000000000000000000000000000000000 ]; then
+        node scripts/release-manifest.cjs --check --release --base "$remote_sha" --head "$local_sha"
+    else
+        node scripts/release-manifest.cjs --check --release --head "$local_sha"
+    fi
+done

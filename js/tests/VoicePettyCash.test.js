@@ -81,3 +81,10 @@ test('returning to audio keeps cash edits for explicit reprocessing', async () =
     await ui.action('back'); expect(bridge.back).toHaveBeenCalledTimes(1);
     expect(record.cashDraft.concept).toBe('Concepto manual'); expect(record.dirty).toBe(true); expect(ui.dialog.open).toBe(false);
 });
+
+test('cash registration commits its return point only after saving and navigation',async()=>{
+ const {ui,adapter,bridge,record}=fixture();const point={commit:jest.fn(),cancel:jest.fn()};adapter.beginReturn=jest.fn(()=>point);
+ await ui.open(record,bridge);adapter.save.mockRejectedValueOnce(Error('storage'));
+ await expect(ui.action('save')).rejects.toThrow('storage');expect(point.cancel).toHaveBeenCalledTimes(1);expect(point.commit).not.toHaveBeenCalled();
+ await ui.action('save');expect(adapter.onSaved).toHaveBeenCalledTimes(1);expect(point.commit).toHaveBeenCalledTimes(1);expect(record.completedCashId).toBe('movement');
+});

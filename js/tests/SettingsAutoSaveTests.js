@@ -198,6 +198,15 @@ testRunner.addSuite("SettingsUI — cableado del listener de change (source-leve
 });
 
 testRunner.addSuite('SettingsUI — conservación de audio', {
+    'la precisión de voz se guarda y sincroniza con el resto de ajustes'() {
+        const {deps,st,calls}=makeHarness();
+        for (const value of ['precise','high','medium','low']) {
+            testRunner.assert(commitAutoSaveOption({name:'voiceMatchPrecision',value,deps}).committed);
+            testRunner.assertEquals(st.settings.voiceMatchPrecision,value);
+        }
+        testRunner.assert(!commitAutoSaveOption({name:'voiceMatchPrecision',value:'0.1',deps}).committed);
+        testRunner.assertEquals(calls.save,4);
+    },
     'acepta de uno a cinco días y rechaza valores fuera del dominio'() {
         const {deps,st,calls}=makeHarness();
         for (const value of ['1','2','3','4','5']) {

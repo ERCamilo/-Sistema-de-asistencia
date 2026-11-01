@@ -1,5 +1,26 @@
-import { jaroWinklerSimilarity, levenshteinSimilarity, resolveVoiceEmployees } from '../modules/features/voice/VoiceMatching.js';
+import { jaroWinklerSimilarity, levenshteinSimilarity, resolveVoiceEmployees, rankVoiceEmployees, pickAutomaticVoiceMatch, voiceAutoMatchLevel } from '../modules/features/voice/VoiceMatching.js';
 const people=names=>names.map((name,i)=>({id:String(i),number:String(i+1),name}));
+test('automatic precision thresholds are inclusive, require a unique candidate and retain exact identity precedence', () => {
+ for (const [level,minimum] of [['precise',.99],['high',.85],['medium',.75],['low',.65]]) {
+  const candidate={employee:{id:'chosen'},score:minimum};
+  expect(pickAutomaticVoiceMatch([candidate],level)).toBe(candidate);
+  expect(pickAutomaticVoiceMatch([{...candidate,score:minimum-.001}],level)).toBeNull();
+  expect(pickAutomaticVoiceMatch([candidate,{employee:{id:'close'},score:minimum-.1}],level)).toBeNull();
+  expect(pickAutomaticVoiceMatch([candidate,{employee:{id:'far'},score:minimum-.15}],level)).toBe(candidate);
+  expect(pickAutomaticVoiceMatch([{...candidate,score:.99},{employee:{id:'also-eligible'},score:minimum}],level)).toBeNull();
+ }
+ const exact={employee:{id:'exact'},score:1};
+ expect(pickAutomaticVoiceMatch([exact,{employee:{id:'close'},score:.99}])).toBe(exact);
+ expect(pickAutomaticVoiceMatch([exact,{...exact,employee:{id:'duplicate'}}])).toBeNull();
+ expect(voiceAutoMatchLevel('tampered')).toMatchObject({value:'high',minimum:.85});
+});
+test('the automatic margin includes candidates below the displayed matching tier', () => {
+ const ranked=rankVoiceEmployees({spokenName:'cleeft'},people(['Cleft','Cliff']));
+ expect(ranked).toHaveLength(2);
+ expect(resolveVoiceEmployees({spokenName:'cleeft'},people(['Cleft','Cliff']))).toHaveLength(1);
+ const near=[{employee:{id:'a'},score:.65},{employee:{id:'b'},score:.59}];
+ expect(pickAutomaticVoiceMatch(near,'low')).toBeNull();
+});
 test('spelling measures handle insertion, transposition, Unicode and known Jaro-Winkler examples',()=>{
  expect(levenshteinSimilarity('cliff','cleeft')).toBe(.5);
  expect(jaroWinklerSimilarity('martha','marhta')).toBeCloseTo(.961111,5);

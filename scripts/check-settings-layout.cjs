@@ -118,7 +118,7 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
                 assert.equal(await page.$$eval('#settings-screen [data-settings-action="save-settings"]',els=>els.length),0);
                 assert.ok(await page.$$eval('#settings-screen [hidden]',els=>els.every(el=>el.getBoundingClientRect().height===0)));
                 if(tab==='tests') assert.ok(await page.$('[data-developer-mode]'),'Tests visible en modo desarrollador');
-                if(tab==='general') assert.ok(await page.$('[data-settings-voice] #voiceMvpEnabled'),'Voz en General');
+                if(tab==='general') assert.ok(await page.$('button[data-settings-voice][data-settings-action="open-voice-settings"]'),'Acceso a Voz en General');
                 if(tab==='calendar') {
                     const inputWidth=await page.$eval('#settingsPeriodStart',el=>el.getBoundingClientRect().width);
                     assert.ok(inputWidth>=180,`Inicio del período demasiado estrecho a ${width}px: ${inputWidth}`);

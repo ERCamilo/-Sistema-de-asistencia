@@ -28,4 +28,21 @@ export const setProjectsEnabled = (enabled) => {
     } catch (_) { /* sin persistencia: el flag vive sólo en esta página */ }
 };
 
-export default { isProjectsEnabled, setProjectsEnabled };
+// Revisión de obras repetidas (en preparación): apagada hasta que la fusión esté lista.
+const DUPLICATES_STORAGE_KEY = 'asistencia_feature_project_duplicates';
+
+export const isProjectDuplicatesEnabled = () => {
+    try {
+        return localStorage.getItem(DUPLICATES_STORAGE_KEY) === 'true';
+    } catch (_) {
+        return false;
+    }
+};
+
+export const setProjectDuplicatesEnabled = (enabled) => {
+    try {
+        localStorage.setItem(DUPLICATES_STORAGE_KEY, enabled ? 'true' : 'false');
+    } catch (_) { /* sin persistencia: el flag vive sólo en esta página */ }
+};
+
+export default { isProjectsEnabled, setProjectsEnabled, isProjectDuplicatesEnabled, setProjectDuplicatesEnabled };

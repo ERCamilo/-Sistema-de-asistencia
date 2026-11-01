@@ -201,6 +201,56 @@ describe('AppHistory', () => {
         expect(view.tab).toBe('employees');
     });
 
+    test('one-shot return survives an async save, restores once, and stores only an opaque key', async () => {
+        await navigate('settings','general');
+        const restore = jest.fn();
+        const point = appHistory.beginReturn({ view: { tab:'export',sub:'ledger' }, restore });
+        expect(JSON.stringify(history.state)).not.toContain('restore');
+        setActivation(false); await flush();
+        view = {tab:'export',sub:'ledger'}; point.commit(); appHistory.sync();
+        await back(); expect(view.tab).toBe('settings'); expect(restore).toHaveBeenCalledTimes(1);
+        await forward(); await back(); expect(restore).toHaveBeenCalledTimes(1);
+    });
+    test('cancelled operations remove their reservation and do not reopen Voice', async () => {
+        const restore=jest.fn(), start=saNav().idx;
+        const point=appHistory.beginReturn({view:{tab:'pettycash'},restore});
+        point.cancel(); await flush(80);
+        expect(saNav().idx).toBe(start); expect(view.tab).toBe('attendance'); expect(restore).not.toHaveBeenCalled();
+    });
+    test('return is guarded by session/scope; ordinary navigation still works', async () => {
+        let valid=true; const restore=jest.fn();
+        const point=appHistory.beginReturn({view:{tab:'pettycash'},restore,isValid:()=>valid});
+        view={tab:'pettycash',sub:null};point.commit();valid=false;
+        await back();expect(view.tab).toBe('attendance');expect(restore).not.toHaveBeenCalled();
+    });
+    test('opening the same view still permits returning, without another view change', async () => {
+        const restore=jest.fn();
+        const point=appHistory.beginReturn({view:{tab:'attendance'},restore});point.commit();
+        await back();expect(restore).toHaveBeenCalledTimes(1);expect(view.tab).toBe('attendance');
+    });
+    test('an editor opened after the async operation closes before returning to Voice', async () => {
+        const restore=jest.fn();
+        const point=appHistory.beginReturn({view:{tab:'pettycash'},restore});
+        setActivation(false);view={tab:'pettycash',sub:null};point.commit();openDialog();appHistory.sync();
+        await back();expect(document.querySelector('.modal-overlay')).toBeNull();expect(view.tab).toBe('attendance');expect(restore).toHaveBeenCalledTimes(1);
+    });
+    test('Back while an operation is pending cannot later reopen its receipt', async () => {
+        const restore=jest.fn();const point=appHistory.beginReturn({view:{tab:'export'},restore});
+        await back();point.commit();expect(restore).not.toHaveBeenCalled();
+    });
+    test('a returned Voice panel can navigate again and return again', async () => {
+        const restore=jest.fn();
+        let point=appHistory.beginReturn({view:{tab:'export'},restore});view={tab:'export',sub:null};point.commit();
+        await back();expect(restore).toHaveBeenCalledTimes(1);
+        const panel=openDialog();panel.dataset.historyReturn='on';appHistory.sync();await flush();
+        point=appHistory.beginReturn({view:{tab:'export'},restore});panel.remove();view={tab:'export',sub:null};point.commit();
+        await back();expect(restore).toHaveBeenCalledTimes(2);
+    });
+    test('clearing session returns prevents an old async completion/cancel from moving the new session', async () => {
+        const restore=jest.fn();const point=appHistory.beginReturn({view:{tab:'export'},restore});
+        appHistory.clearReturns();const index=saNav().idx;point.commit();point.cancel();await flush(80);
+        expect(saNav().idx).toBe(index);expect(restore).not.toHaveBeenCalled();
+    });
     test('la URL no cambia', async () => {
         const url = location.href;
         await navigate('export', 'history');

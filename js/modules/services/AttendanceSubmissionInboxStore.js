@@ -17,9 +17,10 @@
  *             rosterVersion, capturedAt, workDate, rows
  *   optional: clientSequence, excludedCount, errorSummary
  *
- * Row (exact keys only, no position/group/leader/private keys):
+ * Row (exact keys only, no group/leader/private keys):
  *   required: miniLocalId, number, name, normalHours, overtimeHours, status
- *   optional: saEmployeeId
+ *   optional: rosterStatus, saEmployeeId, positionName, saPositionId,
+ *             dailySalary (DOP/day; lets SA create or link the employee)
  *
  * Identity: the ONLY employee join key in v1 is
  * (envelope.saProjectId, row.saEmployeeId) when saEmployeeId exists.
@@ -64,8 +65,12 @@ export const ATTENDANCE_SUBMISSION_ROW_KEYS = Object.freeze([
     'saEmployeeId',
     // Mini >= 2.15: day position of employees with more than one position.
     'positionName',
-    'saPositionId'
+    'saPositionId',
+    // Daily salary in DOP of a present employee, so SA can create or link and
+    // update the employee. Informational: it never changes hours or identity.
+    'dailySalary'
 ]);
+const MAX_DAILY_SALARY = 10000000;
 
 export const ATTENDANCE_SUBMISSION_SCOPE_KEYS = Object.freeze([
     'ownerUid',
@@ -263,6 +268,13 @@ function validateRow(row, index) {
     if ('saPositionId' in row) {
         if (!safe.positionName) throw new TypeError(`rows[${index}].saPositionId requires positionName`);
         safe.saPositionId = saId(row.saPositionId, `rows[${index}].saPositionId`);
+    }
+    if ('dailySalary' in row) {
+        const salary = row.dailySalary;
+        if (typeof salary !== 'number' || !Number.isFinite(salary) || salary <= 0 || salary > MAX_DAILY_SALARY) {
+            throw new TypeError(`rows[${index}].dailySalary must be a number greater than 0 and at most ${MAX_DAILY_SALARY}`);
+        }
+        safe.dailySalary = salary;
     }
     return safe;
 }

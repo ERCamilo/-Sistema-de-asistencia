@@ -26,6 +26,8 @@
  * Funciones puras: no leen ni escriben estado global.
  */
 
+import { readLoanChronology } from './LoanChronology.js';
+import { isFinancialLoan, isPayrollLoanPayment } from './LoanReadPolicy.js';
 import { LOAN_STATUS, round2, getActiveLoanTerms } from './LoansService.js';
 
 export const TIMELINE_KINDS = Object.freeze({
@@ -90,6 +92,7 @@ export function collectLoanEvents(loan = {}) {
         if (payment.adjustment) {
             events.push({
                 kind: TIMELINE_KINDS.ADJUSTMENT, date, at: stamp(payment.recordedAt), loanId: loan.id, id: payment.id,
+                ofId: payment.adjustment.ofId, ofKind: payment.adjustment.ofKind || 'payment',
                 capital: round2(Number(payment.adjustment.capital || 0)),
                 interest: round2(Number(payment.adjustment.interest || 0))
             });
@@ -98,7 +101,7 @@ export function collectLoanEvents(loan = {}) {
         events.push({
             kind: TIMELINE_KINDS.PAYMENT, date, at: stamp(payment.recordedAt), loanId: loan.id,
             id: payment.id, amount: round2(Number(payment.amount || 0)),
-            source: payment.source === 'payroll' ? 'payroll' : 'manual'
+            source: isPayrollLoanPayment(payment) ? 'payroll' : 'manual'
         });
     }
     // Mismo día: un abono y un refinanciamiento van en el orden en que se registraron
@@ -145,73 +148,103 @@ export function replayLoan(loan = {}) {
 }
 
 function computeReplay(loan = {}) {
-    let capital = 0;
-    let interest = 0;
-    let credit = 0;
-    let overpaid = 0;
-    const steps = [];
-    const push = (event, delta, extra = {}) => {
-        steps.push({ ...event, ...extra, delta, capitalAfter: round2(capital), interestAfter: round2(interest) });
-    };
-    // Un cargo nuevo se cubre primero con el excedente a favor.
-    const absorb = amount => {
-        const used = Math.min(credit, amount);
-        credit -= used;
+    let capital = 0, interest = 0, credit = 0, overpaid = 0;
+    let reversedCapital = 0, reversedInterest = 0;
+    const steps = [], applications = new Map(), creditQueue = [];
+    const push = (event, delta, extra = {}) => steps.push({ ...event, ...extra, delta,
+        capitalAfter: round2(capital), interestAfter: round2(interest) });
+    const absorb = (amount, kind) => {
+        const used = Math.min(credit, Math.max(0, amount)); credit -= used;
+        let left = used;
+        for (const entry of creditQueue) {
+            const take = Math.min(left, entry.remaining); entry.remaining -= take; left -= take;
+            entry.application[kind] = round2(entry.application[kind] + take);
+            entry.application.credit = round2(entry.application.credit - take);
+            if (left < .004) break;
+        }
         return { net: amount - used, used: round2(used) };
     };
-
     for (const event of collectLoanEvents(loan)) {
         if (event.kind === TIMELINE_KINDS.LOAN) {
-            const c = absorb(event.capital);
-            const i = absorb(event.interest);
-            capital += c.net;
-            interest += i.net;
-            push(event, { capital: round2(c.net), interest: round2(i.net) }, { creditUsed: round2(c.used + i.used) });
+            const c = absorb(event.capital, 'capital'), i = absorb(event.interest, 'interest');
+            capital += c.net; interest += i.net;
+            push(event, { capital: round2(c.net), interest: round2(i.net) }, { creditUsed: round2(c.used+i.used) });
         } else if (event.kind === TIMELINE_KINDS.REFINANCING) {
-            const i = absorb(event.interest);
-            interest += i.net;
+            const i = absorb(event.interest, 'interest'); interest += i.net;
             push(event, { capital: 0, interest: round2(i.net) }, { creditUsed: i.used });
         } else if (event.kind === TIMELINE_KINDS.ADJUSTMENT) {
-            // Devuelve exactamente lo que tocó el movimiento original; no usa el saldo a favor.
-            capital += event.capital;
-            interest += event.interest;
-            push(event, { capital: event.capital, interest: event.interest });
+            let c = event.capital, i = event.interest;
+            let creditCreated = 0, creditReturned = 0, creditUsed = 0;
+            if (event.ofKind === 'payment' && c >= 0 && i >= 0) {
+                const application = applications.get(String(event.ofId));
+                const applied = application && round2(application.capital + application.interest + application.credit);
+                // A full reversal cancels this payment's current application.
+                // Its saved allocation may predate a later charge correction.
+                if (application && Math.abs(round2(c + i) - applied) < .005) {
+                    c = application.capital;
+                    i = application.interest;
+                    creditReturned = application.credit;
+                    credit -= creditReturned;
+                    application.credit = 0;
+                    for (const entry of creditQueue) if (entry.application === application) entry.remaining = 0;
+                }
+                reversedCapital += c;
+                reversedInterest += i;
+                // Any other available credit still offsets the restored debt.
+                const toInterest = absorb(i, 'interest');
+                const toCapital = absorb(c, 'capital');
+                c = toCapital.net;
+                i = toInterest.net;
+                creditUsed = round2(toInterest.used + toCapital.used);
+            }
+            // A reversed charge first removes pending interest. The already-paid
+            // portion becomes a credit applied to capital, never negative interest.
+            if (i < 0 && interest + i < 0) {
+                const refund = -(interest+i), toCapital = Math.min(capital, refund);
+                i = -interest; c -= toCapital;
+                let left = refund;
+                for (const application of [...applications.values()].reverse()) {
+                    const take = Math.min(left, application.interest); application.interest -= take;
+                    const applied = Math.min(take, toCapital - (refund-left));
+                    application.capital += Math.max(0, applied);
+                    const remaining = take-Math.max(0, applied);
+                    if (remaining > 0) { application.credit += remaining; creditQueue.push({application,remaining}); }
+                    left -= take; if (left < .004) break;
+                }
+                creditCreated = round2(refund - toCapital);
+                credit += creditCreated;
+            }
+            capital += c; interest += i;
+            push(event, { capital: round2(c), interest: round2(i) }, { creditCreated, creditReturned, creditUsed });
         } else {
             const toInterest = Math.min(event.amount, Math.max(0, interest));
-            const toCapital = Math.min(event.amount - toInterest, Math.max(0, capital));
-            const excess = round2(event.amount - toInterest - toCapital);
-            interest -= toInterest;
-            capital -= toCapital;
-            credit += excess;
-            overpaid += excess;
+            const toCapital = Math.min(event.amount-toInterest, Math.max(0, capital));
+            const excess = round2(event.amount-toInterest-toCapital);
+            interest -= toInterest; capital -= toCapital; credit += excess; overpaid += excess;
+            const application = { capital: round2(toCapital), interest: round2(toInterest), credit: excess };
+            applications.set(String(event.id), application);
+            if (excess > 0) creditQueue.push({application,remaining:excess});
             push(event, { capital: -round2(toCapital), interest: -round2(toInterest) }, { excess });
         }
     }
-
-    const remaining = round2(capital + interest);
-    const closedDate = isoDate(loan.closedAt);
+    const remaining = round2(capital+interest), closedDate = isoDate(loan.closedAt);
     const closes = loan.status === LOAN_STATUS.WRITTEN_OFF ? TIMELINE_KINDS.WRITEOFF
         : loan.status === LOAN_STATUS.PAID ? TIMELINE_KINDS.SETTLED : null;
-    if (remaining > 0.01 && closedDate && closes) {
-        const delta = { capital: -round2(capital), interest: -round2(interest) };
-        capital = 0; interest = 0;
-        push({ kind: closes, date: closedDate, at: stamp(loan.closedAt), loanId: loan.id }, delta);
+    const closure = closes && remaining > .01 ? { capital: round2(capital), interest: round2(interest), undated: !closedDate } : null;
+    if (closure) {
+        const delta = {capital:-round2(capital),interest:-round2(interest)}; capital=0; interest=0;
+        if (closedDate) push({kind:closes,date:closedDate,at:stamp(loan.closedAt),loanId:loan.id},delta);
     }
-
-    return {
-        loanId: loan.id,
-        steps,
-        capital: round2(capital),
-        interest: round2(interest),
-        balance: round2(capital + interest),
-        overpaid: round2(overpaid),
-        credit: round2(credit)
-    };
+    const sums = [...applications.values()].reduce((sum,p)=>({capital:sum.capital+p.capital,interest:sum.interest+p.interest}),{capital:0,interest:0});
+    return { loanId:loan.id, steps, capital:round2(capital), interest:round2(interest), balance:round2(capital+interest),
+        overpaid:round2(overpaid), credit:round2(credit), closure, applications:Object.fromEntries(applications),
+        collected:{capital:round2(sums.capital-reversedCapital),interest:round2(sums.interest-reversedInterest)} };
 }
 
 /** Capital pendiente de un préstamo en una fecha (incluida), con interés primero. */
 export function getRemainingCapital(loan, asOfDate = null) {
     const replay = replayLoan(loan);
+    if (!asOfDate) return replay.capital;
     const steps = asOfDate ? replay.steps.filter(step => step.date <= asOfDate) : replay.steps;
     return steps.length ? steps.at(-1).capitalAfter : 0;
 }
@@ -223,11 +256,18 @@ export function getRemainingCapital(loan, asOfDate = null) {
  *   days[i] = { date, previous, payments, newLoans, refinancings, writeOffs,
  *               result, capital, interest, tags[], items[] }
  */
-export function buildTimeline(entries = []) {
+export function buildTimeline(entries = [], { financialOnly = false } = {}) {
     const byDate = new Map();
-    for (const { employeeId = null, loan } of entries) {
-        if (!loan) continue;
-        for (const step of replayLoan(loan).steps) {
+    const validEntries = entries.filter(entry => entry.loan);
+    const normalized = readLoanChronology(validEntries.map(entry=>entry.loan));
+    const undatedClosures = [];
+    for (const [index, { employeeId = null }] of validEntries.entries()) {
+        const loan = normalized[index];
+        // Recover original timestamps before excluding audit-only source loans.
+        if (financialOnly && !isFinancialLoan(loan)) continue;
+        const replay = replayLoan(loan);
+        if (replay.closure?.undated) { undatedClosures.push({employeeId,loanId:loan.id,...replay.closure}); continue; }
+        for (const step of replay.steps) {
             if (!byDate.has(step.date)) byDate.set(step.date, []);
             byDate.get(step.date).push({ ...step, employeeId });
         }
@@ -268,7 +308,7 @@ export function buildTimeline(entries = []) {
             items
         });
     }
-    return { days, totals: { capital: round2(capital), interest: round2(interest), balance: round2(capital + interest) } };
+    return { days, undatedClosures, totals: { capital: round2(capital), interest: round2(interest), balance: round2(capital + interest) } };
 }
 
 /** Atajo: línea de tiempo de un empleado. */

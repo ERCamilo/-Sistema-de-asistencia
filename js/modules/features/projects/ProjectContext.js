@@ -55,6 +55,7 @@ export class ProjectContextService {
         this.store = store;
         this.defaults = defaults;
         this.listeners = new Set();
+        this.selectionRequest = 0;
     }
 
     subscribe(listener) {
@@ -104,8 +105,11 @@ export class ProjectContextService {
     async setActiveProjectId(id) {
         if (!isProjectsEnabled()) return null;
 
+        const request = ++this.selectionRequest;
         const previousProjectId = readStoredId() || peekEntityScope().projectId || null;
         const candidate = await this.store.get(id);
+        if (request !== this.selectionRequest || !isProjectsEnabled()) return isProjectsEnabled()
+            ? readStoredId() || peekEntityScope().projectId || null : null;
         if (!candidate) throw new Error(`Proyecto inexistente: "${id}"`);
         if (candidate.status !== PROJECT_STATUS.ACTIVE) {
             throw new Error(`El proyecto "${candidate.name}" está "${candidate.status}"; sólo puede activarse uno "active".`);
@@ -130,6 +134,7 @@ export class ProjectContextService {
 
     /** Limpia la preferencia local. Seguro bajo flag OFF (no-op). */
     clearActiveProjectId() {
+        this.selectionRequest++;
         try {
             localStorage.removeItem(ACTIVE_PROJECT_LS_KEY);
         } catch (_) { /* nada que limpiar */ }
@@ -164,11 +169,13 @@ export async function getEntityScope() {
     if (!isProjectsEnabled()) {
         return replaceEntityScope();
     }
+    const request = projectContext.selectionRequest;
     const projectId = await projectContext.getActiveProjectId();
     let defaultProjectId = null;
     try {
         const fallback = await projectContext.defaults.ensureDefaultProject();
         defaultProjectId = fallback ? fallback.id : null;
     } catch (_) { /* fail-open: sin default conocido no se filtra por §2 */ }
+    if (request !== projectContext.selectionRequest) return peekEntityScope();
     return replaceEntityScope({ enabled: true, projectId, defaultProjectId });
 }

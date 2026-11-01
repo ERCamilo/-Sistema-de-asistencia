@@ -22,6 +22,7 @@ import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const WEEKDAYS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const HISTORY_TOTAL_KEY = 'history-total';
 export const HISTORY_RANGES = Object.freeze([['3M', 3], ['6M', 6], ['1A', 12], ['Todo', 0]]);
 
 const KINDS = {
@@ -56,13 +57,18 @@ const longDate = iso => { const p = parts(iso); return `${p.wd} ${p.d} ${MONTHS[
 const compact = n => (Math.abs(n) >= 1000 ? `$${(n / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })}k` : `$${Math.round(n)}`);
 const dominantKind = day => PRIORITY.find(kind => day.items.some(item => item.kind === kind)) || 'payment';
 
-function daysInRange(days, range) {
+function rangeStart(range) {
     const months = HISTORY_RANGES.find(([key]) => key === range)?.[1] || 0;
-    if (!months || days.length === 0) return days;
-    const cut = new Date(`${days.at(-1).date}T00:00:00Z`);
-    cut.setUTCMonth(cut.getUTCMonth() - months);
-    const from = cut.toISOString().slice(0, 10);
-    return days.filter(day => day.date >= from);
+    if (!months) return null;
+    const cut = new Date(`${getDateKey(new Date())}T00:00:00Z`);
+    cut.setUTCDate(1);
+    cut.setUTCMonth(cut.getUTCMonth() - months + 1);
+    return cut.toISOString().slice(0, 10);
+}
+
+function daysInRange(days, range) {
+    const from = rangeStart(range);
+    return from ? days.filter(day => day.date >= from) : days;
 }
 
 function chartWidth() {
@@ -110,10 +116,12 @@ function renderChart(days, selected, scope) {
     const kind = dominantKind(selected);
     const px = x(selected.date) / W * 100;
     const py = y(selected.result) / H * 100;
+    const edge = narrow ? (px >= 50 ? 'end' : 'start') : px > 75 ? 'end' : px < 25 ? 'start' : null;
+    const anchor = edge === 'end' ? 'right:8px' : edge === 'start' ? 'left:8px' : `left:${px}%`;
     const extra = new Set(selected.items.map(item => item.kind)).size - 1;
     return `
         <div class="loan-history-chart">
-            <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolución del saldo: total y capital">
+            <svg viewBox="0 0 ${W} ${H}" role="group" aria-label="Evolución del saldo: total y capital">
                 <defs><linearGradient id="loan-history-fill-${escapeAttr(scope)}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#06b6d4" stop-opacity=".40"/><stop offset="1" stop-color="#06b6d4" stop-opacity=".02"/></linearGradient></defs>
                 ${grid}
                 <path d="${total} ${base}" fill="url(#loan-history-fill-${escapeAttr(scope)})"/>
@@ -123,10 +131,17 @@ function renderChart(days, selected, scope) {
                 ${marks}
                 ${ticks}
             </svg>
-            <div class="loan-history-callout ${KINDS[kind].css}${py < 34 ? ' is-below' : ''}" style="left:${Math.min(88, Math.max(12, px))}%;top:${py}%">
+            <div class="loan-history-callout ${KINDS[kind].css}${edge ? ' is-edge' : ''}${py < 34 ? ' is-below' : ''}" style="${anchor};top:${py}%">
                 <b>${KINDS[kind].label}${extra > 0 ? ` +${extra}` : ''}</b>${shortDate(selected.date)}<br><span>${formatCurrency(selected.result)}</span>
             </div>
         </div>`;
+}
+
+function adjustmentCreditDetail(items) {
+    const total = key => items.reduce((sum, item) => sum + Number(item[key] || 0), 0);
+    return [['creditCreated', 'Crédito a favor por ajuste'], ['creditReturned', 'Crédito devuelto'], ['creditUsed', 'Crédito aplicado al ajuste']]
+        .filter(([key]) => total(key) > .004)
+        .map(([key, label]) => `${label}: ${formatCurrency(total(key))}`).join(' · ');
 }
 
 function describeChanges(day, mode, nameById) {
@@ -151,7 +166,7 @@ function describeChanges(day, mode, nameById) {
                         : item.kind === 'refinancing'
                             ? (item.basis === 'pending' ? 'nuevo plan de cuotas, sin interés nuevo'
                                 : `interés sobre ${item.basis === 'capital' ? 'el capital restante' : item.basis === 'principal' ? 'el capital original' : 'el saldo'}`)
-                            : '';
+                            : item.kind === 'adjustment' ? adjustmentCreditDetail([item]) : '';
                 return { kind, amount: value, label, detail, excess: item.excess || 0 };
             });
         }
@@ -165,7 +180,8 @@ function describeChanges(day, mode, nameById) {
         ].filter(Boolean).join(' · ');
         const detail = kind === 'payment'
             ? `interés ${formatCurrency(-sum('interest'))} + capital ${formatCurrency(-sum('capital'))}`
-            : kind === 'loan' ? `capital ${formatCurrency(sum('capital'))} + interés ${formatCurrency(sum('interest'))}` : '';
+            : kind === 'loan' ? `capital ${formatCurrency(sum('capital'))} + interés ${formatCurrency(sum('interest'))}`
+                : kind === 'adjustment' ? adjustmentCreditDetail(items) : '';
         return [{ kind, amount, label, detail, excess }];
     }).flat();
 }
@@ -175,11 +191,13 @@ function describeChanges(day, mode, nameById) {
  * @param {string} args.scope     'general' o el id del empleado
  * @param {'general'|'employee'} args.mode
  * @param {Array} args.employees  empleados (ya filtrados por obra) cuyos préstamos entran
+ * @param {object|null} args.timeline línea financiera calculada para esos mismos empleados
  */
-export function renderLoanHistoryPanel({ scope, mode = 'general', employees = [], embedded = false, defaults = null, variant = null } = {}) {
-    const timeline = buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))));
+export function renderLoanHistoryPanel({ scope, mode = 'general', employees = [], embedded = false, defaults = null, variant = null, timeline: preparedTimeline = null } = {}) {
+    const timeline = preparedTimeline || buildTimeline(employees.flatMap(emp => (emp.loans || []).map(loan => ({ employeeId: emp.id, loan }))), { financialOnly: true });
     const all = timeline.days;
-    if (all.length === 0) return '';
+    const warning = timeline.undatedClosures.length ? `<p class="lf-note" role="note">Historial incompleto: ${timeline.undatedClosures.length} cierre(s) con saldo sin fecha. Estos préstamos se excluyen de la evolución; revisa sus cierres.</p>` : '';
+    if (all.length === 0) return warning;
     // defaults: cómo se abre la primera vez (la pantalla principal lo abre en «Por periodo»).
     const panel = panelState(scope, defaults);
     const { totals } = timeline;
@@ -225,8 +243,8 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
         <section class="loan-history is-open${embedded ? ' is-embedded' : ''}${portfolio ? ' is-portfolio-hist' : ''}" data-loan-history="${scopeArg}">
             ${embedded ? '' : summary}
             <div class="loan-history__body">
-                ${viewTabs}
-                ${portfolio ? '' : `<div class="loan-history__ranges" role="group" aria-label="Periodo">
+                ${warning}${viewTabs}
+                ${`<div class="loan-history__ranges" role="group" aria-label="Periodo">
                     ${HISTORY_RANGES.map(([key]) => `<button type="button" data-app-fn="setLoanHistoryRange" data-arg="${scopeArg}" data-arg2="${key}" aria-pressed="${panel.range === key}">${key}</button>`).join('')}
                 </div>`}
                 ${renderFlowSection(panel, scope, employees, all, portfolio)}
@@ -235,6 +253,7 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
     }
 
     const days = daysInRange(all, panel.range);
+    if (!days.length) return `<section class="loan-history is-open" data-loan-history="${scopeArg}">${embedded ? '' : summary}<div class="loan-history__body">${warning}${viewTabs}<p class="lf-note">Sin movimientos en este rango. <button type="button" data-app-fn="setLoanHistoryRange" data-arg="${scopeArg}" data-arg2="Todo">Ver todo el historial</button></p></div></section>`;
     let selected = days.find(day => day.date === panel.date) || days.at(-1);
     if (panel.step) {
         const index = Math.min(days.length - 1, Math.max(0, days.indexOf(selected) + panel.step));
@@ -255,7 +274,7 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
         <section class="loan-history is-open${embedded ? ' is-embedded' : ''}${portfolio ? ' is-portfolio-hist' : ''}" data-loan-history="${scopeArg}">
             ${embedded ? '' : summary}
             <div class="loan-history__body">
-                ${viewTabs}
+                ${warning}${viewTabs}
                 <div class="loan-history__ranges" role="group" aria-label="Periodo">
                     ${HISTORY_RANGES.map(([key]) => `<button type="button" data-app-fn="setLoanHistoryRange" data-arg="${scopeArg}" data-arg2="${key}" aria-pressed="${panel.range === key}">${key}</button>`).join('')}
                 </div>
@@ -295,7 +314,7 @@ export function renderLoanHistoryPanel({ scope, mode = 'general', employees = []
                                     <span class="loan-history__icon" aria-hidden="true">${change.amount < 0 ? '−' : '+'}</span>
                                     <div><strong>${change.amount < 0 ? '−' : '+'}${formatCurrency(Math.abs(change.amount))}</strong><span>${escapeHTML(change.label)}</span>${change.detail ? `<small>${change.detail}</small>` : ''}</div>
                                 </div>`).join('')}
-                            ${excess > 0.01 ? `<div class="loan-history__excess">Abono repetido: ${formatCurrency(excess)} no baja el saldo.</div>` : ''}
+                            ${excess > 0.01 ? `<div class="loan-history__excess">Crédito generado: ${formatCurrency(excess)} no se aplicó al saldo ese día; puede cubrir cargos posteriores.</div>` : ''}
                         </div>
                         <div class="loan-history__arrow" aria-hidden="true">›</div>
                         <div class="loan-history__col is-after"><h5>Después</h5><small>${shortDate(selected.date)}</small><div class="loan-history__amount">${formatCurrency(selected.result)}</div>
@@ -319,30 +338,43 @@ function renderFlowSection(panel, scope, employees, allDays, portfolio = false) 
     if (kind === 'period' && !(Number(payPeriod?.periodLength) > 0)) {
         return '<p class="lf-note">Configura el periodo de Nómina para ver la vista por periodo.</p>';
     }
-    const visible = portfolio ? allDays : daysInRange(allDays, panel.range);
-    const from = (visible[0] || allDays[0]).date;
-    const buckets = buildFlowBuckets(kind, { from, to: today, payPeriod });
+    const from = rangeStart(panel.range) || allDays[0].date;
+    const periodBuckets = buildFlowBuckets(kind, { from, to: today, payPeriod });
+    const totalBucket = { key: HISTORY_TOTAL_KEY, start: allDays[0].date, end: allDays.at(-1).date,
+        label: 'Todo', long: 'Acumulado total · historial completo', total: true };
+    const totalSelected = kind === 'period' && panel.bucket === HISTORY_TOTAL_KEY;
+    const buckets = totalSelected ? [totalBucket] : periodBuckets;
     if (!buckets.length) return '';
     const flows = computeLoanFlows(employees.flatMap(emp => emp.loans || []), buckets);
     // Sin elección: el último mes o nómina con movimientos (el en curso puede estar vacío).
     const active = o => o.nNew || o.nRefi || o.payOld + o.paySame + o.excess + o.gift + o.adjustUp + o.adjustDown > 0.004;
     const selected = buckets.some(b => b.key === panel.bucket) ? panel.bucket
         : ([...buckets].reverse().find(b => active(flows.get(b.key))) || buckets.at(-1)).key;
+    panel.bucket = selected;
     const bucket = buckets.find(b => b.key === selected);
+    const index = buckets.indexOf(bucket);
+    const options = kind === 'period' ? [...periodBuckets, totalBucket] : periodBuckets;
+    const navigation = `<div class="loan-history__nav${totalSelected ? ' is-total' : ''}">
+        ${totalSelected ? '' : `<button type="button" data-app-fn="selectLoanHistoryBucket" data-arg="${escapeAttr(scope)}" data-arg2="${escapeAttr(buckets[index-1]?.key || '')}" ${index===0?'disabled':''}>Anterior</button>`}
+        <select aria-label="Elegir mes, periodo o acumulado" onchange="selectLoanHistoryBucket('${escapeAttr(scope)}',this.value)">${options.map(b=>`<option value="${escapeAttr(b.key)}" ${b.key===selected?'selected':''}>${escapeHTML(b.long)}</option>`).join('')}</select>
+        ${totalSelected ? '' : `<button type="button" data-app-fn="selectLoanHistoryBucket" data-arg="${escapeAttr(scope)}" data-arg2="${escapeAttr(buckets[index+1]?.key || '')}" ${index===buckets.length-1?'disabled':''}>Siguiente</button>`}
+    </div>`;
     const what = kind === 'period' ? 'periodo' : 'mes';
     const chart = `${renderFlowLegend()}
         <div class="lf-plot">${renderFlowChart({ scope, buckets, flows, selected, today, closedEnds: closedPeriodEndsOf(employees) })}</div>`;
     // Al tocar una barra: el puente de ese periodo y, plegada, la tabla con todo el desglose.
     const detail = `${renderFlowBridge({ bucket, flow: flows.get(selected), today })}
         <details class="lf-more"><summary>Ver el desglose en tabla</summary>${renderFlowPanel({ kind, bucket, flow: flows.get(selected), buckets, today })}</details>`;
-    const note = `La barra izquierda es todo lo que se debía durante el ${what} (lo que venía más lo nuevo), no el saldo; la línea punteada es lo que quedaban debiendo al cerrar cada ${what}. ${kind === 'period' ? 'Periodos de pago según el calendario de Nómina, calculados también hacia atrás.' : 'El interés es el de los préstamos nuevos del mes más el de los refinanciamientos de ese mes.'} Toca una barra para ver su puente.`;
-    if (portfolio) return `${chart}${detail}<p class="lf-foot">${note}</p>`;
+    const note = `Rango ${panel.range === 'Todo' ? 'histórico completo' : panel.range + ' hasta hoy'}. Valores del gráfico aproximados; detalle con centavos. La barra izquierda es todo lo que se debía durante el ${what} (lo que venía más lo nuevo), no el saldo; la línea punteada es lo que quedaban debiendo al cerrar cada ${what}. ${kind === 'period' ? 'Periodos de pago según el calendario de Nómina, calculados también hacia atrás.' : 'El interés es el de los préstamos nuevos del mes más el de los refinanciamientos de ese mes.'} Toca una barra para ver su puente.`;
+    const caption = `${totalSelected ? 'Cargos y pagos de todo el historial.' : `Rango ${panel.range === 'Todo' ? 'histórico completo' : panel.range + ' hasta hoy'}.`} Importes del gráfico redondeados.`;
+    const help = `<details class="lf-more"><summary>Cómo leer el gráfico</summary><p class="lf-foot">${totalSelected ? 'Incluye todos los movimientos fechados, desde el primero hasta el último. El saldo final resulta de los cargos menos los pagos y los ajustes.' : note}</p></details>`;
+    if (portfolio) return `<p class="lf-foot">${caption}</p>${navigation}${detail}${totalSelected ? '' : `<details class="lf-more"><summary>Comparar ${kind === 'month' ? 'todos los meses' : 'todos los periodos'}</summary>${chart}</details>`}${help}`;
     return `
         <div class="loan-history__chart-card lf-card">
-            <div class="loan-history__chart-head"><div><h4><span aria-hidden="true">📊</span> ${kind === 'period' ? 'Por periodo de nómina' : 'Por mes'}</h4><small>${note}</small></div></div>
-            ${chart}
+            <div class="loan-history__chart-head"><div><h4><span aria-hidden="true">📊</span> ${totalSelected ? 'Acumulado total' : kind === 'period' ? 'Por periodo de nómina' : 'Por mes'}</h4><small>${caption}</small></div></div>
+            ${navigation}${chart}
         </div>
-        ${detail}`;
+        ${detail}${help}`;
 }
 
 export function setLoanHistoryView(scope, view) {
@@ -354,7 +386,9 @@ export function setLoanHistoryView(scope, view) {
 }
 
 export function selectLoanHistoryBucket(scope, key) {
-    panelState(String(scope)).bucket = String(key);
+    const panel = panelState(String(scope));
+    panel.bucket = String(key);
+    if (panel.bucket === HISTORY_TOTAL_KEY) panel.range = 'Todo';
     rerender();
 }
 
@@ -372,7 +406,9 @@ export function toggleLoanHistory(scope) {
 
 export function setLoanHistoryRange(scope, range) {
     if (!HISTORY_RANGES.some(([key]) => key === range)) return;
-    panelState(String(scope)).range = range;
+    const panel = panelState(String(scope));
+    panel.range = range;
+    if (panel.bucket === HISTORY_TOTAL_KEY && range !== 'Todo') panel.bucket = null;
     rerender();
 }
 

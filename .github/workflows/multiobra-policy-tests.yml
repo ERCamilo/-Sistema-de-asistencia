@@ -1,0 +1,21 @@
+name: Multiobra closure policy tests
+'on':
+  pull_request:
+    paths:
+    - qa/multiobra360/**
+    - .github/workflows/multiobra-issue-acceptance.yml
+    - .github/workflows/multiobra-policy-tests.yml
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - run: npm ci --ignore-scripts
+    - run: node --test qa/multiobra360/*.test.cjs

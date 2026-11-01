@@ -1,0 +1,127 @@
+[
+  {
+    "id": 1,
+    "nombre": "Ana Ejemplo (Ref #001)",
+    "monto": 9200,
+    "bruto": 10000,
+    "bonificaciones": 500,
+    "descuentos": 800,
+    "prestamos": 500,
+    "prestamoCapital": 500,
+    "prestamoInteres": 0,
+    "saldoPendiente": 3000,
+    "loanDetails": {
+      "principal": 500,
+      "interestAmount": 0,
+      "remainingBalance": 3000
+    },
+    "sourceEmployeeId": "EMP-DEMO-1",
+    "employeeNumber": "001",
+    "employeeName": "Ana Ejemplo",
+    "workDays": {
+      "unit": "equivalent-day",
+      "regular": 10,
+      "overtime": 0,
+      "holiday": 0,
+      "restDay": 0,
+      "total": 10
+    },
+    "positions": [
+      {
+        "id": "PUESTO-DEMO",
+        "name": "Albañil",
+        "leaderId": "LIDER-DEMO",
+        "workDays": {
+          "unit": "equivalent-day",
+          "regular": 10,
+          "overtime": 0,
+          "holiday": 0,
+          "restDay": 0,
+          "total": 10
+        },
+        "dailyRate": 1000
+      }
+    ],
+    "leaders": [
+      {
+        "id": "LIDER-DEMO",
+        "name": "Líder de ejemplo",
+        "number": "10"
+      }
+    ],
+    "loanBreakdown": [
+      {
+        "loanId": "PRESTAMO-DEMO",
+        "concept": "Adelanto de salario",
+        "status": "proposed",
+        "balanceBefore": 3000,
+        "deductionAmount": 500,
+        "principalAmount": 500,
+        "interestAmount": 0,
+        "projectedBalanceAfter": 2500,
+        "currentBalance": 3000
+      }
+    ],
+    "loanSummary": {
+      "scope": "selected-loans",
+      "projectionAvailable": true,
+      "balanceBefore": 3000,
+      "deductionAmount": 500,
+      "principalAmount": 500,
+      "interestAmount": 0,
+      "projectedBalanceAfter": 2500,
+      "totalOutstandingBalance": 3000,
+      "projectedTotalOutstandingBalance": 2500
+    },
+    "bonusDetails": [
+      {
+        "id": "asistencia",
+        "concept": "Bono de asistencia",
+        "type": "fixed",
+        "value": 500,
+        "amount": 500,
+        "signedAmount": 500
+      }
+    ],
+    "deductionDetails": [
+      {
+        "id": "ley",
+        "concept": "Descuento de ley",
+        "type": "percentage",
+        "value": 3,
+        "amount": 300,
+        "signedAmount": -300,
+        "baseAmount": 10000
+      },
+      {
+        "id": "equipo",
+        "concept": "Reparación de equipo",
+        "type": "fixed",
+        "value": 500,
+        "amount": 500,
+        "signedAmount": -500
+      }
+    ],
+    "exportContext": {
+      "schema": "sa-splitx-payroll/v1",
+      "period": {
+        "start": "2026-10-01",
+        "end": "2026-10-15"
+      },
+      "companyName": "Constructora Ejemplo",
+      "payrollName": "Nómina período 01/10/2026 - 15/10/2026",
+      "currency": "DOP",
+      "hoursPerDay": 8,
+      "projectId": "obra-centro",
+      "projectName": "Obra Centro",
+      "totals": {
+        "employeeCount": 1,
+        "gross": 10000,
+        "bonuses": 500,
+        "deductions": 800,
+        "loans": 500,
+        "net": 9200
+      }
+    }
+  }
+]

@@ -233,7 +233,7 @@ function renderLedgerOverview() {
                 <div class="lp-mobile">${PortfolioSummary(portfolio, { compact: true })}</div>
                 ${PortfolioMonthLine(portfolio)}
                 ${PortfolioAlerts(portfolio)}
-                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: portfolio.employees, defaults: { open: readLoanUiMemory().historyOpen ?? false, view: readLoanUiMemory().historyView ?? 'period' }, variant: 'portfolio' })}
+                ${renderLoanHistoryPanel({ scope: 'general', mode: 'general', employees: portfolio.employees, timeline: portfolio.timeline, defaults: { open: readLoanUiMemory().historyOpen ?? false, view: readLoanUiMemory().historyView ?? 'period' }, variant: 'portfolio' })}
                 ` : `
                 <div class="loans-overview__mobile-kpis">
                     ${kpiCard(

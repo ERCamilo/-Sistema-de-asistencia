@@ -3400,23 +3400,39 @@
     }
 }
 
-/* Fila de identidad sin resolver: usa la tarjeta general del resolutor (ver
-   «Resolutor Conectados» al final); aquí solo el vínculo con SA. */
-.mini-consolidation-row.has-unresolved-identity .mini-identity-resolve-row {
+/* Explicit areas keep personnel intake actions from sizing the link columns. */
+.mini-consolidation-row .mini-identity-resolve-row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
+    grid-template-columns: auto minmax(200px, 1fr) auto;
+    grid-template-areas: "label label label" "ignore picker link" "intake intake intake";
+    gap: 12px;
+    align-items: start;
+    min-width: 0;
 }
-.mini-consolidation-row.has-unresolved-identity .mini-identity-resolve-row > .mini-control-label {
-    grid-column: 1 / -1;
+.mini-consolidation-row .mini-identity-resolve-row > .mini-control-label {
+    grid-area: label;
     font-size: 12px;
     font-weight: 600;
     color: var(--mini-text-dim);
 }
-.mini-consolidation-row.has-unresolved-identity .mini-identity-ignore-action { grid-column: 1; min-height: 44px; }
-.mini-consolidation-row.has-unresolved-identity .mini-employee-combobox { grid-column: 2; width: 100%; min-width: 0; }
-.mini-consolidation-row.has-unresolved-identity .mini-link-identity-action { grid-column: 3; min-height: 44px; }
+.mini-consolidation-row .mini-identity-ignore-action { grid-area: ignore; min-height: 44px; }
+.mini-consolidation-row .mini-employee-combobox { grid-area: picker; width: 100%; min-width: 0; }
+.mini-consolidation-row .mini-link-identity-action { grid-area: link; min-height: 44px; }
+.mini-identity-intake-actions {
+    grid-area: intake;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+}
+.mini-identity-intake-actions > .mini-import-action {
+    flex: 1 1 220px;
+    min-width: 0;
+    min-height: 44px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding: 10px 14px;
+}
 .mini-employee-combobox-trigger.is-guided {
     outline: 2px solid var(--mini-good);
     outline-offset: 2px;
@@ -3988,7 +4004,7 @@
 .mini-consolidation-footer-decision .mini-import-action,
 .mini-consolidation-footer-global .mini-import-action {
     width: auto;
-    min-height: 42px;
+    min-height: 44px;
     padding: 0 16px;
     border-radius: 10px;
     white-space: nowrap;
@@ -4006,10 +4022,17 @@
     color: var(--mini-text-faint);
 }
 @container miniresolver (max-width: 560px) {
-    .mini-consolidation-row.has-unresolved-identity .mini-identity-resolve-row { grid-template-columns: 1fr 1fr; }
-    .mini-consolidation-row.has-unresolved-identity .mini-employee-combobox { grid-column: 1 / -1; grid-row: 2; }
-    .mini-consolidation-row.has-unresolved-identity .mini-identity-ignore-action { grid-column: 1; grid-row: 3; }
-    .mini-consolidation-row.has-unresolved-identity .mini-link-identity-action { grid-column: 2; grid-row: 3; }
+    .mini-consolidation-row .mini-identity-resolve-row {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-areas: "label label" "picker picker" "ignore link" "intake intake";
+    }
+    .mini-consolidation-row .mini-identity-ignore-action,
+    .mini-consolidation-row .mini-link-identity-action {
+        width: 100%;
+        min-width: 0;
+        padding: 10px 6px;
+        white-space: normal;
+    }
     .mini-row-head { grid-template-columns: 40px minmax(0, 1fr); }
     .mini-row-trail { grid-column: 2; justify-content: flex-start; }
     .mini-consolidation-group-header h4 { font-size: 19px; }

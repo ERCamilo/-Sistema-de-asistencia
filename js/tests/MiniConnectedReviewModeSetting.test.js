@@ -4,6 +4,7 @@
  */
 import { commitAutoSaveOption } from '../modules/ui/SettingsUI.js';
 import { MiniAttendanceImportModal } from '../modules/ui/modals/MiniAttendanceImportModal.js';
+import { SettingsGeneralTab } from '../modules/ui/settings/SettingsGeneralTab.js';
 
 function deps() {
     const st = { settings: {} };
@@ -26,5 +27,17 @@ describe('miniConnectedReviewMode', () => {
         expect(new MiniAttendanceImportModal({}).connectedReviewMode).toBe('daily');
         expect(new MiniAttendanceImportModal({ connectedReviewMode: 'x' }).connectedReviewMode).toBe('daily');
         expect(new MiniAttendanceImportModal({ connectedReviewMode: 'compare' }).connectedReviewMode).toBe('compare');
+    });
+
+    test.each(['daily', 'compare'])('General conserva y presenta %s para ambas entradas', value => {
+        const a = deps();
+        commitAutoSaveOption({ name: 'miniConnectedReviewMode', value, deps: a.deps });
+        const host = document.createElement('div');
+        host.innerHTML = SettingsGeneralTab({ state: a.st, icons: { get: () => '', getAvailableSets: () => [] } });
+        expect(host.querySelector('[name="miniConnectedReviewMode"]:checked').value).toBe(value);
+        expect(host.textContent).toContain('Se aplica al texto pegado y a los Mini conectados.');
+        for (const importMode of ['paste', 'connected']) {
+            expect(new MiniAttendanceImportModal({ importMode, connectedReviewMode: a.st.settings.miniConnectedReviewMode }).connectedReviewMode).toBe(value);
+        }
     });
 });

@@ -1,3 +1,5 @@
+import { readLoanEmployee } from './LoanChronology.js';
+import { isFinancialLoan, isPayrollLoanPayment } from './LoanReadPolicy.js';
 /**
  * 🤖 LoanAiReport — informe en Markdown de los préstamos para pedirle un
  * análisis a una IA, sin datos personales.
@@ -32,8 +34,8 @@ const toTime = key => Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) 
 const plusDays = (key, n) => new Date(toTime(key) + n * DAY).toISOString().slice(0, 10);
 const table = (head, rows) => (rows.length ? [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`, ...rows.map(r => `| ${r.join(' | ')} |`)].join('\n') : '_Sin datos._');
 const alias = emp => `#${String(emp?.number ?? '').trim() || '?'}`;
-const isPayroll = p => p.origin === 'payroll' || p.source === 'payroll' || Boolean(p.payrollClosureId);
-const counted = loan => loan && loan.status !== LOAN_STATUS.WRITTEN_OFF;
+const isPayroll = isPayrollLoanPayment;
+const counted = isFinancialLoan;
 
 /** Lectura de lo que ganó frente a lo normal. */
 export function earningReading({ gross = 0, expected = 0, overtimeHours = 0, partial = false } = {}) {
@@ -64,6 +66,7 @@ function payrollPeriodOf(payment, periods) {
  * @param {object} [input.focus]               { label, preview } rango elegido en el panel
  */
 export function buildAiReport({ today, payPeriod = null, employees = [], summary, risk = [], earnings = new Map(), notes = {}, focus = null }) {
+    employees = employees.map(readLoanEmployee);
     const out = [];
     const periodLength = Number(payPeriod?.periodLength) || 0;
     const periods = periodLength ? buildPayPeriods(payPeriod, today, { before: 40, after: 1 }) : [];
@@ -103,6 +106,8 @@ export function buildAiReport({ today, payPeriod = null, employees = [], summary
     const withData = allEarn.filter(x => x.gross > 0).map(x => x.start).sort()[0] || null;
     const noData = x => !withData || x.start < withData;
     if (allEarn.length && withData && allEarn.some(noData)) quality.push(`- No hay asistencia guardada en la app antes del ${dmy(withData)}: en esos periodos «Ganó» sale en $0 por falta de datos, no porque el empleado no trabajara.`);
+    if (summary.unexplainedClosures?.length) quality.push(`- ${summary.unexplainedClosures.length} cierre(s) con saldo sin motivo: no son pagos registrados ni deuda activa. Requieren evidencia antes de corregir datos.`);
+    if (summary.undatedClosures?.length) quality.push(`- ${summary.undatedClosures.length} cierre(s) con saldo sin fecha: la evolución excluye esos préstamos y no permite reconstruir todo el historial.`);
     quality.push('- Cuando un abono y un refinanciamiento son del mismo día, el reparto entre interés y capital puede diferir un poco del real (el total no cambia).');
     out.push('');
     out.push('**Calidad de los datos (tenerlo en cuenta al analizar):**');
@@ -117,8 +122,8 @@ export function buildAiReport({ today, payPeriod = null, employees = [], summary
     out.push(table(['Cifra', 'Monto', 'Detalle'], [
         ['Por cobrar (lo que deben)', M(s.porCobrar.total), `capital ${M(s.porCobrar.capital)} + interés ${M(s.porCobrar.interest)}; ${s.porCobrar.people} empleados, ${s.porCobrar.loans} préstamos abiertos`],
         ['De eso, inactivos', M(s.porCobrar.inactive), `${s.porCobrar.inactivePeople} empleados que ya no cobran nómina`],
-        ['Interés ganado (cobrado)', M(s.interesGanado.collected), `de ${M(s.interesGanado.total)} en total (ganado + por cobrar)`],
-        ['Cobrado desde el inicio', M(s.cobrado.total), `capital ${M(s.cobrado.capital)}, interés ${M(s.cobrado.interest)}, pagado de más ${M(s.cobrado.excess)}; nómina ${M(s.cobrado.payroll)}, directo ${M(s.cobrado.direct)}; desde ${dmy(s.cobrado.since)}`],
+        ['Interés cobrado', M(s.interesGanado.collected), `de ${M(s.interesGanado.total)} en total (cobrado + pendiente)`],
+        ['Cobrado desde el inicio', M(s.cobrado.total), `capital ${M(s.cobrado.capital)}, interés ${M(s.cobrado.interest)}, crédito pendiente ${M(s.cobrado.excess)}; nómina ${M(s.cobrado.payroll)}, directo ${M(s.cobrado.direct)}; desde ${dmy(s.cobrado.since)}`],
         ['Prestado desde el inicio', M(s.prestado.total), `${s.prestado.loans} préstamos; ${PCT(s.prestado.pctReturned)} del capital ya devuelto; ${s.prestado.voided} anulados por error (${M(s.prestado.voidedAmount)}) no cuentan`]
     ]));
     if (focus?.preview) {
@@ -132,7 +137,7 @@ export function buildAiReport({ today, payPeriod = null, employees = [], summary
         const buckets = buildFlowBuckets(kind, { from: firstLoan, to: today, payPeriod });
         const flows = computeLoanFlows(allLoans, buckets);
         return table(
-            [kind === 'period' ? 'Periodo' : 'Mes', 'Venía de antes', 'Capital prestado', 'Interés al prestar', 'Interés por refinanciar', 'Cobrado: interés', 'Cobrado: capital', 'Pagado de más', 'Saldo al cerrar', '% cobrado de lo que venía'],
+            [kind === 'period' ? 'Periodo' : 'Mes', 'Venía de antes', 'Capital prestado', 'Interés al prestar', 'Interés por refinanciar', 'Cobrado: interés', 'Cobrado: capital', 'Crédito generado', 'Saldo al cerrar', '% cobrado de lo que venía'],
             buckets.map(b => {
                 const o = flows.get(b.key);
                 const cur = b.start <= today && today <= b.end;
@@ -229,8 +234,7 @@ export function buildAiReport({ today, payPeriod = null, employees = [], summary
         const loanRows = (e.loans || []).filter(counted).sort((a, b) => String(a.startDate).localeCompare(String(b.startDate))).map(l => {
             const t = getActiveLoanTerms({ ...l, refinancings: [] });
             const refis = (l.refinancings || []).filter(x => !x.voided && !x.adjustment);
-            const last = replayLoan(l).steps.at(-1);
-            const bal = last ? round2(last.capitalAfter + last.interestAfter) : 0;
+            const bal = replayLoan(l).balance;
             return [l.number ? `#${l.number}` : '—', dmy(l.startDate), M0(t.principal), `${Number(t.interestRate || 0)} %`, M0(t.interestIncluded ? 0 : t.principal * t.interestRate / 100),
                 refis.length ? `${refis.length} (${M0(refis.reduce((x, y) => x + Number(y.interestAmount || 0), 0))}): ${refis.map(x => dmy(x.date)).join(', ')}` : '—',
                 dmy(l.dueDate), M0(getPaidAmount(l)), M0(bal), l.status === LOAN_STATUS.ACTIVE ? 'abierto' : 'saldado'];

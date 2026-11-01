@@ -281,23 +281,12 @@ testRunner.addSuite("Notification — update() acepta options.actions (U11)", {
     }
 });
 
-testRunner.addSuite("Notification — actualización del Service Worker", {
-
-    "el aviso usa versiones reales y reserva Actualizar para el estado expandido"() {
-        testRunner.assert(INDEX_SRC.includes("variant: 'update'"),
-            'el Service Worker debe usar la variante compacta');
-        testRunner.assert(INDEX_SRC.includes('queryWorkerVersion(newWorker)'),
-            'consulta la compilación disponible al worker nuevo');
-        testRunner.assert(INDEX_SRC.includes('currentBuild: formatBuild(BUILD).displayLocal'),
-            'muestra la compilación instalada con fecha local desde la fuente de verdad');
-        testRunner.assert(INDEX_SRC.includes("position: 'top-center'"),
-            'centra el aviso para que no compita con los controles laterales');
-        testRunner.assert(INDEX_SRC.includes("label: 'Actualizar'"),
-            'la acción principal usa el lenguaje acordado');
-        testRunner.assert(!INDEX_SRC.includes("label: 'Actualizar', icon:"),
-            'la acción no depende de un icono Unicode del registro global');
+testRunner.addSuite("Registro del Service Worker", {
+    "el documento registra el worker sin crear un segundo aviso de actualización"() {
+        testRunner.assert(INDEX_SRC.includes("updateViaCache: 'none'"), 'comprueba el worker sin caché HTTP');
+        testRunner.assert(!INDEX_SRC.includes("variant: 'update'"), 'AppUpdates ofrece un único diálogo con las novedades');
+        testRunner.assert(!INDEX_SRC.includes('queryWorkerVersion(newWorker)'), 'el registro no compite con AppUpdates');
     }
-
 });
 
 testRunner.addSuite("Identidad visual — icono SVG", {

@@ -13,6 +13,7 @@
 import icons from '../../ui/IconSystem.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
+import { renderPayrollStatus } from './PayrollStatus.js';
 
 export const REVIEW_CATEGORIES = Object.freeze([
     { kind: 'bonuses', field: '_bonuses', details: '_bonusDetails', label: 'BONIF.', title: 'Bonificaciones', sign: '+', css: 'is-bonus' },
@@ -187,7 +188,7 @@ export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion
                 <td class="payroll-review-table__number">${escapeHTML(String(row._number || row.id))}</td>
                 <td class="payroll-review-table__employee">
                     ${escapeHTML(row._employeeName)}
-                    ${negative ? '<span>Pago negativo: ajusta los descuentos</span>' : ''}
+                    ${negative ? renderPayrollStatus('No tiene saldo suficiente', 'error') : ''}
                     ${excludedPositionsNote(row)}
                 </td>
                 <td class="payroll-review-table__amount">

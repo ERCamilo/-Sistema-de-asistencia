@@ -388,4 +388,28 @@ describe('F1.9 S1 RestoreUI shows diagnostics before choices, keeps callbacks', 
         cancel.click();
         expect(document.getElementById('restore-comparison-modal')).toBeNull();
     });
+
+    test('muestra los nombres y la obra activa del archivo, también sin diagnósticos', () => {
+        const backup = makeOnBackup();
+        backup.data.projects[0].name = 'Torre Norte';
+        backup.data.projects[1].name = 'Obra Sur';
+        backup.data.projectBackup.activeProjectId = PRJ_B;
+        const before = JSON.stringify(backup);
+        const html = RestoreUI._buildProjectDiagnosticsHTML(backup, null);
+        document.body.innerHTML = html;
+        const box = document.getElementById('project-backup-diagnostics');
+        expect(box.textContent).toContain('Torre Norte · Obra Sur');
+        expect(box.textContent).toContain('Obra activa al restaurar: Obra Sur');
+        expect(box.textContent).toContain('Predeterminada: Torre Norte');
+        expect(box.textContent).not.toContain(PRJ_A);
+        expect(JSON.stringify(backup)).toBe(before);
+    });
+
+    test('los nombres de las obras se escapan al mostrarlos', () => {
+        const backup = makeOnBackup();
+        backup.data.projects[0].name = '<img src=x onerror="alert(1)">';
+        document.body.innerHTML = RestoreUI._buildProjectDiagnosticsHTML(backup, diagnoseProjectBackup(backup, {}));
+        expect(document.querySelector('#project-backup-diagnostics img')).toBeNull();
+        expect(document.getElementById('project-backup-diagnostics').textContent).toContain('<img');
+    });
 });

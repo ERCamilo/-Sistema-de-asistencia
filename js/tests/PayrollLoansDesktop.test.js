@@ -2,6 +2,8 @@ import {
     buildPayrollLoansDesktopModel,
     renderPayrollLoansDesktop
 } from '../modules/features/payroll/PayrollLoansDesktop.js';
+import { buildPayrollLoanSalarySelection } from '../modules/features/payroll/PayrollLoanSalary.js';
+import { applyPayrollLoanDeductions } from '../modules/features/payroll/PayrollLoans.js';
 
 const employees = [{
     id: 'e1',
@@ -30,6 +32,21 @@ const payrollRows = [{
 }];
 
 describe('PayrollLoansDesktop', () => {
+    test('a missing payroll row is distinct from a computed zero balance', () => {
+        const host = document.createElement('div');
+        host.innerHTML = renderPayrollLoansDesktop({ employees, selection, payrollRows: [] });
+        expect(host.textContent).toContain('No está en la nómina');
+        expect(host.querySelector('.payroll-status--warning svg')).not.toBeNull();
+        expect(buildPayrollLoansDesktopModel(employees, selection, []).zeroCount).toBe(0);
+    });
+    test('invalid custom amount keeps its draft with an associated inline error', () => {
+        const host = document.createElement('div');
+        host.innerHTML = renderPayrollLoansDesktop({ employees, selection, payrollRows,
+            expandedEmployeeIds: ['e1'], customAmountDrafts: { e1: { value: '', error: 'Ingresa un monto válido.' } } });
+        const input = host.querySelector('input[aria-invalid="true"]');
+        expect(input.value).toBe('');
+        expect(host.querySelector(`#${input.getAttribute('aria-describedby')}`).textContent).toBe('Ingresa un monto válido.');
+    });
     test('builds a partial employee selection without changing persisted loans', () => {
         const before = JSON.stringify(employees);
         const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows);
@@ -66,7 +83,7 @@ describe('PayrollLoansDesktop', () => {
             loanIds: [`loan-${index}`]
         }));
         const warningRows = [
-            { _employeeId: 'zero', monto: 0, _invalidLoanNet: true },
+            { _employeeId: 'zero', monto: 0, _loans: 100, _invalidLoanNet: true },
             { _employeeId: 'negative', monto: -25, _invalidLoanNet: true },
             { _employeeId: 'valid', monto: 50, _invalidLoanNet: false }
         ];
@@ -90,9 +107,31 @@ describe('PayrollLoansDesktop', () => {
         expect(host.querySelectorAll('.payroll-loan-group.is-warning-zero')).toHaveLength(1);
         expect(host.querySelectorAll('.payroll-loan-group.is-warning-negative')).toHaveLength(1);
         expect(host.querySelector('.payroll-loans-warning-counts').textContent)
-            .toMatch(/1 negativo\s+1 en cero/);
+            .toMatch(/1 negativo[\s\S]+1 en cero tras cobro/);
+        expect(host.querySelectorAll('.payroll-loans-warning-counts .payroll-status svg').length).toBeGreaterThanOrEqual(3);
+        expect(host.querySelector('.payroll-loans-warning-counts .is-zero')).toBeNull();
         expect(host.textContent).not.toContain('El descuento deja el pago en cero o negativo');
     });
+
+    test.each([['available', 3, 1], ['recommended', 4, 0]])(
+        'warnings reflect %s: people with unpaid debt and zero salary caused by collection', (kind, pending, zero) => {
+            const people = Array.from({ length: 4 }, (_, i) => ({ ...employees[0], id: `person-${i}` }));
+            const rows = [800, 2000, 0].map((monto, i) => ({ _employeeId: people[i].id, monto }));
+            const next = buildPayrollLoanSalarySelection(people, rows, null, kind);
+            const paid = applyPayrollLoanDeductions(rows, people, next);
+            const model = buildPayrollLoansDesktopModel(people, next, paid);
+            // Both no-salary and missing people still owe their whole debt.
+            expect(model.pendingDebtCount).toBe(pending);
+            expect(model.zeroAfterChargeCount).toBe(zero);
+            expect(model.zeroWithoutChargeCount).toBe(1);
+            expect(model.missingCount).toBe(1);
+            const host = document.createElement('div');
+            host.innerHTML = renderPayrollLoansDesktop({ employees: people, selection: next, payrollRows: paid });
+            expect(host.textContent).toContain(`${zero} en cero tras cobro`);
+            expect(host.textContent).toContain('1 sin sueldo disponible');
+            expect(host.querySelector('[role="status"]').textContent).toContain(`${model.pendingDebtCount} con deuda pendiente`);
+        }
+    );
 
     test('renders a tri-state parent and individual loan checkboxes', () => {
         const host = document.createElement('div');

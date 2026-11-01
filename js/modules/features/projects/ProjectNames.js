@@ -6,7 +6,7 @@
  */
 
 export function projectNameKey(value) {
-    return String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
+    return String(value ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
 }
 
 /** Otra obra (distinta de `excludeId`) que ya usa ese nombre, o null. */
@@ -15,6 +15,7 @@ export function findProjectNameConflict(name, projects = [], { excludeId = null 
     if (!key) return null;
     const excluded = excludeId == null ? null : String(excludeId);
     return (projects || []).find(project => project
+        && project.deletedAt == null
         && (excluded == null || String(project.id) !== excluded)
         && projectNameKey(project.name) === key) || null;
 }

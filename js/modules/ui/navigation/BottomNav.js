@@ -1,3 +1,4 @@
+import { APP_VERSION } from '../../config/AppVersion.js';
 /**
  * BottomNav — barra inferior de 5 posiciones (móvil, < 1024 px).
  *
@@ -266,7 +267,7 @@ function menuHTML(section, activeItem) {
     }).join('');
     return `<div class="bnav-pop" data-bnav-menu="${section.id}" data-open="${open}" style="--c:${center}">
             <div class="bnav-menu" id="bnav-menu-${section.id}" role="menu" aria-label="${esc(section.label)}">
-                <div class="bnav-menu-head"><span>${esc(section.label)}</span><span>${section.items.length} pantallas</span></div>
+                <div class="bnav-menu-head"><span>${esc(section.label)}</span><span>${section.items.length} pantallas${section.id === 'mas' ? ` · v${APP_VERSION}` : ''}</span></div>
                 ${items}
             </div>
             <span class="bnav-caret" aria-hidden="true"></span>

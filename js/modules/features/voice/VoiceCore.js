@@ -93,21 +93,27 @@ export async function sendVoiceRecording({ url, record, getToken, fetchImpl = gl
     if (record.audio && (record.audio.size > VOICE_LIMITS.maxBytes || record.durationMs > VOICE_LIMITS.maxDurationMs)) throw Error('El audio supera el límite de 60 segundos o 10 MiB.');
     const fileBase64 = record.fileBase64 || await voiceBase64(record.audio);
     const controller = new AbortController();
+    let rejectCancelled;
+    const cancelled = new Promise((_, reject) => { rejectCancelled = reject; });
+    const onCancelled = () => rejectCancelled(new DOMException('Envío cancelado', 'AbortError'));
+    controller.signal.addEventListener('abort', onCancelled, { once: true });
+    const bounded = promise => Promise.race([promise, cancelled]);
     const abort = () => controller.abort();
     externalSignal?.addEventListener('abort', abort, { once: true });
     if (externalSignal?.aborted) controller.abort();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
         for (let attempt = 0; attempt < 2; attempt++) {
-            const idToken = await getToken(attempt === 1);
+            const idToken = await bounded(getToken(attempt === 1));
+            if (controller.signal.aborted) throw new DOMException('Envío cancelado', 'AbortError');
             if (!idToken) throw Object.assign(Error('Inicia sesión para procesar el audio.'), { status: 401 });
-            const response = await fetchImpl(url, { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1, requestId: record.requestId, fileBase64, mimeType: record.mimeType, fileName: record.fileName, idToken, context: record.context }) });
+            const response = await bounded(fetchImpl(url, { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1, requestId: record.requestId, fileBase64, mimeType: record.mimeType, fileName: record.fileName, idToken, context: record.context }) }));
             if (response.status === 401 && attempt === 0) continue;
             let raw = '', data = null;
             if (typeof response.text === 'function') {
-                raw = await response.text();
+                raw = await bounded(response.text());
                 try { data = JSON.parse(raw); } catch (_) { /* Some proxies return plain text. */ }
-            } else data = await response.json().catch(() => null);
+            } else data = await bounded(response.json().catch(() => null));
             if (!response.ok || data?.ok === false) {
                 const retryHeader = response.headers?.get('Retry-After');
                 const delay = retryHeader ? (Number.isFinite(Number(retryHeader)) ? Number(retryHeader) * 1000 : Date.parse(retryHeader) - Date.now()) : 0;
@@ -124,7 +130,7 @@ export async function sendVoiceRecording({ url, record, getToken, fetchImpl = gl
             return readVoiceResponse(data, record.requestId);
         }
     } catch (error) {
-        if (!error.status && !error.code) throw Object.assign(Error(error.name === 'AbortError' ? 'El procesamiento tardó demasiado. Puedes reintentar.' : 'No se pudo conectar con n8n. Revisa la conexión y la preflight.'), { code: error.name === 'AbortError' ? 'PROCESSING_TIMEOUT' : 'NETWORK_ERROR', retryable: true });
+        if (error.name === 'AbortError' || !error.status && !error.code) throw Object.assign(Error(error.name === 'AbortError' ? 'El procesamiento tardó demasiado. Puedes reintentar.' : 'No se pudo conectar con n8n. Revisa la conexión y la preflight.'), { code: error.name === 'AbortError' ? 'PROCESSING_TIMEOUT' : 'NETWORK_ERROR', retryable: true });
         throw error;
-    } finally { clearTimeout(timer); externalSignal?.removeEventListener('abort', abort); }
+    } finally { clearTimeout(timer); controller.signal.removeEventListener('abort', onCancelled); externalSignal?.removeEventListener('abort', abort); }
 }

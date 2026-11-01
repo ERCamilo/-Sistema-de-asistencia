@@ -1,5 +1,6 @@
+import { startAppUpdates } from './modules/ui/AppUpdates.js';
 import { readPayrollClosuresForBackup, payrollClosureRestoreOptions } from './modules/features/payroll/PayrollClosureBackup.js';
-import { beginFullImportIsolation, endFullImportIsolation, resumeSuspendedSaveOptions, beginLocalDataWipe } from './modules/services/PersistenceService.js';
+import { beginFullImportIsolation, endFullImportIsolation, resumeSuspendedSaveOptions, beginLocalDataWipe, isLocalDataWipeInProgress } from './modules/services/PersistenceService.js';
 import { installCrossTabDatasetGuard } from './modules/services/CrossTabDatasetGuard.js';
 import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, purgeMergedPositionsFromLocalStore, loadDemoDataIntoDB, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
@@ -58,7 +59,10 @@ import { projectContext, peekEntityScope } from './modules/features/projects/Pro
 import { projectStore } from './modules/features/projects/ProjectStore.js';
 import { auth, onAuthStateChanged as subscribeVoiceSession } from './modules/data/firebase.js';
 import { VoiceNameEnrollmentUI } from './modules/features/voice/VoiceNameEnrollmentUI.js';
+import { NfcIntegration } from './modules/features/nfc/NfcIntegration.js';
 import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
+import { VoiceSettingsUI } from './modules/features/voice/VoiceSettingsUI.js';
+import { isDeveloperMode } from './modules/ui/settings/DeveloperMode.js';
 import { openVoiceAttendanceEmployee } from './modules/features/voice/VoiceAttendanceNavigation.js';
 import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
 import { getAccountSummary as voiceAccountSummary } from './modules/features/loans/LoanAccount.js';
@@ -384,7 +388,6 @@ document.addEventListener('keydown', _handleAppKeydown);
 import { EmployeeStatsService } from './modules/features/stats/EmployeeStatsService.js';
 import { EmployeeFloatingCard } from './modules/ui/components/EmployeeFloatingCard.js';
 import { InstallPromptManager } from './modules/services/InstallPromptManager.js';
-import { scheduleWhatsNew } from './modules/services/WhatsNewBoot.js';
 import './modules/ui/MaintenanceUI.js';
 import './modules/ui/DuplicatesScreenBoot.js';
 
@@ -1224,16 +1227,51 @@ AnalyticsUI.init(moduleContext);
 PayrollUI.init(moduleContext);
 SyncUI.initSyncUI(moduleContext);
 
+// Experimental NFC uses local data and a webhook, independently of sign-in.
+new NfcIntegration({
+    canProceed: () => !isLocalDataWipeInProgress(),
+    getScope: () => peekEntityScope(),
+    getEmployees: () => (state.employees || []).filter(employee => !employee.deletedAt && entityInScope(employee, peekEntityScope())),
+    getCompanyName: () => state.settings?.companyName,
+    subscribeScope: callback => projectContext.subscribe(callback),
+    subscribeData: callback => eventBus.on('render:complete', callback),
+    render: () => render(),
+    notify: (message, type) => window.showNotification?.(message, type)
+}).mount();
 // Device-local voice MVP. Transports audio only; confirmed loans use the
 // same registration path as the current account form.
 let voicePettyCash;
+let voiceReturnEpoch = 0, voiceReturnScope = '';
+function invalidateVoiceReturns() {
+    const key = JSON.stringify([auth.currentUser?.uid || null, peekEntityScope()]);
+    if (key !== voiceReturnScope) { voiceReturnScope = key; voiceReturnEpoch++; window.appHistory?.clearReturns(); }
+}
+function reserveVoiceReturn(kind, summary = {}, restore = null) {
+    invalidateVoiceReturns(); const epoch = voiceReturnEpoch;
+    const uid = auth.currentUser?.uid, scope = JSON.stringify(peekEntityScope());
+    const valid = () => epoch === voiceReturnEpoch && !!uid && auth.currentUser?.uid === uid && JSON.stringify(peekEntityScope()) === scope
+        && !voiceMvp.wiped && !voiceMvp.recording && state.settings?.voiceMvpEnabled === true
+        && (restore || !voiceMvp.record?.audio || voiceMvp.record.completedLoanId || voiceMvp.record.requestId === summary.requestId);
+    return window.appHistory?.beginReturn({
+        view: kind === 'cash' ? { tab: 'pettycash', sub: null } : { tab: 'export', sub: 'ledger' },
+        isValid: valid,
+        restore: async () => {
+            if (!valid()) return;
+            try { if (restore) await restore(); else voiceMvp.openReturnMenu({ ...summary, kind }); }
+            catch (error) { if (valid()) window.showNotification?.(error.message, 'warning'); }
+        }
+    });
+}
 const voiceMvp = new VoiceMvpUI({
+    beginReturn: reserveVoiceReturn,
+    onSettings: initial => window.openVoiceSettings(initial),
     onPettyCash: (record, bridge) => voicePettyCash.open(record, bridge),
     getUser: () => auth.currentUser,
     isEnabled: () => state.settings?.voiceMvpEnabled === true,
     subscribeEnabled: callback => eventBus.on('render:complete', callback),
     getScope: () => peekEntityScope(),
     getEmployees: () => (state.employees || []).filter(employee => entityInScope(employee, peekEntityScope())),
+    getPositions: () => (state.positions || []).filter(position => entityInScope(position, peekEntityScope())),
     getEndpoint: () => APP_CONFIG.VOICE_WEBHOOK_URL,
     getSettings: () => state.settings,
     setAudioRetention: days => {
@@ -1242,8 +1280,8 @@ const voiceMvp = new VoiceMvpUI({
     },
     notify: (message, type) => window.showNotification?.(message, type),
     getLoanDefaults: employee => ({ periods: getAccountPayPeriods(), previousRate: previousVoiceInterest({ loans: (employee?.loans || []).filter(loan => entityInScope(loan, peekEntityScope())) }), usePrevious: state.settings?.voiceUsePreviousInterest === true }),
-    subscribeSession: callback => subscribeVoiceSession(auth, callback),
-    subscribeScope: callback => projectContext.subscribe(callback),
+    subscribeSession: callback => subscribeVoiceSession(auth, () => { invalidateVoiceReturns(); callback(); }),
+    subscribeScope: callback => projectContext.subscribe(() => { invalidateVoiceReturns(); callback(); }),
     validateLoan: validateVoiceLoan,
     previewLoan: (employee, draft) => {
         const validation = validateVoiceLoan(draft);
@@ -1282,7 +1320,39 @@ const voiceMvp = new VoiceMvpUI({
         return loan;
     }
 }).mount();
-new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.endpoint() }, { store: voiceMvp.store }).mount();
+const voiceNameEnrollment = new VoiceNameEnrollmentUI({ ...voiceMvp.adapter, getEndpoint: () => voiceMvp.endpoint() }, { store: voiceMvp.store }).mount();
+const voiceSettings = new VoiceSettingsUI({
+    ...voiceMvp.adapter,
+    getProjectName: () => getHeaderActiveProjectName() || 'Obra actual',
+    isDeveloper: () => isDeveloperMode(),
+    setPreference: (key, value) => {
+        const result = typeof value === 'boolean' ? commitAutoSaveSwitch({ id: key, checked: value }) : commitAutoSaveOption({ name: key, value });
+        if (!result.committed) throw Error('La opción de voz no es válida.');
+    },
+    onTeachName: employeeId => voiceNameEnrollment.open(employeeId),
+    onLocalDataChanged: () => voiceMvp.refreshStorageStatus({ force: true }),
+    isProcessing: () => !!voiceMvp.processingFlight || !!voiceMvp.queueFlight,
+    onResumePending: () => voiceMvp.resumePending(),
+    onProcessRecording: async requestId => {
+        const identity = voiceMvp.identity();
+        const record = await voiceMvp.store.get(identity.uid, requestId);
+        voiceMvp.guard(record);
+        await voiceMvp.process({ record, background: true });
+    },
+    onReviewRecording: requestId => { voiceSettings.close(); return voiceMvp.openSaved(requestId); },
+    onOpenLoan: employeeId => guardSettingsDraftOnLeave({
+        showConfirm: options => voiceSettings.confirm(options.title, options.message, async generation => {
+            voiceSettings.guard(generation); options.onConfirm();
+        }, options.confirmText),
+        onProceed: () => {
+            const snapshot = { recordId: voiceSettings.recordId, recordFilter: voiceSettings.recordFilter };
+            const navigation = reserveVoiceReturn('loans', {}, () => voiceSettings.resumeNavigation(snapshot));
+            try { voiceSettings.close(); voiceMvp.adapter.onLoans(employeeId); navigation?.commit(); }
+            catch (error) { navigation?.cancel(); throw error; }
+        }
+    })
+}, { store: voiceMvp.store }).mount();
+voiceNameEnrollment.dialog.addEventListener('close', () => { if (voiceSettings.dialog.open) voiceSettings.run(() => voiceSettings.refresh()); });
 voicePettyCash = new VoicePettyCashUI({
     ...voiceMvp.adapter,
     getContext: pettyCashVoiceContext,
@@ -1298,7 +1368,8 @@ voicePettyCash = new VoicePettyCashUI({
 }).mount();
 
 window.playVoiceLoanAudio = (employeeId, requestId) => voiceMvp.run(() => voiceMvp.playLoanAudio(employeeId, requestId));
-window.openVoiceAudioStorage = () => voiceMvp.run(() => voiceMvp.openStorage());
+window.openVoiceSettings = (initial = 'home') => voiceSettings.run(() => voiceSettings.open(typeof initial === 'string' ? initial : 'home'));
+window.openVoiceAudioStorage = () => voiceSettings.run(() => voiceSettings.open('recordings'));
 
 // Barra inferior de 5 posiciones (prueba): su botón central dicta con la misma Voz
 // (mantener pulsado) y abre la captura rápida (foto de factura, buscar).
@@ -1416,8 +1487,6 @@ const employeeReportDateManager = new EmployeeReportDateManager(state, saveAppli
 // 📱 INSTALLPROMPTMANAGER (Inyectado)
 // ============================================
 const installPrompt = new InstallPromptManager(eventBus, NotificationSystem, debug, render);
-// Novedades de la actualización: una sola vez por dispositivo, cuando la app ya arrancó.
-scheduleWhatsNew();
 
 // ============================================
 // 📤 EXPORTSERVICE (Inyectado)
@@ -2790,17 +2859,25 @@ window.toggleWeekPosition = (empId, posId, dateStr) => {
     saveScrollPosition();
     const key = `${empId}-${dateStr}`;
     const att = state.attendance[key];
-    if (att && att.present) {
+    if (att && att.present && att.deletedAt == null) {
         stateManager.batchSetState(() => {
-            att.selectedPosition = posId;
-            att.updatedAt = Date.now();
+            // Like the daily selector, this chooses one position for the whole day.
+            // Imported / multi-position records can retain an older allocation.
+            Object.assign(att, stampAttendanceWrite({
+                ...att,
+                selectedPosition: posId,
+                multiPosition: false,
+                positionHours: []
+            }));
             const emp = state.employees.find(e => e.id === empId);
             if (emp) emp.updatedAt = Date.now();
         });
+        invalidateEmployeeStats(empId);
+        buildAttendanceIndex(dateStr);
         if (typeof componentMemo !== 'undefined' && componentMemo.invalidate) {
             componentMemo.invalidate(`week-row-${empId}`);
         }
-        saveApplicationData({ announce: 'Posición actualizada' }); // ✅ Guardar + toast honesto
+        saveApplicationData({ dateKey: dateStr, announce: 'Posición actualizada' });
         render();
     }
 };
@@ -6286,7 +6363,7 @@ window.createFirebaseSnapshot = async function (type = 'auto', reason = null) {
 /**
  * 🛠️ Aplica los datos de un backup al estado actual y guarda localmente
  */
-async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
+async function applyBackupData(importedData, { pettyCashCloud = 'none', onProjectChoiceRetry = null } = {}) {
     let previous = null, suspendedSaveOptions = null, isolationActive = false, durableCommitted = false;
     try {
         const data = importedData.data;
@@ -6390,7 +6467,7 @@ async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
         }
         if (isolationActive) endFullImportIsolation({ commit: false });
         if (!durableCommitted) resumeSuspendedSaveOptions(suspendedSaveOptions);
-        if (handleRestoreProjectChoiceRequired(error)) {
+        if (handleRestoreProjectChoiceRequired(error, onProjectChoiceRetry)) {
             showNotification('Hay datos sin obra asignada. Elige una obra para continuar la restauración.', 'warning');
             return false;
         }
@@ -6399,6 +6476,18 @@ async function applyBackupData(importedData, { pettyCashCloud = 'none' } = {}) {
         showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');
         return false;
     }
+}
+
+// Reanudar después de elegir obra conserva la acción de restauración original
+// (incluidos el aislamiento local y el hook de éxito del onboarding).
+async function restoreBackupWithProjectChoice(importedData, options, onRestored) {
+    const ok = await applyBackupData(importedData, {
+        ...options,
+        onProjectChoiceRetry: data => restoreBackupWithProjectChoice({ ...importedData, data }, options, onRestored)
+    });
+    if (!ok) return false;
+    await onRestored();
+    return true;
 }
 
 /**
@@ -6611,10 +6700,11 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                     // M2: sin sesión no hay cuenta a la que subir. Nada se encola y
                     // el próximo inicio de sesión pide decidir (DetachedRestoreGuard).
                     const detached = !window.currentUser;
-                    if (!await applyBackupData(importedData, detached ? {} : { pettyCashCloud: 'merge' })) return;
-                    if (detached) markDetachedRestoreAfterApply(importedData, null);
-                    if (onSuccess) onSuccess();
-                    setTimeout(() => location.reload(), 1200);
+                    await restoreBackupWithProjectChoice(importedData, detached ? {} : { pettyCashCloud: 'merge' }, async () => {
+                        if (detached) markDetachedRestoreAfterApply(importedData, null);
+                        if (onSuccess) onSuccess();
+                        setTimeout(() => location.reload(), 1200);
+                    });
                 },
 
                 // Opción 2: Desconectar y Restaurar (Evitar impacto en nube antigua)
@@ -6622,57 +6712,58 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                     const previousUid = window.currentUser?.uid || null;
                     await FirebaseService.logout();
                     window.currentUser = null;
-                    if (!await applyBackupData(importedData)) return;
-                    // M2: al volver a iniciar sesión se pregunta antes de sincronizar.
-                    markDetachedRestoreAfterApply(importedData, previousUid);
-                    if (onSuccess) onSuccess();
-                    showNotification('🚶 Sesión cerrada y backup restaurado localmente', 'info');
-                    setTimeout(() => location.reload(), 1200);
+                    await restoreBackupWithProjectChoice(importedData, {}, async () => {
+                        // M2: al volver a iniciar sesión se pregunta antes de sincronizar.
+                        markDetachedRestoreAfterApply(importedData, previousUid);
+                        if (onSuccess) onSuccess();
+                        showNotification('🚶 Sesión cerrada y backup restaurado localmente', 'info');
+                        setTimeout(() => location.reload(), 1200);
+                    });
                 },
 
                 // Opción 3: Reemplazo Total de la Nube
                 onReplaceCloudRestore: async () => {
                     // 1. Aplicar localmente primero
-                    const ok = await applyBackupData(importedData, { pettyCashCloud: 'replace' });
-                    if (!ok) return;
-                    // Datos ya restaurados en el dispositivo aunque la nube falle después.
-                    if (onSuccess) onSuccess();
+                    await restoreBackupWithProjectChoice(importedData, { pettyCashCloud: 'replace' }, async () => {
+                        // Datos ya restaurados en el dispositivo aunque la nube falle después.
+                        if (onSuccess) onSuccess();
 
-                    // 2. Bloquear UI para proceso crítico
-                    const syncLoader = document.createElement('div');
-                    syncLoader.innerHTML = `
-                        <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.98); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10050; color:white; font-family:sans-serif; gap:25px;">
-                            <div class="sync-spinner" style="width:60px; height:60px; border:6px solid rgba(255,255,255,0.05); border-top:6px solid #ef4444; border-radius:50%; animation: spin 1s linear infinite;"></div>
-                            <div style="text-align:center;">
-                                <div style="font-weight:800; font-size:1.4rem; color:#f1f5f9; margin-bottom:8px;">🔥 REEMPLAZANDO NUBE...</div>
-                                <div style="color:#94a3b8; font-size:0.95rem; max-width:300px; line-height:1.5;">Estamos borrando los datos antiguos y subiendo tu backup. No cierres esta ventana.</div>
-                            </div>
-                            <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
-                        </div>`;
-                    document.body.appendChild(syncLoader);
+                        // 2. Bloquear UI para proceso crítico
+                        const syncLoader = document.createElement('div');
+                        syncLoader.innerHTML = `
+                            <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.98); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10050; color:white; font-family:sans-serif; gap:25px;">
+                                <div class="sync-spinner" style="width:60px; height:60px; border:6px solid rgba(255,255,255,0.05); border-top:6px solid #ef4444; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                                <div style="text-align:center;">
+                                    <div style="font-weight:800; font-size:1.4rem; color:#f1f5f9; margin-bottom:8px;">🔥 REEMPLAZANDO NUBE...</div>
+                                    <div style="color:#94a3b8; font-size:0.95rem; max-width:300px; line-height:1.5;">Estamos borrando los datos antiguos y subiendo tu backup. No cierres esta ventana.</div>
+                                </div>
+                                <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+                            </div>`;
+                        document.body.appendChild(syncLoader);
 
-                    // 3. Reemplazo del dataset principal (Modo Espejo). DataOps congela el
-                    // estado antes de borrar (los listeners vaciaban state.employees),
-                    // crea el snapshot de seguridad, purga pendientes y borra SOLO las
-                    // colecciones principales. Caja Chica ya quedó encolada arriba:
-                    // antes se borraba en la nube y nunca se volvía a subir.
-                    let result;
-                    try {
-                        debug.log('☁️ Iniciando limpieza espejo en la nube...');
-                        result = await replaceCloudWithLocal();
-                    } catch (err) {
-                        result = { ok: false, reason: 'unexpected', error: err };
-                    }
-                    if (result?.ok) {
-                        showNotification('🚀 Nube actualizada con éxito', 'success');
-                        // 🔄 Refrescar tras éxito
-                        setTimeout(() => location.reload(), 1000);
-                    } else {
-                        console.error('Error sincronizando nube tras backup:', result?.reason, result?.error);
-                        showNotification('⚠️ Error al actualizar nube, pero los datos locales están guardados.', 'warning');
-                        if (syncLoader) syncLoader.remove();
-                        render();
-                    }
+                        // 3. Reemplazo del dataset principal (Modo Espejo). DataOps congela el
+                        // estado antes de borrar (los listeners vaciaban state.employees),
+                        // crea el snapshot de seguridad, purga pendientes y borra SOLO las
+                        // colecciones principales. Caja Chica ya quedó encolada arriba:
+                        // antes se borraba en la nube y nunca se volvía a subir.
+                        let result;
+                        try {
+                            debug.log('☁️ Iniciando limpieza espejo en la nube...');
+                            result = await replaceCloudWithLocal();
+                        } catch (err) {
+                            result = { ok: false, reason: 'unexpected', error: err };
+                        }
+                        if (result?.ok) {
+                            showNotification('🚀 Nube actualizada con éxito', 'success');
+                            // 🔄 Refrescar tras éxito
+                            setTimeout(() => location.reload(), 1000);
+                        } else {
+                            console.error('Error sincronizando nube tras backup:', result?.reason, result?.error);
+                            showNotification('⚠️ Error al actualizar nube, pero los datos locales están guardados.', 'warning');
+                            if (syncLoader) syncLoader.remove();
+                            render();
+                        }
+                    });
                 }
             }, { projectDiagnostics });
 
@@ -7926,6 +8017,7 @@ function _initOutgoingConflictGuard() {
         // el default existe antes de que cualquier código post-hydrate pregunte
         // por el proyecto activo.
         await initProjectsInfrastructure();
+        startAppUpdates();
         // La cuenta existente ya tiene roster local: mostrar su asignación
         // pendiente antes del primer render, aunque M2 tenga un marker viejo.
         await refreshProjectReconciliationSnapshot();

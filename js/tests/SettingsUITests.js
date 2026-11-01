@@ -71,7 +71,7 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
         testRunner.assert(html.includes('companyName') || html.includes('Nombre de la Empresa'), 'Debe renderizar la pestaña General por defecto');
     },
 
-    "SettingsTab: la pestaña General incluye el botón de limpiar cache (Mantenimiento)"() {
+    "SettingsTab: la pestaña General incluye la reparación segura de interfaz (Mantenimiento)"() {
         const stateMock = {
             settingsActiveTab: 'general',
             settings: {
@@ -94,10 +94,10 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
 
         const html = SettingsTab();
         testRunner.assert(html.includes('data-settings-action="clear-cache"'),
-            'La pestaña General debe exponer el botón de limpiar cache');
-        testRunner.assert(html.includes('Limpiar cache y recargar'),
+            'La acción compatible debe abrir la reparación de interfaz');
+        testRunner.assert(html.includes('Reparar interfaz'),
             'El botón debe tener su etiqueta');
-        testRunner.assert(html.includes('No se borran tus datos'),
+        testRunner.assert(html.includes('Conserva tus datos, fotos y comprobantes.'),
             'Debe aclarar que NO se borran los datos del usuario');
         testRunner.assert(html.includes('data-settings-action="clear-mini-attendance-aliases"'),
             'La pestaña General debe permitir borrar coincidencias recordadas de Mini');
