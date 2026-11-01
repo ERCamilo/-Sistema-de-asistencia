@@ -1,6 +1,16 @@
 {
-  "version": "1.7.121",
+  "version": "1.7.122",
   "changelog": [
+    {
+      "version": "1.7.122",
+      "date": "2026-11-01",
+      "title": "Corrección de feriados simultáneos",
+      "items": [
+        "Guarda dos o más feriados diferentes sin perder una fecha cuando las ediciones llegan juntas.",
+        "Al quitar un feriado se conservan todas las otras fechas ya confirmadas.",
+        "Mantiene la jornada, las horas, la nómina y los parámetros de la obra frente a guardados atrasados."
+      ]
+    },
     {
       "version": "1.7.121",
       "date": "2026-11-01",

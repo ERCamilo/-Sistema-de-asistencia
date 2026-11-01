@@ -122,7 +122,10 @@ export function toggleHoliday(providedDateKey = null) {
 
     if (projectId) {
         projectPayrollConfigStore.getConfig(projectId)
-            .then(config => config ? projectPayrollConfigStore.putConfig({ ...config, holidays, __holidaysPatch: holidays }) : null)
+            .then(config => config ? projectPayrollConfigStore.putConfig({
+                ...config, holidays, __holidaysPatch: holidays,
+                __holidayChanges: [{ date: dateKey, isHoliday: isNowHoliday }]
+            }) : null)
             .then(saved => { if (saved) setActivePayrollConfig(saved); })
             .catch(error => Notification.error(`No se pudo guardar el feriado en la obra: ${error?.message || error}`));
     }

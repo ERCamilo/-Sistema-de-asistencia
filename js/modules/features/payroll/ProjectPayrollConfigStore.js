@@ -55,11 +55,13 @@ export async function putConfig(config, opts = {}) {
     const dayHoursPatch = payload.__dayHoursPatch;
     const dayHoursDelta = payload.__dayHoursDelta;
     const holidaysPatch = payload.__holidaysPatch;
+    const holidayChanges = payload.__holidayChanges;
     const payrollDefaultsPatch = payload.__payrollDefaultsPatch;
     delete payload.__payrollDefaultsPatch;
     delete payload.__dayHoursPatch;
     delete payload.__dayHoursDelta;
     delete payload.__holidaysPatch;
+    delete payload.__holidayChanges;
     const previous = pendingConfigWrites.get(projectId) || Promise.resolve();
     const commit = previous.catch(() => {}).then(async () => {
         const latest = await idb.get(STORE_NAME, projectId);
@@ -68,7 +70,8 @@ export async function putConfig(config, opts = {}) {
         // Field-scoped edits (holiday and day-hours) must be applied to the
         // latest durable record. Their caller's other fields may be stale.
         const fieldScopedWrite = dayHoursPatch !== undefined
-            || holidaysPatch !== undefined || payrollDefaultsPatch !== undefined;
+            || holidaysPatch !== undefined || holidayChanges !== undefined
+            || payrollDefaultsPatch !== undefined;
         const next = fieldScopedWrite && latest
             ? { ...payload, ...latest, projectId }
             : { ...(latest || {}), ...payload };
@@ -81,7 +84,25 @@ export async function putConfig(config, opts = {}) {
         }
         // Apply an explicit field patch to the current durable record.
         // Avoid overwriting unrelated fields from an out-of-date form.
-        if (holidaysPatch !== undefined) next.holidays = holidaysPatch;
+        if (Array.isArray(holidayChanges)) {
+            // Toggle operations are applied to the latest durable set, not
+            // to the list captured when the first click was made. This
+            // preserves unrelated dates and permits explicit removals.
+            const current = new Set(latest?.holidays || []);
+            for (const change of holidayChanges) {
+                if (!change || typeof change.date !== 'string') continue;
+                if (change.isHoliday) current.add(change.date);
+                else current.delete(change.date);
+            }
+            next.holidays = [...current];
+        } else if (Array.isArray(holidaysPatch)) {
+            // Legacy callers supply only a complete list. An older snapshot
+            // can safely add dates without erasing more recent additions;
+            // deletions must use the explicit operation format above.
+            next.holidays = staleSnapshot
+                ? [...new Set([...(latest?.holidays || []), ...holidaysPatch])]
+                : holidaysPatch;
+        }
         if (payrollDefaultsPatch !== undefined) next.payrollDefaults = payrollDefaultsPatch;
         if (dayHoursPatch && typeof dayHoursPatch === 'object') {
             next.dayHours = { ...(latest?.dayHours || {}), ...dayHoursPatch };

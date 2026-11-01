@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.121';
+const APP_VERSION = '1.7.122';
 const CHANGELOG = [
+    { version: '1.7.122', date: '2026-11-01', title: 'Corrección de feriados simultáneos', items: ['Guarda dos o más feriados diferentes sin perder una fecha cuando las ediciones llegan juntas.', 'Al quitar un feriado se conservan todas las otras fechas ya confirmadas.', 'Mantiene la jornada, las horas, la nómina y los parámetros de la obra frente a guardados atrasados.'] },
     { version: '1.7.121', date: '2026-11-01', title: 'Feriados concurrentes sin pérdidas', items: ['Dos fechas marcadas como feriados a la vez se conservan sin sustituirse.', 'Quitar un feriado no elimina otras fechas confirmadas.', 'La configuración de nómina conserva las horas, jornadas, períodos y factores de horas extra anteriores.'] },
     { version: '1.7.120', date: '2026-10-30', title: 'Actualizaciones con progreso visible', items: ['Sigue la descarga y la instalación con animaciones y un conteo cuando está disponible.', 'Al abrir la versión nueva, una confirmación animada te devuelve a tu trabajo.', 'Los reintentos y la reparación conservan tus datos, fotos y comprobantes.'] },
     { version: '1.7.119', date: '2026-10-30', title: 'La dirección de tu aplicación', items: ['Consulta la dirección actual y el origen de conexión de SA en Ajustes → General, también desde la app instalada.'] },
