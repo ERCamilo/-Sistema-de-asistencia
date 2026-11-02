@@ -1057,3 +1057,69 @@ describe('Cámara de facturas: aviso de foto borrosa u oscura', () => {
         expect(deps.notify).not.toHaveBeenCalledWith(expect.stringContaining('borrosa'), 'warning');
     });
 });
+
+
+describe('Cámara de facturas: recorte automático del fondo', () => {
+    const cropped = { crop: { sx: 100, sy: 200, sw: 1200, sh: 2000 }, area: 0.4 };
+    const originalShot = new Blob(['jpg'], { type: 'image/jpeg' });   // la toma que devuelve grabFrame en setup()
+
+    test('con el interruptor encendido, la toma se procesa con el recorte al papel y se anota', async () => {
+        const shotIn = { source: {}, crop: { sx: 0, sy: 0, sw: 3000, sh: 4000 }, origin: 'sensor' };
+        const toPhoto = jest.fn(async () => new Blob(['x'], { type: 'image/jpeg' }));
+        const cropShot = jest.fn(() => cropped);
+        const { camera, deps } = setup({ grabFrame: jest.fn().mockResolvedValue(shotIn), autoCrop: () => true, cropShot, toPhoto, assessShot: () => null });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(cropShot).toHaveBeenCalledWith(shotIn);
+        expect(toPhoto.mock.calls[0][0].crop).toEqual(cropped.crop);
+        expect(shotIn.crop).toEqual({ sx: 0, sy: 0, sw: 3000, sh: 4000 });         // la toma original no se muta
+        expect(deps.diag.record).toHaveBeenCalledWith('shot', expect.objectContaining({ cropped: 0.4 }));
+    });
+
+    test('con el interruptor apagado no se intenta recortar', async () => {
+        const toPhoto = jest.fn(async () => new Blob(['x'], { type: 'image/jpeg' }));
+        const cropShot = jest.fn(() => cropped);
+        const { camera } = setup({ autoCrop: () => false, cropShot, toPhoto });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(cropShot).not.toHaveBeenCalled();
+        expect(toPhoto.mock.calls[0][0]).toBeInstanceOf(Blob);
+    });
+
+    test('si no hay papel claro (null) o el recorte falla, se guarda la toma completa', async () => {
+        for (const cropShot of [jest.fn(() => null), jest.fn(() => { throw new Error('boom'); })]) {
+            const shotIn = { source: {}, crop: { sx: 0, sy: 0, sw: 10, sh: 10 }, origin: 'sensor' };
+            const toPhoto = jest.fn(async () => new Blob(['x'], { type: 'image/jpeg' }));
+            const { camera, deps } = setup({ grabFrame: jest.fn().mockResolvedValue(shotIn), autoCrop: () => true, cropShot, toPhoto, assessShot: () => null });
+            await camera.open();
+            $('[data-pcam-shutter]').click();
+            await flush();
+            expect(toPhoto.mock.calls[0][0]).toBe(shotIn);
+            expect(deps.capture).toHaveBeenCalledTimes(1);
+            expect(deps.diag.record).not.toHaveBeenCalledWith('shot', expect.objectContaining({ cropped: expect.anything() }));
+            camera.close();
+        }
+    });
+
+    test('en factura larga no se recorta cada parte', async () => {
+        const cropShot = jest.fn(() => cropped);
+        const { camera } = setup({ autoCrop: () => true, cropShot });
+        await camera.open();
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(cropShot).not.toHaveBeenCalled();
+    });
+
+    test('lo que se mide (nitidez) es la toma completa, no la recortada', async () => {
+        const shotIn = { source: {}, crop: { sx: 0, sy: 0, sw: 3000, sh: 4000 }, origin: 'sensor' };
+        const assessShot = jest.fn(() => null);
+        const { camera } = setup({ grabFrame: jest.fn().mockResolvedValue(shotIn), autoCrop: () => true, cropShot: () => cropped, toPhoto: async () => new Blob(['x']), assessShot });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(assessShot.mock.calls[0][0].crop).toEqual(shotIn.crop);
+    });
+});

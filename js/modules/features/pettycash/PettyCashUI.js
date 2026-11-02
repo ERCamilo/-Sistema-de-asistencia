@@ -642,6 +642,7 @@ function receiptCamera() {
             return { id: movement.id, previewUrl: capture.previewDataUrl };
         },
         getItemsState: (ids) => cameraItemsState(ids),
+        autoCrop: () => state.settings?.receiptAutoCrop === true,
         onFix: (id, fix) => applyReceiptFix(id, fix),
         onRescan: (id) => rereadReceipt(id),
         diag: cameraDiagnostics(),

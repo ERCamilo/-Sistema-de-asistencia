@@ -31,6 +31,7 @@ import { parseReceiptDate, fixesFor, validateFixInput } from './PettyCashReceipt
 import { stitchParts, bottomBand, liveAlignment, OVERLAP_FRACTION } from './PettyCashStitch.js';
 import { takeShot, renderShot, encodeImage, extensionFor } from './PettyCashCapture.js';
 import { assessCapturedShot } from './PettyCashShotQuality.js';
+import { cropShotToPaper } from './PettyCashPaperCrop.js';
 
 export const CAMERA_POLL_MS = 1500;
 /** Cuánto dura "Recibido" antes de mostrar el resultado. */
@@ -254,6 +255,8 @@ export function createReceiptCamera({
     mediaDevices = globalThis.navigator?.mediaDevices,
     grabFrame = (video, track) => takeShot({ video, track, doc }),
     assessShot = (shot) => assessCapturedShot(shot, { doc }),
+    autoCrop = () => false,
+    cropShot = (shot) => cropShotToPaper(shot, { doc }),
     capture,
     getItemsState = async () => new Map(),
     onReview = () => {},
@@ -1013,6 +1016,14 @@ export function createReceiptCamera({
         // La nitidez y la luz se miden ANTES de procesar la toma: guardarla consume la imagen.
         let quality = null;
         try { quality = assessShot(shot); } catch (_) { quality = null; }
+        // Recorte al papel (opcional): sustituye el recorte de la toma por uno más ajustado; ante la duda no recorta.
+        let cropArea = null;
+        if (autoCrop()) {
+            try {
+                const result = cropShot(shot);
+                if (result?.crop) { shot = { ...shot, crop: result.crop }; cropArea = Math.round(result.area * 100) / 100; }
+            } catch (_) { /* se guarda la toma completa */ }
+        }
         runSaving(async (session) => {
             const saveStart = clock();
             const blob = await toPhoto(shot);
@@ -1022,6 +1033,7 @@ export function createReceiptCamera({
             const round2 = (n) => Math.round(n * 100) / 100;
             note('shot', {
                 origin, grabMs, saveMs: Math.round(clock() - saveStart), kb: Math.round(blob.size / 1024), mime: type, long: false,
+                ...(cropArea !== null ? { cropped: cropArea } : {}),
                 ...(quality?.measure ? { sharp: quality.measure.sharpness === null ? null : round2(quality.measure.sharpness), lum: Math.round(quality.measure.brightness), flag: quality.assessment.issues[0] || null } : {})
             });
             if (session === sessionId) {

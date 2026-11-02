@@ -109,6 +109,23 @@ function newReceiptCameraCard(settings = {}) {
             </section>`;
 }
 
+// Recorte automático del fondo en la cámara de facturas.
+function receiptAutoCropCard(settings = {}) {
+    const on = settings.receiptAutoCrop === true;
+    return `
+            <section class="stg-card" aria-labelledby="receipt-auto-crop-title" style="margin-bottom:20px;">
+                <h3 id="receipt-auto-crop-title">Recorte automático</h3>
+                <label class="stg-switch-row ${on ? 'is-active' : ''}" role="switch" aria-checked="${on}">
+                    <input type="checkbox" id="receiptAutoCrop" ${on ? 'checked' : ''}>
+                    <span class="stg-switch-copy">
+                        <strong>Recortar la factura automáticamente</strong>
+                        <small>En la cámara de facturas, recorta la mesa o el fondo alrededor del papel claro. Ante la duda no recorta. No endereza ni corrige la perspectiva, y no se aplica a la factura larga.</small>
+                    </span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
+            </section>`;
+}
+
 // Pantalla nueva de Caja chica (lista con saldo, tarjetas y editor de factura).
 function newPettyCashScreenCard(settings = {}) {
     const on = settings.newPettyCashScreen === true;
@@ -170,7 +187,7 @@ export function SettingsTestsTab(context) {
     const state = context?.state || {};
     const splitxActiveUrl = state.settings?.splitxUrl || 'https://splitx.erlin.do';
 
-    const experiments = `${SettingsNfcReadTestCard(NfcSettingsFields())}${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}${newPettyCashScreenCard(state.settings)}${pettyCashReadConfidenceCard(state.settings)}`;
+    const experiments = `${SettingsNfcReadTestCard(NfcSettingsFields())}${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}${receiptAutoCropCard(state.settings)}${newPettyCashScreenCard(state.settings)}${pettyCashReadConfidenceCard(state.settings)}`;
     const diagnostics = `            <div class="stg-header" style="margin-bottom: 20px;">
                 <div>
                     <h3>Pruebas del Sistema</h3>
