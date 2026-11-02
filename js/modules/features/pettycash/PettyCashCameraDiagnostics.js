@@ -37,6 +37,7 @@ export function summarizeDiagnostics(events = []) {
     const stitches = of('stitch');
     const results = of('result');
     const fixes = of('fix');
+    const straight = shots.filter(s => s.straightened);
     const totalChecks = parts.reduce((a, p) => a + (p.checks || 0), 0);
     return {
         shots: {
@@ -52,6 +53,13 @@ export function summarizeDiagnostics(events = []) {
             measured: shots.filter(s => Number.isFinite(s.sharp)).length,
             avgSharp: round(avg(shots.filter(s => Number.isFinite(s.sharp)).map(s => s.sharp)), 2),
             flagged: { blurry: shots.filter(s => s.flag === 'blurry').length, dark: shots.filter(s => s.flag === 'dark').length, flat: shots.filter(s => s.flag === 'flat').length }
+        },
+        // Fotos enderezadas (para ajustar los umbrales con uso real): inclinación, perspectiva y lo que cuesta guardarlas.
+        straightened: {
+            count: straight.length,
+            avgSkew: round(avg(straight.map(s => s.straightened.skew || 0)), 1),
+            avgPersp: round(avg(straight.map(s => s.straightened.persp || 0)), 2),
+            avgSaveMs: round(avg(straight.map(s => s.saveMs || 0)))
         },
         parts: {
             count: parts.length,

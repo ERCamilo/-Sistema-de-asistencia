@@ -224,6 +224,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/pettycash/PettyCashObraFilter.js",
     "./js/modules/features/pettycash/PettyCashOfficialLink.js",
     "./js/modules/features/pettycash/PettyCashPaperCrop.js",
+    "./js/modules/features/pettycash/PettyCashPaperStraighten.js",
     "./js/modules/features/pettycash/PettyCashPersistenceMetrics.js",
     "./js/modules/features/pettycash/PettyCashPhoto.js",
     "./js/modules/features/pettycash/PettyCashPhotoViewer.js",

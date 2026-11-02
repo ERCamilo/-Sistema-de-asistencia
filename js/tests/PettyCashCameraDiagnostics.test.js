@@ -74,6 +74,22 @@ describe('summarizeDiagnostics: calidad de las fotos', () => {
     });
 });
 
+describe('summarizeDiagnostics: fotos enderezadas', () => {
+    test('cuenta cuántas se enderezaron, la inclinación y el tiempo de guardado', () => {
+        const events = [
+            { type: 'shot', origin: 'sensor', saveMs: 1200, straightened: { skew: 10, persp: 1.1 } },
+            { type: 'shot', origin: 'sensor', saveMs: 1000, straightened: { skew: 6, persp: 1.0 } },
+            { type: 'shot', origin: 'video', saveMs: 400 }
+        ];
+        const s = summarizeDiagnostics(events);
+        expect(s.straightened).toEqual({ count: 2, avgSkew: 8, avgPersp: 1.05, avgSaveMs: 1100 });
+        expect(s.shots.count).toBe(3);
+    });
+    test('sin fotos enderezadas, todo en cero', () => {
+        expect(summarizeDiagnostics([{ type: 'shot', origin: 'sensor' }]).straightened).toEqual({ count: 0, avgSkew: 0, avgPersp: 0, avgSaveMs: 0 });
+    });
+});
+
 describe('summarizeDiagnostics', () => {
     const events = [
         { type: 'shot', origin: 'sensor', grabMs: 140, saveMs: 900, kb: 500, mime: 'image/webp' },

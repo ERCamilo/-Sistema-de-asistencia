@@ -1123,3 +1123,98 @@ describe('Cámara de facturas: recorte automático del fondo', () => {
         expect(assessShot.mock.calls[0][0].crop).toEqual(shotIn.crop);
     });
 });
+
+
+describe('Cámara de facturas: enderezar la factura', () => {
+    const straightened = { crop: { sx: 100, sy: 200, sw: 1200, sh: 2000 }, quad: [[0, 0.05], [1, 0], [0.98, 1], [0.02, 0.97]], skewDeg: 11.4, perspective: 1.08, area: 0.4 };
+    const cropped = { crop: { sx: 10, sy: 20, sw: 900, sh: 1500 }, area: 0.3 };
+    const shotIn = () => ({ source: {}, crop: { sx: 0, sy: 0, sw: 3000, sh: 4000 }, origin: 'sensor' });
+    const photo = () => jest.fn(async () => new Blob(['x'], { type: 'image/jpeg' }));
+
+    test('con el interruptor encendido, la toma lleva el recorte y las esquinas, y se anota la inclinación', async () => {
+        const shot = shotIn();
+        const toPhoto = photo();
+        const straightenShot = jest.fn(() => straightened);
+        const { camera, deps } = setup({ grabFrame: jest.fn().mockResolvedValue(shot), straighten: () => true, straightenShot, toPhoto, assessShot: () => null });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(straightenShot).toHaveBeenCalledWith(shot);
+        const sent = toPhoto.mock.calls[0][0];
+        expect(sent.crop).toEqual(straightened.crop);
+        expect(sent.quad).toEqual(straightened.quad);
+        expect(shot.crop).toEqual({ sx: 0, sy: 0, sw: 3000, sh: 4000 });          // la toma original no se muta
+        expect(shot.quad).toBeUndefined();
+        expect(deps.diag.record).toHaveBeenCalledWith('shot', expect.objectContaining({ straightened: { skew: 11.4, persp: 1.08 } }));
+    });
+
+    test('con el interruptor apagado no se intenta enderezar', async () => {
+        const straightenShot = jest.fn(() => straightened);
+        const toPhoto = photo();
+        const { camera } = setup({ straighten: () => false, straightenShot, toPhoto });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(straightenShot).not.toHaveBeenCalled();
+        expect(toPhoto.mock.calls[0][0]).toBeInstanceOf(Blob);
+    });
+
+    test('si se endereza, el recorte recto no se aplica encima', async () => {
+        const cropShot = jest.fn(() => cropped);
+        const toPhoto = photo();
+        const { camera } = setup({ grabFrame: jest.fn().mockResolvedValue(shotIn()), straighten: () => true, straightenShot: () => straightened, autoCrop: () => true, cropShot, toPhoto, assessShot: () => null });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(cropShot).not.toHaveBeenCalled();
+        expect(toPhoto.mock.calls[0][0].crop).toEqual(straightened.crop);
+    });
+
+    test('si no hay nada que enderezar (recto, sin papel) o falla, se usa el recorte recto si está encendido', async () => {
+        for (const straightenShot of [jest.fn(() => null), jest.fn(() => { throw new Error('boom'); })]) {
+            const shot = shotIn();
+            const toPhoto = photo();
+            const { camera, deps } = setup({ grabFrame: jest.fn().mockResolvedValue(shot), straighten: () => true, straightenShot, autoCrop: () => true, cropShot: () => cropped, toPhoto, assessShot: () => null });
+            await camera.open();
+            $('[data-pcam-shutter]').click();
+            await flush();
+            const sent = toPhoto.mock.calls[0][0];
+            expect(sent.crop).toEqual(cropped.crop);
+            expect(sent.quad).toBeUndefined();
+            expect(deps.diag.record).not.toHaveBeenCalledWith('shot', expect.objectContaining({ straightened: expect.anything() }));
+            camera.close();
+        }
+    });
+
+    test('si no hay nada que enderezar y el recorte está apagado, se guarda la toma completa', async () => {
+        const shot = shotIn();
+        const toPhoto = photo();
+        const { camera, deps } = setup({ grabFrame: jest.fn().mockResolvedValue(shot), straighten: () => true, straightenShot: () => null, autoCrop: () => false, toPhoto, assessShot: () => null });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(toPhoto.mock.calls[0][0]).toBe(shot);
+        expect(deps.capture).toHaveBeenCalledTimes(1);
+    });
+
+    test('en factura larga no se endereza cada parte', async () => {
+        const straightenShot = jest.fn(() => straightened);
+        const { camera } = setup({ straighten: () => true, straightenShot });
+        await camera.open();
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(straightenShot).not.toHaveBeenCalled();
+    });
+
+    test('la nitidez se mide sobre la toma completa, antes de enderezar', async () => {
+        const shot = shotIn();
+        const assessShot = jest.fn(() => null);
+        const { camera } = setup({ grabFrame: jest.fn().mockResolvedValue(shot), straighten: () => true, straightenShot: () => straightened, toPhoto: photo(), assessShot });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(assessShot.mock.calls[0][0].crop).toEqual(shot.crop);
+        expect(assessShot.mock.calls[0][0].quad).toBeUndefined();
+    });
+});

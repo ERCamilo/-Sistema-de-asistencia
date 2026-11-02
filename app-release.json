@@ -1,6 +1,16 @@
 {
-  "version": "1.7.123",
+  "version": "1.7.124",
   "changelog": [
+    {
+      "version": "1.7.124",
+      "date": "2026-11-02",
+      "title": "Enderezar facturas al tomar la foto",
+      "items": [
+        "Activa en Ajustes → Pruebas «Enderezar facturas»: la cámara busca las cuatro esquinas del papel y lo deja recto aunque lo hayas tomado girado o en ángulo.",
+        "Ante la duda no toca la foto, y si el papel ya está recto tampoco; no se aplica a la factura larga ni a las fotos de la galería.",
+        "El diagnóstico de la cámara cuenta cuántas fotos se enderezaron y cuánto se inclinaban."
+      ]
+    },
     {
       "version": "1.7.123",
       "date": "2026-11-02",

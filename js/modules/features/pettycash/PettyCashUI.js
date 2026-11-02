@@ -643,6 +643,7 @@ function receiptCamera() {
         },
         getItemsState: (ids) => cameraItemsState(ids),
         autoCrop: () => state.settings?.receiptAutoCrop === true,
+        straighten: () => state.settings?.receiptStraighten === true,
         onFix: (id, fix) => applyReceiptFix(id, fix),
         onRescan: (id) => rereadReceipt(id),
         diag: cameraDiagnostics(),

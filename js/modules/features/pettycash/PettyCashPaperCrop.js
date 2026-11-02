@@ -44,10 +44,12 @@ function otsu(hist, total) {
 }
 
 /**
+ * Gris de la imagen y umbral que separa el papel (claro) del fondo (oscuro). Lo comparten el
+ * recorte recto y el enderezado. Null si no hay dos zonas claramente distintas.
  * @param {{data:Uint8ClampedArray|number[], width:number, height:number}} image RGBA
- * @returns {{x0:number, y0:number, x1:number, y1:number}|null} rectángulo (0–1) o null si no hay que recortar
+ * @returns {{g:Uint8Array, width:number, height:number, threshold:number}|null}
  */
-export function detectPaper(image) {
+export function paperThreshold(image) {
     const { data, width, height } = image || {};
     if (!data || !(width > 8) || !(height > 8)) return null;
     const total = width * height;
@@ -59,6 +61,22 @@ export function detectPaper(image) {
     if (meanBright - meanDark < MIN_SEPARATION) return null;
     // Más permisivo que Otsu: una sombra sobre el papel sigue siendo papel, y no debe quedar fuera del recorte.
     const threshold = Math.min(split.threshold, Math.round(meanDark + SHADE_TOLERANCE * (meanBright - meanDark)));
+    return { g, width, height, threshold };
+}
+
+/** Área mínima y máxima (fracción del cuadro) que debe ocupar un papel para recortarlo o enderezarlo. */
+export const PAPER_MIN_AREA = MIN_AREA;
+export const PAPER_MAX_AREA = MAX_AREA;
+
+/**
+ * @param {{data:Uint8ClampedArray|number[], width:number, height:number}} image RGBA
+ * @returns {{x0:number, y0:number, x1:number, y1:number}|null} rectángulo (0–1) o null si no hay que recortar
+ */
+export function detectPaper(image) {
+    const base = paperThreshold(image);
+    if (!base) return null;
+    const { g, width, height, threshold } = base;
+    const total = width * height;
 
     const rows = new Uint32Array(height);
     const cols = new Uint32Array(width);
