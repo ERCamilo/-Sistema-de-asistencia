@@ -125,6 +125,59 @@ describe('Preparar solicitud Gemini', () => {
         expect(prompt).toMatch(/"boxes"/);
         expect(prompt).toMatch(/\[y_min, x_min, y_max, x_max\]/);
         ['"total"', '"ncf"', '"rnc_emisor"', '"fecha"', '"itbis"', '"subtotal"'].forEach(k => expect(prompt).toContain(k));
-        expect(out.geminiBody.generationConfig.maxOutputTokens).toBe(4096);
+        expect(out.geminiBody.generationConfig.maxOutputTokens).toBe(8192);
+    });
+});
+
+
+describe('fechas y montos: lo que se le pide al lector y cómo se normaliza', () => {
+    const prepare = async () => runCode('Preparar solicitud Gemini', { body: { fileBase64: '/9j/AAAA', mimeType: 'image/jpeg' } });
+
+    test('se le explica que las fechas dominicanas van como DÍA/MES/AÑO y que el año tiene 4 dígitos', async () => {
+        const { geminiBody } = await prepare();
+        const prompt = geminiBody.contents[0].parts[0].text;
+        expect(prompt).toMatch(/DIA\/MES\/ANO/);
+        expect(prompt).toMatch(/03\/11\/2026/);
+        expect(prompt).toMatch(/4 digitos/);
+    });
+
+    test('se le pide copiar los montos como están impresos, sin recalcularlos', async () => {
+        const { geminiBody } = await prepare();
+        expect(geminiBody.contents[0].parts[0].text).toMatch(/tal como esta(n)? impreso/);
+    });
+
+    test('hay espacio de sobra para la respuesta (la respuesta cortada daba JSON inválido)', async () => {
+        const { geminiBody } = await prepare();
+        expect(geminiBody.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(8192);
+    });
+
+    test.each([
+        ['03/11/2026', '2026-11-03'],
+        ['3-11-26', '2026-11-03'],
+        ['03.11.2026', '2026-11-03'],
+        ['2026-11-03', '2026-11-03'],
+        ['2026-11-03T10:20:00', '2026-11-03']
+    ])('la fecha «%s» sale como %s (día/mes/año)', async (raw, iso) => {
+        expect((await runCode('Parsear JSON', gemini({ total: 5, fecha: raw }))).fecha).toBe(iso);
+    });
+
+    test('una fecha imposible queda en null en vez de inventarse', async () => {
+        expect((await runCode('Parsear JSON', gemini({ total: 5, fecha: '31/02/2026' }))).fecha).toBeNull();
+        expect((await runCode('Parsear JSON', gemini({ total: 5, fecha: 'ayer' }))).fecha).toBeNull();
+        expect((await runCode('Parsear JSON', gemini({ total: 5 }))).fecha).toBeNull();
+    });
+
+    test('una respuesta cortada por límite de tokens lo dice, para no confundirla con una foto mala', async () => {
+        const out = await runCode('Parsear JSON', { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"emisor":"Ferre' }] } }] });
+        expect(out.ok).toBe(false);
+        expect(out.error).toMatch(/MAX_TOKENS/);
+        expect(out.finishReason).toBe('MAX_TOKENS');
+    });
+
+    test('una respuesta que no es JSON, sin corte, conserva su mensaje', async () => {
+        const out = await runCode('Parsear JSON', { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'no es json' }] } }] });
+        expect(out.ok).toBe(false);
+        expect(out.finishReason).toBe('STOP');
+        expect(out.raw).toBe('no es json');
     });
 });
