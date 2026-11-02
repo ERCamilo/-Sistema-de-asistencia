@@ -1,6 +1,16 @@
 {
-  "version": "1.7.120",
+  "version": "1.7.121",
   "changelog": [
+    {
+      "version": "1.7.121",
+      "date": "2026-11-02",
+      "title": "Revisa facturas con la foto siempre a la vista",
+      "items": [
+        "Acerca y aleja la foto con dos dedos, la rueda o los botones; al elegir un dato la foto se enfoca sola y queda fija mientras revisas el formulario.",
+        "Reescanear lee siempre la foto original, nunca la miniatura, muestra «Leyendo…» y te dice qué datos cambiaron.",
+        "El lector recibe la foto más grande y nítida para leer mejor montos y totales."
+      ]
+    },
     {
       "version": "1.7.120",
       "date": "2026-11-01",
