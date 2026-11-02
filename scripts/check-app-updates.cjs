@@ -10,7 +10,8 @@ const current = /const APP_VERSION = '([^']+)'/.exec(source)[1];
 const next = current.replace(/\d+$/, n => String(Number(n) + 1));
 const entry = {version:next,date:'2026-10-20',title:'Actualización de prueba',items:['Texto <img src=x onerror=alert(1)> seguro.']};
 const originalManifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'app-release.json')));
-const styles = [...fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="(css\/[^"]+)"/g)].map(m => `<link rel="stylesheet" href="/${m[1]}">`).join('');
+const styles = [...fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="((?:\.\/)?css\/[^"]+)"/g)].map(m => `<link rel="stylesheet" href="/${m[1]}">`).join('');
+assert.match(styles,/app-updates\.css/);
 const fixture = `<!doctype html><html lang="es"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Actualizaciones de prueba</title>${styles}</head><body><main><h1>Prueba de novedades</h1><span id="visible-version"></span><button id="news">Novedades</button><button id="check">Buscar actualizaciones</button><button id="repair">Reparar interfaz</button><p id="app-update-status" role="status"></p></main><script type="module">
 import {startAppUpdates,openWhatsNew,checkAppUpdates,openInterfaceRepair} from '/js/modules/ui/AppUpdates.js';
 import {APP_VERSION} from '/js/modules/config/AppVersion.js';
@@ -83,14 +84,26 @@ server.on('connection',socket=>{sockets.add(socket);socket.once('close',()=>sock
     },source);
     slowAssets=true;staleNavigation=true;
     await page.evaluate(()=>window.finishSave());
-    await page.waitForFunction(v=>window.loadedVersion===v,{},next).catch(async error=>{console.error('Update state',await page.evaluate(async()=>({version:window.loadedVersion,status:document.querySelector('[data-release-status]')?.textContent,caches:await caches.keys(),worker:navigator.serviceWorker.controller?.scriptURL})));throw error;});assert.equal(await page.$eval('#visible-version',el=>el.textContent),'v'+next);await page.waitForSelector('#whats-new-modal');
+    await page.waitForFunction(v=>window.loadedVersion===v,{},next).catch(async error=>{console.error('Update state',await page.evaluate(async()=>({version:window.loadedVersion,status:document.querySelector('[data-release-status]')?.textContent,caches:await caches.keys(),worker:navigator.serviceWorker.controller?.scriptURL})));throw error;});assert.equal(await page.$eval('#visible-version',el=>el.textContent),'v'+next);await page.waitForSelector('#update-success:not([hidden])');
+    assert.equal(await page.$eval('#update-success',el=>el.getAttribute('role')),'status');
+    assert.equal(await page.$eval('.update-success-check path',el=>getComputedStyle(el).animationName),'update-success-draw');
+    await page.waitForSelector('#update-success',{hidden:true});
+    assert.equal(await page.$('#whats-new-modal'),null);
     assert.equal(await page.evaluate(()=>localStorage.getItem('update-data-sentinel')),'preserved');
     assert.equal(await page.evaluate(async()=>!!(await (await caches.open('user-media-test')).match('/saved-photo'))),true);
     await page.waitForFunction(async()=>!(await caches.match('/js/stale-shell-entry.js')));
     assert.equal(await page.evaluate(async()=>!!(await caches.match('/js/stale-shell-entry.js'))),false);
     slowAssets=false;staleNavigation=false;
-    await page.click('#whats-new-modal .btn-primary');await page.waitForSelector('#whats-new-modal',{hidden:true});
     assert.equal(await page.evaluate(()=>localStorage.getItem('sa:lastSeenVersion')),next);
+    await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
+    await page.evaluate(()=>{
+      const parts=window.loadedVersion.split('.');parts[2]=String(Number(parts[2])-1);
+      sessionStorage.setItem('sa:updateReceipt',JSON.stringify({from:parts.join('.'),target:window.loadedVersion}));
+    });
+    await page.reload({waitUntil:'domcontentloaded'});await page.waitForSelector('#update-success:not([hidden])');
+    assert.equal(await page.$eval('.update-success-check path',el=>getComputedStyle(el).animationName),'none');
+    await page.waitForSelector('#update-success',{hidden:true});
+    await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'no-preference'}]);
 
     // Same-version repair replaces a damaged UI snapshot without unregistering
     // the worker, clearing application data, or dropping media from legacy caches.

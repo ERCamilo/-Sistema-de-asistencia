@@ -1,8 +1,8 @@
 {
-  "version": "1.7.122",
+  "version": "1.7.123",
   "changelog": [
     {
-      "version": "1.7.122",
+      "version": "1.7.123",
       "date": "2026-11-02",
       "title": "Fotos de facturas más nítidas y fechas coherentes",
       "items": [
@@ -12,7 +12,7 @@
       ]
     },
     {
-      "version": "1.7.121",
+      "version": "1.7.122",
       "date": "2026-11-02",
       "title": "Revisa facturas con la foto siempre a la vista",
       "items": [
@@ -22,13 +22,23 @@
       ]
     },
     {
-      "version": "1.7.120",
+      "version": "1.7.121",
       "date": "2026-11-01",
       "title": "Caja chica renovada y lecturas más fieles",
       "items": [
         "Prueba la pantalla nueva de Caja chica desde Ajustes → Pruebas: saldo y botón de foto arriba, gastos en tarjetas con su estado y el editor de la factura junto a la foto.",
         "Marca tú mismo dónde está cada dato en la foto, y descarga o comparte la foto de la factura.",
         "Las fotos tomadas con la cámara llegan al lector de facturas con su tipo de archivo correcto, para que lea mejor."
+      ]
+    },
+    {
+      "version": "1.7.120",
+      "date": "2026-10-30",
+      "title": "Actualizaciones con progreso visible",
+      "items": [
+        "Sigue la descarga y la instalación con animaciones y un conteo cuando está disponible.",
+        "Al abrir la versión nueva, una confirmación animada te devuelve a tu trabajo.",
+        "Los reintentos y la reparación conservan tus datos, fotos y comprobantes."
       ]
     },
     {
