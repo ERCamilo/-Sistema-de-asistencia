@@ -73,6 +73,7 @@ function cameraDiagnosticsBlock() {
     const lines = s.shots.count || s.parts.count || s.results.count
         ? [
             `<li><strong>${s.shots.count} fotos</strong> · ${s.shots.sensor} del sensor, ${s.shots.video} del video · guardado ${s.shots.avgSaveMs} ms · ${s.shots.avgKb} KB promedio</li>`,
+            s.shots.measured ? `<li><strong>Calidad al disparar:</strong> ${s.shots.measured} medidas · nitidez promedio ${s.shots.avgSharp} · ${s.shots.flagged.blurry} borrosas, ${s.shots.flagged.dark} oscuras, ${s.shots.flagged.flat} sin contraste</li>` : '',
             s.parts.count ? `<li><strong>Factura larga:</strong> ${s.parts.withOk} de ${s.parts.count} partes con ✓ · revisión en vivo ${s.parts.avgCheckMs} ms · mejor coincidencia ${s.parts.avgBestNcc}</li>` : '',
             s.stitches.count ? `<li><strong>Uniones:</strong> ${s.stitches.count} · traslape encontrado ${s.stitches.found} de ${s.stitches.total} (${pct(s.stitches.found, s.stitches.total)})</li>` : '',
             s.results.count ? `<li><strong>Lecturas:</strong> ${Object.entries(s.results.states).map(([k, n]) => `${n} ${STATE_LABEL[k] || k}`).join(' · ')}</li>` : '',

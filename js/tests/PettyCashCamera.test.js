@@ -900,3 +900,148 @@ describe('Cámara de facturas: volver a leer', () => {
         ctx.camera.close();
     });
 });
+
+
+describe('Cámara de facturas: enfoque', () => {
+    const tap = (target, x, y) => {
+        const mk = (type) => { const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }); Object.defineProperty(e, 'pointerId', { value: 1 }); return e; };
+        target.dispatchEvent(mk('pointerdown'));
+        target.dispatchEvent(mk('pointerup'));
+    };
+    const withFocus = (modes) => {
+        const applyConstraints = jest.fn().mockResolvedValue();
+        return { applyConstraints, track: { getCapabilities: () => ({ focusMode: modes }), applyConstraints } };
+    };
+
+    test('al abrir pide enfoque continuo si el teléfono lo permite', async () => {
+        const { applyConstraints, track } = withFocus(['manual', 'continuous', 'single-shot']);
+        const { camera } = setup({ track });
+        await camera.open();
+        expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ focusMode: 'continuous' }] });
+    });
+
+    test('si no lo permite (o no sabe decirlo) no falla ni pide nada', async () => {
+        const none = withFocus(['manual']);
+        await setup({ track: none.track }).camera.open();
+        expect(none.applyConstraints).not.toHaveBeenCalled();
+        const { camera } = setup({ track: { getCapabilities: () => { throw new Error('no'); }, applyConstraints: jest.fn() } });
+        await expect(camera.open()).resolves.not.toThrow();
+        expect(camera.isOpen()).toBe(true);
+    });
+
+    test('tocar el visor enfoca ahí (punto normalizado) y muestra el aro', async () => {
+        jest.useFakeTimers();
+        const { applyConstraints, track } = withFocus(['continuous', 'single-shot']);
+        const { camera } = setup({ track });
+        await camera.open();
+        const frame = $('[data-pcam-frame]');
+        frame.getBoundingClientRect = () => ({ left: 10, top: 20, width: 200, height: 400, right: 210, bottom: 420 });
+        applyConstraints.mockClear();
+        tap(frame, 110, 220);
+        await flush();
+        expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ focusMode: 'single-shot', pointsOfInterest: [{ x: 0.5, y: 0.5 }] }] });
+        const ring = $('[data-pcam-focus-ring]');
+        expect(ring).not.toBeNull();
+        expect(ring.style.left).toBe('100px');
+        expect(ring.style.top).toBe('200px');
+        // pasado un momento vuelve al enfoque continuo y quita el aro
+        applyConstraints.mockClear();
+        jest.advanceTimersByTime(3200);
+        await flush();
+        expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ focusMode: 'continuous' }] });
+        expect($('[data-pcam-focus-ring]').hidden).toBe(true);
+    });
+
+    test('un arrastre no cuenta como toque', async () => {
+        const { applyConstraints, track } = withFocus(['continuous', 'single-shot']);
+        const { camera } = setup({ track });
+        await camera.open();
+        const frame = $('[data-pcam-frame]');
+        frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
+        applyConstraints.mockClear();
+        const ev = (type, x, y) => { const e = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }); Object.defineProperty(e, 'pointerId', { value: 1 }); frame.dispatchEvent(e); };
+        ev('pointerdown', 50, 50); ev('pointerup', 150, 250);
+        await flush();
+        expect(applyConstraints).not.toHaveBeenCalled();
+    });
+
+    test('sin enfoque manual, tocar no hace nada ni muestra un aro engañoso', async () => {
+        const { camera } = setup({ track: { getCapabilities: () => ({ focusMode: ['continuous'] }), applyConstraints: jest.fn().mockResolvedValue() } });
+        await camera.open();
+        const frame = $('[data-pcam-frame]');
+        frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
+        tap(frame, 100, 200);
+        await flush();
+        expect($('[data-pcam-focus-ring]')?.hidden ?? true).toBe(true);
+    });
+
+    test('un error al enfocar no rompe la cámara', async () => {
+        const track = { getCapabilities: () => ({ focusMode: ['continuous', 'single-shot'] }), applyConstraints: jest.fn().mockRejectedValue(new Error('OverconstrainedError')) };
+        const { camera } = setup({ track });
+        await expect(camera.open()).resolves.not.toThrow();
+        const frame = $('[data-pcam-frame]');
+        frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
+        tap(frame, 100, 200);
+        await flush();
+        expect(camera.isOpen()).toBe(true);
+    });
+});
+
+describe('Cámara de facturas: aviso de foto borrosa u oscura', () => {
+    const measured = (issues, hint) => ({ measure: { sharpness: 0.1, brightness: 120, contrast: 150 }, assessment: { ok: !issues.length, issues, hint } });
+
+    test('si la foto salió borrosa avisa en el momento y lo anota en el diagnóstico', async () => {
+        const hint = 'La foto salió borrosa: sostén el teléfono firme, espera a que enfoque y repítela.';
+        const { camera, deps } = setup({ assessShot: jest.fn(() => measured(['blurry'], hint)) });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(deps.notify).toHaveBeenCalledWith(hint, 'warning');
+        expect(deps.diag.record).toHaveBeenCalledWith('shot', expect.objectContaining({ flag: 'blurry', sharp: 0.1, lum: 120 }));
+        expect(deps.capture).toHaveBeenCalledTimes(1);          // igual se guarda: es un aviso, no un bloqueo
+    });
+
+    test('si está bien, no avisa y anota flag null', async () => {
+        const { camera, deps } = setup({ assessShot: jest.fn(() => measured([], null)) });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(deps.notify).not.toHaveBeenCalled();
+        expect(deps.diag.record).toHaveBeenCalledWith('shot', expect.objectContaining({ flag: null }));
+    });
+
+    test('si no se puede medir (null) o la medición falla, la foto se guarda igual y sin aviso', async () => {
+        const a = setup({ assessShot: jest.fn(() => null) });
+        await a.camera.open(); $('[data-pcam-shutter]').click(); await flush();
+        expect(a.deps.notify).not.toHaveBeenCalled();
+        expect(a.deps.capture).toHaveBeenCalledTimes(1);
+        a.camera.close();
+        const b = setup({ assessShot: jest.fn(() => { throw new Error('boom'); }) });
+        await b.camera.open(); $('[data-pcam-shutter]').click(); await flush();
+        expect(b.deps.capture).toHaveBeenCalledTimes(1);
+        expect(b.deps.notify).not.toHaveBeenCalled();
+    });
+
+    test('se mide ANTES de procesar la toma (guardarla consume la imagen)', async () => {
+        const order = [];
+        const { camera } = setup({
+            assessShot: jest.fn(() => { order.push('medir'); return measured([], null); }),
+            toPhoto: jest.fn(async () => { order.push('guardar'); return new Blob(['x'], { type: 'image/jpeg' }); })
+        });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(order).toEqual(['medir', 'guardar']);
+    });
+
+    test('en factura larga no se mide cada parte', async () => {
+        const assessShot = jest.fn(() => measured(['blurry'], 'x'));
+        const { camera, deps } = setup({ assessShot });
+        await camera.open();
+        $('[data-pcam-long]').click();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(assessShot).not.toHaveBeenCalled();
+        expect(deps.notify).not.toHaveBeenCalledWith(expect.stringContaining('borrosa'), 'warning');
+    });
+});

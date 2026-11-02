@@ -30,6 +30,7 @@
 import { parseReceiptDate, fixesFor, validateFixInput } from './PettyCashReceiptChecks.js';
 import { stitchParts, bottomBand, liveAlignment, OVERLAP_FRACTION } from './PettyCashStitch.js';
 import { takeShot, renderShot, encodeImage, extensionFor } from './PettyCashCapture.js';
+import { assessCapturedShot } from './PettyCashShotQuality.js';
 
 export const CAMERA_POLL_MS = 1500;
 /** Cuánto dura "Recibido" antes de mostrar el resultado. */
@@ -240,10 +241,16 @@ function defaultDrawGhost(canvas, bitmap) {
  * @param {(ids: string[]) => void} deps.onFinish
  * @param {() => void} deps.fallbackPick  cámara del sistema cuando no hay visor
  */
+/** Lo que dura el enfoque en el punto tocado antes de volver al enfoque continuo. */
+export const FOCUS_HOLD_MS = 3000;
+const TAP_SLOP_PX = 10;
+const TAP_MAX_MS = 500;
+
 export function createReceiptCamera({
     doc = document,
     mediaDevices = globalThis.navigator?.mediaDevices,
     grabFrame = (video, track) => takeShot({ video, track, doc }),
+    assessShot = (shot) => assessCapturedShot(shot, { doc }),
     capture,
     getItemsState = async () => new Map(),
     onReview = () => {},
@@ -307,6 +314,7 @@ export function createReceiptCamera({
                 <canvas class="pcam-ghost" data-pcam-ghost hidden aria-hidden="true"></canvas>
                 <span class="pcam-ghost-edge" data-pcam-ghost-edge hidden aria-hidden="true"></span>
                 <span class="pcam-match" data-pcam-match hidden aria-hidden="true"><i>aquí termina la parte anterior</i></span>
+                <span class="pcam-focus" data-pcam-focus-ring hidden aria-hidden="true"></span>
                 <div class="pcam-flash" data-pcam-flash hidden></div>
             </div>
         </div>
@@ -999,14 +1007,25 @@ export function createReceiptCamera({
             note('shot', { origin, grabMs, saveMs: 0, kb: 0, mime: null, long: true });
             return;
         }
+        // La nitidez y la luz se miden ANTES de procesar la toma: guardarla consume la imagen.
+        let quality = null;
+        try { quality = assessShot(shot); } catch (_) { quality = null; }
         runSaving(async (session) => {
             const saveStart = clock();
             const blob = await toPhoto(shot);
             const type = blob.type || 'image/jpeg';
             const file = new File([blob], `factura-${Date.now()}.${extensionFor(type)}`, { type });
             const saved = await capture(file); // entra a la cola aunque ya se haya cerrado la cámara
-            note('shot', { origin, grabMs, saveMs: Math.round(clock() - saveStart), kb: Math.round(blob.size / 1024), mime: type, long: false });
-            if (session === sessionId) addItem(saved, file);
+            const round2 = (n) => Math.round(n * 100) / 100;
+            note('shot', {
+                origin, grabMs, saveMs: Math.round(clock() - saveStart), kb: Math.round(blob.size / 1024), mime: type, long: false,
+                ...(quality?.measure ? { sharp: round2(quality.measure.sharpness), lum: Math.round(quality.measure.brightness), flag: quality.assessment.issues[0] || null } : {})
+            });
+            if (session === sessionId) {
+                addItem(saved, file);
+                // Un aviso, no un bloqueo: la foto ya está en la cola y se puede repetir desde la pila.
+                if (quality && quality.assessment && !quality.assessment.ok && quality.assessment.hint) notify(quality.assessment.hint, 'warning');
+            }
         });
     };
 
@@ -1026,6 +1045,47 @@ export function createReceiptCamera({
         } catch (_) {
             notify('No se pudo usar la linterna en este teléfono.', 'warning');
         }
+    };
+
+    // ── Enfoque ───────────────────────────────────────────────────────────
+    // Enfoque continuo al abrir y, al tocar el visor, enfoque en ese punto. Solo si el
+    // teléfono lo permite; cualquier falla se ignora: la cámara sigue funcionando.
+    let focusTimer = null;
+    let tapStart = null;
+    const focusModes = () => {
+        try { const modes = track?.getCapabilities?.()?.focusMode; return Array.isArray(modes) ? modes : []; } catch (_) { return []; }
+    };
+    const applyFocus = async (advanced) => {
+        try { await track?.applyConstraints?.({ advanced: [advanced] }); return true; } catch (_) { return false; }
+    };
+    const setupFocus = () => { if (focusModes().includes('continuous')) applyFocus({ focusMode: 'continuous' }); };
+    const hideFocusRing = () => { const ring = q('[data-pcam-focus-ring]'); if (ring) ring.hidden = true; };
+    const focusAt = async (clientX, clientY) => {
+        const modes = focusModes();
+        const frame = q('[data-pcam-frame]');
+        if (!modes.includes('single-shot') || !frame) return;
+        const rect = frame.getBoundingClientRect();
+        if (!(rect.width > 0) || !(rect.height > 0)) return;
+        const unit = (n) => Math.min(1, Math.max(0, n));
+        const x = unit((clientX - rect.left) / rect.width);
+        const y = unit((clientY - rect.top) / rect.height);
+        const ring = q('[data-pcam-focus-ring]');
+        if (ring) { ring.style.left = `${Math.round(clientX - rect.left)}px`; ring.style.top = `${Math.round(clientY - rect.top)}px`; ring.hidden = false; restart(ring, 'is-on'); }
+        await applyFocus({ focusMode: 'single-shot', pointsOfInterest: [{ x, y }] });
+        clearTimeout(focusTimer);
+        focusTimer = setTimeout(() => {
+            focusTimer = null;
+            hideFocusRing();
+            if (root && modes.includes('continuous')) applyFocus({ focusMode: 'continuous' });
+        }, FOCUS_HOLD_MS);
+    };
+    const onFrameDown = (event) => { tapStart = { id: event.pointerId, x: event.clientX, y: event.clientY, t: Date.now() }; };
+    const onFrameUp = (event) => {
+        const start = tapStart;
+        tapStart = null;
+        if (!start || start.id !== event.pointerId) return;
+        if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > TAP_SLOP_PX || Date.now() - start.t > TAP_MAX_MS) return;
+        focusAt(event.clientX, event.clientY);
     };
 
     // ── Navegación ────────────────────────────────────────────────────────
@@ -1244,6 +1304,10 @@ export function createReceiptCamera({
         try { await video.play?.(); } catch (_) { /* autoplay ya lo inicia */ }
         layoutFrame();
         setupTorch();
+        setupFocus();
+        const frame = q('[data-pcam-frame]');
+        frame?.addEventListener('pointerdown', onFrameDown);
+        frame?.addEventListener('pointerup', onFrameUp);
         root.addEventListener('click', onClick);
         root.addEventListener('input', onInput);
         doc.addEventListener('keydown', onKey);
@@ -1258,6 +1322,7 @@ export function createReceiptCamera({
         clearTimeout(receivedTimer); receivedTimer = null;
         clearTimeout(tipTimer); tipTimer = null;
         clearTimeout(advanceTimer); advanceTimer = null;
+        clearTimeout(focusTimer); focusTimer = null; tapStart = null;
         pending = false;
         stopAlign();
         releaseParts();

@@ -47,7 +47,11 @@ export function summarizeDiagnostics(events = []) {
             avgGrabMs: round(avg(shots.map(s => s.grabMs || 0))),
             avgSaveMs: round(avg(shots.map(s => s.saveMs || 0))),
             avgKb: round(avg(shots.map(s => s.kb || 0))),
-            webp: shots.filter(s => s.mime === 'image/webp').length
+            webp: shots.filter(s => s.mime === 'image/webp').length,
+            // Nitidez y luz medidas al disparar (para ajustar los umbrales del aviso con uso real).
+            measured: shots.filter(s => Number.isFinite(s.sharp)).length,
+            avgSharp: round(avg(shots.filter(s => Number.isFinite(s.sharp)).map(s => s.sharp)), 2),
+            flagged: { blurry: shots.filter(s => s.flag === 'blurry').length, dark: shots.filter(s => s.flag === 'dark').length, flat: shots.filter(s => s.flag === 'flat').length }
         },
         parts: {
             count: parts.length,
