@@ -6,7 +6,7 @@
  * reciben listos en `slots`; aquí solo se organiza lo nuevo.
  * Probado en js/tests/PettyCashScreen.test.js.
  */
-import { receiptDate } from './PettyCashDates.js';
+import { receiptDate, datesConflict } from './PettyCashDates.js';
 import { RECEIPT_STATES, groupReviewFirst } from './PettyCashReceiptReview.js';
 import { formatPettyCashDate, receiptBackupState } from './PettyCashPresentation.js';
 import { formatPettyCashRecordNumber } from './PettyCashRecordNumber.js';
@@ -40,7 +40,7 @@ export function movementCardHTML({ movement: m, key, duplicate }, { cerrada = fa
     return `<div class="pcn-card" data-pcn-card="${esc(m.id)}" data-selected="${!!selected}" data-app-fn="pcOpenMovement" data-arg="${esc(m.id)}" role="button" tabindex="0" title="Ver / editar detalle">
         <div class="pcn-card-main">
             <div class="pcn-card-title"><span class="pcn-card-num">${esc(formatPettyCashRecordNumber(m.recordNumber))}</span> ${esc(title)}</div>
-            <div class="pcn-card-meta">${meta}${unsent ? ' · <span class="pcn-unsent">Sin subir</span>' : ''}</div>
+            <div class="pcn-card-meta">${meta}${isGasto && datesConflict(m) ? ' · <span class="pcn-twodates" data-pcn-twodates title="Tiene dos fechas distintas: ábrela para elegir la correcta">2 fechas</span>' : ''}${unsent ? ' · <span class="pcn-unsent">Sin subir</span>' : ''}</div>
             ${duplicate ? `<button type="button" class="pcn-dup" data-app-fn="pcOpenDuplicateReference" data-arg="${esc(duplicate.referenceId)}" data-app-stop="1" title="${esc(duplicate.reason)}. Abrir registro de referencia.">⚠ ${dupLabel} ${esc(formatPettyCashRecordNumber(duplicate.referenceNumber))} · ${esc(duplicate.referencePeriodLabel)}</button>` : ''}
         </div>
         <div class="pcn-card-side">

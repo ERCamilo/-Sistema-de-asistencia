@@ -164,6 +164,7 @@ textarea.pcn-input { padding: 10px 12px; resize: vertical; }
 .pcn-card-num { font-size: .68rem; font-weight: 500; color: #38bdf8; font-variant-numeric: tabular-nums; margin-right: 4px; }
 .pcn-card-meta { margin-top: 3px; font-size: .75rem; color: var(--pcn-dim); }
 .pcn-unsent { color: var(--pcn-warn); }
+.pcn-twodates { color: var(--pcn-warn); font-weight: 600; }
 .pcn-card-side { text-align: right; }
 .pcn-card-amount { font-size: .95rem; font-weight: 700; white-space: nowrap; }
 .pcn-card-amount[data-kind="gasto"] { color: #f87171; }

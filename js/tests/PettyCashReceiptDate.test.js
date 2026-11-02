@@ -4,7 +4,8 @@
  * Antes el Excel y la tarjeta de la pantalla antigua usaban `date`, y el editor
  * tenía dos fechas que se podían separar sin avisar.
  */
-import { receiptDate } from '../modules/features/pettycash/PettyCashDates.js';
+import { receiptDate, datesConflict } from '../modules/features/pettycash/PettyCashDates.js';
+import { movementCardHTML } from '../modules/features/pettycash/PettyCashScreen.js';
 import { buildPeriodSheets } from '../modules/features/pettycash/PettyCashExport.js';
 import { readEditorDraft } from '../modules/features/pettycash/PettyCashEditorUi.js';
 import { receiptEditorHTML } from '../modules/features/pettycash/PettyCashReceiptEditor.js';
@@ -112,11 +113,27 @@ describe('guardar con una sola fecha', () => {
         await window.pcSaveMovementEdit();
         expect(state.pettyCash.movements[0]).toMatchObject({ date: '2026-10-20', fechaEmision: '2026-10-20' });
     });
-    test('editor nuevo: sin tocar la fecha, un gasto con dos fechas distintas queda con la de emisión en las dos', async () => {
-        seed([gasto()]);
+    test('editor nuevo: guardar SIN tocar la fecha no pisa ninguna de las dos (puede haber una corrección hecha a mano)', async () => {
+        seed([gasto({ date: '2026-10-11', fechaEmision: '2026-11-10' })]);
+        window.pcOpenMovement('g1'); await flush();
+        document.getElementById('pce-cat').value = 'Transporte';
+        await window.pcSaveMovementEdit();
+        expect(state.pettyCash.movements[0]).toMatchObject({ date: '2026-10-11', fechaEmision: '2026-11-10', category: 'Transporte' });
+    });
+    test('editor nuevo: si escribe otra fecha, queda en las dos y se acaba el conflicto', async () => {
+        seed([gasto({ date: '2026-10-11', fechaEmision: '2026-11-10' })]);
+        window.pcOpenMovement('g1'); await flush();
+        document.getElementById('pce-date').value = '2026-10-12';
+        await window.pcSaveMovementEdit();
+        const mov = state.pettyCash.movements[0];
+        expect(mov).toMatchObject({ date: '2026-10-12', fechaEmision: '2026-10-12' });
+        expect(datesConflict(mov)).toBeNull();
+    });
+    test('un gasto sin fecha de emisión la recibe de la fecha del registro al guardar', async () => {
+        seed([gasto({ date: '2026-10-11', fechaEmision: null })]);
         window.pcOpenMovement('g1'); await flush();
         await window.pcSaveMovementEdit();
-        expect(state.pettyCash.movements[0]).toMatchObject({ date: '2026-10-05', fechaEmision: '2026-10-05' });
+        expect(state.pettyCash.movements[0]).toMatchObject({ date: '2026-10-11', fechaEmision: '2026-10-11' });
     });
     test('editor antiguo: «Fecha de la factura» guarda las dos y ya no hay campo aparte de emisión', async () => {
         seed([gasto()], {});
@@ -148,5 +165,103 @@ describe('lista de la pantalla antigua', () => {
         paint();
         expect(document.body.textContent).toContain('17-10-2026');
         expect(document.body.textContent).not.toContain('02-10-2026');
+    });
+});
+
+
+describe('datesConflict', () => {
+    test('null si las dos fechas coinciden o falta alguna', () => {
+        expect(datesConflict({ date: '2026-10-01', fechaEmision: '2026-10-01' })).toBeNull();
+        expect(datesConflict({ date: '2026-10-01' })).toBeNull();
+        expect(datesConflict({ fechaEmision: '2026-10-01' })).toBeNull();
+        expect(datesConflict({ type: 'reposicion', date: '2026-10-01' })).toBeNull();
+        expect(datesConflict(null)).toBeNull();
+    });
+    test('devuelve las dos y si una es la otra con día y mes invertidos', () => {
+        expect(datesConflict({ date: '2026-10-05', fechaEmision: '2026-10-20' })).toEqual({ emission: '2026-10-20', record: '2026-10-05', swapped: false });
+        expect(datesConflict({ date: '2026-03-11', fechaEmision: '2026-11-03' })).toEqual({ emission: '2026-11-03', record: '2026-03-11', swapped: true });
+        expect(datesConflict({ date: '2026-03-03', fechaEmision: '2026-03-04' }).swapped).toBe(false);
+    });
+});
+
+describe('editor nuevo: aviso de dos fechas', () => {
+    const conflicted = (over = {}) => ({ id: 'g1', type: 'gasto', hasReceipt: true, receiptStatus: 'uploaded', paidTo: 'X', rncEmisor: '131778102', ncf: 'B0100000876',
+        date: '2026-03-11', fechaEmision: '2026-11-03', category: 'Comida', total: 10, amount: 10, subtotal: 10, itbis: 0, ...over });
+    afterEach(() => { document.body.innerHTML = ''; });
+
+    test('muestra las dos fechas, con un botón para quedarse con cada una', () => {
+        document.body.innerHTML = receiptEditorHTML(conflicted(), { source: null });
+        const box = document.querySelector('[data-pcn-dates]');
+        expect(box).not.toBeNull();
+        expect(box.textContent).toContain('03-11-2026');
+        expect(box.textContent).toContain('11-03-2026');
+        expect(box.querySelector('[data-app-fn="pcEditorPickDate"][data-arg="emision"]')).not.toBeNull();
+        expect(box.querySelector('[data-app-fn="pcEditorPickDate"][data-arg="registro"]')).not.toBeNull();
+    });
+    test('si una es la otra con día y mes invertidos, lo dice', () => {
+        document.body.innerHTML = receiptEditorHTML(conflicted(), { source: null });
+        expect(document.querySelector('[data-pcn-dates]').textContent).toMatch(/invertid/);
+        document.body.innerHTML = receiptEditorHTML(conflicted({ date: '2026-10-05', fechaEmision: '2026-10-20' }), { source: null });
+        expect(document.querySelector('[data-pcn-dates]').textContent).not.toMatch(/invertid/);
+    });
+    test('sin conflicto no aparece; con el periodo cerrado se ve pero sin botones', () => {
+        document.body.innerHTML = receiptEditorHTML(conflicted({ date: '2026-11-03' }), { source: null });
+        expect(document.querySelector('[data-pcn-dates]')).toBeNull();
+        document.body.innerHTML = receiptEditorHTML(conflicted(), { source: null, cerrada: true });
+        expect(document.querySelector('[data-pcn-dates]')).not.toBeNull();
+        expect(document.querySelector('[data-app-fn="pcEditorPickDate"]')).toBeNull();
+    });
+});
+
+describe('elegir una de las dos fechas', () => {
+    beforeAll(() => { registerPettyCashGlobals(); });
+    beforeEach(() => {
+        window.render = jest.fn(paint);
+        indexedDBService.getReceipt.mockResolvedValue(null);
+        URL.createObjectURL = jest.fn(() => 'blob:r'); URL.revokeObjectURL = jest.fn();
+    });
+    afterEach(() => { state.pettyCash = null; state.settings = {}; document.body.innerHTML = ''; delete window.render; });
+
+    test.each([['emision', '2026-11-03'], ['registro', '2026-03-11']])('«%s» deja esa fecha en las dos claves y quita el aviso', async (which, expected) => {
+        seed([gasto({ date: '2026-03-11', fechaEmision: '2026-11-03' })]);
+        window.pcOpenMovement('g1'); await flush();
+        await window.pcEditorPickDate(which);
+        expect(state.pettyCash.movements[0]).toMatchObject({ date: expected, fechaEmision: expected });
+        expect(document.querySelector('[data-pcn-dates]')).toBeNull();
+    });
+});
+
+describe('el aviso de dos fechas sobrevive a repintar el editor', () => {
+    beforeAll(() => { registerPettyCashGlobals(); });
+    beforeEach(() => {
+        window.render = jest.fn(paint);
+        indexedDBService.getReceipt.mockResolvedValue(null);
+        URL.createObjectURL = jest.fn(() => 'blob:r'); URL.revokeObjectURL = jest.fn();
+    });
+    afterEach(() => { state.pettyCash = null; state.settings = {}; document.body.innerHTML = ''; delete window.render; });
+
+    test('abrir «Más datos» (repinta con el borrador) no lo borra ni cambia ninguna fecha al guardar', async () => {
+        seed([gasto({ date: '2026-03-11', fechaEmision: '2026-11-03' })]);
+        window.pcOpenMovement('g1'); await flush();
+        window.pcEditorMore();
+        expect(document.querySelector('[data-pcn-dates]')).not.toBeNull();
+        await window.pcSaveMovementEdit();
+        expect(state.pettyCash.movements[0]).toMatchObject({ date: '2026-03-11', fechaEmision: '2026-11-03' });
+    });
+    test('al escribir otra fecha el aviso se quita (esa fecha manda)', async () => {
+        seed([gasto({ date: '2026-03-11', fechaEmision: '2026-11-03' })]);
+        window.pcOpenMovement('g1'); await flush();
+        document.getElementById('pce-date').value = '2026-11-04';
+        window.pcEditorMore();
+        expect(document.querySelector('[data-pcn-dates]')).toBeNull();
+        expect(document.getElementById('pce-date').value).toBe('2026-11-04');
+    });
+});
+
+describe('lista: marca los gastos con dos fechas', () => {
+    const card = (m) => movementCardHTML({ movement: m, key: 'consumo', duplicate: null }, {});
+    test('una etiqueta «2 fechas» solo cuando difieren', () => {
+        expect(card(gasto({ date: '2026-03-11', fechaEmision: '2026-11-03' }))).toContain('data-pcn-twodates');
+        expect(card(gasto({ date: '2026-11-03', fechaEmision: '2026-11-03' }))).not.toContain('data-pcn-twodates');
     });
 });

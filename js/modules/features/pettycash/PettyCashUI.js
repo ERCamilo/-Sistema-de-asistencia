@@ -2339,6 +2339,20 @@ export function registerPettyCashGlobals() {
         window.render?.();
         setTimeout(() => document.getElementById(id)?.focus?.(), 0);
     };
+    // Gasto con dos fechas distintas: se guarda la que la persona elija, en las dos claves.
+    window.pcEditorPickDate = async (which) => {
+        const d = pc();
+        const mov = editingMovement();
+        if (!mov) return;
+        const value = which === 'registro' ? mov.date : mov.fechaEmision;
+        if (!value) return;
+        const draft = readEditorDraft(document);
+        delete draft.date;
+        delete draft.fechaEmision;
+        await applyReceiptFix(mov.id, { patch: { date: value, fechaEmision: value } });
+        d._editorUi = { ...editorUi(), draft };
+        window.render?.();
+    };
     window.pcEditorFix = async (arg) => {
         const [code, kind] = String(arg || '').split('|');
         const d = pc();
@@ -2951,7 +2965,9 @@ export function registerPettyCashGlobals() {
         const amount = parseFloat(document.getElementById('pce-amount')?.value);
         if (!Number.isFinite(amount) || amount <= 0) { Modal.alert({ title: 'Monto inválido', message: 'Ingresa un monto válido mayor que 0.' }); return; }
         mov.amount = round2(amount);
-        mov.date = document.getElementById('pce-date')?.value || mov.date;
+        // Solo se escribe la fecha si la persona la cambió: un gasto con dos fechas distintas conserva las dos.
+        const typedDate = document.getElementById('pce-date')?.value || '';
+        if (typedDate && typedDate !== receiptDate(mov)) { mov.date = typedDate; if (mov.type === 'gasto') mov.fechaEmision = typedDate; }
         mov.description = txt('pce-desc');
         if (mov.type === 'gasto') {
             mov.paidTo = txt('pce-tienda');
@@ -2964,7 +2980,7 @@ export function registerPettyCashGlobals() {
             mov.subtotal = numOrNull('pce-subtotal');
             mov.itbis = numOrNull('pce-itbis');
             mov.total = numOrNull('pce-total');
-            mov.fechaEmision = mov.date; // la fecha de la factura es la de emisión: una sola
+            if (!mov.fechaEmision) mov.fechaEmision = mov.date; // la fecha de la factura es la de emisión
             mov.fechaVencimiento = document.getElementById('pce-fvenc')?.value || null;
             mov.notas = document.getElementById('pce-notas')?.value?.trim() || '';
             // Datos fiscales que solo trae el editor nuevo: sin el campo, el gasto queda como está.

@@ -2,7 +2,7 @@
  * Aviso de foto borrosa u oscura en el momento de disparar. Las imágenes son
  * sintéticas (texto de trazos finos sobre papel) para probar la medición sin un teléfono.
  */
-import { measureShot, assessShot, assessCapturedShot, BLURRY_BELOW, DARK_BELOW, FLAT_BELOW, QUALITY_SIZE } from '../modules/features/pettycash/PettyCashShotQuality.js';
+import { measureShot, assessShot, assessCapturedShot, BLURRY_BELOW, DARK_BELOW, FLAT_BELOW, QUALITY_SIZE, NOISE_FLOOR, MIN_EDGES } from '../modules/features/pettycash/PettyCashShotQuality.js';
 
 const W = 480;
 const H = 640;
@@ -37,6 +37,8 @@ const blur = (img, passes) => {
 };
 const verdict = (img) => assessShot(measureShot(img));
 const sharp = make(text);
+// Factura con márgenes: texto solo en el centro (≈ 30 % del área) sobre un fondo liso.
+const sparse = make((x, y) => ((x > 165 && x < 315 && y > 215 && y < 425) ? text(x, y) : 140));
 
 describe('measureShot y assessShot', () => {
     test('una factura nítida y bien iluminada está bien', () => {
@@ -47,6 +49,21 @@ describe('measureShot y assessShot', () => {
     });
     test('un poco de suavizado (foto normal reducida) no genera aviso', () => {
         expect(verdict(blur(sharp, 1)).ok).toBe(true);
+    });
+    test('una factura nítida con márgenes y fondo liso NO se marca borrosa (pocos bordes no es borroso)', () => {
+        const m = measureShot(sparse);
+        expect(m.edges).toBeLessThan(0.1);
+        expect(m.sharpness).toBeGreaterThan(0.5);
+        expect(verdict(sparse)).toEqual({ ok: true, issues: [], hint: null });
+        expect(verdict(blur(sparse, 1)).ok).toBe(true);
+    });
+    test('con márgenes también se detecta cuando está realmente borrosa', () => {
+        expect(verdict(blur(sparse, 8)).issues).toEqual(['blurry']);
+    });
+    test('un cuadro liso (cámara tapada, pared lisa) no se juzga de borroso: no hay bordes que medir', () => {
+        const m = measureShot(make(() => 80));
+        expect(m.sharpness).toBeNull();
+        expect(verdict(make(() => 80)).issues).not.toContain('blurry');
     });
     test('borrosa: avisa y dice qué hacer', () => {
         const out = verdict(blur(sharp, 4));
@@ -70,12 +87,14 @@ describe('measureShot y assessShot', () => {
         expect(verdict(make((x, y) => ((x + y) % 2 ? 60 : 230))).ok).toBe(true);
     });
     test('datos inválidos no rompen y no avisan nada raro', () => {
-        expect(measureShot(null)).toEqual({ sharpness: 0, brightness: 0, contrast: 0 });
-        expect(measureShot({ data: new Uint8ClampedArray(4), width: 1, height: 1 })).toEqual({ sharpness: 0, brightness: 0, contrast: 0 });
+        expect(measureShot(null)).toEqual({ sharpness: null, edges: 0, brightness: 0, contrast: 0 });
+        expect(measureShot({ data: new Uint8ClampedArray(4), width: 1, height: 1 })).toEqual({ sharpness: null, edges: 0, brightness: 0, contrast: 0 });
         expect(assessShot(null).issues.length).toBeLessThanOrEqual(1);
     });
     test('los umbrales son los documentados', () => {
-        expect(BLURRY_BELOW).toBe(0.25);
+        expect(BLURRY_BELOW).toBe(0.22);
+        expect(NOISE_FLOOR).toBe(6);
+        expect(MIN_EDGES).toBe(0.004);
         expect(DARK_BELOW).toBe(65);
         expect(FLAT_BELOW).toBe(30);
         expect(QUALITY_SIZE).toBe(480);

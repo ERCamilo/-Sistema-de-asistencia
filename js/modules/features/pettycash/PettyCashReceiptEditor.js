@@ -15,7 +15,7 @@
 import { fixesFor, receiptNotes } from './PettyCashReceiptChecks.js';
 import { RECEIPT_STATES, movementReviewState } from './PettyCashReceiptReview.js';
 import { formatPettyCashDate, receiptBackupState } from './PettyCashPresentation.js';
-import { receiptDate } from './PettyCashDates.js';
+import { receiptDate, datesConflict } from './PettyCashDates.js';
 import { effectiveBox, isValidBox } from './PettyCashBoxMath.js';
 
 /** id del campo → clave del gasto y tipo (lo usan el render y el guardado). */
@@ -224,6 +224,27 @@ function fieldHTML(id, label, mov, { cerrada, span = '', type = null, mode = 'te
     </div>`;
 }
 
+/**
+ * Gasto con dos fechas distintas (registros antiguos): se muestran las dos y se guarda la
+ * que la persona elija; nunca se decide por ella. Desaparece al escribir otra fecha.
+ */
+function datesNoticeHTML(movement, draft, cerrada) {
+    const conflict = datesConflict(movement);
+    if (!conflict) return '';
+    if (draft && 'date' in draft && draft.date !== receiptDate(movement)) return '';
+    const emission = formatPettyCashDate(conflict.emission);
+    const record = formatPettyCashDate(conflict.record);
+    const buttons = cerrada ? '' : `<div class="pcn-fixes">
+            <button type="button" class="pcn-fix" data-app-fn="pcEditorPickDate" data-arg="emision">Usar la de emisión (${esc(emission)})</button>
+            <button type="button" class="pcn-fix" data-app-fn="pcEditorPickDate" data-arg="registro">Usar la del registro (${esc(record)})</button>
+        </div>`;
+    return `<div class="pcn-issue" data-pcn-dates data-tone="amber">
+        <b>Esta factura tiene dos fechas distintas.</b>
+        <div class="pcn-issue-detail">Emisión: ${esc(emission)} · Registro: ${esc(record)}.${conflict.swapped ? ' Parecen tener el día y el mes invertidos: revisa cuál es la de la factura.' : ''} Mientras no elijas, no se cambia ninguna; la lista y el Excel usan la de emisión.</div>
+        ${buttons}
+    </div>`;
+}
+
 function itemsHTML(mov, ui) {
     const items = Array.isArray(mov.items) ? mov.items : [];
     if (!items.length) return '';
@@ -346,6 +367,7 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
         <div class="pcn-body"${Number.isFinite(Number(view.split)) && view.split ? ` style="--pcn-split:${pct(view.split)}%"` : ''} onchange="window.pcEditorTouch?.()" onfocusin="window.pcEditorFocusIn?.(event)">
             ${viewerHTML(mov, { cerrada, ui: view, source, rescan })}
             <div class="pcn-form">
+                ${datesNoticeHTML(movement, view.draft, cerrada)}
                 ${review.issues.map((i) => issueCardHTML(i, cerrada)).join('')}
                 ${notes.length ? `<div class="pcn-notes" data-pcn-notes>${notes.map((n) => `<div>${esc(n.message)}${n.hint ? ' ' + esc(n.hint) : ''}</div>`).join('')}</div>` : ''}
                 <input id="pce-receipt" type="checkbox" hidden ${hasPhoto ? 'checked' : ''}>

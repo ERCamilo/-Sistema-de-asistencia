@@ -243,6 +243,9 @@ function defaultDrawGhost(canvas, bitmap) {
  */
 /** Lo que dura el enfoque en el punto tocado antes de volver al enfoque continuo. */
 export const FOCUS_HOLD_MS = 3000;
+/** Lo que se pide al abrir la cámara. `applyConstraints` reemplaza el conjunto: se repite al enfocar o encender la linterna. */
+const VIDEO_CONSTRAINTS = { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 } };
+const withAdvanced = (advanced) => ({ ...VIDEO_CONSTRAINTS, advanced: [advanced] });
 const TAP_SLOP_PX = 10;
 const TAP_MAX_MS = 500;
 
@@ -1019,7 +1022,7 @@ export function createReceiptCamera({
             const round2 = (n) => Math.round(n * 100) / 100;
             note('shot', {
                 origin, grabMs, saveMs: Math.round(clock() - saveStart), kb: Math.round(blob.size / 1024), mime: type, long: false,
-                ...(quality?.measure ? { sharp: round2(quality.measure.sharpness), lum: Math.round(quality.measure.brightness), flag: quality.assessment.issues[0] || null } : {})
+                ...(quality?.measure ? { sharp: quality.measure.sharpness === null ? null : round2(quality.measure.sharpness), lum: Math.round(quality.measure.brightness), flag: quality.assessment.issues[0] || null } : {})
             });
             if (session === sessionId) {
                 addItem(saved, file);
@@ -1039,7 +1042,7 @@ export function createReceiptCamera({
     const toggleTorch = async () => {
         const next = !torchOn;
         try {
-            await track.applyConstraints({ advanced: [{ torch: next }] });
+            await track.applyConstraints(withAdvanced({ torch: next }));
             torchOn = next;
             q('[data-pcam-torch]')?.setAttribute('aria-pressed', String(torchOn));
         } catch (_) {
@@ -1056,7 +1059,7 @@ export function createReceiptCamera({
         try { const modes = track?.getCapabilities?.()?.focusMode; return Array.isArray(modes) ? modes : []; } catch (_) { return []; }
     };
     const applyFocus = async (advanced) => {
-        try { await track?.applyConstraints?.({ advanced: [advanced] }); return true; } catch (_) { return false; }
+        try { await track?.applyConstraints?.(withAdvanced(advanced)); return true; } catch (_) { return false; }
     };
     const setupFocus = () => { if (focusModes().includes('continuous')) applyFocus({ focusMode: 'continuous' }); };
     const hideFocusRing = () => { const ring = q('[data-pcam-focus-ring]'); if (ring) ring.hidden = true; };
@@ -1272,7 +1275,7 @@ export function createReceiptCamera({
         }
         try {
             // 4:3 como el sensor: así la foto completa (takePhoto) coincide con lo que se ve.
-            stream = await mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 } }, audio: false });
+            stream = await mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS, audio: false });
         } catch (error) {
             stream = null;
             notify('No se pudo abrir la cámara dentro de la app. Se abrirá la cámara del teléfono.', 'warning');

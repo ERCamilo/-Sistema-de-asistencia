@@ -2,8 +2,9 @@
  * ¿La foto sirve para leerla? Mide nitidez y luz de una vista reducida de la toma
  * y avisa en el momento, mientras todavía se puede repetir.
  *
- *  - nitidez: el borde más fuerte (percentil 98 del gradiente) respecto al contraste
- *    de la imagen: la letra enfocada tiene bordes bruscos; movida o fuera de foco, no;
+ *  - nitidez: qué tan bruscos son los bordes que hay (percentil 90 del gradiente sobre
+ *    el ruido) respecto al contraste: la letra enfocada tiene bordes bruscos; movida o
+ *    fuera de foco, no. Con pocos bordes (márgenes, fondo liso) no se juzga;
  *  - luz: promedio de gris; contraste: rango entre los percentiles 2 y 98.
  *
  * Los umbrales son iniciales y conservadores (avisar solo cuando es claro): las cifras
@@ -13,7 +14,9 @@
 export const QUALITY_SIZE = 480;          // ancho de la vista reducida que se mide
 export const DARK_BELOW = 65;             // promedio de gris (0–255) por debajo del cual hay poca luz
 export const FLAT_BELOW = 30;             // contraste por debajo del cual no hay nada que leer
-export const BLURRY_BELOW = 0.25;        // nitidez relativa por debajo de la cual está borrosa (texto nítido ≈ 0.5–1)
+export const NOISE_FLOOR = 6;             // un salto de gris menor que esto entre vecinos es ruido, no un borde
+export const MIN_EDGES = 0.004;           // fracción mínima de píxeles con borde para poder juzgar la nitidez
+export const BLURRY_BELOW = 0.22;        // nitidez relativa por debajo de la cual está borrosa (texto nítido ≈ 0.5–1)
 
 const gray = (data, i) => data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
 const percentile = (hist, total, p) => {
@@ -23,10 +26,16 @@ const percentile = (hist, total, p) => {
     return hist.length - 1;
 };
 
-/** @param {{data:Uint8ClampedArray|number[], width:number, height:number}} image RGBA */
+/**
+ * Mide nitidez y luz. La nitidez solo se juzga sobre los bordes que SÍ hay (por encima
+ * del ruido): una factura con márgenes o fondo liso tiene pocos bordes y eso no es
+ * estar borrosa. Si casi no hay bordes, `sharpness` es null («no se puede saber»).
+ * @param {{data:Uint8ClampedArray|number[], width:number, height:number}} image RGBA
+ * @returns {{sharpness:number|null, edges:number, brightness:number, contrast:number}}
+ */
 export function measureShot(image) {
     const { data, width, height } = image || {};
-    if (!data || !(width > 2) || !(height > 2)) return { sharpness: 0, brightness: 0, contrast: 0 };
+    if (!data || !(width > 2) || !(height > 2)) return { sharpness: null, edges: 0, brightness: 0, contrast: 0 };
     const g = new Float32Array(width * height);
     const lum = new Uint32Array(256);
     let sum = 0;
@@ -38,18 +47,22 @@ export function measureShot(image) {
     }
     const grad = new Uint32Array(256);
     let n = 0;
+    let edgeCount = 0;
     for (let y = 1; y < height - 1; y++) {
         for (let x = 1; x < width - 1; x++) {
             const p = y * width + x;
             const gx = g[p + 1] - g[p];
             const gy = g[p + width] - g[p];
-            grad[Math.min(255, Math.round(Math.max(Math.abs(gx), Math.abs(gy))))]++;
+            const v = Math.min(255, Math.round(Math.max(Math.abs(gx), Math.abs(gy))));
             n++;
+            if (v >= NOISE_FLOOR) { grad[v]++; edgeCount++; }
         }
     }
     const contrast = percentile(lum, g.length, 0.98) - percentile(lum, g.length, 0.02);
-    const edge = percentile(grad, n, 0.98);
-    return { sharpness: contrast > 0 ? edge / contrast : 0, brightness: sum / g.length, contrast };
+    const edges = n ? edgeCount / n : 0;
+    // Cuántos de los bordes son «fuertes»: el percentil 90 de los bordes que hay, frente al contraste.
+    const sharpness = edges >= MIN_EDGES && contrast > 0 ? percentile(grad, edgeCount, 0.9) / contrast : null;
+    return { sharpness, edges, brightness: sum / g.length, contrast };
 }
 
 const HINTS = {
@@ -64,7 +77,7 @@ export function assessShot(measure) {
     const issues = [];
     if (m.brightness < DARK_BELOW) issues.push('dark');
     else if (m.contrast < FLAT_BELOW) issues.push('flat');
-    else if (m.sharpness < BLURRY_BELOW) issues.push('blurry');
+    else if (m.sharpness !== null && m.sharpness !== undefined && m.sharpness < BLURRY_BELOW) issues.push('blurry');
     return { ok: issues.length === 0, issues, hint: issues.length ? HINTS[issues[0]] : null };
 }
 

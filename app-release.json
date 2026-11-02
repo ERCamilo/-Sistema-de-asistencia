@@ -6,7 +6,7 @@
       "date": "2026-11-02",
       "title": "Fotos de facturas más nítidas y fechas coherentes",
       "items": [
-        "La fecha de la factura es siempre la de emisión: la lista, el orden, los avisos y el Excel muestran la misma.",
+        "La fecha de la factura es siempre la de emisión: la lista, el orden, los avisos y el Excel muestran la misma. Las facturas que ya tenían dos fechas distintas las muestran y te dejan elegir cuál es la correcta.",
         "La cámara enfoca de forma continua, enfoca donde tocas el visor y avisa en el momento si la foto salió borrosa u oscura.",
         "El lector entiende las fechas como día/mes/año y copia los montos tal como están impresos."
       ]

@@ -466,10 +466,10 @@ describe('Cámara de facturas', () => {
         const torch = $('[data-pcam-torch]');
         expect(torch.hidden).toBe(false);
         torch.click(); await flush();
-        expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ torch: true }] });
+        expect(applyConstraints).toHaveBeenCalledWith(expect.objectContaining({ advanced: [{ torch: true }] }));
         expect(torch.getAttribute('aria-pressed')).toBe('true');
         torch.click(); await flush();
-        expect(applyConstraints).toHaveBeenLastCalledWith({ advanced: [{ torch: false }] });
+        expect(applyConstraints).toHaveBeenLastCalledWith(expect.objectContaining({ advanced: [{ torch: false }] }));
         expect(torch.getAttribute('aria-pressed')).toBe('false');
         camera.close();
     });
@@ -917,7 +917,19 @@ describe('Cámara de facturas: enfoque', () => {
         const { applyConstraints, track } = withFocus(['manual', 'continuous', 'single-shot']);
         const { camera } = setup({ track });
         await camera.open();
-        expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ focusMode: 'continuous' }] });
+        expect(applyConstraints).toHaveBeenCalledWith(expect.objectContaining({ advanced: [{ focusMode: 'continuous' }] }));
+    });
+
+    test('enfocar o encender la linterna conserva la resolución pedida (applyConstraints reemplaza el conjunto)', async () => {
+        const { applyConstraints, track } = withFocus(['continuous', 'single-shot']);
+        track.getCapabilities = () => ({ focusMode: ['continuous', 'single-shot'], torch: true });
+        const { camera } = setup({ track });
+        await camera.open();
+        const wanted = expect.objectContaining({ facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 } });
+        expect(applyConstraints).toHaveBeenCalledWith(wanted);
+        applyConstraints.mockClear();
+        $('[data-pcam-torch]').click(); await flush();
+        expect(applyConstraints).toHaveBeenCalledWith(wanted);
     });
 
     test('si no lo permite (o no sabe decirlo) no falla ni pide nada', async () => {
@@ -939,7 +951,7 @@ describe('Cámara de facturas: enfoque', () => {
         applyConstraints.mockClear();
         tap(frame, 110, 220);
         await flush();
-        expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ focusMode: 'single-shot', pointsOfInterest: [{ x: 0.5, y: 0.5 }] }] });
+        expect(applyConstraints).toHaveBeenCalledWith(expect.objectContaining({ advanced: [{ focusMode: 'single-shot', pointsOfInterest: [{ x: 0.5, y: 0.5 }] }] }));
         const ring = $('[data-pcam-focus-ring]');
         expect(ring).not.toBeNull();
         expect(ring.style.left).toBe('100px');
@@ -948,7 +960,7 @@ describe('Cámara de facturas: enfoque', () => {
         applyConstraints.mockClear();
         jest.advanceTimersByTime(3200);
         await flush();
-        expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ focusMode: 'continuous' }] });
+        expect(applyConstraints).toHaveBeenCalledWith(expect.objectContaining({ advanced: [{ focusMode: 'continuous' }] }));
         expect($('[data-pcam-focus-ring]').hidden).toBe(true);
     });
 
