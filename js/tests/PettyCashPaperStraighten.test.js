@@ -4,7 +4,7 @@
  * el papel ya está recto no se remuestrea (re-muestrear suaviza el texto).
  */
 import {
-    homography, applyH, detectQuad, expandQuad, quadOutputSize, warpImage, warpImageAsync,
+    homography, applyH, detectQuad, analyzeQuad, expandQuad, quadOutputSize, warpImage, warpImageAsync,
     straightenShotToPaper, straightenCanvas,
     STRAIGHTEN_MARGIN, STRAIGHTEN_MAX_SIDE, MAX_SKEW_DEG
 } from '../modules/features/pettycash/PettyCashPaperStraighten.js';
@@ -142,6 +142,28 @@ describe('detectQuad', () => {
     });
 });
 
+describe('analyzeQuad: por qué no se endereza', () => {
+    const reason = (img) => analyzeQuad(img).reason;
+    test('cada descarte tiene un motivo corto, para calibrar con uso real', () => {
+        expect(reason(make(() => 230))).toBe('no-paper');
+        expect(reason(make(() => 40))).toBe('no-paper');
+        expect(reason(rotatedPaper(12, { pw: 260, ph: 400 }))).toBe('cut-off');
+        expect(reason(rotatedPaper(10, { pw: 30, ph: 40 }))).toBe('size');
+        expect(reason(rotatedPaper(60))).toBe('landscape');
+        expect(reason(make((x, y) => (Math.hypot(x - 120, y - 160) < 70 ? 235 : 40)))).toBeDefined();   // mancha redonda: alguno
+        expect(reason(trapezoidPaper([[110, 50], [130, 50], [215, 290], [25, 290]]))).toBe('perspective');
+    });
+    test('un papel recto sale con su motivo y sin descartar la medición', () => {
+        const r = analyzeQuad(rotatedPaper(0));
+        expect(r.reason).toBeUndefined();
+        expect(r.straight).toBe(true);
+    });
+    test('detectQuad sigue devolviendo solo esquinas o null', () => {
+        expect(detectQuad(make(() => 230))).toBeNull();
+        expect(detectQuad(rotatedPaper(12)).corners).toHaveLength(4);
+    });
+});
+
 describe('expandQuad y tamaño de salida', () => {
     const quad = [[0.3, 0.2], [0.7, 0.2], [0.7, 0.8], [0.3, 0.8]];
     test('el margen aleja cada esquina del centro, sin deformar', () => {
@@ -265,11 +287,15 @@ describe('straightenShotToPaper', () => {
         expect(out.skewDeg).toBeGreaterThan(9);
         expect(shot.source.close).not.toHaveBeenCalled();
     });
-    test('papel recto, sin papel o toma ilegible: null (no se remuestrea)', () => {
+    test('papel recto, sin papel o toma ilegible: null (no se remuestrea) y se avisa por qué', () => {
         const a = shotWith(rotatedPaper(0));
-        expect(straightenShotToPaper(a.shot, { doc: a.doc })).toBeNull();
+        const onDecline = jest.fn();
+        expect(straightenShotToPaper(a.shot, { doc: a.doc, onDecline })).toBeNull();
+        expect(onDecline).toHaveBeenLastCalledWith('straight');
         const b = shotWith(make(() => 230));
-        expect(straightenShotToPaper(b.shot, { doc: b.doc })).toBeNull();
+        expect(straightenShotToPaper(b.shot, { doc: b.doc, onDecline })).toBeNull();
+        expect(onDecline).toHaveBeenLastCalledWith('no-paper');
+        expect(straightenShotToPaper(b.shot, { doc: b.doc })).toBeNull();          // sin callback también funciona
         expect(straightenShotToPaper({ source: new Blob(['x']), crop: { sx: 0, sy: 0, sw: 1, sh: 1 } }, { doc: document })).toBeNull();
         expect(straightenShotToPaper(null)).toBeNull();
     });
@@ -305,6 +331,13 @@ describe('straightenCanvas', () => {
         const [placed] = out.ctx.putImageData.mock.calls[0];
         expect(placed.width).toBe(out.width);
         expect(placed.height).toBe(out.height);
+    });
+    test('el tope de tamaño se respeta (la foto enderezada no sale más chica que la normal)', async () => {
+        const big = { width: 1300, height: 3000, getContext: () => ({ getImageData: () => rotatedPaper(10) }) };
+        const doc = makeDoc();
+        // esquinas que ocupan todo el lienzo grande: el lado largo debe poder llegar a 3000
+        const out = await straightenCanvas(big, [[0, 0], [1, 0], [1, 1], [0, 1]], { doc, maxSide: 3000, yieldFn: async () => {}, rowsPerChunk: 4000 });
+        expect(Math.max(out.width, out.height)).toBe(3000);
     });
     test('sin esquinas válidas devuelve null', async () => {
         const out = await straightenCanvas(fakeCanvas(rotatedPaper(10)), null, { doc: makeDoc(), yieldFn: async () => {} });

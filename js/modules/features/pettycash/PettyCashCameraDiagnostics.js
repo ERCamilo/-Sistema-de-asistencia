@@ -59,7 +59,9 @@ export function summarizeDiagnostics(events = []) {
             count: straight.length,
             avgSkew: round(avg(straight.map(s => s.straightened.skew || 0)), 1),
             avgPersp: round(avg(straight.map(s => s.straightened.persp || 0)), 2),
-            avgSaveMs: round(avg(straight.map(s => s.saveMs || 0)))
+            avgSaveMs: round(avg(straight.map(s => s.saveMs || 0))),
+            // Por qué no se enderezaron las demás: recta, apaisada, cortada por el borde, etc.
+            declined: shots.reduce((acc, s) => (s.straightenDeclined ? tally(acc, s.straightenDeclined) : acc), {})
         },
         parts: {
             count: parts.length,

@@ -28,6 +28,7 @@ describe('Configuración → Tests: enderezar facturas', () => {
         expect(text).toMatch(/endere/i);
         expect(text).toMatch(/duda/i);
         expect(text).toMatch(/factura larga/i);
+        expect(text).toMatch(/recorta/i);           // también recorta el fondo, aunque el recorte automático esté apagado
     });
     test('se guarda en state.settings y dispara el guardado', () => {
         const st = { settings: {} };
@@ -43,6 +44,19 @@ describe('Configuración → Tests: enderezar facturas', () => {
         ]));
         tab({ newReceiptCamera: true });
         expect(document.querySelector('[data-pcam-diag]').textContent).toMatch(/Enderezadas:\s*1/);
+        localStorage.removeItem('sa.pcam.diag.v1');
+    });
+    test('el diagnóstico también dice por qué no se enderezaron las demás', () => {
+        localStorage.setItem('sa.pcam.diag.v1', JSON.stringify([
+            { t: 1, type: 'shot', origin: 'sensor', straightenDeclined: 'straight' },
+            { t: 2, type: 'shot', origin: 'sensor', straightenDeclined: 'landscape' },
+            { t: 3, type: 'shot', origin: 'sensor', straightenDeclined: 'straight' }
+        ]));
+        tab({ newReceiptCamera: true });
+        const text = document.querySelector('[data-pcam-diag]').textContent;
+        expect(text).toMatch(/Sin enderezar/i);
+        expect(text).toMatch(/2 recta/i);
+        expect(text).toMatch(/1 apaisada/i);
         localStorage.removeItem('sa.pcam.diag.v1');
     });
 });

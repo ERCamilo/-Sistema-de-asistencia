@@ -114,7 +114,7 @@ export async function photoFromShot(shot, { doc = globalThis.document, render = 
     const canvas = render(shot, { doc });
     if (Array.isArray(shot.quad)) {
         try {
-            const straight = await straightenCanvasFn(canvas, shot.quad, { doc });
+            const straight = await straightenCanvasFn(canvas, shot.quad, { doc, maxSide: MAX_PHOTO_LONG_SIDE });
             if (straight) return encode(straight);
         } catch (_) { /* se guarda el recorte sin enderezar */ }
     }

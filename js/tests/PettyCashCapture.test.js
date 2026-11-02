@@ -157,7 +157,7 @@ describe('photoFromShot: de la toma a la foto que se guarda', () => {
         const quad = [[0, 0], [1, 0], [1, 1], [0, 1]];
         const d = deps();
         await photoFromShot({ source: {}, crop: {}, quad }, d);
-        expect(d.straightenCanvasFn).toHaveBeenCalledWith(canvas, quad, expect.objectContaining({ doc: d.doc }));
+        expect(d.straightenCanvasFn).toHaveBeenCalledWith(canvas, quad, expect.objectContaining({ doc: d.doc, maxSide: MAX_PHOTO_LONG_SIDE }));
         expect(d.encode).toHaveBeenCalledWith(straight);
     });
     test('si enderezar falla o no devuelve nada, se guarda el recorte tal cual (nunca se pierde la foto)', async () => {

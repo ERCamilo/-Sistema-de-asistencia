@@ -82,11 +82,20 @@ describe('summarizeDiagnostics: fotos enderezadas', () => {
             { type: 'shot', origin: 'video', saveMs: 400 }
         ];
         const s = summarizeDiagnostics(events);
-        expect(s.straightened).toEqual({ count: 2, avgSkew: 8, avgPersp: 1.05, avgSaveMs: 1100 });
+        expect(s.straightened).toEqual({ count: 2, avgSkew: 8, avgPersp: 1.05, avgSaveMs: 1100, declined: {} });
         expect(s.shots.count).toBe(3);
     });
+    test('cuenta por qué no se enderezaron las demás', () => {
+        const events = [
+            { type: 'shot', origin: 'sensor', straightenDeclined: 'straight' },
+            { type: 'shot', origin: 'sensor', straightenDeclined: 'straight' },
+            { type: 'shot', origin: 'video', straightenDeclined: 'landscape' },
+            { type: 'shot', origin: 'video', straightened: { skew: 5, persp: 1 }, saveMs: 800 }
+        ];
+        expect(summarizeDiagnostics(events).straightened.declined).toEqual({ straight: 2, landscape: 1 });
+    });
     test('sin fotos enderezadas, todo en cero', () => {
-        expect(summarizeDiagnostics([{ type: 'shot', origin: 'sensor' }]).straightened).toEqual({ count: 0, avgSkew: 0, avgPersp: 0, avgSaveMs: 0 });
+        expect(summarizeDiagnostics([{ type: 'shot', origin: 'sensor' }]).straightened).toEqual({ count: 0, avgSkew: 0, avgPersp: 0, avgSaveMs: 0, declined: {} });
     });
 });
 

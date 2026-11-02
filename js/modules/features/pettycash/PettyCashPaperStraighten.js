@@ -18,7 +18,7 @@
 import { paperThreshold, PAPER_MIN_AREA, PAPER_MAX_AREA, PAPER_SIZE } from './PettyCashPaperCrop.js';
 
 export const STRAIGHTEN_MARGIN = 0.05;        // margen por lado, como fracción del tamaño del papel
-export const STRAIGHTEN_MAX_SIDE = 2400;      // lado largo máximo de la imagen enderezada (igual que lo que acepta el lector)
+export const STRAIGHTEN_MAX_SIDE = 3000;      // lado largo máximo de la imagen enderezada (el mismo de la foto normal: enderezar no debe bajar la resolución)
 export const MAX_SKEW_DEG = 40;               // más inclinado que esto no se toca
 export const STRAIGHT_SKEW_DEG = 3;           // menos que esto (y sin perspectiva) cuenta como recto
 export const STRAIGHT_PERSPECTIVE = 1.06;     // relación entre lados opuestos para considerarlos paralelos
@@ -157,42 +157,49 @@ const interiorAngle = (prev, at, next) => {
 };
 
 /**
+ * Analiza una imagen RGBA. Si se puede enderezar devuelve las esquinas y las medidas; si no,
+ * `{ reason }` con un motivo corto: 'no-paper' (no hay papel claro sobre fondo distinto),
+ * 'cut-off' (toca el borde del cuadro), 'size' (muy pequeño o casi todo el cuadro),
+ * 'shape' (no es un cuadrilátero casi rectangular), 'perspective' (lados opuestos muy
+ * distintos), 'landscape' (se ve apaisado: no se sabe cuál es «arriba») o 'skew' (muy girado).
  * @param {{data:Uint8ClampedArray|number[], width:number, height:number}} image RGBA
- * @returns {{corners:number[][], skewDeg:number, perspective:number, straight:boolean, area:number, fill:number}|null}
+ * @returns {{corners:number[][], skewDeg:number, perspective:number, straight:boolean, area:number, fill:number}|{reason:string}}
  *   corners: TL, TR, BR, BL normalizadas (0–1) sobre la imagen analizada.
  */
-export function detectQuad(image) {
+export function analyzeQuad(image) {
     const base = paperThreshold(image);
-    if (!base) return null;
+    if (!base) return { reason: 'no-paper' };
     const { g, width, height, threshold } = base;
     const total = width * height;
     const blob = largestBrightBlob(g, width, height, threshold);
-    if (!blob || blob.corners.some((c) => !c)) return null;
+    if (!blob || blob.corners.some((c) => !c)) return { reason: 'no-paper' };
+    // Casi todo el cuadro es «claro»: no hay un fondo distinto del papel (blanco sobre blanco).
+    if (blob.size / total > 0.9) return { reason: 'no-paper' };
     // Si el papel toca el borde del cuadro no se ven sus esquinas de verdad: no se adivina.
-    if (blob.border > BORDER_LIMIT * (width + height)) return null;
+    if (blob.border > BORDER_LIMIT * (width + height)) return { reason: 'cut-off' };
     const pts = blob.corners;
-    if (!convex(pts)) return null;
+    if (!convex(pts)) return { reason: 'shape' };
 
     const area = polygonArea(pts) / total;
-    if (area < PAPER_MIN_AREA || area > PAPER_MAX_AREA) return null;
+    if (area < PAPER_MIN_AREA || area > PAPER_MAX_AREA) return { reason: 'size' };
     const fill = blob.size / polygonArea(pts);
-    if (fill < MIN_FILL) return null;
+    if (fill < MIN_FILL) return { reason: 'shape' };
     for (let i = 0; i < 4; i++) {
         const angle = interiorAngle(pts[(i + 3) % 4], pts[i], pts[(i + 1) % 4]);
-        if (angle < MIN_ANGLE || angle > MAX_ANGLE) return null;
+        if (angle < MIN_ANGLE || angle > MAX_ANGLE) return { reason: 'shape' };
     }
 
     const [tl, tr, br, bl] = pts;
     const top = dist(tl, tr); const bottom = dist(bl, br); const left = dist(tl, bl); const right = dist(tr, br);
     const ratio = (a, b) => Math.max(a, b) / Math.max(1e-9, Math.min(a, b));
     const perspective = Math.max(ratio(top, bottom), ratio(left, right));
-    if (perspective > MAX_PERSPECTIVE) return null;
+    if (perspective > MAX_PERSPECTIVE) return { reason: 'perspective' };
     // Una factura se asume en vertical: un papel apaisado (o girado tanto que lo parece) es ambiguo.
-    if ((left + right) / 2 < MIN_PORTRAIT * ((top + bottom) / 2)) return null;
+    if ((left + right) / 2 < MIN_PORTRAIT * ((top + bottom) / 2)) return { reason: 'landscape' };
 
     const angleOf = (a, b, vertical) => Math.abs(degrees(vertical ? Math.atan2(b[0] - a[0], b[1] - a[1]) : Math.atan2(b[1] - a[1], b[0] - a[0])));
     const skewDeg = Math.max(angleOf(tl, tr, false), angleOf(bl, br, false), angleOf(tl, bl, true), angleOf(tr, br, true));
-    if (skewDeg > MAX_SKEW_DEG) return null;
+    if (skewDeg > MAX_SKEW_DEG) return { reason: 'skew' };
 
     return {
         corners: pts.map(([x, y]) => [x / width, y / height]),
@@ -202,6 +209,12 @@ export function detectQuad(image) {
         area,
         fill
     };
+}
+
+/** Como `analyzeQuad`, pero devuelve null cuando no se puede (o no hace falta) enderezar. */
+export function detectQuad(image) {
+    const found = analyzeQuad(image);
+    return found.reason ? null : found;
 }
 
 // ── Remuestreo ────────────────────────────────────────────────────────────
@@ -258,12 +271,14 @@ export async function warpImageAsync(src, corners, outW, outH, { rowsPerChunk = 
 
 /**
  * Analiza una toma de la cámara sin consumirla (dibuja una copia pequeña).
+ * @param {{doc?:Document, onDecline?:(reason:string)=>void}} [options] `onDecline` recibe el motivo
+ *   cuando no se endereza ('straight' si el papel ya estaba recto, o un motivo de `analyzeQuad`).
  * @returns {{crop:{sx:number, sy:number, sw:number, sh:number}, quad:number[][], skewDeg:number, perspective:number, area:number}|null}
  *   `crop` es la zona de la toma que contiene el papel; `quad` son sus esquinas (TL, TR, BR, BL)
  *   en fracción (0–1) de ESE recorte (pueden pasar un poco de 0–1 por el margen). Null si no hay
  *   que enderezar.
  */
-export function straightenShotToPaper(shot, { doc = globalThis.document } = {}) {
+export function straightenShotToPaper(shot, { doc = globalThis.document, onDecline = () => {} } = {}) {
     const source = shot?.source;
     const crop = shot?.crop;
     if (!source || !crop || !doc || typeof source === 'string' || source instanceof Blob) return null;
@@ -275,8 +290,9 @@ export function straightenShotToPaper(shot, { doc = globalThis.document } = {}) 
     const ctx = canvas.getContext?.('2d');
     if (!ctx?.getImageData) return null;
     ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, w, h);
-    const found = detectQuad(ctx.getImageData(0, 0, w, h));
-    if (!found || found.straight) return null;
+    const found = analyzeQuad(ctx.getImageData(0, 0, w, h));
+    if (found.reason) { onDecline(found.reason); return null; }
+    if (found.straight) { onDecline('straight'); return null; }
 
     const grown = expandQuad(found.corners, STRAIGHTEN_MARGIN);
     const xs = grown.map((c) => c[0]); const ys = grown.map((c) => c[1]);

@@ -1139,7 +1139,7 @@ describe('Cámara de facturas: enderezar la factura', () => {
         await camera.open();
         $('[data-pcam-shutter]').click();
         await flush();
-        expect(straightenShot).toHaveBeenCalledWith(shot);
+        expect(straightenShot).toHaveBeenCalledWith(shot, expect.objectContaining({ onDecline: expect.any(Function) }));
         const sent = toPhoto.mock.calls[0][0];
         expect(sent.crop).toEqual(straightened.crop);
         expect(sent.quad).toEqual(straightened.quad);
@@ -1184,6 +1184,16 @@ describe('Cámara de facturas: enderezar la factura', () => {
             expect(deps.diag.record).not.toHaveBeenCalledWith('shot', expect.objectContaining({ straightened: expect.anything() }));
             camera.close();
         }
+    });
+
+    test('cuando no se endereza, la razón queda anotada para calibrar', async () => {
+        const straightenShot = jest.fn((shot, hooks) => { hooks.onDecline('landscape'); return null; });
+        const { camera, deps } = setup({ straighten: () => true, straightenShot, toPhoto: photo(), assessShot: () => null });
+        await camera.open();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(deps.diag.record).toHaveBeenCalledWith('shot', expect.objectContaining({ straightenDeclined: 'landscape' }));
+        expect(deps.diag.record).not.toHaveBeenCalledWith('shot', expect.objectContaining({ straightened: expect.anything() }));
     });
 
     test('si no hay nada que enderezar y el recorte está apagado, se guarda la toma completa', async () => {

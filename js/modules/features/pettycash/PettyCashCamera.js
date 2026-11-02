@@ -259,7 +259,7 @@ export function createReceiptCamera({
     autoCrop = () => false,
     cropShot = (shot) => cropShotToPaper(shot, { doc }),
     straighten = () => false,
-    straightenShot = (shot) => straightenShotToPaper(shot, { doc }),
+    straightenShot = (shot, hooks) => straightenShotToPaper(shot, { doc, ...hooks }),
     capture,
     getItemsState = async () => new Map(),
     onReview = () => {},
@@ -1021,9 +1021,10 @@ export function createReceiptCamera({
         try { quality = assessShot(shot); } catch (_) { quality = null; }
         // Enderezar (opcional): recorta al papel y lo dibuja recto. Si no hay nada que enderezar o falla, cae al recorte recto.
         let straightInfo = null;
+        let straightDeclined = null;
         if (straighten()) {
             try {
-                const result = straightenShot(shot);
+                const result = straightenShot(shot, { onDecline: (reason) => { straightDeclined = reason; } });
                 if (result?.crop && Array.isArray(result.quad)) {
                     shot = { ...shot, crop: result.crop, quad: result.quad };
                     straightInfo = { skew: Math.round(result.skewDeg * 10) / 10, persp: Math.round(result.perspective * 100) / 100 };
@@ -1049,6 +1050,7 @@ export function createReceiptCamera({
                 origin, grabMs, saveMs: Math.round(clock() - saveStart), kb: Math.round(blob.size / 1024), mime: type, long: false,
                 ...(cropArea !== null ? { cropped: cropArea } : {}),
                 ...(straightInfo ? { straightened: straightInfo } : {}),
+                ...(!straightInfo && straightDeclined ? { straightenDeclined: straightDeclined } : {}),
                 ...(quality?.measure ? { sharp: quality.measure.sharpness === null ? null : round2(quality.measure.sharpness), lum: Math.round(quality.measure.brightness), flag: quality.assessment.issues[0] || null } : {})
             });
             if (session === sessionId) {
