@@ -19,9 +19,22 @@ const readBox = (el) => {
 
 export function attachBoxEditor({ doc = document, onCommit } = {}) {
     let drag = null;
+    const touches = new Set();   // dedos apoyados sobre la foto: con dos es un pellizco, no un trazo
+
+    // Descarta lo que se estaba trazando o moviendo, sin guardar.
+    const abort = () => {
+        if (!drag) return;
+        if (drag.mode === 'draw') drag.draft.remove();
+        else if (drag.from) place(drag.box, drag.from);
+        drag = null;
+    };
 
     const down = (e) => {
         const stage = e.target.closest?.('[data-pcn-stage]');
+        if (stage) {
+            touches.add(e.pointerId);
+            if (touches.size > 1) { abort(); return; }
+        }
         if (!stage || !stage.dataset.edit) return;
         const key = stage.dataset.key;
         const rect = stage.getBoundingClientRect();
@@ -41,7 +54,7 @@ export function attachBoxEditor({ doc = document, onCommit } = {}) {
     };
 
     const move = (e) => {
-        if (!drag) return;
+        if (!drag || touches.size > 1) return;
         const end = { x: e.clientX, y: e.clientY };
         if (drag.mode === 'draw') {
             const box = boxFromDrag(drag.start, end, drag.rect);
@@ -56,7 +69,8 @@ export function attachBoxEditor({ doc = document, onCommit } = {}) {
         }
     };
 
-    const up = () => {
+    const up = (e) => {
+        touches.delete(e?.pointerId);
         if (!drag) return;
         const { mode, key, draft, result } = drag;
         drag = null;

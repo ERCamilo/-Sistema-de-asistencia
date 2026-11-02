@@ -86,6 +86,55 @@ describe('mover y cambiar de tamaño', () => {
     });
 });
 
+describe('un segundo dedo (pellizco) cancela el trazo', () => {
+    const touch = (type, target, x, y, id) => {
+        const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+        Object.defineProperty(e, 'pointerId', { value: id });
+        target.dispatchEvent(e);
+    };
+    test('al apoyar el segundo dedo se descarta lo trazado y no se guarda nada', () => {
+        const stage = mount(mov);
+        const onCommit = jest.fn();
+        detach = attachBoxEditor({ doc: document, onCommit });
+        touch('pointerdown', stage, 200, 250, 1);
+        touch('pointermove', stage, 300, 450, 1);
+        expect(document.querySelector('[data-pcn-draft]')).not.toBeNull();
+        touch('pointerdown', stage, 400, 300, 2);
+        expect(document.querySelector('[data-pcn-draft]')).toBeNull();
+        touch('pointermove', stage, 350, 500, 1);
+        touch('pointerup', stage, 350, 500, 1);
+        touch('pointerup', stage, 400, 300, 2);
+        expect(onCommit).not.toHaveBeenCalled();
+    });
+    test('si estaba moviendo el recuadro, vuelve a su sitio y no guarda', () => {
+        const withBox = { ...mov, ocrBoxes: { total: [250, 250, 500, 500] } };
+        const stage = mount(withBox);
+        const box = stage.querySelector('[data-pcn-box]');
+        const onCommit = jest.fn();
+        detach = attachBoxEditor({ doc: document, onCommit });
+        touch('pointerdown', box, 250, 450, 1);
+        touch('pointermove', box, 290, 530, 1);
+        expect(box.style.left).toBe('35%');
+        touch('pointerdown', stage, 400, 300, 2);
+        expect(box.style.left).toBe('25%');
+        touch('pointerup', box, 290, 530, 1);
+        expect(onCommit).not.toHaveBeenCalled();
+    });
+    test('después del pellizco, un dedo nuevo vuelve a poder trazar', () => {
+        const stage = mount(mov);
+        const onCommit = jest.fn();
+        detach = attachBoxEditor({ doc: document, onCommit });
+        touch('pointerdown', stage, 200, 250, 1);
+        touch('pointerdown', stage, 400, 300, 2);
+        touch('pointerup', stage, 200, 250, 1);
+        touch('pointerup', stage, 400, 300, 2);
+        touch('pointerdown', stage, 200, 250, 3);
+        touch('pointermove', stage, 300, 450, 3);
+        touch('pointerup', stage, 300, 450, 3);
+        expect(onCommit).toHaveBeenCalledWith('total', [250, 250, 500, 500]);
+    });
+});
+
 describe('limpieza', () => {
     test('al desconectar ya no escucha', () => {
         const stage = mount(mov);

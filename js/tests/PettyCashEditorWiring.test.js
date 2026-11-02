@@ -67,10 +67,10 @@ describe('detrás del interruptor', () => {
 describe('abrir un gasto', () => {
     test('reinicia el estado de pantalla y carga la foto guardada en el teléfono', async () => {
         seed();
-        state.pettyCash._editorUi = { field: 'ncf', zoom: false, size: 2, more: true, itemsOpen: true, secOpen: true, draft: { total: 5 } };
+        state.pettyCash._editorUi = { field: 'ncf', view: { s: 3, x: -5, y: -9 }, viewKey: 'ncf', split: 60, more: true, itemsOpen: true, secOpen: true, draft: { total: 5 } };
         indexedDBService.getReceipt.mockResolvedValue({ originalBlob: new Blob(['x'], { type: 'image/jpeg' }), originalType: 'image/jpeg', previewDataUrl: 'data:image/jpeg;base64,AA' });
         window.pcOpenMovement('g1');
-        expect(state.pettyCash._editorUi).toEqual({ field: 'total', zoom: true, size: 1, more: null, itemsOpen: false, secOpen: null, draft: {} });
+        expect(state.pettyCash._editorUi).toEqual({ field: 'total', view: null, viewKey: null, split: null, more: null, itemsOpen: false, secOpen: null, draft: {} });
         expect(state.pettyCash._editSource).toBeUndefined();
         await flush();
         expect(state.pettyCash._editSource).toMatchObject({ url: 'blob:recibo', mime: 'image/jpeg' });
@@ -104,19 +104,19 @@ describe('abrir un gasto', () => {
 describe('acciones del editor', () => {
     beforeEach(async () => { seed(); window.pcOpenMovement('g1'); await flush(); window.render.mockClear(); });
 
-    test('tamaño, zoom, dato activo y secciones cambian y repintan', () => {
-        window.pcEditorSize(); expect(state.pettyCash._editorUi.size).toBe(2);
-        window.pcEditorZoom(); expect(state.pettyCash._editorUi.zoom).toBe(false);
+    test('dato activo y secciones cambian y repintan; ya no hay botones de tamaño ni de ampliar', () => {
+        expect(window.pcEditorSize).toBeUndefined();
+        expect(window.pcEditorZoom).toBeUndefined();
         window.pcEditorField('date'); expect(state.pettyCash._editorUi.field).toBe('date');
         window.pcEditorItems(); expect(state.pettyCash._editorUi.itemsOpen).toBe(true);
         window.pcEditorMore(); expect(state.pettyCash._editorUi.more).toBe(true);
-        expect(window.render).toHaveBeenCalledTimes(5);
+        expect(window.render).toHaveBeenCalledTimes(3);
         expect(document.querySelector('[data-pcn-more]').hidden).toBe(false);
     });
 
     test('lo escrito se conserva al repintar', () => {
         document.getElementById('pce-tienda').value = 'Comedor Lía II';
-        window.pcEditorSize();
+        window.pcEditorMore();
         expect(state.pettyCash._editorUi.draft.paidTo).toBe('Comedor Lía II');
         expect(document.getElementById('pce-tienda').value).toBe('Comedor Lía II');
     });

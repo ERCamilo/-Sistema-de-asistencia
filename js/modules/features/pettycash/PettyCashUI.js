@@ -51,8 +51,9 @@ import { isValidBox } from './PettyCashBoxMath.js';
 import { resolveReceiptOriginal } from './PettyCashReceiptSource.js';
 import { rescanSummary } from './PettyCashRescan.js';
 import { attachBoxEditor } from './PettyCashBoxEditor.js';
+import { attachPhotoViewer } from './PettyCashPhotoViewer.js';
 import { receiptEditorHTML, editorViewState, EDITOR_FIELDS } from './PettyCashReceiptEditor.js';
-import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, centerEditorBox, fitEditorScreen } from './PettyCashEditorUi.js';
+import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, fitEditorScreen } from './PettyCashEditorUi.js';
 import { projectFiscal, projectFiscalFormHTML, readProjectFiscalForm } from './PettyCashProjectFiscal.js';
 import {
     isReceiptReadyForBackup,
@@ -1575,10 +1576,10 @@ function openEditorState(movId) {
     d._rescanResult = null;
     if (newPettyCashScreen() && movId) loadEditorSource(movId);
 }
-/** Repinta y, con la imagen ampliada, centra el recuadro del dato activo. */
+/** Repinta; el visor de la foto acerca solo al recuadro del dato activo (PettyCashPhotoViewer). */
 function repaintEditor() {
     window.render?.();
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { fitEditorScreen(); centerEditorBox(document); });
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { fitEditorScreen(); });
     if (!_editorResizeBound && typeof window.addEventListener === 'function') {
         _editorResizeBound = true;
         window.addEventListener('resize', () => fitEditorScreen());
@@ -1586,6 +1587,7 @@ function repaintEditor() {
 }
 let _editorResizeBound = false;
 let _boxEditorDetach = null;
+let _photoViewer = null;
 const EDITOR_BOX_KEYS = new Set(['rncEmisor', 'ncf', 'date', 'subtotal', 'itbis', 'total', 'paidTo', 'cliente', 'rncCliente', 'descuento', 'propina', 'exento']);
 function closeEditorState() {
     releaseEditorSource();
@@ -2282,8 +2284,6 @@ export function registerPettyCashGlobals() {
         d._editorUi = editorUiAction(ui, name, arg, shown);
         repaintEditor();
     };
-    window.pcEditorSize = editorAct('size');
-    window.pcEditorZoom = editorAct('zoom');
     window.pcEditorItems = editorAct('items');
     window.pcEditorMore = editorAct('more');
     window.pcEditorSecurity = editorAct('security');
@@ -2309,6 +2309,14 @@ export function registerPettyCashGlobals() {
         delete rest[key];
         await saveManualBoxes(mov, rest);
     };
+    // Zoom, arrastre y divisor de la foto: la vista vive en el estado del editor y no repinta mientras se mueve.
+    if (typeof document !== 'undefined' && !_photoViewer) {
+        _photoViewer = attachPhotoViewer({
+            doc: document,
+            getUi: () => pc()?._editorUi || null,
+            setUi: (patch) => { const d = pc(); if (d?._editorUi) d._editorUi = { ...d._editorUi, ...patch }; }
+        });
+    }
     if (typeof document !== 'undefined' && !_boxEditorDetach) {
         _boxEditorDetach = attachBoxEditor({ doc: document, onCommit: (key, box) => window.pcEditorBoxCommit?.(key, box) });
     }

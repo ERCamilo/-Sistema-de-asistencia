@@ -20,22 +20,29 @@
 
 .pcn-body { display: flex; flex-direction: column; min-height: 0; }
 .pcn-view { display: flex; flex-direction: column; background: var(--pcn-bg); min-width: 0; }
-.pcn-win { --h: 280px; position: relative; overflow: auto; flex: 1 1 var(--h); min-height: var(--h); background: #080e18; overscroll-behavior: contain; }
-.pcn-win[data-zoom="false"] { --h: 400px; }
-.pcn-win[data-size="0"] { --h: 150px; } .pcn-win[data-size="0"][data-zoom="false"] { --h: 260px; }
-.pcn-win[data-size="2"] { --h: 400px; } .pcn-win[data-size="2"][data-zoom="false"] { --h: 520px; }
-.pcn-winwrap { position: relative; display: flex; flex-direction: column; flex: 0 0 auto; }
+.pcn-winwrap { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.pcn-view > :not(.pcn-winwrap) { flex: 0 0 auto; }
+/* La foto se mueve con transform (PettyCashPhotoViewer): el navegador no desplaza ni hace zoom a la página. */
+.pcn-win { position: relative; overflow: hidden; flex: 1 1 auto; min-height: 140px; height: clamp(240px, 44vh, 460px); background: #080e18;
+    touch-action: none; overscroll-behavior: contain; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.pcn-win:active { cursor: grabbing; }
 .pcn-fbar { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; z-index: 3; }
-.pcn-fb { width: 44px; height: 44px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .2); background: rgba(11, 19, 32, .85); color: var(--pcn-text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-.pcn-win--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; color: var(--pcn-dim); }
+.pcn-zbar { position: absolute; left: 8px; bottom: 8px; display: flex; align-items: center; gap: 6px; z-index: 3; }
+.pcn-zpct { min-width: 54px; text-align: center; font-size: .75rem; font-weight: 600; color: var(--pcn-text); background: rgba(11, 19, 32, .85); border: 1px solid rgba(255, 255, 255, .2); border-radius: 999px; padding: 8px 10px; }
+.pcn-fb { width: 44px; height: 44px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .2); background: rgba(11, 19, 32, .85); color: var(--pcn-text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; touch-action: manipulation; }
+.pcn-win--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; color: var(--pcn-dim); cursor: default; height: auto; min-height: 160px; }
 .pcn-win--empty p { margin: 0; font-size: .9rem; }
 .pcn-empty-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-.pcn-win[data-zoom="false"][data-box="false"] { flex: 0 0 auto; min-height: 0; }
-.pcn-win[data-zoom="false"][data-box="false"] .pcn-img { max-height: var(--h); object-fit: contain; }
-.pcn-stage { position: relative; margin: 0 auto; overflow: hidden; }
-.pcn-img { display: block; width: 100%; height: auto; }
-.pcn-box { position: absolute; border: 2px solid #22d3ee; border-radius: 4px; box-shadow: 0 0 0 9999px rgba(8, 14, 24, .55); pointer-events: none; }
-.pcn-tag { position: absolute; left: -2px; top: -22px; background: #22d3ee; color: #081a24; font-family: inherit; font-weight: 600; font-size: 11px; line-height: 1; padding: 3px 7px; border-radius: 5px 5px 5px 0; white-space: nowrap; }
+.pcn-stage { position: relative; width: 100%; transform-origin: 0 0; overflow: hidden; }
+.pcn-stage.is-anim { transition: transform .24s ease; }
+@media (prefers-reduced-motion: reduce) { .pcn-stage.is-anim { transition: none; } }
+.pcn-img { display: block; width: 100%; height: auto; -webkit-user-drag: none; }
+/* Divisor foto / formulario: solo en la hoja del teléfono. */
+.pcn-split { display: none; flex: 0 0 auto; height: 22px; align-items: center; justify-content: center; cursor: row-resize; touch-action: none; background: var(--pcn-panel); border-top: 1px solid var(--pcn-line); border-bottom: 1px solid var(--pcn-line); }
+.pcn-split i { width: 44px; height: 4px; border-radius: 2px; background: var(--pcn-dim); opacity: .7; }
+.pcn-split:focus-visible { outline: 2px solid var(--pcn-accent); outline-offset: -2px; }
+.pcn-box { position: absolute; border: calc(2px * var(--inv, 1)) solid #22d3ee; border-radius: calc(4px * var(--inv, 1)); box-shadow: 0 0 0 9999px rgba(8, 14, 24, .55); pointer-events: none; }
+.pcn-tag { position: absolute; left: calc(-2px * var(--inv, 1)); bottom: 100%; margin-bottom: calc(2px * var(--inv, 1)); transform: scale(var(--inv, 1)); transform-origin: left bottom; background: #22d3ee; color: #081a24; font-family: inherit; font-weight: 600; font-size: 11px; line-height: 1; padding: 3px 7px; border-radius: 5px 5px 5px 0; white-space: nowrap; }
 .pcn-msg { margin: 0; padding: 28px 16px; text-align: center; font-size: .85rem; color: var(--pcn-dim); }
 .pcn-msg--pdf { padding: 8px 16px 14px; }
 .pcn-view > .pcn-fold { margin: 0 12px 12px; }
@@ -50,7 +57,8 @@
 .pcn-chips { display: flex; gap: 8px; overflow-x: auto; padding: 10px 12px 4px; scrollbar-width: none; }
 .pcn-chip { flex: 0 0 auto; min-height: 36px; padding: 0 13px; border-radius: 999px; border: 1px solid var(--pcn-line); background: var(--pcn-panel); color: var(--pcn-dim); font-family: inherit; font-weight: 500; font-size: .8rem; cursor: pointer; }
 .pcn-chip[aria-pressed="true"] { background: var(--pcn-accent); border-color: var(--pcn-accent); color: #081a24; font-weight: 600; }
-.pcn-tools { display: flex; flex-wrap: wrap; align-items: center; padding: 0 4px 4px; }
+.pcn-tools { display: flex; flex-wrap: nowrap; align-items: center; padding: 0 4px 4px; overflow-x: auto; scrollbar-width: none; }
+.pcn-tools > * { flex: 0 0 auto; white-space: nowrap; }
 .pcn-tool { min-height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--pcn-dim); font-family: inherit; font-weight: 500; font-size: .8rem; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .pcn-tool:hover { color: var(--pcn-text); }
 
@@ -100,7 +108,9 @@ textarea.pcn-input { padding: 10px 12px; resize: vertical; }
 
 @container (min-width: 640px) {
     .pcn-body { flex-direction: row; align-items: stretch; }
-    .pcn-view { flex: 0 0 46%; max-width: 46%; border-right: 1px solid var(--pcn-line); }
+    .pcn-view { flex: 0 0 46%; max-width: 46%; border-right: 1px solid var(--pcn-line); position: sticky; top: 0; align-self: flex-start; }
+    .pcn-win { height: clamp(320px, 66vh, 760px); }
+    .pcn-split { display: none !important; }
     .pcn-form { flex: 1; padding: 12px 14px 0; }
     .pcn-footer { margin: auto -14px 0; padding: 10px 14px 12px; }
     .pcn-btn { flex: 0 0 auto; }
@@ -174,7 +184,28 @@ textarea.pcn-input { padding: 10px 12px; resize: vertical; }
 .pcn-side { position: fixed; left: 0; right: 0; bottom: 0; height: 92vh; height: 92dvh; z-index: 1101; display: flex; flex-direction: column;
     background: #131d2e; border-radius: 20px 20px 0 0; overflow: hidden; box-shadow: 0 -20px 60px rgba(0, 0, 0, .6); }
 .pcn-side .pcn-editor { flex: 1; min-height: 0; margin: 0; border: 0; border-radius: 0; }
-.pcn-side .pcn-body { flex: 1; min-height: 0; overflow-y: auto; }
+/* La foto queda fija arriba y solo el formulario se desplaza: al revisar un dato no se pierde la foto. */
+@media (max-width: 959px) {
+    .pcn-side .pcn-body { flex: 1; min-height: 0; overflow: hidden; }
+    .pcn-side .pcn-view { flex: 0 0 var(--pcn-split, 54%); min-height: 0; position: static; }
+    .pcn-side .pcn-winwrap { flex: 1 1 0; }
+    .pcn-side .pcn-win { flex: 1 1 0; height: auto; min-height: 0; }
+    .pcn-side .pcn-split { display: flex; }
+    /* Encabezado de una línea para dejar sitio a la foto. */
+    .pcn-side .pcn-head { padding: 8px 8px 8px 14px; gap: 4px; }
+    .pcn-side .pcn-sub { margin-top: 1px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pcn-side .pcn-sub[data-pcn-backup] { display: none; }
+    .pcn-side .pcn-queue span { min-width: 40px; }
+    .pcn-side .pcn-icon-btn { width: 40px; height: 40px; }
+    .pcn-side .pcn-form { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+}
+@container (min-width: 640px) {
+    @media (max-width: 959px) {
+        /* Teléfono en horizontal: foto a la izquierda, formulario a la derecha, cada uno a su altura. */
+        .pcn-side .pcn-view { flex: 0 0 46%; align-self: stretch; position: static; }
+        .pcn-side .pcn-split { display: none; }
+    }
+}
 
 /* PC: lista a la izquierda y editor a la derecha. */
 @media (min-width: 960px) {
@@ -184,6 +215,10 @@ textarea.pcn-input { padding: 10px 12px; resize: vertical; }
         border-radius: 14px; box-shadow: none; overflow: auto; background: transparent; }
     .pcn-side .pcn-editor { flex: none; border: 1px solid var(--pcn-accent); border-radius: 14px; }
     .pcn-side .pcn-body { overflow: visible; }
+}
+/* Pantalla ancha con el editor angosto (una sola columna): la foto se queda fija arriba al desplazar. */
+@media (min-width: 960px) {
+    .pcn-view { position: sticky; top: 0; z-index: 2; }
 }
 
 /* ── Barra superior de una línea ─────────────────────────────────────────── */
@@ -208,12 +243,12 @@ textarea.pcn-input { padding: 10px 12px; resize: vertical; }
 }
 
 /* ── Marcar la posición de un dato ───────────────────────────────────────── */
-.pcn-stage[data-edit] { touch-action: none; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+.pcn-stage[data-edit] { cursor: crosshair; }
 .pcn-stage[data-edit="adjust"] .pcn-box { pointer-events: auto; cursor: move; }
 .pcn-box--draft { border-style: dashed; box-shadow: 0 0 0 9999px rgba(8, 14, 24, .35); }
 .pcn-box[data-source="manual"] { border-color: #a78bfa; }
 .pcn-box[data-source="manual"] .pcn-tag { background: #a78bfa; }
-.pcn-handle { position: absolute; right: -13px; bottom: -13px; width: 26px; height: 26px; border-radius: 8px; background: #22d3ee; border: 2px solid #081a24; cursor: nwse-resize; touch-action: none; pointer-events: auto; }
+.pcn-handle { position: absolute; right: calc(-18px * var(--inv, 1)); bottom: calc(-18px * var(--inv, 1)); width: calc(36px * var(--inv, 1)); height: calc(36px * var(--inv, 1)); border-radius: calc(10px * var(--inv, 1)); background: #22d3ee; border: calc(2px * var(--inv, 1)) solid #081a24; cursor: nwse-resize; touch-action: none; pointer-events: auto; }
 
 /* ── Encabezado dentro de la columna de la lista ─────────────────────────── */
 .pcn-page-title { display: flex; align-items: center; gap: 8px; font-size: 1.15rem; font-weight: 700; color: #f4f6fa; }

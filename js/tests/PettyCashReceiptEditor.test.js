@@ -15,7 +15,7 @@ const gasto = (over = {}) => ({
     items: [{ descripcion: 'Cemento gris', cantidad: 20, precio: 3000 }, { descripcion: 'Varilla 3/8', cantidad: 10, precio: 1000 }],
     ...over
 });
-const ui = (over = {}) => ({ field: 'total', zoom: true, size: 1, more: null, itemsOpen: false, secOpen: null, draft: {}, ...over });
+const ui = (over = {}) => ({ field: 'total', view: null, viewKey: null, split: null, more: null, itemsOpen: false, secOpen: null, draft: {}, ...over });
 const render = (mov, opts = {}) => {
     document.body.innerHTML = receiptEditorHTML(mov, { cerrada: false, context, ui: ui(), source: null, showConfidence: false, ...opts });
     return document.body;
@@ -179,13 +179,36 @@ describe('imagen de la factura', () => {
         expect(document.querySelector('[data-pcn-nobox]')).not.toBeNull();
     });
 
-    test('el tamaño de la ventana y el zoom salen de la interfaz', () => {
-        render(gasto({ ocrBoxes: boxes }), { source, ui: ui({ size: 2, zoom: false }) });
-        const win = document.querySelector('[data-pcn-win]');
-        expect(win.dataset.size).toBe('2');
-        expect(win.dataset.zoom).toBe('false');
-        expect(document.querySelector('[data-app-fn="pcEditorZoom"]').textContent).toContain('Ampliar');
-        expect(document.querySelector('[data-app-fn="pcEditorSize"]').textContent).toContain('grande');
+    test('la foto tiene su barra de zoom y ya no los botones de tamaño ni «Ampliar»', () => {
+        render(gasto({ ocrBoxes: boxes }), { source });
+        expect(document.querySelector('[data-app-fn="pcEditorSize"]')).toBeNull();
+        expect(document.querySelector('[data-app-fn="pcEditorZoom"]')).toBeNull();
+        const bar = document.querySelector('[data-pcn-zbar]');
+        expect([...bar.querySelectorAll('[data-pcn-zoom]')].map((b) => b.dataset.pcnZoom)).toEqual(['out', 'in', 'all', 'box']);
+        [...bar.querySelectorAll('button')].forEach((b) => expect(b.getAttribute('aria-label')).toBeTruthy());
+        expect(bar.querySelector('[data-pcn-zoom-pct]')).not.toBeNull();
+    });
+
+    test('el recuadro del dato activo viaja en la foto para que el visor lo enfoque', () => {
+        render(gasto({ ocrBoxes: boxes }), { source });
+        const stage = document.querySelector('[data-pcn-stage]');
+        expect(stage.dataset.key).toBe('total');
+        expect(stage.dataset.box).toBe('790,520,850,920');
+        expect(stage.getAttribute('style') || '').not.toContain('width:');   // el ancho lo da la ventana, no un porcentaje
+    });
+
+    test('un dato sin recuadro: sin «ir al dato» y la foto no lleva recuadro', () => {
+        render(gasto({ ocrBoxes: boxes }), { source, ui: ui({ field: 'cliente' }) });
+        expect(document.querySelector('[data-pcn-stage]').hasAttribute('data-box')).toBe(false);
+        expect(document.querySelector('[data-pcn-zoom="box"]')).toBeNull();
+    });
+
+    test('el reparto foto/formulario guardado sale como variable de la hoja y hay un divisor para moverlo', () => {
+        render(gasto({ ocrBoxes: boxes }), { source, ui: ui({ split: 55 }) });
+        expect(document.querySelector('.pcn-body').getAttribute('style')).toContain('--pcn-split:55%');
+        const split = document.querySelector('[data-pcn-split]');
+        expect(split.getAttribute('role')).toBe('separator');
+        expect(split.getAttribute('aria-label')).toBeTruthy();
     });
 
     test('PDF: muestra la vista previa y aclara que no hay recuadros', () => {
@@ -319,30 +342,31 @@ describe('un solo botón para guardar', () => {
 });
 
 describe('aprovechar el espacio bajo la imagen', () => {
-    test('artículos y seguridad de la lectura van en la columna de la imagen, no en la del formulario', () => {
+    test('artículos y seguridad de la lectura van con el formulario: la foto queda libre y fija', () => {
         render(gasto(), { showConfidence: true });
-        expect(document.querySelector('[data-pcn-view] [data-pcn-items]')).not.toBeNull();
-        expect(document.querySelector('[data-pcn-view] [data-pcn-confidence]')).not.toBeNull();
-        expect(document.querySelector('.pcn-form [data-pcn-items]')).toBeNull();
-        expect(document.querySelector('.pcn-form [data-pcn-confidence]')).toBeNull();
+        expect(document.querySelector('.pcn-form [data-pcn-items]')).not.toBeNull();
+        expect(document.querySelector('.pcn-form [data-pcn-confidence]')).not.toBeNull();
+        expect(document.querySelector('[data-pcn-view] [data-pcn-items]')).toBeNull();
+        expect(document.querySelector('[data-pcn-view] [data-pcn-confidence]')).toBeNull();
     });
     test('también cuando el gasto no tiene foto', () => {
         render(gasto({ hasReceipt: false, receiptStatus: null }));
-        expect(document.querySelector('[data-pcn-view] [data-pcn-items]')).not.toBeNull();
+        expect(document.querySelector('.pcn-form [data-pcn-items]')).not.toBeNull();
     });
 });
 
-describe('la ventana de la imagen se ajusta a lo que muestra', () => {
+describe('la foto y su recuadro viajan juntos al visor', () => {
     const source = { url: 'blob:abc', mime: 'image/jpeg' };
-    test('sin recuadro (PDF o lectura sin recuadros) la ventana se ciñe a la imagen', () => {
+    test('sin recuadro (PDF o lectura sin recuadros) la foto no lleva recuadro que enfocar', () => {
         render(gasto(), { source });
-        expect(document.querySelector('[data-pcn-win]').dataset.box).toBe('false');
+        expect(document.querySelector('[data-pcn-stage]').hasAttribute('data-box')).toBe(false);
         render(gasto(), { source: { url: 'x', mime: 'application/pdf', preview: 'data:image/png;base64,AAA' } });
-        expect(document.querySelector('[data-pcn-win]').dataset.box).toBe('false');
+        expect(document.querySelector('[data-pcn-stage]').hasAttribute('data-box')).toBe(false);
     });
-    test('con recuadro lo marca, para no desalinearlo con la imagen', () => {
+    test('con recuadro lo lleva, en la misma escala 0–1000 que dibuja', () => {
         render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] } }), { source });
-        expect(document.querySelector('[data-pcn-win]').dataset.box).toBe('true');
+        expect(document.querySelector('[data-pcn-stage]').dataset.box).toBe('790,520,850,920');
+        expect(document.querySelector('[data-pcn-box]')).not.toBeNull();
     });
 });
 
@@ -378,12 +402,11 @@ describe('marcar la posición de un dato en la foto', () => {
         expect(document.querySelector('[data-pcn-box]').getAttribute('style')).toContain('left:20%');
         expect([...document.querySelectorAll('[data-pcn-chip]')].map((c) => c.dataset.arg)).toEqual(['total', 'cliente']);
     });
-    test('modo marcar sin recuadro: se puede trazar sobre la foto (completa, sin zoom) y se explica cómo', () => {
+    test('modo marcar sin recuadro: se puede trazar sobre la foto y se explica cómo', () => {
         render(gasto(), { source, ui: withUi({ field: 'total', mark: true }) });
         const stage = document.querySelector('[data-pcn-stage]');
         expect(stage.dataset.edit).toBe('draw');
         expect(stage.dataset.key).toBe('total');
-        expect(document.querySelector('[data-pcn-win]').dataset.zoom).toBe('false');
         expect(document.querySelector('[data-pcn-mark-hint]').textContent).toContain('Arrastra');
         expect(document.querySelector('[data-app-fn="pcEditorMark"]').textContent).toContain('Listo');
     });
