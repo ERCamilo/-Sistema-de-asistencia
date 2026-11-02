@@ -1,3 +1,4 @@
+import { receiptDate } from './PettyCashDates.js';
 export const PETTY_CASH_SORT_FIELDS = Object.freeze([
     'recordNumber',
     'invoiceDate',
@@ -13,7 +14,7 @@ export function normalizePettyCashMovementSort(sort = {}) {
 }
 
 function invoiceDateValue(movement) {
-    const value = String(movement?.fechaEmision || movement?.date || '').trim();
+    const value = receiptDate(movement).trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
     const timestamp = Date.parse(`${value}T00:00:00Z`);
     return Number.isFinite(timestamp) ? timestamp : null;

@@ -4,6 +4,7 @@
  */
 
 import { resumenPeriodo } from './PettyCashCalc.js';
+import { receiptDate } from './PettyCashDates.js';
 
 const BENEFICIARIOS_HEADER = ['Fecha', 'Beneficiario/Comercio', 'Categoría', 'Monto'];
 const MOV_HEADER = ['Fecha', 'Tipo', 'Tienda/Proveedor', 'Categoría', 'Descripción', 'NCF', 'RNC emisor', 'Cliente', 'RNC cliente', 'Subtotal', 'ITBIS', 'Total', 'Monto', 'Comprobante', 'Por revisar'];
@@ -32,7 +33,7 @@ export function formatExportDate(value) {
  */
 export function buildPeriodSheets(project, period, periodMovements) {
     const movs = (Array.isArray(periodMovements) ? periodMovements.slice() : [])
-        .sort((a, b) => String(a && a.date || '').localeCompare(String(b && b.date || '')));
+        .sort((a, b) => receiptDate(a).localeCompare(receiptDate(b)));
     const r = resumenPeriodo(movs);
 
     const resumen = [
@@ -60,7 +61,7 @@ export function buildPeriodSheets(project, period, periodMovements) {
     for (const m of movs) {
         if (!m) continue;
         const isGasto = m.type === 'gasto';
-        const formattedDate = formatExportDate(m.date);
+        const formattedDate = formatExportDate(receiptDate(m));
         const beneficiary = isGasto ? (m.paidTo || '') : (m.paidTo || m.description || 'Reposición');
         const category = isGasto ? (m.category || '') : 'Reposición';
 

@@ -43,6 +43,8 @@ export function readEditorDraft(root = document) {
             draft[def.key] = raw === '' || !Number.isFinite(n) ? null : n;
         } else draft[def.key] = el.value;
     }
+    // La fecha de la factura es la de emisión: escribirla actualiza las dos claves.
+    if ('date' in draft) draft.fechaEmision = draft.date;
     return draft;
 }
 

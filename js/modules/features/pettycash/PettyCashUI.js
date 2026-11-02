@@ -49,6 +49,7 @@ import { screenHTML } from './PettyCashScreen.js';
 import { receiptFileName, downloadReceipt, shareReceipt } from './PettyCashReceiptShare.js';
 import { isValidBox } from './PettyCashBoxMath.js';
 import { resolveReceiptOriginal } from './PettyCashReceiptSource.js';
+import { receiptDate } from './PettyCashDates.js';
 import { rescanSummary } from './PettyCashRescan.js';
 import { attachBoxEditor } from './PettyCashBoxEditor.js';
 import { attachPhotoViewer } from './PettyCashPhotoViewer.js';
@@ -1622,7 +1623,7 @@ function _movementEditForm(mov, cerrada) {
         <div style="font-weight:700;margin-bottom:10px;">${isGasto ? '🏪 Detalle del gasto' : '💰 Detalle de la reposición'}${cerrada ? ' <span style="font-size:.7rem;color:#fbbf24;">(periodo cerrado · solo lectura)</span>' : ''}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
             ${lab('Monto (RD$)', inp('pce-amount', mov.amount, 'number', 'step="0.01" min="0" inputmode="decimal"'))}
-            ${lab('Fecha del movimiento', inp('pce-date', mov.date || today(), 'date'))}
+            ${lab(isGasto ? 'Fecha de la factura' : 'Fecha del movimiento', inp('pce-date', receiptDate(mov) || today(), 'date'))}
             ${isGasto ? `
             ${lab('Tienda / proveedor', inp('pce-tienda', mov.paidTo))}
             ${lab('RNC / comprobante de la empresa', inp('pce-rnc', mov.rncEmisor))}
@@ -1652,7 +1653,6 @@ function _movementEditForm(mov, cerrada) {
             ${lab('Subtotal', inp('pce-subtotal', mov.subtotal, 'number', 'step="0.01"'))}
             ${lab('ITBIS', inp('pce-itbis', mov.itbis, 'number', 'step="0.01"'))}
             ${lab('Total', inp('pce-total', mov.total, 'number', 'step="0.01"'))}
-            ${lab('Fecha emisión', inp('pce-femision', mov.fechaEmision, 'date'))}
             ${lab('Fecha vencimiento', inp('pce-fvenc', mov.fechaVencimiento, 'date'))}
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Notas / detalles<textarea id="pce-notas" ${ro} rows="2" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;resize:vertical;">${esc(mov.notas || '')}</textarea></label>
             ${(Array.isArray(mov.items) && mov.items.length) ? `<div style="grid-column:1/-1;border-top:1px solid #334155;margin-top:6px;padding-top:10px;"><div style="font-size:.72rem;color:#64748b;font-weight:700;letter-spacing:.04em;margin-bottom:6px;">ARTÍCULOS (${mov.items.length})</div>${mov.items.map(it => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:.8rem;color:#cbd5e1;padding:2px 0;"><span>${esc((it.cantidad ? it.cantidad + '× ' : '') + (it.descripcion || '—'))}</span><span style="color:#94a3b8;white-space:nowrap;">${it.precio != null ? rd(it.precio) : ''}</span></div>`).join('')}</div>` : ''}
@@ -1778,7 +1778,7 @@ function _reviewPendingMovementsTable(
                                 ${duplicate ? '<div style="font-size:.64rem;color:#fdba74;margin-top:3px;">⚠ Posible duplicado</div>' : ''}
                                 ${isExpense && receiptBackupState(movement) ? `<div style="margin-top:4px;">${receiptBackupBadge(movement)}</div>` : ''}
                             </td>
-                            <td class="pc-review-date" style="padding:10px;color:#cbd5e1;white-space:nowrap;">${esc(formatPettyCashDate(movement.fechaEmision || movement.date))}</td>
+                            <td class="pc-review-date" style="padding:10px;color:#cbd5e1;white-space:nowrap;">${esc(formatPettyCashDate(receiptDate(movement)))}</td>
                             <td class="pc-review-amount" style="padding:10px;text-align:right;font-weight:850;color:${isExpense ? '#f87171' : '#34d399'};white-space:nowrap;">${isExpense ? '−' : '+'} ${rd(movement.amount)}</td>
                             <td class="pc-review-actions" style="padding:8px 10px;">
                                 <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;">
@@ -1836,7 +1836,7 @@ function _movementsList(
                         ${isGasto ? receiptBackupBadge(m) : ''}
                         ${isGasto && m.category ? `<span style="font-size:.68rem;background:#1e293b;border:1px solid #334155;padding:1px 7px;border-radius:999px;color:#94a3b8;">${esc(m.category)}</span>` : ''}
                     </div>
-                    <div style="font-size:.72rem;color:#64748b;">📅 ${esc(formatPettyCashDate(m.date))}${isGasto && m.ncf ? ' · NCF: ' + esc(m.ncf) : ''}${m.description && isGasto && m.paidTo ? ' · ' + esc(m.description) : ''}</div>
+                    <div style="font-size:.72rem;color:#64748b;">📅 ${esc(formatPettyCashDate(receiptDate(m)))}${isGasto && m.ncf ? ' · NCF: ' + esc(m.ncf) : ''}${m.description && isGasto && m.paidTo ? ' · ' + esc(m.description) : ''}</div>
                     ${duplicate ? `<button type="button" data-app-fn="pcOpenDuplicateReference" data-arg="${esc(duplicate.referenceId)}" data-app-stop="1"
                         title="${esc(duplicate.reason)}. Abrir registro de referencia."
                         style="margin-top:6px;background:${duplicateColor};border:none;color:#fff;border-radius:999px;padding:4px 8px;font-size:.66rem;font-weight:800;cursor:pointer;">
@@ -1888,6 +1888,7 @@ export async function savePettyCashMovementDraft(form, fields, { periodId = null
         mov.paidTo = String(fields.paidTo || '').trim();
         mov.category = fields.category || '';
         mov.hasReceipt = !!fields.hasReceipt || !!photo;
+        mov.fechaEmision = mov.date; // la fecha que se confirma en el formulario es la de la factura
         if (hasLocalOriginal) {
             mov.receiptStatus = 'local';
             mov.receiptStorage = 'local-only';
@@ -1908,7 +1909,6 @@ export async function savePettyCashMovementDraft(form, fields, { periodId = null
             if (form.ocr.propina != null) mov.propina = form.ocr.propina;
             if (form.ocr.exento != null) mov.exento = form.ocr.exento;
             if (form.ocr.itbisIncluido != null) mov.itbisIncluido = form.ocr.itbisIncluido;
-            if (form.ocr.fechaEmision) mov.fechaEmision = form.ocr.fechaEmision;
             if (form.ocr.notas) mov.notas = form.ocr.notas;
             if (Array.isArray(form.ocr.items) && form.ocr.items.length) mov.items = form.ocr.items;
         }
@@ -2964,7 +2964,7 @@ export function registerPettyCashGlobals() {
             mov.subtotal = numOrNull('pce-subtotal');
             mov.itbis = numOrNull('pce-itbis');
             mov.total = numOrNull('pce-total');
-            mov.fechaEmision = document.getElementById('pce-femision')?.value || null;
+            mov.fechaEmision = mov.date; // la fecha de la factura es la de emisión: una sola
             mov.fechaVencimiento = document.getElementById('pce-fvenc')?.value || null;
             mov.notas = document.getElementById('pce-notas')?.value?.trim() || '';
             // Datos fiscales que solo trae el editor nuevo: sin el campo, el gasto queda como está.

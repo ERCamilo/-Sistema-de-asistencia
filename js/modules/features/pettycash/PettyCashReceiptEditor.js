@@ -15,6 +15,7 @@
 import { fixesFor, receiptNotes } from './PettyCashReceiptChecks.js';
 import { RECEIPT_STATES, movementReviewState } from './PettyCashReceiptReview.js';
 import { formatPettyCashDate, receiptBackupState } from './PettyCashPresentation.js';
+import { receiptDate } from './PettyCashDates.js';
 import { effectiveBox, isValidBox } from './PettyCashBoxMath.js';
 
 /** id del campo → clave del gasto y tipo (lo usan el render y el guardado). */
@@ -35,7 +36,6 @@ export const EDITOR_FIELDS = Object.freeze({
     'pce-propina': { key: 'propina', type: 'number' },
     'pce-exento': { key: 'exento', type: 'number' },
     'pce-itbisincl': { key: 'itbisIncluido', type: 'checkbox' },
-    'pce-femision': { key: 'fechaEmision', type: 'date' },
     'pce-fvenc': { key: 'fechaVencimiento', type: 'date' },
     'pce-notas': { key: 'notas', type: 'textarea' },
     'pce-receipt': { key: 'hasReceipt', type: 'checkbox' }
@@ -214,7 +214,8 @@ function issueCardHTML(issue, cerrada) {
 // ── formulario ──────────────────────────────────────────────────────────
 function fieldHTML(id, label, mov, { cerrada, span = '', type = null, mode = 'text', warn = false, low = false } = {}) {
     const def = EDITOR_FIELDS[id];
-    const value = mov[def.key] == null ? '' : mov[def.key];
+    // La fecha de la factura es la de emisión; `date` solo es el respaldo (PettyCashDates).
+    const value = id === 'pce-date' ? receiptDate(mov) : (mov[def.key] == null ? '' : mov[def.key]);
     const kind = type || (def.type === 'number' ? 'number' : def.type === 'date' ? 'date' : 'text');
     const extra = def.type === 'number' ? ' step="0.01" inputmode="decimal"' : (mode === 'numeric' ? ' inputmode="numeric"' : '');
     return `<div class="pcn-field ${span}">
@@ -352,7 +353,7 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
                     ${f('pce-tienda', 'Comercio', { span: 'pcn-c2' })}
                     ${f('pce-rnc', 'RNC del emisor', { mode: 'numeric' })}
                     ${f('pce-ncf', 'NCF')}
-                    ${f('pce-date', 'Fecha')}
+                    ${f('pce-date', 'Fecha de la factura')}
                     ${f('pce-subtotal', 'Subtotal')}
                     ${f('pce-itbis', 'ITBIS')}
                     ${f('pce-total', 'Total de la factura')}
@@ -369,7 +370,7 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
                 <section class="pcn-fold">
                     <button type="button" class="pcn-fold-head" data-app-fn="pcEditorMore" aria-expanded="${moreOpen}">
                         <span>Más datos${extraCount || warn.rncCliente ? ` <i class="pcn-badge${warn.rncCliente ? ' is-red' : ''}">${extraCount || '!'}</i>` : ''}</span>
-                        <small>Cliente · descuento · propina · exento · fechas · notas</small>
+                        <small>Cliente · descuento · propina · exento · vencimiento · notas</small>
                     </button>
                     <div class="pcn-grid pcn-fold-body" data-pcn-more ${moreOpen ? '' : 'hidden'}>
                         ${f('pce-cliente', 'Cliente', { span: 'pcn-c2' })}
@@ -378,7 +379,6 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
                         ${f('pce-descuento', 'Descuento')}
                         ${f('pce-propina', 'Propina')}
                         ${f('pce-exento', 'Exento')}
-                        ${f('pce-femision', 'Fecha de emisión')}
                         ${f('pce-fvenc', 'Vencimiento')}
                         <div class="pcn-field pcn-c3">
                             <label class="pcn-label" for="pce-notas">Notas</label>

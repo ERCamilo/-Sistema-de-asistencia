@@ -6,6 +6,7 @@
  * reciben listos en `slots`; aquí solo se organiza lo nuevo.
  * Probado en js/tests/PettyCashScreen.test.js.
  */
+import { receiptDate } from './PettyCashDates.js';
 import { RECEIPT_STATES, groupReviewFirst } from './PettyCashReceiptReview.js';
 import { formatPettyCashDate, receiptBackupState } from './PettyCashPresentation.js';
 import { formatPettyCashRecordNumber } from './PettyCashRecordNumber.js';
@@ -34,7 +35,7 @@ export function movementCardHTML({ movement: m, key, duplicate }, { cerrada = fa
     const title = isGasto ? (m.paidTo || m.description || 'Gasto') : (m.description || 'Reposición');
     const state = isGasto ? RECEIPT_STATES[key] : null;
     const unsent = isGasto && receiptBackupState(m)?.state === 'pending';
-    const meta = [formatPettyCashDate(m.fechaEmision || m.date), isGasto ? m.category : 'Reposición'].filter(Boolean).map(esc).join(' · ');
+    const meta = [formatPettyCashDate(receiptDate(m)), isGasto ? m.category : 'Reposición'].filter(Boolean).map(esc).join(' · ');
     const dupLabel = duplicate?.confidence === 'exact' ? 'Coincide con' : 'Se parece a';
     return `<div class="pcn-card" data-pcn-card="${esc(m.id)}" data-selected="${!!selected}" data-app-fn="pcOpenMovement" data-arg="${esc(m.id)}" role="button" tabindex="0" title="Ver / editar detalle">
         <div class="pcn-card-main">

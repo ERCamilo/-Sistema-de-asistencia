@@ -29,7 +29,7 @@ describe('ids del formulario', () => {
         render(gasto());
         for (const id of EDITOR_FIELD_IDS) expect(document.getElementById(id)).not.toBeNull();
         for (const id of ['pce-amount', 'pce-date', 'pce-tienda', 'pce-rnc', 'pce-cliente', 'pce-rnccli', 'pce-ncf', 'pce-cat', 'pce-desc',
-            'pce-receipt', 'pce-subtotal', 'pce-itbis', 'pce-total', 'pce-femision', 'pce-fvenc', 'pce-notas',
+            'pce-receipt', 'pce-subtotal', 'pce-itbis', 'pce-total', 'pce-fvenc', 'pce-notas',
             'pce-descuento', 'pce-propina', 'pce-exento', 'pce-itbisincl']) {
             expect(EDITOR_FIELD_IDS).toContain(id);
         }
