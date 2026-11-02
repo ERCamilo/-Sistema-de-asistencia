@@ -181,3 +181,29 @@ describe('fechas y montos: lo que se le pide al lector y cómo se normaliza', ()
         expect(out.raw).toBe('no es json');
     });
 });
+
+
+describe('el pedido al lector: el esquema de campos no se altera y los recuadros se piden aparte', () => {
+    const prompt = async () => (await runCode('Preparar solicitud Gemini', { body: { fileBase64: '/9j/AAAA', mimeType: 'image/jpeg' } })).geminiBody.contents[0].parts[0].text;
+
+    test('las reglas (fecha, montos, recuadros) van ANTES del esquema; el esquema queda como siempre', async () => {
+        const text = await prompt();
+        const at = text.indexOf('Campos: {');
+        expect(at).toBeGreaterThan(0);
+        const rules = text.slice(0, at);
+        expect(rules).toMatch(/DIA\/MES\/ANO/);
+        expect(rules).toMatch(/tal como esta(n)? impreso/);
+        expect(rules).toMatch(/boxes/);
+        const schema = text.slice(at);
+        expect(schema).toContain('"fecha": fecha en formato YYYY-MM-DD,');
+        expect(schema).not.toMatch(/DIA\/MES\/ANO|NO el 11 de marzo/);
+        expect(schema).toContain('"boxes": {"total", "subtotal", "itbis", "ncf", "rnc_emisor", "fecha"} donde cada uno es el recuadro del valor en la imagen como [y_min, x_min, y_max, x_max] con enteros normalizados de 0 a 1000');
+        expect(schema).toContain('usa null para el dato que no veas, y "boxes": null si el comprobante es PDF o tiene varias paginas}');
+    });
+
+    test('se pide ubicar siempre los datos que se vean (null solo si no se ven)', async () => {
+        const rules = (await prompt()).split('Campos: {')[0];
+        expect(rules).toMatch(/Siempre ubica en la imagen/);
+        expect(rules).toMatch(/null solo/);
+    });
+});
