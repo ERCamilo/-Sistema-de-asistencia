@@ -48,6 +48,8 @@ import { movementReviewState, reviewFilterCounts, needsAttention } from './Petty
 import { screenHTML } from './PettyCashScreen.js';
 import { receiptFileName, downloadReceipt, shareReceipt } from './PettyCashReceiptShare.js';
 import { isValidBox } from './PettyCashBoxMath.js';
+import { resolveReceiptOriginal } from './PettyCashReceiptSource.js';
+import { rescanSummary } from './PettyCashRescan.js';
 import { attachBoxEditor } from './PettyCashBoxEditor.js';
 import { receiptEditorHTML, editorViewState, EDITOR_FIELDS } from './PettyCashReceiptEditor.js';
 import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, centerEditorBox, fitEditorScreen } from './PettyCashEditorUi.js';
@@ -1554,7 +1556,8 @@ async function loadEditorSource(movId) {
             } catch { /* sin red: se usa la vista previa */ }
         }
         if (!source && (rec?.dataUrl || rec?.previewDataUrl)) {
-            source = { url: rec.dataUrl || rec.previewDataUrl, mime: 'image/jpeg', preview: rec.previewDataUrl || null };
+            // Con la miniatura (480 px) la foto se ve borrosa: se avisa en lugar de dejar que parezca un fallo.
+            source = { url: rec.dataUrl || rec.previewDataUrl, mime: 'image/jpeg', preview: rec.previewDataUrl || null, reduced: !rec.dataUrl };
         }
     } catch { source = null; }
     if (d.editMov !== movId) {
@@ -1569,6 +1572,7 @@ function openEditorState(movId) {
     const d = pc();
     releaseEditorSource();
     d._editorUi = defaultEditorUi();
+    d._rescanResult = null;
     if (newPettyCashScreen() && movId) loadEditorSource(movId);
 }
 /** Repinta y, con la imagen ampliada, centra el recuadro del dato activo. */
@@ -1586,6 +1590,7 @@ const EDITOR_BOX_KEYS = new Set(['rncEmisor', 'ncf', 'date', 'subtotal', 'itbis'
 function closeEditorState() {
     releaseEditorSource();
     pc()._editorUi = null;
+    pc()._rescanResult = null;
 }
 function _newMovementEditor(mov, cerrada) {
     const d = pc();
@@ -1595,6 +1600,7 @@ function _newMovementEditor(mov, cerrada) {
         ui: editorUi(),
         source: d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource,
         showConfidence: state.settings?.pettyCashReadConfidence === true,
+        rescan: { busy: !!d._rescanStatus, result: d._rescanResult || null },
         queue: (() => {
             const period = d.periods.find((item) => item.id === mov.periodId);
             const ids = attentionQueueIds(period);
@@ -2306,6 +2312,14 @@ export function registerPettyCashGlobals() {
     if (typeof document !== 'undefined' && !_boxEditorDetach) {
         _boxEditorDetach = attachBoxEditor({ doc: document, onCommit: (key, box) => window.pcEditorBoxCommit?.(key, box) });
     }
+    window.pcEditorReloadSource = () => {
+        const d = pc();
+        if (!d.editMov) return;
+        releaseEditorSource();
+        d._editSource = undefined;
+        window.render?.();
+        loadEditorSource(d.editMov);
+    };
     window.pcEditorFocus = (id) => {
         const d = pc();
         const mov = editingMovement();
@@ -2547,23 +2561,34 @@ export function registerPettyCashGlobals() {
             }
             : null;
         if (!prepared) {
+            // Solo el original sirve para leer: la miniatura de 480 px hace que el lector falle en montos y totales.
+            const found = await resolveReceiptOriginal({
+                txId: movId,
+                getReceipt: (id) => indexedDBService.getReceipt(id),
+                lookup: APP_CONFIG?.RECEIPT_UPLOAD_URL
+                    ? async (id) => lookupReceiptBackup({ url: APP_CONFIG.RECEIPT_UPLOAD_URL, idToken: await user.getIdToken(), txId: id })
+                    : null
+            });
+            if (!found.ok) {
+                Modal.alert({ title: 'Re-escanear', message: 'No se pudo obtener la foto original (hace falta conexión para bajarla del respaldo). La miniatura no sirve para leer la factura.' });
+                return;
+            }
             try {
-                const rec = await indexedDBService.getReceipt(movId);
-                if (rec?.originalBlob) {
-                    prepared = await prepareReceiptForOcr(rec.originalBlob);
-                    prepared.mimeType = rec.originalType || prepared.mimeType;
-                    prepared.fileName = rec.originalName || prepared.fileName;
-                } else if (rec?.dataUrl || rec?.previewDataUrl) {
-                    prepared = {
-                        fileDataUrl: rec.dataUrl || rec.previewDataUrl,
-                        mimeType: 'image/jpeg',
-                        fileName: rec.originalName || 'factura.jpg'
-                    };
+                if (found.dataUrl) {
+                    prepared = { fileDataUrl: found.dataUrl, mimeType: found.type, fileName: found.name || 'factura.jpg' };
+                } else {
+                    prepared = await prepareReceiptForOcr(found.blob);
+                    prepared.fileName = found.name || prepared.fileName;
                 }
-            } catch { /* noop */ }
+            } catch {
+                Modal.alert({ title: 'Re-escanear', message: 'No se pudo preparar la foto para leerla.' });
+                return;
+            }
         }
         if (!prepared?.fileDataUrl) { Modal.alert({ title: 'Re-escanear', message: 'No hay un comprobante para escanear. Agrega o cambia el archivo primero.' }); return; }
         d._rescanStatus = '⏳ Escaneando...';
+        d._rescanResult = null;
+        if (newPettyCashScreen()) d._editorUi = { ...editorUi(), draft: readEditorDraft(document) };
         window.render?.();
         try {
             await indexedDBService.updateReceiptJob(movId, {
@@ -2580,11 +2605,19 @@ export function registerPettyCashGlobals() {
                 fileName: prepared.fileName
             });
             const normalized = normalizeReceiptOcr(data, CATEGORIAS);
+            const before = { ...mov };
             applyReceiptOcrToMovement(mov, normalized);
             mov.reviewPending = true;
             mov.localDraft = true;
             mov.updatedAt = Date.now();
             d._rescanStatus = null;
+            d._rescanResult = rescanSummary(before, mov, normalized.got);
+            // Lo que el lector cambió gana sobre lo escrito antes de volver a leer.
+            if (d._editorUi?.draft) {
+                const draft = { ...d._editorUi.draft };
+                d._rescanResult.keys.forEach((key) => { delete draft[key]; });
+                d._editorUi = { ...d._editorUi, draft };
+            }
             await indexedDBService.updateReceiptJob(movId, {
                 queueStatus: 'awaiting-review',
                 ocrStatus: normalized.got ? 'extracted' : 'needs-review',
@@ -2610,6 +2643,7 @@ export function registerPettyCashGlobals() {
             getReceiptQueueProcessor().scheduleNextRetry().catch(() => null);
             await refreshReceiptQueueSummary();
             pc()._rescanStatus = null;
+            pc()._rescanResult = { tone: 'error', text: 'No se pudo leer la factura. Revisa la conexión y vuelve a intentarlo.', keys: [] };
             window.render?.();
             Modal.alert({ title: 'Re-escanear', message: 'No se pudo escanear. (' + (e.message || '') + ')' });
         }

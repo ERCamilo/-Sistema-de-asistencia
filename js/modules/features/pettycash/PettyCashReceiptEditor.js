@@ -95,7 +95,7 @@ function fileInputs(disabled) {
             <input type="file" accept="image/*,application/pdf" onchange="window.pcPhotoEdit(this)" style="display:none;"></label>`;
 }
 
-function viewerHTML(mov, { cerrada, ui, source, extra = '' }) {
+function viewerHTML(mov, { cerrada, ui, source, extra = '', rescan = {} }) {
     const hasPhoto = !!(mov.hasReceipt || mov.receiptStatus);
     if (!hasPhoto) {
         return `<div class="pcn-view" data-pcn-view>
@@ -152,8 +152,11 @@ function viewerHTML(mov, { cerrada, ui, source, extra = '' }) {
             ${showBox ? `<button type="button" class="pcn-tool" data-app-fn="pcEditorZoom">${ui.zoom ? 'Ver completa' : 'Ampliar'}</button>` : ''}
             ${markButtons}
             <button type="button" class="pcn-tool" data-app-fn="pcViewReceipt" data-arg="${esc(mov.id)}">Ver comprobante</button>
-            ${cerrada ? '' : `<button type="button" class="pcn-tool" data-app-fn="pcRescanReceipt" data-arg="${esc(mov.id)}">Reescanear</button>${fileInputs(false)}`}
+            ${cerrada ? '' : `<button type="button" class="pcn-tool" data-app-fn="pcRescanReceipt" data-arg="${esc(mov.id)}" data-pcn-rescan-btn${rescan.busy ? ' disabled aria-busy="true"' : ''}>${rescan.busy ? 'Leyendo…' : 'Reescanear'}</button>${fileInputs(false)}`}
         </div>
+        ${rescan.busy ? '<p class="pcn-note" data-pcn-rescan data-tone="busy" role="status">Leyendo la factura… puede tardar unos segundos.</p>' : ''}
+        ${!rescan.busy && rescan.result?.text ? `<p class="pcn-note" data-pcn-rescan data-tone="${rescan.result.tone === 'error' ? 'error' : rescan.result.tone === 'warn' ? 'warn' : 'ok'}" role="status">${esc(rescan.result.text)}</p>` : ''}
+        ${source?.reduced && !isPdf ? `<p class="pcn-note" data-pcn-reduced>Vista reducida: la foto original no está en este teléfono y no se pudo bajar del respaldo. <button type="button" class="pcn-linkbtn" data-app-fn="pcEditorReloadSource">Reintentar</button></p>` : ''}
         ${markHint}
         ${noBox}
         ${extra}
@@ -289,7 +292,7 @@ export function editorViewState(movement, { context = {}, ui = {}, showConfidenc
  *   queue: registros que piden atención; con más de uno se ofrece ir al anterior/siguiente
  *   source: undefined = cargando, null = no disponible, {url, mime, preview} = lista
  */
-export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui = {}, source, showConfidence = false, queue = null } = {}) {
+export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui = {}, source, showConfidence = false, queue = null, rescan = {} } = {}) {
     const view = { field: 'total', zoom: true, size: 1, more: null, itemsOpen: false, secOpen: null, draft: {}, ...ui };
     const mov = mergeDraft(movement, view.draft);
     if (mov.type !== 'gasto') return reposicionHTML(mov, cerrada);
@@ -334,7 +337,7 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
             ${closeButtonHTML()}
         </header>
         <div class="pcn-body" onchange="window.pcEditorTouch?.()" onfocusin="window.pcEditorFocusIn?.(event)">
-            ${viewerHTML(mov, { cerrada, ui: view, source, extra: `${itemsHTML(mov, view)}${showConfidence ? confidenceHTML(mov, view) : ''}` })}
+            ${viewerHTML(mov, { cerrada, ui: view, source, rescan, extra: `${itemsHTML(mov, view)}${showConfidence ? confidenceHTML(mov, view) : ''}` })}
             <div class="pcn-form">
                 ${review.issues.map((i) => issueCardHTML(i, cerrada)).join('')}
                 ${notes.length ? `<div class="pcn-notes" data-pcn-notes>${notes.map((n) => `<div>${esc(n.message)}${n.hint ? ' ' + esc(n.hint) : ''}</div>`).join('')}</div>` : ''}

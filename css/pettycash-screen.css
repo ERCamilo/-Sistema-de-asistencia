@@ -40,6 +40,13 @@
 .pcn-msg--pdf { padding: 8px 16px 14px; }
 .pcn-view > .pcn-fold { margin: 0 12px 12px; }
 .pcn-note { margin: 0 12px 10px; font-size: .75rem; line-height: 1.4; color: var(--pcn-dim); }
+.pcn-note[data-pcn-rescan] { border-left: 3px solid var(--pcn-dim); padding: 6px 10px; border-radius: 6px; background: rgba(109, 125, 153, .12); }
+.pcn-note[data-tone="busy"] { border-color: var(--pcn-accent); color: var(--pcn-text); }
+.pcn-note[data-tone="ok"] { border-color: #34d399; color: var(--pcn-text); }
+.pcn-note[data-tone="warn"] { border-color: var(--pcn-warn); color: var(--pcn-text); }
+.pcn-note[data-tone="error"] { border-color: #f87171; color: var(--pcn-text); }
+.pcn-linkbtn { border: 0; background: none; padding: 0 2px; color: var(--pcn-accent); font: inherit; text-decoration: underline; cursor: pointer; }
+.pcn-tool[disabled] { opacity: .55; cursor: progress; }
 .pcn-chips { display: flex; gap: 8px; overflow-x: auto; padding: 10px 12px 4px; scrollbar-width: none; }
 .pcn-chip { flex: 0 0 auto; min-height: 36px; padding: 0 13px; border-radius: 999px; border: 1px solid var(--pcn-line); background: var(--pcn-panel); color: var(--pcn-dim); font-family: inherit; font-weight: 500; font-size: .8rem; cursor: pointer; }
 .pcn-chip[aria-pressed="true"] { background: var(--pcn-accent); border-color: var(--pcn-accent); color: #081a24; font-weight: 600; }
