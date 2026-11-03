@@ -92,6 +92,23 @@ describe('abrir el editor de esquinas', () => {
         await Promise.all([flow.start(), flow.start()]);
         expect(deps.openEditor).toHaveBeenCalledTimes(1);
     });
+    test('con otra foto elegida (en espera) se parte de esa foto aunque la fuente aún no esté cargada', async () => {
+        const { flow, d, deps } = setup();
+        d._editSource = undefined;
+        d._editPhotoCapture = { originalBlob: jpeg(), originalName: 'otra.jpg', originalType: 'image/jpeg', receiptKind: 'image' };
+        await flow.start();
+        expect(deps.resolveOriginal).not.toHaveBeenCalled();
+        expect(deps.openEditor).toHaveBeenCalledTimes(1);
+        expect(deps.notify).not.toHaveBeenCalledWith(expect.stringMatching(/cargando/i), expect.any(String));
+    });
+    test('si la foto elegida en espera es un PDF, avisa que no se puede enderezar', async () => {
+        const { flow, d, deps } = setup();
+        d._editSource = undefined;
+        d._editPhotoCapture = { originalBlob: new Blob(['x'], { type: 'application/pdf' }), originalName: 'f.pdf', originalType: 'application/pdf', receiptKind: 'pdf' };
+        await flow.start();
+        expect(deps.openEditor).not.toHaveBeenCalled();
+        expect(deps.notify).toHaveBeenCalledWith(expect.stringMatching(/PDF/), 'info');
+    });
     test('una foto vieja guardada como data URL también se puede enderezar', async () => {
         const dataUrl = 'data:image/jpeg;base64,AAAA';
         const { flow, deps } = setup({ resolveOriginal: jest.fn(async () => ({ ok: true, dataUrl, type: 'image/jpeg', name: 'vieja.jpg' })), blobFromDataUrl: jest.fn(async () => jpeg()) });
@@ -140,6 +157,21 @@ describe('enderezar: la foto queda en espera', () => {
         const second = deps.openEditor.mock.calls[1][0];
         await second.onApply([[0, 0], [1, 0], [1, 1], [0, 1]]);          // sin recortar nada: los recuadros ya enderezados se conservan
         expect(d._editBoxes.ocrBoxes.total).toEqual([400, 200, 600, 600]);
+    });
+    test('si el gasto abierto cambió mientras la capa estaba abierta, no se deja nada en espera', async () => {
+        let current = mov();
+        const { flow, d, apply } = setup({ getMovement: () => current });
+        await flow.start();
+        current = { ...mov(), id: 'g2' };
+        await expect(apply()).rejects.toThrow(/cambió/i);
+        expect(d._editPhotoCapture).toBeUndefined();
+        expect(d._editBoxes).toBeUndefined();
+    });
+    test('lo que queda en espera dice a qué gasto pertenece', async () => {
+        const { flow, d, apply } = setup();
+        await flow.start();
+        await apply();
+        expect(d._editPhotoFor).toBe('g1');
     });
     test('el zoom del visor se reinicia (la foto es otra) y se conserva lo escrito en el formulario', async () => {
         const { flow, d, deps, apply } = setup();

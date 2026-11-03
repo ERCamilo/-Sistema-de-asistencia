@@ -516,6 +516,7 @@ export async function scanPettyCashDraftReceipt(form) {
 export function openPettyCashVoiceMovement(movement) {
     const d = pc();
     d.selectedProjectId = movement.projectId; d.selectedPeriodId = movement.periodId; d.editMov = movement.id;
+    clearStagedEdit(d);          // lo que estaba en espera era de otro gasto
     persist(); window.changeTab?.('pettycash');
 }
 export async function discardPettyCashVoiceDraft(form) {
@@ -1579,10 +1580,13 @@ async function loadEditorSource(movId) {
     repaintEditor();
 }
 /** Abre el editor de un gasto: pantalla en su estado inicial y la foto cargándose. */
+function clearStagedEdit(d) {
+    d._editPhoto = null; d._editPhotoCapture = null; d._editPhotoFor = null; d._editBoxes = null;
+}
 function openEditorState(movId) {
     const d = pc();
     releaseEditorSource();
-    d._editBoxes = null;
+    clearStagedEdit(d);
     d._editorUi = defaultEditorUi();
     d._rescanResult = null;
     if (newPettyCashScreen() && movId) loadEditorSource(movId);
@@ -1604,6 +1608,7 @@ const EDITOR_BOX_KEYS = new Set(['rncEmisor', 'ncf', 'date', 'subtotal', 'itbis'
 function closeEditorState() {
     releaseEditorSource();
     pc()._editBoxes = null;
+    pc()._editPhotoFor = null;
     pc()._editorUi = null;
     pc()._rescanResult = null;
 }
@@ -2945,7 +2950,9 @@ export function registerPettyCashGlobals() {
             const hadStaged = !!d._editSource?.staged;
             d._editPhoto = capture.previewDataUrl;
             d._editPhotoCapture = capture;
-            d._editBoxes = null;
+            d._editPhotoFor = d.editMov;
+            // Los recuadros del gasto son de la foto vieja: no se dibujan sobre esta otra y, al confirmar, se limpian.
+            d._editBoxes = { ocrBoxes: {}, manualBoxes: {} };
             if (hadStaged) {                      // otra foto sustituye a la enderezada: ya no hay nada que mostrar de ella
                 releaseEditorSource();
                 d._editSource = undefined;
@@ -3061,8 +3068,10 @@ export function registerPettyCashGlobals() {
         mov.reviewPending = false; // guardar el detalle = revisado/confirmado
         delete mov.localDraft;
         mov.updatedAt = Date.now();
-        const pendingPhoto = d._editPhoto;
-        const pendingCapture = d._editPhotoCapture;
+        // Lo que está en espera solo vale para el gasto al que pertenece (nunca se le pone a otro la foto de uno).
+        const stagedForOther = !!d._editPhotoFor && d._editPhotoFor !== mov.id;
+        const pendingPhoto = stagedForOther ? null : d._editPhoto;
+        const pendingCapture = stagedForOther ? null : d._editPhotoCapture;
         let receiptReadyForBackup = false;
         // Sustituir la copia local únicamente después de que el usuario guarde.
         if (pendingPhoto && pendingCapture && mov.type === 'gasto') {
@@ -3082,7 +3091,7 @@ export function registerPettyCashGlobals() {
                 mov.hasReceipt = true;
                 mov.updatedAt = Date.now();
                 // Los recuadros de la foto enderezada se escriben junto con ella, no antes (ni si la foto no se guardó).
-                if (d._editBoxes) applyStagedBoxes(mov, d._editBoxes);
+                if (d._editBoxes && !stagedForOther) applyStagedBoxes(mov, d._editBoxes);
                 receiptReadyForBackup = true;
             } catch (e) {
                 console.warn('⚠️ saveReceipt local (edit):', e);
@@ -3099,7 +3108,7 @@ export function registerPettyCashGlobals() {
                 console.warn('confirm existing receipt after edit', e);
             }
         }
-        d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null; d._editBoxes = null;
+        d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null; d._editBoxes = null; d._editPhotoFor = null;
         closeEditorState();
         persist();
         await saveMovement(

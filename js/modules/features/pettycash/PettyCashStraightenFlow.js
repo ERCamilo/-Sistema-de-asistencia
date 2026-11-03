@@ -89,6 +89,8 @@ export function createStraightenFlow(deps = {}) {
 
     const apply = async (mov, canvas, corners, found) => {
         const scr = d.getState();
+        // La capa pudo quedar abierta mientras se cambiaba de gasto: la foto no se le deja a otro.
+        if (d.getMovement()?.id !== mov.id) throw new Error('el gasto cambió mientras se enderezaba');
         const straight = await d.straighten(canvas, corners);
         if (!straight) throw new Error('la foto no se pudo procesar');
         const blob = await d.encode(straight);
@@ -101,6 +103,7 @@ export function createStraightenFlow(deps = {}) {
         const draft = d.readDraft();
         d.releaseSource();
         scr._editPhotoCapture = capture;
+        scr._editPhotoFor = mov.id;
         scr._editPhoto = capture.previewDataUrl;
         scr._editSource = { url, mime: blob.type, preview: capture.previewDataUrl, objectUrl: true, staged: true };
         scr._editBoxes = stagedBoxes(base, corners);
@@ -116,15 +119,20 @@ export function createStraightenFlow(deps = {}) {
         if (!mov || mov.type !== 'gasto') return;
         if (!(mov.hasReceipt || mov.receiptStatus)) { d.notify('Este gasto no tiene foto de factura.', 'info'); return; }
         if (d.isClosed(mov)) { d.notify('Este periodo está cerrado: no se puede cambiar la foto.', 'info'); return; }
-        const source = scr._editSource;
-        if (source === undefined) { d.notify('La foto todavía se está cargando.', 'info'); return; }
-        if (source?.mime === 'application/pdf' || mov.receiptKind === 'pdf') { d.notify('Los PDF no se pueden enderezar.', 'info'); return; }
-        if (!source || source.reduced) { d.notify('Hace falta la foto original (no la miniatura) para enderezarla. Inténtalo de nuevo con conexión.', 'info'); return; }
+        const staged = scr._editPhotoCapture;
+        if (staged) {
+            // Hay una foto en espera (enderezada o elegida): se parte de ella, no de la guardada.
+            if (staged.receiptKind === 'pdf' || /pdf/i.test(staged.originalType || '')) { d.notify('Los PDF no se pueden enderezar.', 'info'); return; }
+        } else {
+            const source = scr._editSource;
+            if (source === undefined) { d.notify('La foto todavía se está cargando.', 'info'); return; }
+            if (source?.mime === 'application/pdf' || mov.receiptKind === 'pdf') { d.notify('Los PDF no se pueden enderezar.', 'info'); return; }
+            if (!source || source.reduced) { d.notify('Hace falta la foto original (no la miniatura) para enderezarla. Inténtalo de nuevo con conexión.', 'info'); return; }
+        }
         if (starting) return;
         starting = true;
         try {
             d.notify('Preparando la foto…', 'info');
-            const staged = scr._editPhotoCapture;
             const found = staged?.originalBlob
                 ? { ok: true, blob: staged.originalBlob, name: staged.originalName }
                 : await d.resolveOriginal(mov.id);
@@ -154,6 +162,7 @@ export function createStraightenFlow(deps = {}) {
         const scr = d.getState();
         scr._editPhoto = null;
         scr._editPhotoCapture = null;
+        scr._editPhotoFor = null;
         scr._editBoxes = null;
         d.releaseSource();
         scr._editSource = undefined;

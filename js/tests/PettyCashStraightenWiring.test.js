@@ -162,6 +162,27 @@ describe('guardar y cancelar', () => {
         await flush();
         expect(state.pettyCash._editSource.staged).toBeUndefined();
     });
+    test('enderezar un gasto y pasar al siguiente no deja esa foto en el otro (ni al confirmar)', async () => {
+        const other = { ...movement(), id: 'g2', recordNumber: 4, ocrBoxes: {}, manualBoxes: undefined };
+        seed({ movements: [movement(), other] });
+        stage();
+        window.pcOpenMovement('g2');
+        await flush();
+        expect(state.pettyCash._editPhotoCapture).toBeFalsy();
+        await window.pcSaveMovementEdit();
+        expect(indexedDBService.saveReceiptOriginal).not.toHaveBeenCalled();
+        expect(state.pettyCash.movements[1].ocrBoxes).toEqual({});
+    });
+    test('si por cualquier vía quedó en espera la foto de otro gasto, al confirmar no se usa', async () => {
+        const other = { ...movement(), id: 'g2', recordNumber: 4 };
+        seed({ movements: [movement(), other], editMov: 'g2' });
+        stage();
+        state.pettyCash._editPhotoFor = 'g1';
+        paint();
+        await window.pcSaveMovementEdit();
+        expect(indexedDBService.saveReceiptOriginal).not.toHaveBeenCalled();
+        expect(state.pettyCash.movements[1].ocrBoxes).toEqual(OLD_BOXES);
+    });
     test('guardar sin foto enderezada no cambia los recuadros (como antes)', async () => {
         seed(); window.pcOpenMovement('g1'); await flush(); paint();
         await window.pcSaveMovementEdit();
@@ -239,12 +260,30 @@ describe('botones del editor', () => {
         await window.pcEditorStraighten();
         expect(window.showNotification).toHaveBeenCalledWith(expect.stringMatching(/original/i), 'info');
     });
-    test('elegir otro archivo para la factura reemplaza lo enderezado y sus recuadros', async () => {
+    test('elegir otro archivo reemplaza lo enderezado y quita los recuadros de la foto vieja (no son de esta)', async () => {
         seed(); stage(); paint();
         const input = { files: [new File(['otra'], 'otra.jpg', { type: 'image/jpeg' })] };
         await window.pcPhotoEdit(input);
-        expect(state.pettyCash._editBoxes).toBeFalsy();
+        expect(state.pettyCash._editBoxes).toEqual({ ocrBoxes: {}, manualBoxes: {} });
         expect(state.pettyCash._editPhotoCapture.originalName).toBe('otra.jpg');
+        expect(state.pettyCash._editPhotoFor).toBe('g1');
         expect(state.pettyCash._editSource?.staged).toBeFalsy();
+        expect(document.querySelector('[data-pcn-box]')).toBeNull();                 // no se dibujan recuadros viejos sobre otra foto
+        expect(state.pettyCash.movements[0].ocrBoxes).toEqual(OLD_BOXES);            // hasta confirmar, el gasto no cambia
+    });
+    test('elegir otra foto (sin haber enderezado) tampoco deja los recuadros de la foto vieja, y al confirmar se limpian', async () => {
+        seed(); window.pcOpenMovement('g1'); await flush(); paint();
+        await window.pcPhotoEdit({ files: [new File(['otra'], 'otra.jpg', { type: 'image/jpeg' })] });
+        expect(document.querySelector('[data-pcn-box]')).toBeNull();
+        await window.pcSaveMovementEdit();
+        expect(state.pettyCash.movements[0].ocrBoxes).toBeUndefined();
+        expect(state.pettyCash.movements[0].manualBoxes).toBeUndefined();
+    });
+    test('después de elegir otra foto, «Enderezar» parte de esa foto y no dice que se está cargando', async () => {
+        seed(); stage(); paint();
+        await window.pcPhotoEdit({ files: [new File(['otra'], 'otra.jpg', { type: 'image/jpeg' })] });
+        window.showNotification.mockClear();
+        await window.pcEditorStraighten();
+        expect(window.showNotification).not.toHaveBeenCalledWith(expect.stringMatching(/cargando/i), expect.any(String));
     });
 });
