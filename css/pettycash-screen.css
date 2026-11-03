@@ -57,10 +57,14 @@
 .pcn-chips { display: flex; gap: 8px; overflow-x: auto; padding: 10px 12px 4px; scrollbar-width: none; }
 .pcn-chip { flex: 0 0 auto; min-height: 36px; padding: 0 13px; border-radius: 999px; border: 1px solid var(--pcn-line); background: var(--pcn-panel); color: var(--pcn-dim); font-family: inherit; font-weight: 500; font-size: .8rem; cursor: pointer; }
 .pcn-chip[aria-pressed="true"] { background: var(--pcn-accent); border-color: var(--pcn-accent); color: #081a24; font-weight: 600; }
-.pcn-tools { display: flex; flex-wrap: nowrap; align-items: center; padding: 0 4px 4px; overflow-x: auto; scrollbar-width: none; }
+.pcn-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px 10px; }
 .pcn-tools > * { flex: 0 0 auto; white-space: nowrap; }
-.pcn-tool { min-height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--pcn-dim); font-family: inherit; font-weight: 500; font-size: .8rem; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.pcn-tool:hover { color: var(--pcn-text); }
+/* Botones de acción de la foto (Reescanear, Enderezar, Marcar…): con borde y fondo para que se vean como botones. */
+.pcn-tool { min-height: 40px; padding: 0 10px; border: 1px solid var(--pcn-line); border-radius: 999px; background: var(--pcn-panel); color: var(--pcn-text); font-family: inherit; font-weight: 500; font-size: .78rem; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; touch-action: manipulation; transition: background-color .15s, border-color .15s; }
+.pcn-tool:hover { border-color: var(--pcn-accent); background: rgba(6, 182, 212, .12); }
+.pcn-tool:active { background: rgba(6, 182, 212, .24); }
+.pcn-tool:focus-visible { outline: 2px solid var(--pcn-accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .pcn-tool { transition: none; } }
 
 .pcn-form { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 0; min-width: 0; }
 .pcn-issue { border: 1px solid rgba(245, 158, 11, .55); background: rgba(245, 158, 11, .1); border-radius: 12px; padding: 9px 12px; font-size: .8rem; line-height: 1.4; }
