@@ -67,12 +67,16 @@ function newBottomNavCard(settings = {}) {
 
 // Diagnóstico de la cámara (solo números, en este teléfono) para ajustarla con uso real.
 const STATE_LABEL = { ok: 'leídas', review: 'por revisar', failed: 'sin datos' };
+const DECLINE_LABEL = { straight: 'recta', landscape: 'apaisada', 'cut-off': 'cortada por el borde', 'no-paper': 'sin papel claro', size: 'muy chica o muy grande', shape: 'forma dudosa', curved: 'papel curvo', perspective: 'perspectiva extrema', skew: 'muy girada' };
 function cameraDiagnosticsBlock() {
     const s = createCameraDiagnostics().summary();
     const pct = (n, total) => (total ? `${Math.round((n / total) * 100)}%` : '—');
     const lines = s.shots.count || s.parts.count || s.results.count
         ? [
             `<li><strong>${s.shots.count} fotos</strong> · ${s.shots.sensor} del sensor, ${s.shots.video} del video · guardado ${s.shots.avgSaveMs} ms · ${s.shots.avgKb} KB promedio</li>`,
+            s.shots.measured ? `<li><strong>Calidad al disparar:</strong> ${s.shots.measured} medidas · nitidez promedio ${s.shots.avgSharp} · ${s.shots.flagged.blurry} borrosas, ${s.shots.flagged.dark} oscuras, ${s.shots.flagged.flat} sin contraste</li>` : '',
+            s.straightened.count ? `<li><strong>Enderezadas:</strong> ${s.straightened.count} de ${s.shots.count} · inclinación promedio ${s.straightened.avgSkew}° · guardado ${s.straightened.avgSaveMs} ms</li>` : '',
+            Object.keys(s.straightened.declined).length ? `<li><strong>Sin enderezar:</strong> ${Object.entries(s.straightened.declined).map(([k, n]) => `${n} ${DECLINE_LABEL[k] || k}`).join(' · ')}</li>` : '',
             s.parts.count ? `<li><strong>Factura larga:</strong> ${s.parts.withOk} de ${s.parts.count} partes con ✓ · revisión en vivo ${s.parts.avgCheckMs} ms · mejor coincidencia ${s.parts.avgBestNcc}</li>` : '',
             s.stitches.count ? `<li><strong>Uniones:</strong> ${s.stitches.count} · traslape encontrado ${s.stitches.found} de ${s.stitches.total} (${pct(s.stitches.found, s.stitches.total)})</li>` : '',
             s.results.count ? `<li><strong>Lecturas:</strong> ${Object.entries(s.results.states).map(([k, n]) => `${n} ${STATE_LABEL[k] || k}`).join(' · ')}</li>` : '',
@@ -105,6 +109,40 @@ function newReceiptCameraCard(settings = {}) {
                     </span>
                     <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
                 </label>${on ? cameraDiagnosticsBlock() : ''}
+            </section>`;
+}
+
+// Recorte automático del fondo en la cámara de facturas.
+function receiptAutoCropCard(settings = {}) {
+    const on = settings.receiptAutoCrop === true;
+    return `
+            <section class="stg-card" aria-labelledby="receipt-auto-crop-title" style="margin-bottom:20px;">
+                <h3 id="receipt-auto-crop-title">Recorte automático</h3>
+                <label class="stg-switch-row ${on ? 'is-active' : ''}" role="switch" aria-checked="${on}">
+                    <input type="checkbox" id="receiptAutoCrop" ${on ? 'checked' : ''}>
+                    <span class="stg-switch-copy">
+                        <strong>Recortar la factura automáticamente</strong>
+                        <small>En la cámara de facturas, recorta la mesa o el fondo alrededor del papel claro. Ante la duda no recorta. No endereza ni corrige la perspectiva, y no se aplica a la factura larga.</small>
+                    </span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
+            </section>`;
+}
+
+// Enderezar la factura (giro y perspectiva) en la cámara de facturas.
+function receiptStraightenCard(settings = {}) {
+    const on = settings.receiptStraighten === true;
+    return `
+            <section class="stg-card" aria-labelledby="receipt-straighten-title" style="margin-bottom:20px;">
+                <h3 id="receipt-straighten-title">Enderezar facturas</h3>
+                <label class="stg-switch-row ${on ? 'is-active' : ''}" role="switch" aria-checked="${on}">
+                    <input type="checkbox" id="receiptStraighten" ${on ? 'checked' : ''}>
+                    <span class="stg-switch-copy">
+                        <strong>Enderezar la factura al tomar la foto</strong>
+                        <small>En la cámara de facturas, busca las cuatro esquinas del papel, lo deja recto aunque lo hayas tomado girado o en ángulo y recorta la mesa alrededor (aunque el recorte automático esté apagado). Ante la duda no toca la foto; si ya está recta tampoco. No se aplica a la factura larga ni a fotos de la galería.</small>
+                    </span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
             </section>`;
 }
 
@@ -169,7 +207,7 @@ export function SettingsTestsTab(context) {
     const state = context?.state || {};
     const splitxActiveUrl = state.settings?.splitxUrl || 'https://splitx.erlin.do';
 
-    const experiments = `${SettingsNfcReadTestCard(NfcSettingsFields())}${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}${newPettyCashScreenCard(state.settings)}${pettyCashReadConfidenceCard(state.settings)}`;
+    const experiments = `${SettingsNfcReadTestCard(NfcSettingsFields())}${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}${receiptAutoCropCard(state.settings)}${receiptStraightenCard(state.settings)}${newPettyCashScreenCard(state.settings)}${pettyCashReadConfidenceCard(state.settings)}`;
     const diagnostics = `            <div class="stg-header" style="margin-bottom: 20px;">
                 <div>
                     <h3>Pruebas del Sistema</h3>

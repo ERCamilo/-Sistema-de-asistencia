@@ -37,6 +37,7 @@ export function summarizeDiagnostics(events = []) {
     const stitches = of('stitch');
     const results = of('result');
     const fixes = of('fix');
+    const straight = shots.filter(s => s.straightened);
     const totalChecks = parts.reduce((a, p) => a + (p.checks || 0), 0);
     return {
         shots: {
@@ -47,7 +48,20 @@ export function summarizeDiagnostics(events = []) {
             avgGrabMs: round(avg(shots.map(s => s.grabMs || 0))),
             avgSaveMs: round(avg(shots.map(s => s.saveMs || 0))),
             avgKb: round(avg(shots.map(s => s.kb || 0))),
-            webp: shots.filter(s => s.mime === 'image/webp').length
+            webp: shots.filter(s => s.mime === 'image/webp').length,
+            // Nitidez y luz medidas al disparar (para ajustar los umbrales del aviso con uso real).
+            measured: shots.filter(s => Number.isFinite(s.sharp)).length,
+            avgSharp: round(avg(shots.filter(s => Number.isFinite(s.sharp)).map(s => s.sharp)), 2),
+            flagged: { blurry: shots.filter(s => s.flag === 'blurry').length, dark: shots.filter(s => s.flag === 'dark').length, flat: shots.filter(s => s.flag === 'flat').length }
+        },
+        // Fotos enderezadas (para ajustar los umbrales con uso real): inclinación, perspectiva y lo que cuesta guardarlas.
+        straightened: {
+            count: straight.length,
+            avgSkew: round(avg(straight.map(s => s.straightened.skew || 0)), 1),
+            avgPersp: round(avg(straight.map(s => s.straightened.persp || 0)), 2),
+            avgSaveMs: round(avg(straight.map(s => s.saveMs || 0))),
+            // Por qué no se enderezaron las demás: recta, apaisada, cortada por el borde, etc.
+            declined: shots.reduce((acc, s) => (s.straightenDeclined ? tally(acc, s.straightenDeclined) : acc), {})
         },
         parts: {
             count: parts.length,

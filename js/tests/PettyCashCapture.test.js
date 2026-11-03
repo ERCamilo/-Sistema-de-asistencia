@@ -3,7 +3,7 @@
  * navegador lo permite (ImageCapture), recortada a lo que se ve en el visor,
  * y guardada en WebP (más liviano a la misma calidad) con respaldo a JPEG.
  */
-import { photoCrop, fitLongSide, encodeImage, capturePhoto, takeShot, renderShot, extensionFor, MAX_PHOTO_LONG_SIDE } from '../modules/features/pettycash/PettyCashCapture.js';
+import { photoCrop, fitLongSide, encodeImage, capturePhoto, takeShot, renderShot, photoFromShot, extensionFor, MAX_PHOTO_LONG_SIDE } from '../modules/features/pettycash/PettyCashCapture.js';
 
 describe('photoCrop: la foto del sensor se recorta a la forma del visor', () => {
     test('misma forma: se usa completa', () => {
@@ -125,5 +125,47 @@ describe('capturePhoto', () => {
         const canvas = renderShot(shot, { makeCanvas: deps.makeCanvas, maxWidth: 1600 });
         expect(canvas.width).toBe(1600);
         expect(shot.source.close).toHaveBeenCalled();
+    });
+});
+
+describe('photoFromShot: de la toma a la foto que se guarda', () => {
+    const canvas = { width: 100, height: 200 };
+    const straight = { width: 90, height: 190 };
+    const blobOf = (tag) => new Blob([tag], { type: 'image/jpeg' });
+    const deps = (over = {}) => ({
+        doc: {},
+        render: jest.fn(() => canvas),
+        encode: jest.fn(async (c) => blobOf(c === straight ? 'straight' : 'plain')),
+        straightenCanvasFn: jest.fn(async () => straight),
+        ...over
+    });
+
+    test('un archivo ya hecho (galería) pasa tal cual', async () => {
+        const file = blobOf('file');
+        const d = deps();
+        expect(await photoFromShot(file, d)).toBe(file);
+        expect(d.render).not.toHaveBeenCalled();
+    });
+    test('sin esquinas: se dibuja el recorte y se guarda, sin remuestrear', async () => {
+        const d = deps();
+        const out = await photoFromShot({ source: {}, crop: {} }, d);
+        expect(d.straightenCanvasFn).not.toHaveBeenCalled();
+        expect(d.encode).toHaveBeenCalledWith(canvas);
+        expect(await out.text?.() ?? 'plain').toBe('plain');
+    });
+    test('con esquinas: se endereza el lienzo del recorte y se guarda el enderezado', async () => {
+        const quad = [[0, 0], [1, 0], [1, 1], [0, 1]];
+        const d = deps();
+        await photoFromShot({ source: {}, crop: {}, quad }, d);
+        expect(d.straightenCanvasFn).toHaveBeenCalledWith(canvas, quad, expect.objectContaining({ doc: d.doc, maxSide: MAX_PHOTO_LONG_SIDE }));
+        expect(d.encode).toHaveBeenCalledWith(straight);
+    });
+    test('si enderezar falla o no devuelve nada, se guarda el recorte tal cual (nunca se pierde la foto)', async () => {
+        const quad = [[0, 0], [1, 0], [1, 1], [0, 1]];
+        for (const fn of [jest.fn(async () => null), jest.fn(async () => { throw new Error('sin memoria'); })]) {
+            const d = deps({ straightenCanvasFn: fn });
+            await photoFromShot({ source: {}, crop: {}, quad }, d);
+            expect(d.encode).toHaveBeenCalledWith(canvas);
+        }
     });
 });

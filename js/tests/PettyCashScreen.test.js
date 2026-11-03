@@ -194,3 +194,31 @@ describe('columna del editor', () => {
         expect(document.querySelector('[data-pcn-card="a"]').dataset.selected).toBe('false');
     });
 });
+
+describe('saldo total del proyecto', () => {
+    test('se muestra en la tarjeta de saldo cuando se recibe (hay más de un periodo)', () => {
+        document.body.innerHTML = balanceCardHTML({ saldo: 100, reposiciones: 200, gastos: 100, reembolso: 0, projectTotal: -4504.14 });
+        const line = document.querySelector('[data-pcn-project-total]');
+        expect(line.textContent).toContain('Saldo total del proyecto');
+        expect(line.textContent).toContain('4,504.14');
+        expect(line.dataset.negative).toBe('true');
+    });
+    test('sin el dato, no aparece', () => {
+        document.body.innerHTML = balanceCardHTML({ saldo: 100, reposiciones: 200, gastos: 100, reembolso: 0 });
+        expect(document.querySelector('[data-pcn-project-total]')).toBeNull();
+    });
+});
+
+describe('encabezado dentro de la columna de la lista', () => {
+    test('el bloque superior (título, avisos, caja y periodo) va primero dentro de la columna principal', () => {
+        render(model({ slots: { top: '<div id="s-top"></div>', after: '<div id="s-after"></div>' } }));
+        const main = document.querySelector('.pcn-main');
+        expect(main.firstElementChild.id).toBe('s-top');
+        expect(main.lastElementChild.id).toBe('s-after');
+        expect(document.querySelector('[data-pcn-screen] #s-top')).not.toBeNull();
+    });
+    test('sin bloque superior, la tarjeta de saldo sigue primero', () => {
+        render(model());
+        expect(document.querySelector('.pcn-main').firstElementChild.hasAttribute('data-pcn-balance')).toBe(true);
+    });
+});

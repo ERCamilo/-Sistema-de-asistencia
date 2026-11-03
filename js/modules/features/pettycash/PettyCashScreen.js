@@ -6,6 +6,7 @@
  * reciben listos en `slots`; aquí solo se organiza lo nuevo.
  * Probado en js/tests/PettyCashScreen.test.js.
  */
+import { receiptDate, datesConflict } from './PettyCashDates.js';
 import { RECEIPT_STATES, groupReviewFirst } from './PettyCashReceiptReview.js';
 import { formatPettyCashDate, receiptBackupState } from './PettyCashPresentation.js';
 import { formatPettyCashRecordNumber } from './PettyCashRecordNumber.js';
@@ -17,7 +18,7 @@ const FILTERS = Object.freeze([['todos', 'Todos'], ['revisar', RECEIPT_STATES.re
     ['consumo', RECEIPT_STATES.consumo.label], ['otra', RECEIPT_STATES.otra.label], ['leida', RECEIPT_STATES.leida.label]]);
 const CAMERA_ICON = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
 
-export function balanceCardHTML({ saldo = 0, reposiciones = 0, gastos = 0, reembolso = 0 } = {}) {
+export function balanceCardHTML({ saldo = 0, reposiciones = 0, gastos = 0, reembolso = 0, projectTotal = null } = {}) {
     const used = reposiciones > 0 ? Math.min(100, Math.max(0, Math.round((gastos / reposiciones) * 100))) : 0;
     return `<section class="pcn-balance" data-pcn-balance>
         <div class="pcn-balance-label">Saldo disponible</div>
@@ -25,6 +26,7 @@ export function balanceCardHTML({ saldo = 0, reposiciones = 0, gastos = 0, reemb
         <div class="pcn-track"><span data-pcn-spent-bar style="width:${used}%"></span></div>
         <div class="pcn-balance-foot"><span>Fondo ${rd(reposiciones)}</span><span>Gastado ${rd(gastos)}</span></div>
         ${reembolso > 0 ? `<div class="pcn-balance-refund">Por reembolsar ${rd(reembolso)}</div>` : ''}
+        ${projectTotal === null || projectTotal === undefined ? '' : `<div class="pcn-balance-project" data-pcn-project-total data-negative="${projectTotal < 0}"><span>Saldo total del proyecto</span><b>${rd(projectTotal)}</b></div>`}
     </section>`;
 }
 
@@ -33,12 +35,12 @@ export function movementCardHTML({ movement: m, key, duplicate }, { cerrada = fa
     const title = isGasto ? (m.paidTo || m.description || 'Gasto') : (m.description || 'Reposición');
     const state = isGasto ? RECEIPT_STATES[key] : null;
     const unsent = isGasto && receiptBackupState(m)?.state === 'pending';
-    const meta = [formatPettyCashDate(m.fechaEmision || m.date), isGasto ? m.category : 'Reposición'].filter(Boolean).map(esc).join(' · ');
+    const meta = [formatPettyCashDate(receiptDate(m)), isGasto ? m.category : 'Reposición'].filter(Boolean).map(esc).join(' · ');
     const dupLabel = duplicate?.confidence === 'exact' ? 'Coincide con' : 'Se parece a';
     return `<div class="pcn-card" data-pcn-card="${esc(m.id)}" data-selected="${!!selected}" data-app-fn="pcOpenMovement" data-arg="${esc(m.id)}" role="button" tabindex="0" title="Ver / editar detalle">
         <div class="pcn-card-main">
             <div class="pcn-card-title"><span class="pcn-card-num">${esc(formatPettyCashRecordNumber(m.recordNumber))}</span> ${esc(title)}</div>
-            <div class="pcn-card-meta">${meta}${unsent ? ' · <span class="pcn-unsent">Sin subir</span>' : ''}</div>
+            <div class="pcn-card-meta">${meta}${isGasto && datesConflict(m) ? ' · <span class="pcn-twodates" data-pcn-twodates title="Tiene dos fechas distintas: ábrela para elegir la correcta">2 fechas</span>' : ''}${unsent ? ' · <span class="pcn-unsent">Sin subir</span>' : ''}</div>
             ${duplicate ? `<button type="button" class="pcn-dup" data-app-fn="pcOpenDuplicateReference" data-arg="${esc(duplicate.referenceId)}" data-app-stop="1" title="${esc(duplicate.reason)}. Abrir registro de referencia.">⚠ ${dupLabel} ${esc(formatPettyCashRecordNumber(duplicate.referenceNumber))} · ${esc(duplicate.referencePeriodLabel)}</button>` : ''}
         </div>
         <div class="pcn-card-side">
@@ -70,6 +72,7 @@ export function screenHTML(model) {
         : `<div class="pcn-empty" data-pcn-empty>${filter !== 'todos' ? 'No hay registros con ese estado.' : 'Sin movimientos aún.'}</div>`;
     return `<div class="pcn-screen" data-pcn-screen data-editing="${!!editing}">
         <div class="pcn-main">
+            ${slots.top || ''}
             ${balanceCardHTML(summary)}
             ${cerrada ? '' : `${cta}
             <div class="pcn-actions" data-pcn-actions>

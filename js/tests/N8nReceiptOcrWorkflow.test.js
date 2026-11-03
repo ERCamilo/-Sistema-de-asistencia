@@ -100,6 +100,19 @@ describe('Preparar solicitud Gemini', () => {
         expect(out.geminiBody.generationConfig.responseMimeType).toBe('application/json');
     });
 
+    test('el tipo se toma del contenido: bytes de JPEG etiquetados como WebP se envían como JPEG', async () => {
+        const send = async (data, mimeType) => (await runCode('Preparar solicitud Gemini', { body: { fileBase64: data, mimeType } })).geminiBody.contents[0].parts[1].inlineData.mimeType;
+        expect(await send('/9j/4AAQSkZJRg==', 'image/webp')).toBe('image/jpeg');
+        expect(await send('iVBORw0KGgo=', 'image/jpeg')).toBe('image/png');
+        expect(await send('UklGRiQAAABXRUJQ', 'image/jpeg')).toBe('image/webp');
+        expect(await send('JVBERi0xLjQ=', 'image/jpeg')).toBe('application/pdf');
+    });
+
+    test('si el contenido no se reconoce, se respeta el tipo indicado', async () => {
+        const out = await runCode('Preparar solicitud Gemini', { body: { fileBase64: 'QUJD', mimeType: 'image/webp' } });
+        expect(out.geminiBody.contents[0].parts[1].inlineData.mimeType).toBe('image/webp');
+    });
+
     test('pide descuento, propina, exento e itbis_incluido', async () => {
         const out = await runCode('Preparar solicitud Gemini', { body: { fileBase64: 'QUJD' } });
         const prompt = out.geminiBody.contents[0].parts[0].text;
@@ -112,6 +125,85 @@ describe('Preparar solicitud Gemini', () => {
         expect(prompt).toMatch(/"boxes"/);
         expect(prompt).toMatch(/\[y_min, x_min, y_max, x_max\]/);
         ['"total"', '"ncf"', '"rnc_emisor"', '"fecha"', '"itbis"', '"subtotal"'].forEach(k => expect(prompt).toContain(k));
-        expect(out.geminiBody.generationConfig.maxOutputTokens).toBe(4096);
+        expect(out.geminiBody.generationConfig.maxOutputTokens).toBe(8192);
+    });
+});
+
+
+describe('fechas y montos: lo que se le pide al lector y cómo se normaliza', () => {
+    const prepare = async () => runCode('Preparar solicitud Gemini', { body: { fileBase64: '/9j/AAAA', mimeType: 'image/jpeg' } });
+
+    test('se le explica que las fechas dominicanas van como DÍA/MES/AÑO y que el año tiene 4 dígitos', async () => {
+        const { geminiBody } = await prepare();
+        const prompt = geminiBody.contents[0].parts[0].text;
+        expect(prompt).toMatch(/DIA\/MES\/ANO/);
+        expect(prompt).toMatch(/03\/11\/2026/);
+        expect(prompt).toMatch(/4 digitos/);
+    });
+
+    test('se le pide copiar los montos como están impresos, sin recalcularlos', async () => {
+        const { geminiBody } = await prepare();
+        expect(geminiBody.contents[0].parts[0].text).toMatch(/tal como esta(n)? impreso/);
+    });
+
+    test('hay espacio de sobra para la respuesta (la respuesta cortada daba JSON inválido)', async () => {
+        const { geminiBody } = await prepare();
+        expect(geminiBody.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(8192);
+    });
+
+    test.each([
+        ['03/11/2026', '2026-11-03'],
+        ['3-11-26', '2026-11-03'],
+        ['03.11.2026', '2026-11-03'],
+        ['2026-11-03', '2026-11-03'],
+        ['2026-11-03T10:20:00', '2026-11-03']
+    ])('la fecha «%s» sale como %s (día/mes/año)', async (raw, iso) => {
+        expect((await runCode('Parsear JSON', gemini({ total: 5, fecha: raw }))).fecha).toBe(iso);
+    });
+
+    test('una fecha imposible queda en null en vez de inventarse', async () => {
+        expect((await runCode('Parsear JSON', gemini({ total: 5, fecha: '31/02/2026' }))).fecha).toBeNull();
+        expect((await runCode('Parsear JSON', gemini({ total: 5, fecha: 'ayer' }))).fecha).toBeNull();
+        expect((await runCode('Parsear JSON', gemini({ total: 5 }))).fecha).toBeNull();
+    });
+
+    test('una respuesta cortada por límite de tokens lo dice, para no confundirla con una foto mala', async () => {
+        const out = await runCode('Parsear JSON', { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"emisor":"Ferre' }] } }] });
+        expect(out.ok).toBe(false);
+        expect(out.error).toMatch(/MAX_TOKENS/);
+        expect(out.finishReason).toBe('MAX_TOKENS');
+    });
+
+    test('una respuesta que no es JSON, sin corte, conserva su mensaje', async () => {
+        const out = await runCode('Parsear JSON', { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'no es json' }] } }] });
+        expect(out.ok).toBe(false);
+        expect(out.finishReason).toBe('STOP');
+        expect(out.raw).toBe('no es json');
+    });
+});
+
+
+describe('el pedido al lector: el esquema de campos no se altera y los recuadros se piden aparte', () => {
+    const prompt = async () => (await runCode('Preparar solicitud Gemini', { body: { fileBase64: '/9j/AAAA', mimeType: 'image/jpeg' } })).geminiBody.contents[0].parts[0].text;
+
+    test('las reglas (fecha, montos, recuadros) van ANTES del esquema; el esquema queda como siempre', async () => {
+        const text = await prompt();
+        const at = text.indexOf('Campos: {');
+        expect(at).toBeGreaterThan(0);
+        const rules = text.slice(0, at);
+        expect(rules).toMatch(/DIA\/MES\/ANO/);
+        expect(rules).toMatch(/tal como esta(n)? impreso/);
+        expect(rules).toMatch(/boxes/);
+        const schema = text.slice(at);
+        expect(schema).toContain('"fecha": fecha en formato YYYY-MM-DD,');
+        expect(schema).not.toMatch(/DIA\/MES\/ANO|NO el 11 de marzo/);
+        expect(schema).toContain('"boxes": {"total", "subtotal", "itbis", "ncf", "rnc_emisor", "fecha"} donde cada uno es el recuadro del valor en la imagen como [y_min, x_min, y_max, x_max] con enteros normalizados de 0 a 1000');
+        expect(schema).toContain('usa null para el dato que no veas, y "boxes": null si el comprobante es PDF o tiene varias paginas}');
+    });
+
+    test('se pide ubicar siempre los datos que se vean (null solo si no se ven)', async () => {
+        const rules = (await prompt()).split('Campos: {')[0];
+        expect(rules).toMatch(/Siempre ubica en la imagen/);
+        expect(rules).toMatch(/null solo/);
     });
 });

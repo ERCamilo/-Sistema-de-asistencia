@@ -103,7 +103,10 @@ export async function requestReceiptOcr({
     if (typeof fetchImpl !== 'function') throw new Error('El navegador no permite enviar la factura.');
 
     const base64 = String(source).split(',')[1] || String(source);
-    const normalizedMimeType = String(mimeType || 'image/jpeg').toLowerCase();
+    // El tipo sale de lo que realmente se envía: la foto original puede ser WebP, pero lo que viaja
+    // ya se re-codificó (JPEG). Un tipo cruzado con otros bytes hace que el lector falle o lea peor.
+    const declared = /^data:([^;,]+)[;,]/.exec(String(source))?.[1];
+    const normalizedMimeType = String(declared || mimeType || 'image/jpeg').toLowerCase();
     const response = await fetchImpl(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
