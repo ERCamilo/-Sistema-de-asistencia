@@ -52,6 +52,8 @@ import { resolveReceiptOriginal } from './PettyCashReceiptSource.js';
 import { receiptDate } from './PettyCashDates.js';
 import { rescanSummary } from './PettyCashRescan.js';
 import { attachBoxEditor } from './PettyCashBoxEditor.js';
+import { createStraightenFlow } from './PettyCashStraightenFlow.js';
+import { boxesForDisplay, applyStagedBoxes } from './PettyCashCorners.js';
 import { attachPhotoViewer } from './PettyCashPhotoViewer.js';
 import { receiptEditorHTML, editorViewState, EDITOR_FIELDS } from './PettyCashReceiptEditor.js';
 import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, fitEditorScreen } from './PettyCashEditorUi.js';
@@ -1568,6 +1570,11 @@ async function loadEditorSource(movId) {
         if (source?.objectUrl) { try { URL.revokeObjectURL(source.url); } catch { /* noop */ } }
         return;
     }
+    // Si mientras tanto se dejó una foto enderezada en espera, esa es la que se ve: la original no la pisa.
+    if (d._editSource?.staged) {
+        if (source?.objectUrl) { try { URL.revokeObjectURL(source.url); } catch { /* noop */ } }
+        return;
+    }
     d._editSource = source;
     repaintEditor();
 }
@@ -1575,6 +1582,7 @@ async function loadEditorSource(movId) {
 function openEditorState(movId) {
     const d = pc();
     releaseEditorSource();
+    d._editBoxes = null;
     d._editorUi = defaultEditorUi();
     d._rescanResult = null;
     if (newPettyCashScreen() && movId) loadEditorSource(movId);
@@ -1591,19 +1599,26 @@ function repaintEditor() {
 let _editorResizeBound = false;
 let _boxEditorDetach = null;
 let _photoViewer = null;
+let _straightenFlow = null;
 const EDITOR_BOX_KEYS = new Set(['rncEmisor', 'ncf', 'date', 'subtotal', 'itbis', 'total', 'paidTo', 'cliente', 'rncCliente', 'descuento', 'propina', 'exento']);
 function closeEditorState() {
     releaseEditorSource();
+    pc()._editBoxes = null;
     pc()._editorUi = null;
     pc()._rescanResult = null;
 }
+/** Foto que ve el editor: la enderezada en espera (grande), si no la nueva elegida (miniatura), si no la guardada. */
+function editorPhotoSource(d) {
+    if (d._editSource?.staged) return d._editSource;
+    return d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource;
+}
 function _newMovementEditor(mov, cerrada) {
     const d = pc();
-    return receiptEditorHTML(mov, {
+    return receiptEditorHTML(boxesForDisplay(mov, d._editBoxes), {
         cerrada,
         context: editorContext(mov),
         ui: editorUi(),
-        source: d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource,
+        source: editorPhotoSource(d),
         showConfidence: state.settings?.pettyCashReadConfidence === true,
         rescan: { busy: !!d._rescanStatus, result: d._rescanResult || null },
         queue: (() => {
@@ -2299,17 +2314,28 @@ export function registerPettyCashGlobals() {
         d._editorUi = { ...editorUi(), draft };
         repaintEditor();
     };
+    // Con la foto enderezada en espera, las marcas son de la foto nueva y esperan con ella (no se escriben en el gasto).
+    const writeManualBoxes = async (mov, manualBoxes) => {
+        const d = pc();
+        if (!d._editBoxes) { await saveManualBoxes(mov, manualBoxes); return; }
+        const draft = readEditorDraft(document);
+        d._editBoxes = { ...d._editBoxes, manualBoxes };
+        d._editorUi = { ...editorUi(), draft };
+        repaintEditor();
+    };
     window.pcEditorBoxCommit = async (key, box) => {
         const mov = editingMovement();
         if (!mov || !isValidBox(box) || !EDITOR_BOX_KEYS.has(key)) return;
-        await saveManualBoxes(mov, { ...(mov.manualBoxes || {}), [key]: box.slice() });
+        const shown = boxesForDisplay(mov, pc()._editBoxes);
+        await writeManualBoxes(mov, { ...(shown.manualBoxes || {}), [key]: box.slice() });
     };
     window.pcEditorBoxClear = async (key) => {
         const mov = editingMovement();
-        if (!mov || !mov.manualBoxes || !(key in mov.manualBoxes)) return;
-        const rest = { ...mov.manualBoxes };
+        const shown = mov ? boxesForDisplay(mov, pc()._editBoxes) : null;
+        if (!shown || !shown.manualBoxes || !(key in shown.manualBoxes)) return;
+        const rest = { ...shown.manualBoxes };
         delete rest[key];
-        await saveManualBoxes(mov, rest);
+        await writeManualBoxes(mov, rest);
     };
     // Zoom, arrastre y divisor de la foto: la vista vive en el estado del editor y no repinta mientras se mueve.
     if (typeof document !== 'undefined' && !_photoViewer) {
@@ -2322,6 +2348,30 @@ export function registerPettyCashGlobals() {
     if (typeof document !== 'undefined' && !_boxEditorDetach) {
         _boxEditorDetach = attachBoxEditor({ doc: document, onCommit: (key, box) => window.pcEditorBoxCommit?.(key, box) });
     }
+    // Enderezar a mano: la foto original, cuatro esquinas que se arrastran y la foto enderezada en espera hasta confirmar.
+    if (!_straightenFlow) {
+        _straightenFlow = createStraightenFlow({
+            doc: document,
+            getState: () => pc(),
+            getMovement: editingMovement,
+            isClosed: (mov) => pc().periods.find((item) => item.id === mov.periodId)?.status === 'cerrada',
+            resolveOriginal: async (txId) => resolveReceiptOriginal({
+                txId,
+                getReceipt: (id) => indexedDBService.getReceipt(id),
+                lookup: APP_CONFIG?.RECEIPT_UPLOAD_URL && auth?.currentUser
+                    ? async (id) => lookupReceiptBackup({ url: APP_CONFIG.RECEIPT_UPLOAD_URL, idToken: await auth.currentUser.getIdToken(), txId: id })
+                    : null
+            }),
+            prepareCapture: prepareReceiptCapture,
+            notify: (message, type) => window.showNotification?.(message, type),
+            repaint: repaintEditor,
+            releaseSource: releaseEditorSource,
+            reloadSource: () => { const d = pc(); if (d.editMov) loadEditorSource(d.editMov); },
+            readDraft: () => readEditorDraft(document)
+        });
+    }
+    window.pcEditorStraighten = () => _straightenFlow.start();
+    window.pcEditorUndoStraighten = () => _straightenFlow.undo();
     window.pcEditorReloadSource = () => {
         const d = pc();
         if (!d.editMov) return;
@@ -2395,7 +2445,7 @@ export function registerPettyCashGlobals() {
     const editorFile = () => {
         const d = pc();
         const mov = editingMovement();
-        const source = d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource;
+        const source = editorPhotoSource(d);
         return mov && source?.url ? { url: source.url, mime: source.mime || 'image/jpeg', name: receiptFileName(mov, source.mime || 'image/jpeg') } : null;
     };
     window.pcEditorDownload = async () => {
@@ -2437,7 +2487,7 @@ export function registerPettyCashGlobals() {
     window.pcEditorFocusIn = (event) => {
         const key = EDITOR_FIELDS[event?.target?.id]?.key;
         const mov = editingMovement();
-        if (!key || !mov || !Array.isArray(mov.ocrBoxes?.[key])) return;
+        if (!key || !mov || !Array.isArray(boxesForDisplay(mov, pc()._editBoxes).ocrBoxes?.[key])) return;
         const ui = editorUi();
         if (ui.field === key) return;
         pc()._editorUi = { ...ui, field: key, draft: readEditorDraft(document) };
@@ -2630,7 +2680,15 @@ export function registerPettyCashGlobals() {
             });
             const normalized = normalizeReceiptOcr(data, CATEGORIAS);
             const before = { ...mov };
+            const savedOcrBoxes = mov.ocrBoxes;
             applyReceiptOcrToMovement(mov, normalized);
+            if (d._editBoxes) {
+                // La foto enderezada aún no se guardó: sus recuadros esperan con ella. Los nuevos del lector
+                // ganan sobre los pasados de la foto vieja, y la foto vigente conserva los suyos hasta confirmar.
+                const fresh = mov.ocrBoxes && mov.ocrBoxes !== savedOcrBoxes ? mov.ocrBoxes : d._editBoxes.ocrBoxes;
+                d._editBoxes = { ...d._editBoxes, ocrBoxes: fresh };
+                if (savedOcrBoxes === undefined) delete mov.ocrBoxes; else mov.ocrBoxes = savedOcrBoxes;
+            }
             mov.reviewPending = true;
             mov.localDraft = true;
             mov.updatedAt = Date.now();
@@ -2883,8 +2941,15 @@ export function registerPettyCashGlobals() {
         if (!file) return;
         try {
             const capture = await prepareReceiptCapture(file);
-            pc()._editPhoto = capture.previewDataUrl;
-            pc()._editPhotoCapture = capture;
+            const d = pc();
+            const hadStaged = !!d._editSource?.staged;
+            d._editPhoto = capture.previewDataUrl;
+            d._editPhotoCapture = capture;
+            d._editBoxes = null;
+            if (hadStaged) {                      // otra foto sustituye a la enderezada: ya no hay nada que mostrar de ella
+                releaseEditorSource();
+                d._editSource = undefined;
+            }
             window.render?.();
         }
         catch (e) {
@@ -3016,6 +3081,8 @@ export function registerPettyCashGlobals() {
                 mov.receiptPageCount = pendingCapture.pageCount;
                 mov.hasReceipt = true;
                 mov.updatedAt = Date.now();
+                // Los recuadros de la foto enderezada se escriben junto con ella, no antes (ni si la foto no se guardó).
+                if (d._editBoxes) applyStagedBoxes(mov, d._editBoxes);
                 receiptReadyForBackup = true;
             } catch (e) {
                 console.warn('⚠️ saveReceipt local (edit):', e);
@@ -3032,7 +3099,7 @@ export function registerPettyCashGlobals() {
                 console.warn('confirm existing receipt after edit', e);
             }
         }
-        d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null;
+        d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null; d._editBoxes = null;
         closeEditorState();
         persist();
         await saveMovement(

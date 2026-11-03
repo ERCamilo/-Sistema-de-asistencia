@@ -67,7 +67,7 @@ function newBottomNavCard(settings = {}) {
 
 // Diagnóstico de la cámara (solo números, en este teléfono) para ajustarla con uso real.
 const STATE_LABEL = { ok: 'leídas', review: 'por revisar', failed: 'sin datos' };
-const DECLINE_LABEL = { straight: 'recta', landscape: 'apaisada', 'cut-off': 'cortada por el borde', 'no-paper': 'sin papel claro', size: 'muy chica o muy grande', shape: 'forma dudosa', perspective: 'perspectiva extrema', skew: 'muy girada' };
+const DECLINE_LABEL = { straight: 'recta', landscape: 'apaisada', 'cut-off': 'cortada por el borde', 'no-paper': 'sin papel claro', size: 'muy chica o muy grande', shape: 'forma dudosa', curved: 'papel curvo', perspective: 'perspectiva extrema', skew: 'muy girada' };
 function cameraDiagnosticsBlock() {
     const s = createCameraDiagnostics().summary();
     const pct = (n, total) => (total ? `${Math.round((n / total) * 100)}%` : '—');

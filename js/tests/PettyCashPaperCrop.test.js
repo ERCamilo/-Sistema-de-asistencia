@@ -72,6 +72,53 @@ describe('detectPaper', () => {
     });
 });
 
+/** Recibo enrollado: sus lados se curvan, se estrecha hacia abajo y la zona curva queda en sombra. */
+const curled = (curl) => make((x, y) => {
+    const v = (y - 50) / 220;
+    if (v < 0 || v > 1) return 40;
+    const half = 50 * (1 - curl * 0.5 * Math.pow(v, 2.2));
+    const sway = 6 * Math.sin(v * Math.PI * curl * 2);
+    if (Math.abs(x - 120 - sway) > half) return 40;
+    const shade = 1 - curl * 0.5 * Math.pow(v, 2.5);
+    return (y % 8 < 2 && x % 5 < 3) ? 40 : 225 * shade;
+});
+/** Rectángulo (en píxeles) que contiene todo lo que se ve claro del papel, medido sin usar el detector. */
+const visiblePaperBox = (img, min = 100) => {
+    let x0 = W; let y0 = H; let x1 = -1; let y1 = -1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (img.data[(y * W + x) * 4] > min && img.data[(y * W + x) * 4] !== 40) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    }
+    return { x0, y0, x1, y1 };
+};
+
+describe('detectPaper con papel enrollado o con sombra', () => {
+    test.each([0, 0.4, 0.7, 1])('curva %s: el recorte nunca deja fuera una parte clara del papel', (curl) => {
+        const img = curled(curl);
+        const box = visiblePaperBox(img);
+        const r = detectPaper(img);
+        // Recortar de más es el fallo que no se permite: o no se recorta, o el recorte contiene todo el papel.
+        if (r) {
+            expect(r.x0 * W).toBeLessThanOrEqual(box.x0);
+            expect(r.x1 * W).toBeGreaterThanOrEqual(box.x1 + 1);
+            expect(r.y0 * H).toBeLessThanOrEqual(box.y0);
+            expect(r.y1 * H).toBeGreaterThanOrEqual(box.y1 + 1);
+        }
+    });
+    test('un recibo enrollado se sigue recortando (no se rinde por la curva)', () => {
+        expect(detectPaper(curled(0.7))).not.toBeNull();
+    });
+    test('el papel más angosto en un extremo no recorta ese extremo', () => {
+        const pointy = make((x, y) => {
+            const v = (y - 50) / 220;
+            if (v < 0 || v > 1) return 40;
+            const half = v > 0.8 ? 50 * (1 - (v - 0.8) * 3) : 50;      // el final se estrecha
+            return Math.abs(x - 120) <= half ? 225 : 40;
+        });
+        const r = detectPaper(pointy);
+        expect(r === null || r.y1 * H >= 270).toBe(true);
+    });
+});
+
 describe('cropShotToPaper', () => {
     const shotWith = (img) => {
         const doc = { createElement: () => ({ width: 0, height: 0, getContext: () => ({ drawImage: jest.fn(), getImageData: () => img }) }) };

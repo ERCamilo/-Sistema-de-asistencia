@@ -134,6 +134,8 @@ function viewerHTML(mov, { cerrada, ui, source, rescan = {} }) {
     const markButtons = canMark ? `
             <button type="button" class="pcn-tool" data-app-fn="pcEditorMark">${markOn ? 'Listo' : (showBox ? 'Ajustar recuadro' : `Marcar «${esc(label)}» en la foto`)}</button>
             ${found?.source === 'manual' ? `<button type="button" class="pcn-tool" data-app-fn="pcEditorBoxClear" data-arg="${esc(field)}">${hasOcrBox ? 'Volver al recuadro del lector' : 'Quitar mi marca'}</button>` : ''}` : '';
+    // Enderezar parte de la foto original: no con PDF, ni con la miniatura, ni mientras carga.
+    const canStraighten = !cerrada && !!source && !isPdf && !source.reduced;
     const markHint = markOn
         ? `<p class="pcn-note" data-pcn-mark-hint>${showBox ? 'Arrastra el recuadro para moverlo, o su esquina para cambiarle el tamaño.' : `Arrastra sobre la foto para encerrar «${esc(label)}».`}</p>` : '';
     const noBox = source && !showBox && !isPdf && field && !markOn
@@ -159,10 +161,11 @@ function viewerHTML(mov, { cerrada, ui, source, rescan = {} }) {
         <div class="pcn-tools">
             ${markButtons}
             <button type="button" class="pcn-tool" data-app-fn="pcViewReceipt" data-arg="${esc(mov.id)}">Ver comprobante</button>
-            ${cerrada ? '' : `<button type="button" class="pcn-tool" data-app-fn="pcRescanReceipt" data-arg="${esc(mov.id)}" data-pcn-rescan-btn${rescan.busy ? ' disabled aria-busy="true"' : ''}>${rescan.busy ? 'Leyendo…' : 'Reescanear'}</button>${fileInputs(false)}`}
+            ${cerrada ? '' : `<button type="button" class="pcn-tool" data-app-fn="pcRescanReceipt" data-arg="${esc(mov.id)}" data-pcn-rescan-btn${rescan.busy ? ' disabled aria-busy="true"' : ''}>${rescan.busy ? 'Leyendo…' : 'Reescanear'}</button>${canStraighten ? '<button type="button" class="pcn-tool" data-app-fn="pcEditorStraighten" data-pcn-straighten>Enderezar</button>' : ''}${fileInputs(false)}`}
         </div>
         ${rescan.busy ? '<p class="pcn-note" data-pcn-rescan data-tone="busy" role="status">Leyendo la factura… puede tardar unos segundos.</p>' : ''}
         ${!rescan.busy && rescan.result?.text ? `<p class="pcn-note" data-pcn-rescan data-tone="${rescan.result.tone === 'error' ? 'error' : rescan.result.tone === 'warn' ? 'warn' : 'ok'}" role="status">${esc(rescan.result.text)}</p>` : ''}
+        ${source?.staged && !isPdf ? `<p class="pcn-note" data-pcn-staged data-tone="ok" role="status">Foto enderezada: se guardará cuando confirmes el gasto. <button type="button" class="pcn-linkbtn" data-app-fn="pcEditorUndoStraighten">Volver a la original</button></p>` : ''}
         ${source?.reduced && !isPdf ? `<p class="pcn-note" data-pcn-reduced>Vista reducida: la foto original no está en este teléfono y no se pudo bajar del respaldo. <button type="button" class="pcn-linkbtn" data-app-fn="pcEditorReloadSource">Reintentar</button></p>` : ''}
         ${markHint}
         ${noBox}

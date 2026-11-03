@@ -15,7 +15,7 @@
  * El resultado es lo que se guarda y lo que lee el lector, así que los recuadros de datos
  * siguen alineados con la imagen. Probado en js/tests/PettyCashPaperStraighten.test.js.
  */
-import { paperThreshold, PAPER_MIN_AREA, PAPER_MAX_AREA, PAPER_SIZE } from './PettyCashPaperCrop.js';
+import { paperThreshold, brightBlobs, PAPER_MIN_AREA, PAPER_MAX_AREA, PAPER_SIZE } from './PettyCashPaperCrop.js';
 
 export const STRAIGHTEN_MARGIN = 0.05;        // margen por lado, como fracción del tamaño del papel
 export const STRAIGHTEN_MAX_SIDE = 3000;      // lado largo máximo de la imagen enderezada (el mismo de la foto normal: enderezar no debe bajar la resolución)
@@ -92,49 +92,18 @@ export function quadOutputSize(corners, maxSide = STRAIGHTEN_MAX_SIDE) {
 
 // ── Detección de las cuatro esquinas ─────────────────────────────────────
 
-/** Componente claro más grande (8 vecinos) y sus píxeles extremos. */
-function largestBrightBlob(g, width, height, threshold) {
-    const total = width * height;
-    const label = new Int32Array(total);
-    const stack = new Int32Array(total);
-    let bestId = 0; let bestSize = 0; let id = 0;
-    for (let start = 0; start < total; start++) {
-        if (label[start] || g[start] <= threshold) continue;
-        id++;
-        let size = 0; let top = 0;
-        stack[top++] = start; label[start] = id;
-        while (top) {
-            const p = stack[--top];
-            size++;
-            const x = p % width; const y = (p - x) / width;
-            for (let dy = -1; dy <= 1; dy++) {
-                const ny = y + dy;
-                if (ny < 0 || ny >= height) continue;
-                for (let dx = -1; dx <= 1; dx++) {
-                    const nx = x + dx;
-                    if ((!dx && !dy) || nx < 0 || nx >= width) continue;
-                    const q = ny * width + nx;
-                    if (!label[q] && g[q] > threshold) { label[q] = id; stack[top++] = q; }
-                }
-            }
-        }
-        if (size > bestSize) { bestSize = size; bestId = id; }
+const CURVE_TOLERANCE = 0.003;                // píxeles claros fuera del cuadrilátero que se toleran (bordes irregulares)
+const insideQuad = (quad, x, y) => {
+    let sign = 0;
+    for (let i = 0; i < 4; i++) {
+        const a = quad[i]; const b = quad[(i + 1) % 4];
+        const cross = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]);
+        const s = cross >= -1e-6 ? 1 : -1;
+        if (sign && s !== sign) return false;
+        sign = s;
     }
-    if (!bestId) return null;
-    let tl = null; let tr = null; let br = null; let bl = null; let border = 0;
-    let minSum = Infinity; let maxSum = -Infinity; let minDiff = Infinity; let maxDiff = -Infinity;
-    for (let p = 0; p < total; p++) {
-        if (label[p] !== bestId) continue;
-        const x = p % width; const y = (p - x) / width;
-        const sum = x + y; const diff = x - y;
-        if (sum < minSum) { minSum = sum; tl = [x, y]; }
-        if (sum > maxSum) { maxSum = sum; br = [x + 1, y + 1]; }
-        if (diff > maxDiff) { maxDiff = diff; tr = [x + 1, y]; }
-        if (diff < minDiff) { minDiff = diff; bl = [x, y + 1]; }
-        if (x === 0 || y === 0 || x === width - 1 || y === height - 1) border++;
-    }
-    return { size: bestSize, corners: [tl, tr, br, bl], border };
-}
+    return true;
+};
 
 const convex = (pts) => {
     let sign = 0;
@@ -160,7 +129,8 @@ const interiorAngle = (prev, at, next) => {
  * Analiza una imagen RGBA. Si se puede enderezar devuelve las esquinas y las medidas; si no,
  * `{ reason }` con un motivo corto: 'no-paper' (no hay papel claro sobre fondo distinto),
  * 'cut-off' (toca el borde del cuadro), 'size' (muy pequeño o casi todo el cuadro),
- * 'shape' (no es un cuadrilátero casi rectangular), 'perspective' (lados opuestos muy
+ * 'shape' (no es un cuadrilátero casi rectangular), 'curved' (los lados se curvan y el
+ * cuadrilátero cortaría el papel), 'perspective' (lados opuestos muy
  * distintos), 'landscape' (se ve apaisado: no se sabe cuál es «arriba») o 'skew' (muy girado).
  * @param {{data:Uint8ClampedArray|number[], width:number, height:number}} image RGBA
  * @returns {{corners:number[][], skewDeg:number, perspective:number, straight:boolean, area:number, fill:number}|{reason:string}}
@@ -171,10 +141,10 @@ export function analyzeQuad(image) {
     if (!base) return { reason: 'no-paper' };
     const { g, width, height, threshold } = base;
     const total = width * height;
-    const blob = largestBrightBlob(g, width, height, threshold);
+    const blob = brightBlobs(g, width, height, threshold);
     if (!blob || blob.corners.some((c) => !c)) return { reason: 'no-paper' };
     // Casi todo el cuadro es «claro»: no hay un fondo distinto del papel (blanco sobre blanco).
-    if (blob.size / total > 0.9) return { reason: 'no-paper' };
+    if (blob.count / total > 0.9) return { reason: 'no-paper' };
     // Si el papel toca el borde del cuadro no se ven sus esquinas de verdad: no se adivina.
     if (blob.border > BORDER_LIMIT * (width + height)) return { reason: 'cut-off' };
     const pts = blob.corners;
@@ -200,6 +170,16 @@ export function analyzeQuad(image) {
     const angleOf = (a, b, vertical) => Math.abs(degrees(vertical ? Math.atan2(b[0] - a[0], b[1] - a[1]) : Math.atan2(b[1] - a[1], b[0] - a[0])));
     const skewDeg = Math.max(angleOf(tl, tr, false), angleOf(bl, br, false), angleOf(tl, bl, true), angleOf(tr, br, true));
     if (skewDeg > MAX_SKEW_DEG) return { reason: 'skew' };
+
+    // Un papel con los lados curvos se saldría del cuadrilátero y al enderezarlo se cortaría: no se toca.
+    const grown = expandQuad(pts.map(([x, y]) => [x / width, y / height]), STRAIGHTEN_MARGIN).map(([x, y]) => [x * width, y * height]);
+    let outside = 0;
+    for (let p = 0; p < total; p++) {
+        if (!blob.mask[p]) continue;
+        const x = (p % width) + 0.5; const y = Math.floor(p / width) + 0.5;
+        if (!insideQuad(grown, x, y)) outside++;
+    }
+    if (outside > CURVE_TOLERANCE * blob.count) return { reason: 'curved' };
 
     return {
         corners: pts.map(([x, y]) => [x / width, y / height]),

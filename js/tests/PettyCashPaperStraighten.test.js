@@ -164,6 +164,54 @@ describe('analyzeQuad: por qué no se endereza', () => {
     });
 });
 
+describe('papel curvo: enderezar nunca corta el papel', () => {
+    /** Recibo enrollado: lados curvos, se estrecha hacia abajo, sombra en la curva. */
+    const curled = (curl) => make((x, y) => {
+        const v = (y - 50) / 220;
+        if (v < 0 || v > 1) return 40;
+        const half = 50 * (1 - curl * 0.5 * Math.pow(v, 2.2));
+        const sway = 6 * Math.sin(v * Math.PI * curl * 2);
+        if (Math.abs(x - 120 - sway) > half) return 40;
+        const shade = 1 - curl * 0.5 * Math.pow(v, 2.5);
+        return (y % 8 < 2 && x % 5 < 3) ? 40 : 225 * shade;
+    });
+    const inside = (quad, x, y) => {
+        let sign = 0;
+        for (let i = 0; i < 4; i++) {
+            const a = quad[i]; const b = quad[(i + 1) % 4];
+            const cross = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]);
+            const sg = cross >= -1e-6 ? 1 : -1;
+            if (sign && sg !== sign) return false;
+            sign = sg;
+        }
+        return true;
+    };
+    test.each([0.2, 0.4, 0.7, 1])('curva %s: o se rechaza como «curva» o el cuadrilátero con margen contiene todo el papel visible', (curl) => {
+        const img = curled(curl);
+        const r = analyzeQuad(img);
+        if (r.reason) { expect(['curved', 'perspective', 'shape', 'skew', 'landscape', 'size', 'no-paper']).toContain(r.reason); return; }
+        const grown = expandQuad(r.corners, STRAIGHTEN_MARGIN).map(([x, y]) => [x * W, y * H]);
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const v = img.data[(y * W + x) * 4];
+            if (v > 100 && v !== 40) expect(inside(grown, x + 0.5, y + 0.5)).toBe(true);
+        }
+    });
+    test('un papel con los lados abombados se rechaza con el motivo «curved» (el cuadrilátero lo cortaría)', () => {
+        // Papel de 100 de ancho cuyos lados se abomban 12 px hacia afuera en el centro.
+        const bulged = make((x, y) => {
+            const v = (y - 50) / 220;
+            if (v < 0 || v > 1) return 40;
+            const half = 40 + 22 * Math.sin(v * Math.PI);
+            return Math.abs(x - 120) <= half ? ((y % 8 < 2 && x % 5 < 3) ? 40 : 225) : 40;
+        });
+        expect(analyzeQuad(bulged).reason).toBe('curved');
+    });
+    test('un papel recto o girado sin curva sigue aceptándose', () => {
+        expect(analyzeQuad(rotatedPaper(12)).reason).toBeUndefined();
+        expect(analyzeQuad(trapezoidPaper([[75, 50], [165, 50], [190, 280], [50, 280]])).reason).toBeUndefined();
+    });
+});
+
 describe('expandQuad y tamaño de salida', () => {
     const quad = [[0.3, 0.2], [0.7, 0.2], [0.7, 0.8], [0.3, 0.8]];
     test('el margen aleja cada esquina del centro, sin deformar', () => {

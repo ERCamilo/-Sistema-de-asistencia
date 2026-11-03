@@ -6,6 +6,10 @@
  * porque cortar un dato de la factura es peor que dejar un poco de mesa. No endereza
  * ni corrige perspectiva: solo recorta un rectángulo recto.
  *
+ * El rectángulo contiene TODO lo claro que se ve (la caja de las zonas claras importantes), no
+ * un perfil de filas y columnas: un recibo enrollado, más angosto o con sombra en un extremo
+ * no pierde ese extremo.
+ *
  * No recorta cuando: la imagen no tiene dos zonas claramente distintas (factura blanca
  * sobre mesa blanca), la zona clara es muy pequeña o casi todo el cuadro, o no se ve como
  * un papel (una mancha de luz). El resultado sustituye el recorte de la toma, así que lo
@@ -20,7 +24,6 @@ const MIN_AREA = 0.12;                     // el papel debe ocupar al menos esto
 const MAX_AREA = 0.85;                     // y por encima de esto no hay nada útil que recortar
 const MIN_FILL = 0.55;                     // dentro del rectángulo, al menos esto debe ser claro
 const SHADE_TOLERANCE = 0.3;               // lo que esté a más de este tramo entre fondo y papel cuenta como papel (sombras)
-const ROW_FRACTION = 0.5;                  // una fila/columna es de papel si tiene la mitad de lo claro de la mejor
 
 const gray = (data, i) => data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
 
@@ -68,6 +71,67 @@ export function paperThreshold(image) {
 export const PAPER_MIN_AREA = MIN_AREA;
 export const PAPER_MAX_AREA = MAX_AREA;
 
+const SIGNIFICANT_BLOB = 0.15;            // una zona clara cuenta si tiene al menos esto de la más grande (un papel partido por un doblez)
+const MIN_BLOB_FRACTION = 0.005;           // y al menos esto del cuadro (no cuenta el polvo)
+
+/**
+ * Zonas claras conectadas (8 vecinos). Devuelve la más grande —sus píxeles extremos, para sacar
+ * las esquinas— y la caja y la máscara de TODAS las zonas importantes, para no cortar un papel
+ * partido por un doblez o una sombra.
+ * @returns {{size:number, corners:number[][], border:number, box:{x0:number,y0:number,x1:number,y1:number}, mask:Uint8Array, count:number}|null}
+ */
+export function brightBlobs(g, width, height, threshold) {
+    const total = width * height;
+    const label = new Int32Array(total);
+    const stack = new Int32Array(total);
+    const sizes = [0];
+    let bestId = 0; let bestSize = 0;
+    for (let start = 0; start < total; start++) {
+        if (label[start] || g[start] <= threshold) continue;
+        const id = sizes.length;
+        let size = 0; let top = 0;
+        stack[top++] = start; label[start] = id;
+        while (top) {
+            const p = stack[--top];
+            size++;
+            const x = p % width; const y = (p - x) / width;
+            for (let dy = -1; dy <= 1; dy++) {
+                const ny = y + dy;
+                if (ny < 0 || ny >= height) continue;
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = x + dx;
+                    if ((!dx && !dy) || nx < 0 || nx >= width) continue;
+                    const q = ny * width + nx;
+                    if (!label[q] && g[q] > threshold) { label[q] = id; stack[top++] = q; }
+                }
+            }
+        }
+        sizes.push(size);
+        if (size > bestSize) { bestSize = size; bestId = id; }
+    }
+    if (!bestId) return null;
+    const minSize = Math.max(SIGNIFICANT_BLOB * bestSize, MIN_BLOB_FRACTION * total);
+    const mask = new Uint8Array(total);
+    let tl = null; let tr = null; let br = null; let bl = null; let border = 0; let count = 0;
+    let minSum = Infinity; let maxSum = -Infinity; let minDiff = Infinity; let maxDiff = -Infinity;
+    let x0 = width; let y0 = height; let x1 = -1; let y1 = -1;
+    for (let p = 0; p < total; p++) {
+        const id = label[p];
+        if (!id || sizes[id] < minSize) continue;
+        mask[p] = 1; count++;
+        const x = p % width; const y = (p - x) / width;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (x === 0 || y === 0 || x === width - 1 || y === height - 1) border++;
+        if (id !== bestId) continue;
+        const sum = x + y; const diff = x - y;
+        if (sum < minSum) { minSum = sum; tl = [x, y]; }
+        if (sum > maxSum) { maxSum = sum; br = [x + 1, y + 1]; }
+        if (diff > maxDiff) { maxDiff = diff; tr = [x + 1, y]; }
+        if (diff < minDiff) { minDiff = diff; bl = [x, y + 1]; }
+    }
+    return { size: bestSize, corners: [tl, tr, br, bl], border, box: { x0, y0, x1, y1 }, mask, count };
+}
+
 /**
  * @param {{data:Uint8ClampedArray|number[], width:number, height:number}} image RGBA
  * @returns {{x0:number, y0:number, x1:number, y1:number}|null} rectángulo (0–1) o null si no hay que recortar
@@ -77,31 +141,14 @@ export function detectPaper(image) {
     if (!base) return null;
     const { g, width, height, threshold } = base;
     const total = width * height;
-
-    const rows = new Uint32Array(height);
-    const cols = new Uint32Array(width);
-    let bright = 0;
-    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-        if (g[y * width + x] > threshold) { rows[y]++; cols[x]++; bright++; }
-    }
-    if (bright / total < 0.05) return null;
-    const span = (profile) => {
-        const max = Math.max(...profile);
-        const min = max * ROW_FRACTION;
-        let first = -1; let last = -1;
-        for (let i = 0; i < profile.length; i++) if (profile[i] >= min) { if (first < 0) first = i; last = i; }
-        return [first, last];
-    };
-    const [y0, y1] = span(rows);
-    const [x0, x1] = span(cols);
-    if (y0 < 0 || x0 < 0) return null;
+    const blobs = brightBlobs(g, width, height, threshold);
+    if (!blobs || blobs.count / total < 0.05) return null;
+    const { x0, y0, x1, y1 } = blobs.box;
     const boxW = x1 - x0 + 1;
     const boxH = y1 - y0 + 1;
     const area = (boxW * boxH) / total;
     if (area < MIN_AREA || area > MAX_AREA) return null;
-    let inside = 0;
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (g[y * width + x] > threshold) inside++;
-    if (inside / (boxW * boxH) < MIN_FILL) return null;
+    if (blobs.count / (boxW * boxH) < MIN_FILL) return null;
 
     const mx = boxW * PAPER_MARGIN;
     const my = boxH * PAPER_MARGIN;

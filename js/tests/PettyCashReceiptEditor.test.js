@@ -429,3 +429,45 @@ describe('marcar la posición de un dato en la foto', () => {
         expect(document.querySelector('[data-app-fn="pcEditorMark"]')).toBeNull();
     });
 });
+
+describe('enderezar la foto desde el editor', () => {
+    const photo = { url: 'blob:abc', mime: 'image/jpeg' };
+    const btn = () => document.querySelector('[data-app-fn="pcEditorStraighten"]');
+    test('con una foto original se ofrece «Enderezar»', () => {
+        render(gasto(), { source: photo });
+        expect(btn()).not.toBeNull();
+        expect(btn().textContent).toMatch(/Enderezar/);
+        expect(btn().className).toContain('pcn-tool');
+    });
+    test('no se ofrece con PDF, periodo cerrado, sin foto, cargando o con solo la miniatura', () => {
+        render(gasto(), { source: { url: 'x', mime: 'application/pdf', preview: 'data:image/png;base64,AA' } });
+        expect(btn()).toBeNull();
+        render(gasto(), { source: photo, cerrada: true });
+        expect(btn()).toBeNull();
+        render(gasto({ hasReceipt: false, receiptStatus: null }), { source: null });
+        expect(btn()).toBeNull();
+        render(gasto(), { source: undefined });
+        expect(btn()).toBeNull();
+        render(gasto(), { source: null });
+        expect(btn()).toBeNull();
+        render(gasto(), { source: { url: 'data:image/jpeg;base64,AA', mime: 'image/jpeg', reduced: true } });
+        expect(btn()).toBeNull();
+    });
+    test('con la foto enderezada en espera se avisa, y se puede volver a la original', () => {
+        render(gasto(), { source: { ...photo, staged: true } });
+        const note = document.querySelector('[data-pcn-staged]');
+        expect(note).not.toBeNull();
+        expect(note.textContent).toMatch(/enderezada/i);
+        expect(note.textContent).toMatch(/confirmes|guardes/i);
+        expect(document.querySelector('[data-app-fn="pcEditorUndoStraighten"]')).not.toBeNull();
+        render(gasto(), { source: photo });
+        expect(document.querySelector('[data-pcn-staged]')).toBeNull();
+        expect(document.querySelector('[data-app-fn="pcEditorUndoStraighten"]')).toBeNull();
+    });
+    test('el botón sigue a «Reescanear», sin quitar nada de lo que ya había', () => {
+        render(gasto(), { source: photo });
+        const labels = [...document.querySelectorAll('.pcn-tools .pcn-tool')].map((el) => el.textContent.trim());
+        expect(labels).toEqual(expect.arrayContaining(['Ver comprobante', 'Reescanear']));
+        expect(labels.indexOf('Enderezar')).toBeGreaterThan(labels.indexOf('Ver comprobante'));
+    });
+});
