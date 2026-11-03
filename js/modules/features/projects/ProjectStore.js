@@ -2,6 +2,7 @@ import indexedDBService from '../../services/IndexedDBService.js';
 import { mutateProjectCatalog, stageProjectNameConflicts } from './ProjectNameConflicts.js';
 import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
 import { readProjectUsageData, summarizeProjectUsage, protectDeletedProjects } from './ProjectUsage.js';
+import { Project } from './Project.js';
 
 export const PROJECTS_STORE = 'projects';
 
@@ -90,6 +91,25 @@ export class ProjectStore {
     async listByStatus(status) {
         const records = await this.listAll();
         return records.filter(project => project.status === status);
+    }
+
+    /**
+     * Atomic transition: read the freshest catalog record inside the same
+     * IndexedDB write transaction. Do not overwrite concurrent name/metadata
+     * edits with an earlier copy captured by a setup screen.
+     */
+    async transitionStatus(projectId, action) {
+        const allowed = new Set(['close', 'archive', 'unarchive', 'reopen']);
+        if (!allowed.has(action)) throw new Error('Transición de obra no válida.');
+        return mutateProjectCatalog(this.db, rows => {
+            const current = rows.find(item => String(item.id) === String(projectId));
+            if (!current || current.deletedAt != null) throw new Error('La obra ya no está disponible.');
+            const project = Project.fromJSON(current);
+            project[action](); // Status preconditions are enforced by the model.
+            project.updatedAt = Math.max(Date.now(), (Number(current.updatedAt) || 0) + 1);
+            const updated = project.toJSON();
+            return { writes: [updated], result: clone(updated) };
+        });
     }
 
     /** Toda mutación estampa updatedAt (F0.3 §1); no muta la instancia recibida. */

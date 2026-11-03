@@ -72,6 +72,25 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
     const statusMeta = PROJECT_STATUS_META[project.status] || PROJECT_STATUS_META[PROJECT_STATUS.ACTIVE];
     const isActiveContext = !!(activeProjectId && String(project.id) === String(activeProjectId));
     const isDefault = !!(defaultProjectId && String(project.id) === String(defaultProjectId));
+    const statusOperations = {
+        [PROJECT_STATUS.ACTIVE]: ['close', 'Cerrar obra'],
+        [PROJECT_STATUS.CLOSED]: ['archive', 'Archivar obra'],
+        [PROJECT_STATUS.ARCHIVED]: ['unarchive', 'Sacar del archivo']
+    };
+    const operation = statusOperations[project.status];
+    const unavailable = isDefault || isActiveContext || !!deletingId;
+    const statusAction = allowSwitch && operation
+        ? '<div class="project-status-actions"><button type="button" class="project-action is-secondary"'
+            + ' data-project-status-action="' + operation[0] + '" data-project-status-id="' + esc(project.id) + '"'
+            + (unavailable ? ' disabled' : '') + '>' + esc(operation[1]) + '</button>'
+            + (project.status === PROJECT_STATUS.CLOSED
+                ? '<button type="button" class="project-action is-secondary" data-project-status-action="reopen"'
+                    + ' data-project-status-id="' + esc(project.id) + '"' + (unavailable ? ' disabled' : '')
+                    + '>Reabrir obra</button>' : '')
+            + (unavailable ? '<small class="project-help">'
+                + (isDefault ? 'La obra inicial debe permanecer activa.' : 'Cambia primero a otra obra activa.')
+                + '</small>' : '') + '</div>'
+        : '';
     const switchAction = allowSwitch && project.status === PROJECT_STATUS.ACTIVE && !isActiveContext
         ? `<div style="margin-top:10px"><button type="button" class="project-action is-secondary btn-switch-project" data-project-switch="${esc(project.id)}" data-switch-project="${esc(project.id)}">${ICONS.switch}<span>Cambiar a este proyecto</span></button></div>` : '';
     return `
@@ -87,6 +106,7 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
                     ${project.metadata?.nameConflict ? '<button type="button" class="project-action is-secondary" data-project-name-conflict>Resolver nombre repetido</button>' : ''}
                     <div class="project-id" data-project-id-display>${esc(project.id)}</div>
                     ${switchAction}
+                    ${statusAction}
                 </div>
                 <div class="project-item-dates">
                     <div>Creado: <strong>${formatProjectDate(project.createdAt)}</strong></div>
@@ -96,6 +116,13 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
             </div>
             ${project.metadata?.deletionConflict ? '<div class="project-notice is-warning">Borrado remoto pendiente: esta obra conserva datos o está en uso aquí.</div>' : ''}
             ${renderProjectUsageHTML(usage[project.id])}
+            ${usage[project.id]?.verified && !usage[project.id].empty
+                ? '<div class="project-notice is-warning" data-project-delete-protected>'
+                    + '<strong>Esta obra conserva historial y relaciones.</strong>'
+                    + '<p>Antes de eliminarla hay que respaldar, identificar datos compartidos y coordinar el borrado en todos los dispositivos. '
+                    + 'Por seguridad, el borrado definitivo con datos está deshabilitado. Puedes cerrar y archivar la obra sin perder su historial.</p>'
+                    + '<button type="button" class="project-action is-secondary" data-project-impact="' + esc(project.id)
+                    + '">Revisar impacto de eliminación</button></div>' : ''}
             ${usage[project.id]?.verified && usage[project.id].empty ? `<div class="project-delete-actions"><button type="button" class="project-action is-secondary is-delete-project" data-project-delete="${esc(project.id)}" ${usage[project.id].deleteReason || deletingId ? 'disabled' : ''}>Borrar obra vacía</button>${usage[project.id].deleteReason ? `<span class="project-help">${esc(usage[project.id].deleteReason)}</span>` : ''}</div>` : ''}
             ${confirmDeleteId === project.id && usage[project.id]?.empty ? `<div class="project-notice is-warning project-delete-confirm"><strong>¿Borrar «${esc(project.name)}»?</strong><p>Se quitará del menú y se sincronizará su eliminación.</p><div class="project-actions"><button type="button" class="project-action is-secondary" data-project-delete-cancel ${deletingId ? 'disabled' : ''}>Conservar</button><button type="button" class="project-action is-danger" data-project-delete-confirm="${esc(project.id)}" ${deletingId ? 'disabled' : ''}>${deletingId ? 'Comprobando…' : 'Confirmar borrado'}</button></div></div>` : ''}
             ${project.metadata?.notes ? `<div class="project-notes">${esc(project.metadata.notes)}</div>` : ''}
@@ -140,6 +167,7 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
     let currentDefaultId = defaultProjectId;
     let currentFilter = initialFilter;
     let usage = {}, usageGeneration = 0, confirmDeleteId = null, deletingId = null, deleteError = '';
+    let statusBusyId = null;
     const shouldAllowSwitch = allowSwitch || typeof onSwitchProject === 'function';
 
     function render() {
@@ -171,6 +199,63 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
             } catch (error) { deleteError = error.message || String(error); }
             finally { deletingId = null; await refreshUsage(); render(); }
         });
+        container.querySelectorAll('[data-project-status-action]').forEach(button => button.addEventListener('click', async () => {
+            if (statusBusyId || deletingId || button.disabled) return;
+            const targetId = button.dataset.projectStatusId;
+            const action = button.dataset.projectStatusAction;
+            if (!targetId || !action || typeof setupService.transitionProjectStatus !== 'function') return;
+            statusBusyId = targetId;
+            button.disabled = true;
+            try {
+                const result = await setupService.transitionProjectStatus(targetId, action);
+                const fresh = result.state || await setupService.getState();
+                currentProjects = fresh.projects;
+                currentActiveId = fresh.activeProjectId;
+                currentDefaultId = fresh.defaultProjectId;
+                const description = action === 'archive' ? 'Obra archivada, historial conservado.'
+                    : action === 'close' ? 'Obra cerrada para nuevas operaciones.'
+                    : action === 'unarchive' ? 'Obra fuera del archivo. Puedes reabrirla.'
+                    : 'Obra reabierta.';
+                window.showNotification?.(description, 'success');
+            } catch (error) {
+                deleteError = error?.message || 'No se pudo cambiar el estado de la obra.';
+            } finally {
+                statusBusyId = null;
+                await refreshUsage();
+                render();
+            }
+        }));
+        container.querySelectorAll('[data-project-impact]').forEach(button => button.addEventListener('click', async () => {
+            if (typeof setupService.previewProjectDeletion !== 'function') return;
+            button.disabled = true;
+            try {
+                const report = await setupService.previewProjectDeletion(button.dataset.projectImpact);
+                const names = {
+                    employees: 'Empleados', positions: 'Puestos', leaders: 'Líderes',
+                    attendance: 'Asistencias', loans: 'Préstamos', payrollClosures: 'Cierres',
+                    pettyCash: 'Caja chica', other: 'Relaciones adicionales', pending: 'Sincronizaciones pendientes'
+                };
+                const host = button.closest('[data-project-delete-protected]');
+                const previous = host?.querySelector('[data-project-impact-report]');
+                previous?.remove();
+                if (host) {
+                    const details = document.createElement('div');
+                    details.setAttribute('data-project-impact-report', '');
+                    details.setAttribute('role', 'status');
+                    const rows = report.blockers.map(item =>
+                        '<li>' + esc(names[item.kind] || item.kind) + ': ' + item.count + '</li>').join('');
+                    details.innerHTML = '<strong>Dependencias comprobadas en este dispositivo</strong>'
+                        + '<ul>' + rows + '</ul><p>' + esc(report.warning) + '</p>'
+                        + '<p>No se ha ejecutado ningún borrado ni creado un respaldo en esta revisión.</p>';
+                    host.appendChild(details);
+                }
+            } catch (error) {
+                deleteError = error?.message || 'No se pudieron revisar las dependencias.';
+                render();
+            } finally {
+                button.disabled = false;
+            }
+        }));
         container.querySelectorAll('[data-project-name-conflict]').forEach(button => button.addEventListener('click', async () => {
             closeProjectListModal();
             window.closeProjectSetupModal?.();
