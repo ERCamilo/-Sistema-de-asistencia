@@ -1,6 +1,6 @@
 # Multiobra — Incidencias archivables, cierres históricos y ciclo de vida
-**Fecha:** 2026-11-03  
-**Base:** `main` v1.7.125 (`db96007c` al iniciar)  
+**Fecha:** 2026-11-03
+**Base:** `main` v1.7.125 (`db96007c` al iniciar)
 **Rama:** `feat/multiobra-archive-lifecycle-20261103`
 
 ## Problema
