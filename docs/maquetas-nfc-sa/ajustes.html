@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ajustes → General — maqueta</title>
+<link rel="stylesheet" href="mock-chrome.css">
+<link rel="stylesheet" href="../../css/settings.css">
+<link rel="stylesheet" href="../../css/nfc-test.css">
+<link rel="stylesheet" href="../../css/voice-settings.css">
+<link rel="stylesheet" href="ns-nfc-settings.css">
+</head><body>
+<main class="mk-page"><div class="mk-top"><a href="index.html">← Índice</a><h1>Ajustes</h1></div>
+<div class="mk-tabs" role="tablist"><span class="mk-tab" aria-current="true">General</span><span class="mk-tab">Datos</span><span class="mk-tab">Calendario</span><span class="mk-tab">Pruebas</span></div>
+<p class="mk-note">Aproximación de Ajustes → General. Las dos entradas usan el CSS real: <code>.settings-voice-entry</code> y su gemela <code>.settings-nfc-entry</code>. El resto de la pantalla es solo marco.</p>
+<div class="mk-card"><h3>Estilo de iconos</h3><p>Se aplica a toda la aplicación.</p></div>
+<div style="display:grid;gap:12px;margin-bottom:12px">
+<button type="button" class="settings-voice-entry" data-settings-voice><span class="vs-icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></svg></span><span class="vs-copy"><strong>Voz</strong><small>Configuración, pronunciaciones y audios</small></span><span class="vs-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg></span></button>
+<button type="button" class="settings-nfc-entry" id="nfc-entry" data-open-nfc="home" data-settings-nfc></button></div>
+<div class="mk-card"><h3>Ayuda contextual</h3><p>Modo de visualización de ayuda.</p></div>
+<div class="mk-card"><h3>Pruebas (modo desarrollador)</h3><p>La tarjeta «Tarjetas NFC» actual (activar asociación, destino, probar lectura) <b>se muda al modal</b>: queda solo un acceso a «Conexión y prueba».</p><button class="mk-btn" data-open-nfc="conexion">Abrir Conexión y prueba</button></div></main>
+<script src="nfc-mock-data.js"></script><script src="nfc-mock.js"></script>
+<script>
+const svg=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+function paintEntry(){
+  const S=NFCMock.S, on=S.prefs.enabled, pend=S.days.filter(d=>d.state==='pendiente').length, off=S.scn.net==='off';
+  const chip=!on?['mute','Apagada']:off?['warn','Sin conexión']:S.scn.app==='old'?['warn','Actualizar']:pend?['warn',pend+' por revisar']:['good','Al día'];
+  document.getElementById('nfc-entry').innerHTML=`<span class="vs-icon-box">${svg('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9v6m3-6v6m4-5a3 3 0 0 1 0 4m3-7a7 7 0 0 1 0 10"/>')}</span><span class="vs-copy"><strong id="nfc-settings-title">NFC</strong><small>Tarjetas, lecturas y lectores</small></span><span class="ns-entry-end"><span class="ns-chip" data-tone="${chip[0]}">${chip[1]}</span></span><span class="vs-arrow">${svg('<path d="m9 5 7 7-7 7"/>')}</span>`;
+}
+NFCMock.init({autoOpen:false,onClose:paintEntry});paintEntry();
+document.addEventListener('nfc-mock:scenario',paintEntry);document.addEventListener('nfc-mock:render',paintEntry);
+</script></body></html>

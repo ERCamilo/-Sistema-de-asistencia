@@ -1,0 +1,52 @@
+/* Mock-only chrome (NOT for production): fake SA pages around the real modal CSS. */
+:root{
+  --bg:oklch(0.185 0.012 245);--panel:oklch(0.228 0.013 245);--panel-2:oklch(0.268 0.014 245);--hover:oklch(0.310 0.015 245);--border:oklch(0.330 0.014 245);
+  --text:oklch(0.960 0.004 245);--text-dim:oklch(0.740 0.010 245);--text-faint:oklch(0.560 0.012 245);
+  --accent:oklch(0.760 0.110 205);--on-accent:oklch(0.160 0.020 240);--good:oklch(0.740 0.120 158);--warn:oklch(0.820 0.110 78);--bad:oklch(0.680 0.160 25);
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.5;min-height:100dvh}
+.mk-page{max-width:720px;margin:0 auto;padding:16px 16px 120px}
+.mk-top{display:flex;align-items:center;gap:10px;padding:6px 0 14px}
+.mk-top h1{font-size:22px;margin:0;letter-spacing:-.015em}
+.mk-top a{color:var(--accent);font-size:12px;text-decoration:none}
+.mk-note{font-size:12px;color:var(--text-dim);margin:0 0 14px}
+.mk-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:12px}
+.mk-tab{flex:none;padding:9px 14px;border-radius:10px;background:var(--panel);border:1px solid var(--border);color:var(--text-dim);font-size:12px;font-weight:600}
+.mk-tab[aria-current=true]{background:var(--panel-2);color:var(--text);border-color:var(--accent)}
+.mk-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:12px}
+.mk-card h3{margin:0 0 10px;font-size:15px}
+.mk-card p{margin:0 0 8px;color:var(--text-dim);font-size:13px}
+.mk-field{display:block;margin-bottom:12px}
+.mk-field span{display:block;font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:6px}
+.mk-field input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);padding:10px;font:inherit}
+.mk-btn{min-height:44px;padding:10px 16px;border:0;border-radius:11px;background:var(--panel-2);color:var(--text);font:650 13px inherit;cursor:pointer}
+.mk-btn.primary{background:var(--accent);color:var(--on-accent)}
+.mk-btn.wide{width:100%}
+.mk-small{font-size:12px;color:var(--text-dim)}
+/* modal overlay (stands in for <dialog>.showModal so the scenario pill stays usable) */
+.mk-overlay{position:fixed;inset:0;z-index:50;display:none;background:#030812bf;backdrop-filter:blur(4px);align-items:center;justify-content:center}
+.mk-overlay.open{display:flex}
+.mk-overlay>.voice-settings-dialog{display:flex;flex-direction:column;margin:0}
+@media(max-width:640px){.mk-overlay{align-items:flex-end}.mk-overlay>.voice-settings-dialog{margin:0 8px 8px;width:calc(100vw - 16px);max-height:calc(100dvh - 56px)}}
+/* scenario pill */
+.mk-scn{position:fixed;top:8px;right:8px;z-index:90;font-size:12px}
+.mk-scn-toggle{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--warn);background:#2b2410;color:var(--warn);font:700 11px inherit;cursor:pointer}
+.mk-scn-panel{display:none;position:absolute;right:0;top:42px;width:min(320px,calc(100vw - 16px));max-height:calc(100dvh - 64px);overflow:auto;padding:12px;border-radius:14px;background:#0d1727;border:1px solid var(--warn);box-shadow:0 20px 50px #000a}
+.mk-scn.open .mk-scn-panel{display:block}
+.mk-scn label{display:block;margin:0 0 10px;color:var(--text-dim)}
+.mk-scn label b{display:block;color:var(--text);font-size:11px;margin-bottom:4px;letter-spacing:.04em;text-transform:uppercase}
+.mk-scn select{width:100%;min-height:40px;border-radius:9px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);padding:6px 8px;font:inherit}
+.mk-scn h4{margin:0 0 8px;font-size:12px;color:var(--warn)}
+.mk-scn small{display:block;color:var(--text-faint);font-size:11px}
+/* hub */
+.mk-hub a.mk-link{display:flex;gap:12px;align-items:center;padding:14px;margin-bottom:9px;border:1px solid var(--border);border-radius:14px;background:var(--panel);color:var(--text);text-decoration:none}
+.mk-hub a.mk-link:hover{background:var(--panel-2)}
+.mk-hub a.mk-link b{display:block;font-size:14px}
+.mk-hub a.mk-link span{font-size:12px;color:var(--text-dim)}
+.mk-hub .mk-sec{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:750;color:var(--text-faint);margin:20px 2px 8px}
+.mk-inbox-item{display:flex;gap:12px;align-items:center;padding:13px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2);margin-bottom:9px}
+.mk-inbox-item[data-dim=true]{opacity:.6}
+
+/* icon sizing the real Settings page gets from its global svg rules */
+.vs-icon-box svg{width:22px;height:22px}.vs-arrow svg{width:18px;height:18px}

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Editor de empleado — maqueta</title>
+<link rel="stylesheet" href="mock-chrome.css">
+<link rel="stylesheet" href="../../css/settings.css">
+<link rel="stylesheet" href="../../css/nfc-test.css">
+<link rel="stylesheet" href="../../css/voice-settings.css">
+<link rel="stylesheet" href="ns-nfc-settings.css">
+</head><body>
+<main class="mk-page"><div class="mk-top"><a href="index.html">← Índice</a><h1>Editar empleado</h1></div>
+<p class="mk-note">Marco del editor de empleados. El bloque «Tarjeta NFC» usa <code>.employee-nfc-entry</code> (CSS real) y abre el <b>mismo</b> modal de asociación. Cambia de empleado para ver los dos estados.</p>
+<div class="mk-tabs"><a class="mk-tab" href="?emp=emp-104" id="t104">Yokasta (sin tarjeta)</a><a class="mk-tab" href="?emp=emp-101" id="t101">Juan Carlos (con tarjeta)</a></div>
+<div class="mk-card"><label class="mk-field"><span>Nombre</span><input id="nm" value="" readonly></label><label class="mk-field"><span>Número</span><input id="nu" value="" readonly></label><label class="mk-field"><span>Cargo</span><input id="ro" value="" readonly></label>
+<section class="employee-nfc-entry" id="entry" data-nfc-editor></section></div></main>
+<script src="nfc-mock-data.js"></script><script src="nfc-mock.js"></script>
+<script>
+NFCMock.init({autoOpen:false,onClose:()=>paint()});
+const id=new URLSearchParams(location.search).get('emp')||'emp-104',e=NFCData.emp(id);
+document.getElementById('nm').value=e.name;document.getElementById('nu').value=e.number;document.getElementById('ro').value=e.role;
+document.getElementById((id==='emp-101'?'t101':'t104')).setAttribute('aria-current','true');
+const icon='<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9v6m3-6v6m4-5a3 3 0 0 1 0 4m3-7a7 7 0 0 1 0 10"/></svg>';
+function paint(){const S=NFCMock.S,a=S.assign[id],box=document.getElementById('entry');
+ box.hidden=!S.prefs.enabled;
+ box.innerHTML=a?`<button type="button" data-open-nfc="tarjeta" data-emp="${id}">${icon}<span>Tarjeta NFC ••${a.uid.slice(-4)} · Ver o cambiar</span></button><small>Una tarjeta por empleado. Destino: ${S.prefs.mode==='test'?'Test':S.prefs.mode==='production'?'Producción':'Personalizado'}.</small>`
+ :`<button type="button" data-open-nfc="asociar" data-emp="${id}">${icon}<span>Asociar tarjeta NFC</span></button><small>Registro experimental en el webhook elegido.</small>`;
+ box.querySelector('button').addEventListener('click',ev=>{const b=ev.currentTarget;NFCMock.open(b.dataset.openNfc,{emp:b.dataset.emp});});}
+paint();document.addEventListener('nfc-mock:scenario',paint);document.addEventListener('nfc-mock:render',paint);
+</script></body></html>

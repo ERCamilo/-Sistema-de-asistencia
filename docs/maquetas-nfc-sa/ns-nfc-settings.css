@@ -1,0 +1,172 @@
+/* NFC settings modal — CANDIDATE production stylesheet (css/nfc-settings.css).
+   Built ON TOP of css/voice-settings.css: the dialog keeps the .voice-settings-dialog
+   class so every .vs-* component (header, nav-card, control-group, choice, segmented,
+   stepper-less rows, footer, buttons) is reused untouched. Only `ns-*` is new.
+   Status fills follow the voice dialog convention (solid tone + dark ink) and design.md §5.4. */
+
+.nfc-settings-dialog{--tone-good-ink:#05281c;--tone-warn-ink:#382500;--tone-bad-ink:#3b0a0a;--tone-info-ink:var(--on-accent)}
+.nfc-settings-dialog [data-tone=good],.settings-nfc-entry [data-tone=good]{--tone:var(--good);--tone-ink:var(--tone-good-ink)}
+.nfc-settings-dialog [data-tone=warn],.settings-nfc-entry [data-tone=warn]{--tone:var(--warn);--tone-ink:var(--tone-warn-ink)}
+.nfc-settings-dialog [data-tone=bad],.settings-nfc-entry [data-tone=bad]{--tone:var(--bad);--tone-ink:var(--tone-bad-ink)}
+.nfc-settings-dialog [data-tone=info],.settings-nfc-entry [data-tone=info]{--tone:var(--accent);--tone-ink:var(--tone-info-ink)}
+.nfc-settings-dialog [data-tone=mute],.settings-nfc-entry [data-tone=mute]{--tone:#64748b;--tone-ink:#fff}
+
+/* ---- shell: single column on phones, rail + content on desktop ---- */
+.nfc-settings-dialog{width:min(480px,calc(100vw - 32px))}
+.ns-rail{display:none}
+.ns-main{display:flex;flex-direction:column;min-height:0;min-width:0;flex:1}
+.ns-banner-slot:empty{display:none}
+@media(min-width:900px){
+  .nfc-settings-dialog{width:min(980px,calc(100vw - 64px));height:min(760px,calc(100dvh - 48px))}
+  .nfc-settings-dialog[open]{flex-direction:row}
+  .ns-rail{display:flex;flex-direction:column;gap:6px;width:272px;flex:none;padding:18px 14px;border-right:1px solid var(--border);background:#0f1928;overflow:auto}
+  .ns-rail-title{display:flex;align-items:center;gap:10px;padding:2px 6px 12px;font-weight:700;font-size:15px}
+  .ns-rail-title .vs-icon-box{background:var(--accent);color:var(--on-accent);width:38px;height:38px}
+  .ns-rail-item{display:flex;align-items:center;gap:11px;width:100%;min-height:52px;padding:8px 10px;border-radius:12px;background:transparent;text-align:left;font-size:13px;font-weight:650}
+  .ns-rail-item:hover{background:var(--panel-2)}
+  .ns-rail-item[aria-current=true]{background:var(--panel-2);box-shadow:inset 3px 0 0 var(--accent)}
+  .ns-rail-item .vs-icon-box{width:34px;height:34px;border-radius:10px;background:#24354d;color:var(--accent)}
+  .ns-rail-item .ns-count{margin-left:auto}
+  .nfc-settings-dialog .vs-nav-grid{display:none}
+  .ns-main .vs-modal-body{padding:24px 28px}
+  .ns-main .vs-modal-footer{padding:15px 28px 19px}
+  .ns-two-col{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:22px;align-items:start}
+}
+
+/* ---- status banner (issue #328): tone + SVG + title + text; never colour only ---- */
+.ns-status{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:14px;border:1px solid color-mix(in oklab,var(--tone) 55%,var(--border));background:color-mix(in oklab,var(--tone) 13%,var(--panel-2));margin-bottom:14px}
+.ns-status-icon{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--tone);color:var(--tone-ink)}
+.ns-status-icon svg{width:19px;height:19px}
+.ns-status strong{display:block;font-size:14px;line-height:1.35}
+.ns-status p{font-size:12px;line-height:1.55;color:var(--dim);margin-top:3px;overflow-wrap:anywhere}
+.ns-status .vs-btn{margin-top:10px;min-height:40px}
+.ns-status.ns-compact{padding:10px 12px;margin-bottom:10px}
+.ns-spin{animation:ns-spin 1s linear infinite}
+@keyframes ns-spin{to{transform:rotate(360deg)}}
+
+/* ---- solid chips (design.md §5.4) ---- */
+.ns-chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:999px;background:var(--tone);color:var(--tone-ink);font-size:11px;font-weight:750;white-space:nowrap}
+.ns-chip svg{width:13px;height:13px}
+.ns-count{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--tone,var(--accent));color:var(--tone-ink,var(--on-accent));font-size:11px;font-weight:750;font-family:'IBM Plex Mono',monospace}
+.ns-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:5px;font-size:11px;color:var(--dim)}
+.ns-mono{font-family:'IBM Plex Mono',monospace}
+.ns-uid{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.02em;overflow-wrap:anywhere}
+.ns-ok-check{color:var(--good);width:20px;height:20px}
+
+/* ---- tiles / metrics ---- */
+.ns-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:16px}
+.ns-tile{padding:12px 13px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2);text-align:left;min-height:72px}
+.ns-tile b{display:block;font:700 26px/1 'IBM Plex Mono',monospace}
+.ns-tile small{display:block;margin-top:7px;font-size:11px;color:var(--dim)}
+.ns-tile[data-tone]{border-color:color-mix(in oklab,var(--tone) 60%,var(--border))}
+@media(min-width:900px){.ns-tiles{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+/* ---- day / reader / card rows (extends .vs-person-row) ---- */
+.ns-row{display:flex;align-items:center;gap:11px;width:100%;padding:12px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2);text-align:left;margin-bottom:9px;min-height:74px}
+button.ns-row:hover{background:var(--hover)}
+.ns-row-copy{flex:1;min-width:0}
+.ns-row-copy strong{display:block;font-size:14px;font-weight:700;overflow-wrap:anywhere}
+.ns-row-end{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none;font-family:'IBM Plex Mono',monospace;font-size:12px}
+.ns-row-end b{font-size:15px}
+.ns-icons{display:flex;gap:5px;align-items:center}
+.ns-ico{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:7px;background:var(--tone);color:var(--tone-ink)}
+.ns-ico svg{width:14px;height:14px}
+.ns-row[data-dim=true]{opacity:.62}
+.ns-avatar{width:41px;height:41px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--c,#2f6f9f);color:#07131e;font-weight:700;font-size:13px}
+.ns-group-label{display:flex;justify-content:space-between;align-items:center;margin:18px 1px 9px;font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:750;color:var(--muted)}
+
+/* ---- live mirror / summary card (design.md §5.7) ---- */
+.ns-mirror{border-left:3px solid var(--accent);background:var(--panel-2);border-radius:12px;padding:13px 14px;margin:14px 0}
+.ns-mirror dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;font-size:12px}
+.ns-mirror dt{color:var(--dim)}
+.ns-mirror dd{margin:0;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600}
+.ns-mirror .ns-big{font-size:26px;font-weight:700}
+.ns-mirror hr{grid-column:1/-1;border:0;border-top:1px solid var(--border);margin:2px 0;width:100%}
+
+/* ---- time fields & stepper (design.md §5.6) ---- */
+.ns-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ns-time{width:100%;min-height:52px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);padding:10px 12px;color:var(--text);font:650 20px 'IBM Plex Mono',monospace;color-scheme:dark}
+.ns-time:disabled{opacity:.5}
+.ns-text{width:100%;min-height:48px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);padding:11px 13px;color:var(--text);font-size:14px}
+textarea.ns-text{min-height:72px;resize:vertical;font-family:inherit}
+.ns-stepper{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2)}
+.ns-stepper .vs-icon-button{border:1px solid var(--border);border-radius:12px;flex:none}
+.ns-stepper-val{flex:1;text-align:center}
+.ns-stepper-val b{display:block;font:700 34px/1 'IBM Plex Mono',monospace}
+.ns-stepper-val small{display:block;margin-top:5px;font-size:11px;color:var(--dim)}
+.ns-presets{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+.ns-preset{height:36px;min-height:36px!important;padding:0 13px;border-radius:9px;border:1px solid var(--border)!important;background:transparent;font:650 12px 'IBM Plex Mono',monospace;color:var(--dim)}
+.ns-preset[aria-pressed=true]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)!important}
+.ns-quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.ns-quick .ns-preset{font-family:inherit;font-weight:600}
+
+/* ---- radio cards (design.md §5.5) ---- */
+.ns-radio{display:flex;align-items:center;gap:13px;width:100%;padding:14px 16px;border:1px solid var(--border);border-radius:14px;background:transparent;text-align:left;margin-bottom:9px;min-height:68px}
+.ns-radio:hover{background:var(--panel-2)}
+.ns-radio[aria-pressed=true]{background:var(--panel-2);border-color:var(--accent)}
+.ns-radio .vs-icon-box{border:1px solid var(--border)}
+.ns-radio[aria-pressed=true] .vs-icon-box{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.ns-radio .vs-copy strong{font-size:14px}
+
+/* ---- timeline (card history) ---- */
+.ns-timeline{list-style:none;margin:0;padding:0 0 0 4px}
+.ns-timeline li{position:relative;padding:0 0 18px 26px;font-size:12px;color:var(--dim);line-height:1.5}
+.ns-timeline li::before{content:'';position:absolute;left:5px;top:7px;bottom:-4px;width:2px;background:var(--border)}
+.ns-timeline li:last-child::before{display:none}
+.ns-timeline li::after{content:'';position:absolute;left:0;top:3px;width:12px;height:12px;border-radius:50%;background:var(--panel);border:2px solid var(--muted)}
+.ns-timeline li[data-now=true]::after{background:var(--accent);border-color:var(--accent)}
+.ns-timeline strong{display:block;color:var(--text);font-size:13px}
+
+/* ---- photos ---- */
+.ns-photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.ns-photo{position:relative;aspect-ratio:1;border-radius:12px;background:#0d1727;border:1px solid var(--border);display:grid;place-items:center;color:#4a5f7a;overflow:hidden}
+.ns-photo svg{width:46%;height:46%}
+.ns-photo figcaption{position:absolute;left:0;right:0;bottom:0;padding:4px 6px;background:#030812cc;color:var(--text);font:600 10px 'IBM Plex Mono',monospace}
+.ns-photo[data-state=missing]{border-style:dashed}
+.ns-photo[data-state=missing] span{position:absolute;top:50%;left:0;right:0;transform:translateY(-50%);text-align:center;font-size:10px;color:var(--dim);padding:0 6px}
+.ns-photo[aria-pressed=true]{outline:2px solid var(--accent);outline-offset:2px}
+.ns-photo-big{aspect-ratio:4/3;margin-bottom:12px}
+.ns-photo-big svg{width:30%;height:30%}
+
+/* ---- misc ---- */
+.ns-sheet{border:1px dashed var(--border);border-radius:14px;padding:14px;margin-top:14px;font-size:12px;color:var(--dim);line-height:1.6}
+.ns-sheet strong{color:var(--text)}
+.ns-open{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:750;padding:2px 7px;border-radius:6px;background:var(--warn);color:var(--tone-warn-ink);vertical-align:middle;margin-left:6px}
+.ns-lock{text-align:center;padding:26px 10px}
+.ns-lock .vs-icon-box{margin:0 auto 14px;width:52px;height:52px}
+.ns-lock p{font-size:13px;color:var(--dim);line-height:1.6;margin-bottom:14px}
+.ns-url{display:flex;gap:8px;margin-top:10px}
+.ns-url .ns-text{flex:1;min-width:0;font:13px 'IBM Plex Mono',monospace}
+.ns-reqid{font:11px 'IBM Plex Mono',monospace;color:var(--muted);margin-top:8px;overflow-wrap:anywhere}
+.ns-scan{display:grid;place-items:center;text-align:center;padding:22px 12px;border:1px dashed var(--accent);border-radius:16px;background:#0d1727;margin-bottom:14px}
+.ns-scan .vs-icon-box{width:64px;height:64px;border-radius:50%;background:var(--panel-2);color:var(--accent);margin-bottom:12px;animation:ns-pulse 1.8s ease-in-out infinite}
+.ns-scan .vs-icon-box svg{width:32px;height:32px}
+.ns-scan strong{font-size:14px}
+.ns-scan small{display:block;margin-top:5px;font-size:12px;color:var(--dim)}
+@keyframes ns-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+.ns-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ns-pair .ns-pair-col{border:1px solid var(--border);border-radius:12px;padding:11px;background:var(--panel-2);font-size:12px}
+.ns-pair .ns-pair-col h4{margin:0 0 6px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.ns-pair b{font:700 18px 'IBM Plex Mono',monospace;display:block}
+.vs-notice.ns-warn{background:#3b3012}
+@media(prefers-reduced-motion:reduce){.ns-spin,.ns-scan .vs-icon-box{animation:none!important}}
+@media(max-width:360px){.ns-fields{grid-template-columns:1fr}.ns-stepper-val b{font-size:28px}.ns-pair{grid-template-columns:1fr}}
+
+/* ---- Settings entry: same shell as .settings-voice-entry (css/voice-settings.css), plus a status chip ---- */
+.settings-nfc-entry{display:flex;align-items:center;gap:13px;width:100%;padding:18px;border:1px solid var(--border);border-radius:16px;background:var(--panel);color:var(--text);text-align:left;min-height:80px;cursor:pointer;font:inherit}
+.settings-nfc-entry:hover{background:var(--panel-2)}
+.settings-nfc-entry:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.settings-nfc-entry .vs-icon-box{color:var(--accent);background:var(--panel-2)}
+.settings-nfc-entry .vs-copy{flex:1;min-width:0}
+.settings-nfc-entry .vs-copy small{color:var(--text-dim)}
+.settings-nfc-entry .ns-entry-end{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+@media(max-width:360px){.settings-nfc-entry .ns-chip{max-width:96px;overflow:hidden;text-overflow:ellipsis}}
+
+/* Tone mapping also available on bare chips (bandeja, Settings entry) */
+.ns-chip[data-tone=good]{--tone:var(--good);--tone-ink:#05281c}
+.ns-chip[data-tone=warn]{--tone:var(--warn);--tone-ink:#382500}
+.ns-chip[data-tone=bad]{--tone:var(--bad);--tone-ink:#3b0a0a}
+.ns-chip[data-tone=info]{--tone:var(--accent);--tone-ink:var(--on-accent)}
+.ns-chip[data-tone=mute]{--tone:#64748b;--tone-ink:#fff}
+
+.nfc-settings-dialog h2:focus,.nfc-settings-dialog h2:focus-visible{outline:none}
