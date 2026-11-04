@@ -10,6 +10,7 @@ import { escapeHTML } from '../../utils/Sanitize.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { projectSetupService } from './ProjectSetupService.js';
 import { applyProjectConflictArchive, projectConflictArchiveStore } from './ProjectConflictArchive.js';
+import { shareProjectDiagnosticLog } from './ProjectDiagnosticLog.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { analyzeProjectOwnership, CLASSIFICATION } from './ProjectOwnershipReconciliation.js';
 import { projectNameKey } from './ProjectNames.js';
@@ -1311,6 +1312,7 @@ function renderFinancialConfirmation() {
         + (modalState.busy ? ' disabled' : '') + '>Atrás</button>'
         + '<button type="button" class="btn-secondary r07-recon-footer-btn"'
         + ' data-r07-action="close">Salir por ahora</button>'
+        + diagnosticReportButton()
         + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="apply-plan"'
         + (modalState.busy || !review.ok ? ' disabled' : '') + '>' + (modalState.busy ? 'Guardando…' : 'Confirmar asignación') + '</button></div></div>';
 }
@@ -1345,6 +1347,26 @@ async function applyFinancialPlanResolution() {
     } finally {
         originalModalState.busy = false;
         if (activeModal === startedFromModal) rerenderModal();
+    }
+}
+
+function diagnosticReportButton() {
+    return '<button type="button" class="btn-secondary r07-recon-footer-btn"'
+        + ' data-r07-action="share-diagnostics"'
+        + ' title="Genera un .log sin nombres, sueldos ni números de empleado">'
+        + 'Compartir diagnóstico (.log)</button>';
+}
+
+async function shareReconciliationDiagnostic() {
+    try {
+        const result = await shareProjectDiagnosticLog(snapshot);
+        if (result.action === 'downloaded') {
+            window.showNotification?.('Diagnóstico .log descargado. Puedes revisarlo y enviarlo a soporte.', 'success');
+        } else if (result.action === 'shared') {
+            window.showNotification?.('Diagnóstico entregado a la opción de compartir elegida.', 'success');
+        }
+    } catch (_) {
+        window.showNotification?.('No se pudo generar el archivo .log.', 'error');
     }
 }
 
@@ -1541,6 +1563,7 @@ function modalContent() {
         return '<div class="r07-recon-shell r07-wizard"><div class="r07-wizard-content">'
             + renderHistoricalTargetSelector() + renderExtendedDiagnostics() + renderArchiveCasePanel()
             + '</div><div class="r07-recon-footer">'
+            + diagnosticReportButton()
             + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="close">Cerrar</button></div></div>';
     }
     const step = modalState.step;
@@ -1588,6 +1611,7 @@ function modalContent() {
         + '<div class="r07-recon-footer-hint" aria-live="polite">' + escapeHTML(hint) + '</div>'
         + '<button type="button" class="btn-secondary r07-recon-footer-btn"'
         + ' data-r07-action="close">Salir por ahora</button>'
+        + diagnosticReportButton()
         + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="wizard-next"' + (step === 4 ? ' hidden' : '') + (hint || modalState.busy ? ' disabled' : '') + '>Continuar</button>'
         + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="apply"' + (step !== 4 ? ' hidden' : '') + (!canApply(preflight) || hint || modalState.busy ? ' disabled' : '') + '>' + (modalState.busy ? 'Aplicando…' : 'Aplicar todo') + '</button>'
         + '</div></div>';
@@ -1962,7 +1986,8 @@ function handleClick(event) {
     const target = event.target.closest?.('[data-r07-action]');
     if (!target) return;
     const action = target.dataset.r07Action;
-    if (modalState.busy && action !== 'close') return;
+    if (modalState.busy && action !== 'close' && action !== 'share-diagnostics') return;
+    if (action === 'share-diagnostics') return shareReconciliationDiagnostic();
     if (action === 'review-plan') {
         const row = snapshot.diagnosticIssues.find(item => item.key === target.dataset.planKey);
         const review = financialReviewFor(row?.planSelection);

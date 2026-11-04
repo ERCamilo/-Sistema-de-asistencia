@@ -3,6 +3,7 @@ import { initProjectsInfrastructure } from './ProjectsBoot.js';
 import { projectStore } from './ProjectStore.js';
 import { getEntityScope, setActiveProjectId } from './ProjectContext.js';
 import { Project, PROJECT_STATUS } from './Project.js';
+import { projectDeletionPolicy } from './ProjectDeletionPolicy.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
 import { state } from '../../core/AppState.js';
@@ -111,6 +112,31 @@ export class ProjectSetupService {
         return usage;
     }
 
+    async changeProjectDeletionRequest(projectId, { cancel = false } = {}) {
+        if (!this.flags.isEnabled()) throw new Error('Proyectos no está activado.');
+        if (isFullImportIsolationInProgress() || isProjectRepairIsolationInProgress()) {
+            throw new Error('Espera a que termine la restauración o reparación de datos.');
+        }
+        if (typeof this.isDraftDirty === 'function' && this.isDraftDirty()) {
+            throw new Error('Guarda o cancela los cambios pendientes antes de continuar.');
+        }
+        const setup = await this.getState();
+        const project = setup.projects.find(row => String(row.id) === String(projectId));
+        if (!project) throw new Error('La obra ya no está disponible.');
+        if (project.id === setup.activeProjectId || project.id === setup.defaultProjectId) {
+            throw new Error('La obra inicial o en uso no se puede programar para eliminación.');
+        }
+        const method = cancel ? 'cancelDeletion' : 'requestDeletion';
+        if (typeof this.store[method] !== 'function') {
+            throw new Error('El almacenamiento no permite cambiar la solicitud.');
+        }
+        const saved = await this.store[method](project.id);
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('projects:setup-changed', {
+            detail: { projectId: project.id, deletionRequestChanged: true }
+        }));
+        return { project: saved, state: await this.getState() };
+    }
+
     /**
      * Read-only impact report. An occupied work is never deleted from this
      * screen; a complete purge would also require a durable backup and
@@ -134,7 +160,9 @@ export class ProjectSetupService {
         return {
             projectId: project.id, projectName: project.name,
             usage, blockers, occupied: !usage.empty,
-            canDeleteEmpty: usage.empty && !protectedProject,
+            canDeleteEmpty: usage.empty && !protectedProject
+                && projectDeletionPolicy(project).canFinalizeEmpty,
+            deletionPolicy: projectDeletionPolicy(project),
             canDeleteWithData: false,
             requiresBackup: !usage.empty,
             requiresCloudAcknowledgement: !usage.empty,

@@ -264,6 +264,8 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/projects/ProjectConflictArchive.js",
     "./js/modules/features/projects/ProjectContext.js",
     "./js/modules/features/projects/ProjectCreateUI.js",
+    "./js/modules/features/projects/ProjectDeletionPolicy.js",
+    "./js/modules/features/projects/ProjectDiagnosticLog.js",
     "./js/modules/features/projects/ProjectDialogA11y.js",
     "./js/modules/features/projects/ProjectDuplicateCandidates.js",
     "./js/modules/features/projects/ProjectDuplicateReview.js",

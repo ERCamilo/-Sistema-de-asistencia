@@ -110,9 +110,10 @@ debe confundirse con una migración de pagos.
   `ProjectExtendedDiagnostics.test.js` y
   `ServiceWorkerPrecacheManifest.test.js`.
 - Multiobra 360: 103/103 PASS (47 locales, 4 emulador Firestore,
-  52 navegador), 0 errores de infraestructura en la primera ejecución.
-- Suite general final con las correcciones de UI y precache: **705/705
-  suites, 7,228/7,228 tests PASS**. Las dos incompatibilidades iniciales
+  52 navegador), 0 errores de infraestructura; vuelto a ejecutar después
+  de integrar la política 30+30 y el diagnóstico .log.
+- Suite general final con las correcciones de UI y precache: **709/709
+  suites, 7,243/7,243 tests PASS**. Las dos incompatibilidades iniciales
   (cantidad de detalles del panel y manifiesto SW) se resolvieron
   sin cambiar las expectativas de las pruebas existentes.
 
@@ -136,3 +137,62 @@ preexistentes de Multiobra. Los cierres y datos reales no se modificaron.
 La aprobación de pruebas locales no certifica el borrado integral ni
 una sesión de producción. La fase destructiva requiere un PR específico,
 un protocolo durable y validaciones multidispositivo.
+
+
+## Ampliación: diagnóstico voluntario y retención 30 + 30
+
+### Informe de problemas (.log)
+
+El asistente muestra «Compartir diagnóstico (.log)» tanto en la revisión
+financiera especial como en el flujo de asignación y confirmación.
+Genera un archivo de texto local con versión, fecha UTC, recuentos de
+incidencias y categorías normalizadas de errores de lectura. **No incluye**
+nombres, fichas, identificadores, importes, cuotas, registros financieros,
+credenciales, consola ni datos completos de IndexedDB. Los textos de errores
+se convierten a códigos controlados; no se copian directamente.
+
+En dispositivos compatibles, el botón abre el menú de compartir del sistema.
+En los demás, descarga el archivo. Si el usuario cancela el envío, no inicia
+una descarga no solicitada. **No existe telemetría automática ni envío
+a servidor** por esta función.
+
+### Dos plazos obligatorios antes de retirar una obra del catálogo
+
+- El estado `closed` representa una obra pausada/no operativa;
+  `closedAt` inicia los **primeros 30 días**, que también siguen contando
+  mientras la obra está archivada.
+- Solo una vez transcurridos esos 30 días aparece
+  «Solicitar eliminación», con confirmación explícita. La solicitud se
+  guarda en `deletionRequestedAt`, de modo que puede sincronizarse
+  mediante el catálogo Firestore y posteriormente cancelarse.
+- Comienza un **segundo plazo de 30 días**, durante el cual se mantiene
+  «Cancelar solicitud». Una cancelación se transmite como valor `null`
+  explícito para evitar que la escritura `merge` deje una solicitud
+  remota obsoleta. Reabrir está bloqueado hasta cancelar.
+- Tras vencer el segundo plazo se puede iniciar una **revisión final**.
+  Si la obra está realmente vacía, no es inicial/activa y supera una
+  nueva verificación de dependencias locales, el usuario puede confirmar
+  la baja del catálogo. Esta baja **no** equivale a purgar físicamente
+  los datos asociados; se conserva la lápida de sincronización.
+- Si la obra conserva empleados, nóminas, préstamos, registros compartidos
+  o trabajos de sincronización, **no existe finalización automática**.
+  La fase destructiva está pendiente en la issue #334.
+- Las fechas locales sirven para la interfaz y como barrera adicional;
+  **antes de habilitar la eliminación irreversible habrá que validar el
+  tiempo en el servidor** y los dispositivos desactualizados, realizar
+  un respaldo restaurable y obtener confirmación remota durable.
+- No se programa un trabajo remoto ni se ejecutan borrados por estar la app
+  cerrada. La revisión final se realiza al entrar de nuevo en la app.
+
+### Validación de la ampliación 30+30 y .log
+
+- Suite general: **709/709 suites, 7,243/7,243 pruebas PASS**.
+- Multiobra 360: **103/103 pruebas PASS**, 0 infraestructura.
+- Pruebas nuevas: `ProjectDeletionPolicy.test.js`,
+  `ProjectDeletionLifecycleUI.test.js`,
+  `ProjectDiagnosticLog.test.js` y
+  `ProjectDiagnosticLogUI.test.js`.
+- Protección a nivel de IndexedDB: no puede retirarse una obra vacía
+  sin ambos plazos, ni aunque se omita la interfaz.
+- Exportación limitada a códigos anónimos y 250 casos; la prueba comprueba
+  que no se filtren nombres, números de fichas, importes ni identificadores.
