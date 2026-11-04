@@ -19,6 +19,7 @@ export const db = {};
 export const storage = {};
 export const doc = jest.fn(() => ({}));
 export const getDoc = jest.fn().mockResolvedValue({ exists: () => false, data: () => null });
+export const getDocFromServer = jest.fn().mockResolvedValue({ exists: () => false, data: () => null });
 export const setDoc = asyncNoop;
 export const updateDoc = asyncNoop;
 export const deleteDoc = asyncNoop;

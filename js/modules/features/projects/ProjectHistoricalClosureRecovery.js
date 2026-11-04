@@ -7,7 +7,8 @@
  * the copy. Never run without an explicit target and source selection.
  */
 import indexedDBService from '../../services/IndexedDBService.js';
-import { auth } from '../../data/firebase.js';
+import { auth, db, doc, getDocFromServer } from '../../data/firebase.js';
+import { PROJECTS_V1_COLLECTION, ALIASES_V1_COLLECTION, REGISTRY_COLLECTION, REGISTRY_DOC_ID } from './ProjectRegistry.js';
 import { isFullImportIsolationInProgress, isProjectRepairIsolationInProgress } from '../../services/PersistenceService.js';
 import { isDetachedRestoreSyncBlocked } from '../../services/DetachedRestoreGuard.js';
 import { buildPayrollClosureId, validatePayrollClosureForScopedWrite } from '../payroll/PayrollClosure.js';
@@ -22,7 +23,9 @@ export function planHistoricalClosureRecovery({
 } = {}) {
     const sourceKey = id(sourceId), target = id(targetProjectId);
     const projectList = list(projects);
-    const knownProjects = new Set(projectList.filter(row => row?.deletedAt == null).map(row => id(row.id)));
+    // Even a local tombstone means the original work was recognized before:
+    // it must be restored/reviewed rather than copied silently.
+    const knownProjects = new Set(projectList.map(row => id(row.id)));
     if (!target || !projectList.some(row => id(row.id) === target && row.status === 'active' && row.deletedAt == null)) {
         throw new Error('Selecciona una obra activa de destino.');
     }
@@ -85,10 +88,48 @@ export function planHistoricalClosureRecovery({
     return { closure: restored, created: true, missingEmployeeIds };
 }
 
+/**
+ * Authoritative source-identity lookup; never use getDoc(), a cache, or a
+ * catalog snapshot here. Any network/permission failure is a hard blocker.
+ * Check the primary catalog, aliases and canonical project registry: a stale
+ * device may not know about any of these Firestore records.
+ */
+export async function verifyHistoricalClosureSourceInCloud({
+    uid, sourceProjectId, firestore = db, readServer = getDocFromServer
+} = {}) {
+    const user = id(uid), source = id(sourceProjectId);
+    if (!user || !source || source.startsWith('legacy-unresolved:') || source.includes('/')) {
+        throw new Error('No se pudo comprobar la identidad de la obra original. No se creó una copia.');
+    }
+    if (typeof readServer !== 'function') {
+        throw new Error('No se puede verificar la obra original contra Firebase.');
+    }
+    const refs = [
+        doc(firestore, 'users', user, PROJECTS_V1_COLLECTION, source),
+        doc(firestore, 'users', user, ALIASES_V1_COLLECTION, source),
+        doc(firestore, 'users', user, REGISTRY_COLLECTION, REGISTRY_DOC_ID)
+    ];
+    let records;
+    try {
+        records = await Promise.all(refs.map(ref => readServer(ref)));
+    } catch (_) {
+        throw new Error('No se pudo verificar la obra original con Firebase. Revisa conexión y permisos; no se guardó nada.');
+    }
+    if (records.some(snapshot => !snapshot || typeof snapshot.exists !== 'function')) {
+        throw new Error('Respuesta no verificable de Firebase. No se guardó el cierre.');
+    }
+    if (records[0].exists() || records[1].exists()
+        || (records[2].exists() && id(records[2].data()?.canonicalProjectId) === source)) {
+        throw new Error('La obra original existe en Firebase o tiene una vinculación registrada. Sincroniza antes de recuperar.');
+    }
+    return { sourceProjectId: source, verifiedForUid: user };
+}
+
 /** Atomic local copy + durable outbox. No real cloud or employees touched. */
 export async function saveHistoricalClosureRecovery({
     sourceId, targetProjectId, idb = indexedDBService,
-    getUid = () => auth?.currentUser?.uid, now = () => Date.now()
+    getUid = () => auth?.currentUser?.uid, now = () => Date.now(),
+    verifyCloudSource = verifyHistoricalClosureSourceInCloud
 } = {}) {
     const expectedUid = id(getUid());
     if (!expectedUid) throw new Error('Inicia sesión antes de recuperar un cierre histórico.');
@@ -97,6 +138,23 @@ export async function saveHistoricalClosureRecovery({
     if (isolated()) throw new Error('Termina primero la restauración o reparación pendiente.');
     await idb.init();
     if (!idb.db?.transaction) throw new Error('El almacenamiento local no admite la recuperación atómica.');
+    if (id(getUid()) !== expectedUid || isolated()) {
+        throw new Error('La cuenta o la restauración cambió antes de verificar la obra.');
+    }
+    const sourceBefore = await idb.get('payrollClosures', sourceId);
+    if (!sourceBefore) throw new Error('El cierre original ya no está disponible.');
+    const sourceProjectId = id(sourceBefore.projectId);
+    const sourceFingerprintBefore = JSON.stringify(sourceBefore);
+    // Awaiting Firestore outside IndexedDB is essential; IDB transactions
+    // cannot remain open over asynchronous network operations.
+    const verification = await verifyCloudSource({ uid: expectedUid, sourceProjectId });
+    if (verification?.sourceProjectId !== sourceProjectId
+        || verification?.verifiedForUid !== expectedUid) {
+        throw new Error('No se pudo comprobar la identidad de la obra original con Firebase.');
+    }
+    if (id(getUid()) !== expectedUid || isolated()) {
+        throw new Error('La cuenta o la restauración cambió durante la verificación de Firebase.');
+    }
     const stores = ['projects', 'employees', 'payrollClosures', 'mainSyncOutbox'];
     return new Promise((resolve, reject) => {
         const tx = idb.db.transaction(stores, 'readwrite');
@@ -111,6 +169,11 @@ export async function saveHistoricalClosureRecovery({
                 try {
                     if (id(getUid()) !== expectedUid) throw new Error('La cuenta cambió durante la recuperación.');
                     if (isolated()) throw new Error('La restauración o reparación impide recuperar el cierre ahora.');
+                    const sourceLatest = data.payrollClosures.find(row => id(row.id) === id(sourceId));
+                    if (!sourceLatest || id(sourceLatest.projectId) !== sourceProjectId
+                        || JSON.stringify(sourceLatest) !== sourceFingerprintBefore) {
+                        throw new Error('El cierre original cambió durante la comprobación remota. Reintenta.');
+                    }
                     result = planHistoricalClosureRecovery({
                         sourceId, targetProjectId,
                         projects: data.projects, employees: data.employees,

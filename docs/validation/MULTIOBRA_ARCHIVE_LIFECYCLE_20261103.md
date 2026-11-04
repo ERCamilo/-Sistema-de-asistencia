@@ -60,11 +60,31 @@ completa puede reemplazar esos indicadores locales.
   es el único pendiente. Los cierres con obra válida y empleado
   eliminado siguen disponibles como historial informativo.
 
-**Límite importante:** la presencia/ausencia de una obra se verifica contra
-el catálogo LOCAL. La ausencia puede deberse a falta de sincronización.
-Antes de certificar esta recuperación para producción hace falta validar
-la identidad del proyecto original contra la nube. La copia histórica no
-debe confundirse con una migración de pagos.
+**Validación remota obligatoria (corrección posterior al SHA 345376a4):**
+antes de escribir una copia histórica o su entrada de sincronización,
+SA exige tres lecturas **desde el servidor** de Firestore, siempre dentro
+del UID autenticado: `projectsV1/{sourceProjectId}`,
+`projectAliasesV1/{sourceProjectId}` y el documento `projectRegistryV1/default`.
+La presencia de un documento de obra —incluso tombstone—, un alias o un
+registro canónico coincidente impide la recuperación aunque la obra falte
+en el catálogo local. Desconexión, falta de permisos, respuesta no
+verificable, cambio de cuenta, reparación/restauración concurrente y
+modificación local del cierre original también bloquean sin escribir.
+Los registros locales de obra eliminada también impiden reasignación.
+
+Se usa `getDocFromServer` (no `getDoc` con posible caché). La comprobación
+contra nube fue reproducida con **SDK real, firestore.rules del repositorio y
+emulador aislado** para los casos de obra remota invisible localmente,
+alias, ausencia remota y desconexión, sin credenciales de producción.
+
+**Límite:** como Firestore y IndexedDB no comparten una transacción,
+todavía existe una ventana teórica si otro dispositivo crea o restaura
+la obra original exactamente después de la lectura y antes del guardado
+local. Certificar estrictamente ese caso requiere un protocolo
+transaccional de reserva/validación del lado servidor. El control actual
+resuelve la ausencia de sincronización denunciada sin pretender ser un
+bloqueo global entre dispositivos. La copia histórica no debe
+confundirse con una migración de pagos.
 
 ## Fase D — Eliminación de obras
 
@@ -113,7 +133,7 @@ debe confundirse con una migración de pagos.
   52 navegador), 0 errores de infraestructura; vuelto a ejecutar después
   de integrar la política 30+30 y el diagnóstico .log.
 - Suite general final con las correcciones de UI y precache: **709/709
-  suites, 7,243/7,243 tests PASS**. Las dos incompatibilidades iniciales
+  suites, 7,254/7,254 tests PASS**. Las dos incompatibilidades iniciales
   (cantidad de detalles del panel y manifiesto SW) se resolvieron
   sin cambiar las expectativas de las pruebas existentes.
 
@@ -186,7 +206,8 @@ a servidor** por esta función.
 
 ### Validación de la ampliación 30+30 y .log
 
-- Suite general: **709/709 suites, 7,243/7,243 pruebas PASS**.
+- Suite general: **709/709 suites, 7,254/7,254 pruebas PASS**
+  tras incorporar la verificación remota de origen.
 - Multiobra 360: **103/103 pruebas PASS**, 0 infraestructura.
 - Pruebas nuevas: `ProjectDeletionPolicy.test.js`,
   `ProjectDeletionLifecycleUI.test.js`,
@@ -196,3 +217,36 @@ a servidor** por esta función.
   sin ambos plazos, ni aunque se omita la interfaz.
 - Exportación limitada a códigos anónimos y 250 casos; la prueba comprueba
   que no se filtren nombres, números de fichas, importes ni identificadores.
+
+### Pruebas adicionales: identidad de la obra original en Firebase
+
+- `ProjectHistoricalClosureRecovery.test.js`: 15/15 pruebas PASS,
+  incluidas validación remota, obra presente solo en nube, alias canónico,
+  permisos, desconexión, cambio de UID, registro local modificado, obra
+  local eliminada y reintento idempotente.
+- `js/tests/emulator/ProjectHistoricalClosureCloudGuard.emulator.test.js`:
+  **6/6 PASS** en un servidor Firestore de bucle local, SDK real y
+  `firestore.rules` del repositorio. No se usan cuentas de producción.
+- Las consultas remotas no se satisfacen desde caché. Un error de red o
+  permiso evita crear la copia histórica y evita escribir la outbox.
+- Verificación antes de transacción IDB y validación de versión local
+  dentro de la misma transacción, sin mantener transacciones IDB abiertas
+  durante la petición de red.
+- La recuperación que ya reconoce su proyecto original, aun como lápida
+  local, también se bloquea. Para que la restauración sea posible cuando
+  la nube o catálogo confirmen el estado no resuelto, el usuario debe
+  resolver esa identidad en el flujo general de reconciliación.
+
+### Resultado integrado de la corrección remota
+
+- **Suite general**: 709/709 suites, 7,254/7,254 tests PASS.
+- **Validación Firestore específica**: 6/6 PASS, SDK y reglas reales con
+  emulador loopback, incluyendo lectura denegada, nube sin obra y offline.
+- **Multiobra 360 repetida de forma secuencial**: 103/103 PASS (47 locales,
+  4 emulador y 52 navegador a 390/1280 px), 0 fallos de infraestructura.
+- La primera repetición simultánea falló antes de los casos de navegador
+  por un export faltante de \`getDocFromServer\` en la fachada del
+  harness QA. Se alineó la fachada y sus mocks con Firebase de
+  producción; **no se relajaron ni eliminaron aserciones**.
+- No se validó una cuenta real ni la ausencia de carreras de
+  creación/restauración entre clientes después de la lectura remota.

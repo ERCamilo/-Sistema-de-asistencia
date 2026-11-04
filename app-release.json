@@ -12,7 +12,8 @@
         "Puedes recuperar una copia histórica de cierres sin empleado en una obra activa, manteniendo los importes y el cierre original.",
         "Antes de borrar una obra con historial se pueden revisar las dependencias; el borrado masivo permanece bloqueado por seguridad.",
         "Ahora puedes descargar o compartir un informe de problemas de Multiobra en formato .log, sin nombres ni datos financieros.",
-        "Para solicitar borrar una obra debe llevar 30 días pausada; la solicitud puede cancelarse durante al menos otros 30 días. El borrado definitivo de obras con datos sigue bloqueado."
+        "Para solicitar borrar una obra debe llevar 30 días pausada; la solicitud puede cancelarse durante al menos otros 30 días. El borrado definitivo de obras con datos sigue bloqueado.",
+        "La recuperación de cierres históricos comprueba la obra original directamente con Firebase; sin conexión o permisos de lectura no crea la copia."
       ]
     },
     {

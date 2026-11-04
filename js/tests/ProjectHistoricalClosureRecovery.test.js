@@ -1,7 +1,8 @@
 import 'fake-indexeddb/auto';
 import { IndexedDBService } from 'actual/services/IndexedDBService.js';
 import { buildPayrollClosure, buildPayrollClosureSnapshot } from '../modules/features/payroll/PayrollClosure.js';
-import { planHistoricalClosureRecovery, saveHistoricalClosureRecovery } from '../modules/features/projects/ProjectHistoricalClosureRecovery.js';
+import { planHistoricalClosureRecovery, saveHistoricalClosureRecovery, verifyHistoricalClosureSourceInCloud } from '../modules/features/projects/ProjectHistoricalClosureRecovery.js';
+import * as firebase from '../modules/data/firebase.js';
 
 if (!globalThis.structuredClone) globalThis.structuredClone = value => JSON.parse(JSON.stringify(value));
 
@@ -46,7 +47,8 @@ describe('Recovery of orphan payroll closures with deleted employees', () => {
             await idb.init();
             for (const project of projects) await idb.update('projects', project);
             await idb.update('payrollClosures', source);
-            const options = { sourceId: source.id, targetProjectId: 'target', idb, getUid: () => 'userA', now: () => 1000 };
+            const options = { sourceId: source.id, targetProjectId: 'target', idb, getUid: () => 'userA', now: () => 1000,
+                verifyCloudSource: async ({ uid, sourceProjectId }) => ({ verifiedForUid: uid, sourceProjectId }) };
             const one = await saveHistoricalClosureRecovery(options);
             expect(one.created).toBe(true);
             const two = await saveHistoricalClosureRecovery(options);
@@ -62,6 +64,15 @@ describe('Recovery of orphan payroll closures with deleted employees', () => {
         } finally {
             idb.db?.close();
         }
+    });
+
+    test('local tombstone of original work also prevents silent reassignment', () => {
+        const source = historicalClosure();
+        expect(() => planHistoricalClosureRecovery({
+            sourceId: source.id, targetProjectId: 'target',
+            projects: [...projects, { id: 'deleted-project', deletedAt: 123, status: 'closed' }],
+            payrollClosures: [source]
+        })).toThrow(/obra existente/);
     });
 
     test('cannot steal a closure from an existing work or discard predecessor chain', () => {
@@ -89,11 +100,115 @@ describe('Recovery of orphan payroll closures with deleted employees', () => {
             idb.init = async () => { await originalInit(); uid = 'B'; };
             await expect(saveHistoricalClosureRecovery({
                 sourceId: source.id, targetProjectId: 'target', idb, getUid: () => uid
-            })).rejects.toThrow(/cuenta cambió/);
+            })).rejects.toThrow(/cuenta.*cambió/);
             expect(await idb.getAll('payrollClosures')).toHaveLength(1);
             expect(await idb.getAll('mainSyncOutbox')).toHaveLength(0);
         } finally {
             idb.db?.close();
         }
+    });
+});
+
+describe('remote-first security gate for historical payroll copies', () => {
+    const missing = { exists: () => false };
+    const exists = data => ({ exists: () => true, data: () => data });
+    let dbId = 0, idb, source;
+    beforeEach(async () => {
+        idb = new IndexedDBService('historical-remote-validation-' + ++dbId + '-' + Math.random());
+        source = historicalClosure();
+        await idb.init();
+        for (const project of projects) await idb.update('projects', project);
+        await idb.update('payrollClosures', source);
+        // Mock Firestore references, NEVER touching a real production account.
+        jest.spyOn(firebase, 'doc').mockImplementation((_db, ...segments) => segments.join('/'));
+    });
+    afterEach(() => { jest.restoreAllMocks(); idb.db?.close(); });
+    const options = (idb, source, readServer, getUid = () => 'userA') => ({
+        idb, sourceId: source.id, targetProjectId: 'target', getUid,
+        verifyCloudSource: args => verifyHistoricalClosureSourceInCloud({ ...args, readServer })
+    });
+    const remote = entries => jest.fn(async path => {
+        if (entries[path] instanceof Error) throw entries[path];
+        return entries[path] || missing;
+    });
+    async function assertNoNewWrites(idb, source) {
+        expect(await idb.getAll('payrollClosures')).toEqual([source]);
+        expect(await idb.getAll('mainSyncOutbox')).toEqual([]);
+    }
+
+    test('remote original project exists but local catalog did not download it: BLOCKS', async () => {
+        const read = remote({ 'users/userA/projectsV1/deleted-project': exists({ id: 'deleted-project', status: 'active' }) });
+        await expect(saveHistoricalClosureRecovery(options(idb, source, read)))
+            .rejects.toThrow(/obra original existe en Firebase/);
+        expect(read).toHaveBeenCalledTimes(3);
+        await assertNoNewWrites(idb, source);
+    });
+
+    test('remote archived or deleted tombstone still blocks automatic reassignment', async () => {
+        const read = remote({ 'users/userA/projectsV1/deleted-project': exists({ deletedAt: 123, status: 'archived' }) });
+        await expect(saveHistoricalClosureRecovery(options(idb, source, read)))
+            .rejects.toThrow(/obra original existe en Firebase/);
+        await assertNoNewWrites(idb, source);
+    });
+
+    test('alias mapping exists in cloud despite missing project document: BLOCKS', async () => {
+        const read = remote({ 'users/userA/projectAliasesV1/deleted-project': exists({ canonicalId: 'other' }) });
+        await expect(saveHistoricalClosureRecovery(options(idb, source, read)))
+            .rejects.toThrow(/vinculación registrada/);
+        await assertNoNewWrites(idb, source);
+    });
+
+    test('source is recorded as canonical remote project: BLOCKS', async () => {
+        const read = remote({ 'users/userA/projectRegistryV1/default': exists({ canonicalProjectId: 'deleted-project' }) });
+        await expect(saveHistoricalClosureRecovery(options(idb, source, read)))
+            .rejects.toThrow(/vinculación registrada/);
+        await assertNoNewWrites(idb, source);
+    });
+
+    test.each(['unavailable', 'permission-denied'])('%s Firestore server errors block recovery and never use local cache', async code => {
+        const read = remote({ 'users/userA/projectsV1/deleted-project': Object.assign(new Error(code), { code }) });
+        await expect(saveHistoricalClosureRecovery(options(idb, source, read)))
+            .rejects.toThrow(/No se pudo verificar la obra original con Firebase/);
+        await assertNoNewWrites(idb, source);
+    });
+
+    test('all remote references authoritatively absent: copies once and never repeats outbox', async () => {
+        const read = remote({});
+        const once = await saveHistoricalClosureRecovery(options(idb, source, read));
+        expect(once.created).toBe(true);
+        const again = await saveHistoricalClosureRecovery(options(idb, source, read));
+        expect(again.created).toBe(false);
+        expect(await idb.getAll('payrollClosures')).toHaveLength(2);
+        expect(await idb.getAll('mainSyncOutbox')).toHaveLength(1);
+        expect(read).toHaveBeenCalledTimes(6);
+    });
+
+    test('account changes while Firebase request is pending: blocks after server responds', async () => {
+        let uid = 'userA';
+        const read = remote({});
+        read.mockImplementation(async () => { uid = 'userB'; return missing; });
+        await expect(saveHistoricalClosureRecovery(options(idb, source, read, () => uid)))
+            .rejects.toThrow(/cuenta o la restauración cambió/);
+        await assertNoNewWrites(idb, source);
+    });
+
+    test('source closure moved locally while Firestore request is pending: blocks stale identity', async () => {
+        const read = jest.fn(async () => {
+            await idb.update('payrollClosures', { ...source, projectId: 'other-project' });
+            return missing;
+        });
+        await expect(saveHistoricalClosureRecovery(options(idb, source, read)))
+            .rejects.toThrow(/El cierre original cambió/);
+        expect(await idb.getAll('payrollClosures')).toHaveLength(1);
+        expect(await idb.getAll('mainSyncOutbox')).toHaveLength(0);
+    });
+
+    test('unknown original project identifier fails closed without remote reads', async () => {
+        await idb.update('payrollClosures', { ...source, projectId: null });
+        const read = remote({});
+        await expect(saveHistoricalClosureRecovery(options(idb, source, read)))
+            .rejects.toThrow(/No se pudo comprobar la identidad/);
+        expect(read).not.toHaveBeenCalled();
+        expect(await idb.getAll('mainSyncOutbox')).toHaveLength(0);
     });
 });
