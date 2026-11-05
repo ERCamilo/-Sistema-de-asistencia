@@ -42,6 +42,31 @@ function value(id, text) { host.querySelector(`#${id}`).value = text; }
 function save() { EmployeeModal.save(modal, { id: 'e1' }); }
 async function settle() { await Promise.resolve(); await Promise.resolve(); }
 
+test('quoted names and literal markup round-trip through the employee editor', () => {
+    const employee = state.employees[0];
+    employee.name = 'Juan "El Maestro" & Pérez <literal>';
+    employee.phone = '+1 "ext" 22';
+    employee.email = 'juan+"maestro"@example.test';
+    employee.notes = 'Primera línea\n</textarea><span data-literal-note>Nota & texto</span>';
+    open();
+    expect(host.querySelector('#empName').value).toBe(employee.name);
+    expect(host.querySelector('.modal-subtitle').textContent).toBe(employee.name);
+    expect(host.querySelector('#empPhone').value).toBe(employee.phone);
+    expect(host.querySelector('#empEmail').value).toBe(employee.email);
+    expect(host.querySelector('#empNotes').value).toBe(employee.notes);
+    expect(host.querySelector('[data-literal-note]')).toBeNull();
+    expect(modal.employeeDraft.isDirty()).toBe(false);
+});
+
+test('editing a quoted name saves the whole value and preserves the other fields', () => {
+    state.employees[0].name = 'Juan "El Maestro" Pérez';
+    state.employees[0].notes = 'Nota <literal> & texto';
+    open(); value('empName', 'Juan "El Maestro" Pérez actualizado'); save();
+    expect(state.employees[0].name).toBe('Juan "El Maestro" Pérez actualizado');
+    expect(state.employees[0].notes).toBe('Nota <literal> & texto');
+    expect(persist).toHaveBeenCalledTimes(1);
+});
+
 test('merges a local name with a remote phone and preserves non-form fields', () => {
     open();
     value('empName', 'Borrador');

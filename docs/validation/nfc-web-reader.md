@@ -25,7 +25,7 @@ La prueba no escribe en la tarjeta, no guarda lecturas en localStorage/IndexedDB
 ## Validación automática y límites
 
 - Jest ejecuta el controlador real con un adaptador Web NFC simulado: UID, ausencia de UID, errores, timeout, reintentos, permisos tardíos, cierre y segundo plano.
-- Chromium comprueba el modal real, controles y tamaños móviles con eventos NFC simulados.
+- Chromium comprueba el editor y el modal reales a 320, 390, 768 y 1440 px con eventos NFC simulados: nombres con comillas, borradores conservados, reintentos de registro con la misma solicitud, consultas nuevas después de un conflicto y avisos de tarjeta ocupada/empleado con otra tarjeta.
 - La lectura física y la igualdad del UID con el ESP32 requieren el teléfono y las tarjetas reales; ninguna prueba automática aquí sustituye esa verificación.
 
 El usuario ya confirmó que su Samsung y el ESP32 entregan el mismo UID salvo separadores. El siguiente paso al entrar desde el sitio principal es activar las asociaciones en ese dominio y comprobar la consulta con el registro existente, siguiendo el contrato y la guía vinculados arriba. Otras combinaciones de teléfono/tarjeta siguen necesitando una prueba física.
