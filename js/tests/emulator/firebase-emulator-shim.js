@@ -26,6 +26,7 @@ export function __useDevice({ firestore, uid }) {
 export const doc = (...args) => sdk().doc(...args);
 export const collection = (...args) => sdk().collection(...args);
 export const getDoc = (...args) => sdk().getDoc(...args);
+export const getDocFromServer = (...args) => sdk().getDocFromServer(...args);
 export const getDocs = (...args) => sdk().getDocs(...args);
 export const setDoc = (...args) => sdk().setDoc(...args);
 export const updateDoc = (...args) => sdk().updateDoc(...args);

@@ -61,6 +61,7 @@ export class Project {
         if (Object.prototype.hasOwnProperty.call(data, 'endDate')) this.endDate = data.endDate;
         if (Object.prototype.hasOwnProperty.call(data, 'createdBy')) this.createdBy = data.createdBy;
         if (Object.prototype.hasOwnProperty.call(data, 'deletedAt')) this.deletedAt = data.deletedAt;
+        if (Object.prototype.hasOwnProperty.call(data, 'deletionRequestedAt')) this.deletionRequestedAt = data.deletionRequestedAt;
         if (Object.prototype.hasOwnProperty.call(data, 'metadata')) this.metadata = cloneMetadata(data.metadata);
         // «No son la misma»: ids de obras que el usuario descartó como duplicadas de esta.
         if (Array.isArray(data.notSameAs)) this.notSameAs = data.notSameAs.filter(id => typeof id === 'string');
@@ -89,6 +90,7 @@ export class Project {
     }
 
     reopen() {
+        if (this.deletionRequestedAt != null) throw new Error('Cancela primero la solicitud de eliminación.');
         if (this.status !== PROJECT_STATUS.CLOSED) {
             throw new Error(`Sólo un proyecto closed puede reabrirse (estado actual: "${this.status}").`);
         }
@@ -127,7 +129,7 @@ export class Project {
             createdAt: this.createdAt,
             updatedAt: this.updatedAt
         };
-        for (const key of ['closedAt', 'archivedAt', 'startDate', 'endDate', 'createdBy', 'deletedAt', 'metadata', 'notSameAs']) {
+        for (const key of ['closedAt', 'archivedAt', 'startDate', 'endDate', 'createdBy', 'deletedAt', 'deletionRequestedAt', 'metadata', 'notSameAs']) {
             if (Object.prototype.hasOwnProperty.call(this, key)) json[key] = this[key];
         }
         return json;

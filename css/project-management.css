@@ -1457,3 +1457,23 @@
 .r07-wizard-diagnostics > p { margin: 0; color: var(--text-dim); font-size: 13px; }
 .r07-wizard-diagnostics details p, .r07-wizard-diagnostics details li { font-size: 13px; line-height: 1.45; }
 .r07-wizard-diagnostics details ul { padding-left: 18px; }
+
+/* State is communicated by icon, label and surface, never color alone. */
+.project-item[data-project-status="active"] { border-inline-start: 4px solid var(--good); }
+.project-item[data-project-status="closed"] { border-inline-start: 4px solid var(--warn); background: color-mix(in oklch, var(--warn) 5%, var(--panel)); }
+.project-item[data-project-status="archived"] { border-inline-start: 4px solid var(--text-dim); background: var(--panel-2); }
+.project-action-overlay { z-index: 12000; }
+.project-action-dialog { display: grid; box-sizing: border-box; width: min(440px, 100%); padding: 24px; gap: 14px; overflow-y: auto; max-height: 90dvh; }
+.project-action-dialog h2 { font-size: 22px; margin: 0; }
+.project-action-dialog p { margin: 0; line-height: 1.55; color: var(--text-dim); }
+.project-action-dialog .project-action-name { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.project-action-dialog .project-actions { margin-top: 8px; }
+.project-action-dialog .project-action { min-height: 44px; flex: 1; }
+.project-action-dialog summary { cursor: pointer; min-height: 44px; }
+.project-action-symbol { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 20px; color: var(--accent); background: color-mix(in oklch, var(--accent) 12%, var(--panel)); animation: project-action-enter .24s ease-out; }
+.project-action-symbol svg { width: 34px; height: 34px; }
+.project-action-symbol[data-action="close"], .project-action-symbol[data-action="impact"] { color: var(--warn); }
+.project-action-symbol[data-action="delete"], .project-action-symbol[data-action="request"] { color: var(--bad); }
+.project-action-symbol[data-action="reopen"] { color: var(--good); }
+@keyframes project-action-enter { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .project-action-symbol { animation: none; } }

@@ -1,14 +1,29 @@
 {
-  "version": "1.7.126",
+  "version": "1.7.127",
   "changelog": [
     {
-      "version": "1.7.126",
+      "version": "1.7.127",
       "date": "2026-11-05",
       "title": "Asociaciones NFC más claras",
       "items": [
         "Volver a consultar una tarjeta comprueba su disponibilidad actual después de un conflicto.",
         "Los avisos distinguen una tarjeta ocupada de un empleado que ya tiene otra tarjeta y orientan cómo continuar.",
         "El editor conserva completos los nombres con comillas y muestra literalmente las notas del empleado."
+      ]
+    },
+    {
+      "version": "1.7.126",
+      "date": "2026-11-03",
+      "title": "Archivar incidencias y conservar cierres históricos",
+      "items": [
+        "Los problemas de Multiobra que no pueden resolverse se pueden archivar y restaurar, sin borrar sus datos.",
+        "El asistente permite salir por ahora, incluso si hay una operación pendiente, y protege sus decisiones de respuestas atrasadas.",
+        "Pausar, archivar o reactivar una obra muestra una confirmación breve con iconos y conserva el historial; sus estados se distinguen en la lista.",
+        "Puedes recuperar una copia histórica de cierres sin empleado en una obra activa, manteniendo los importes y el cierre original.",
+        "Antes de borrar una obra con historial se pueden revisar las dependencias; el borrado masivo permanece bloqueado por seguridad.",
+        "Ahora puedes descargar o compartir un informe de problemas de Multiobra en formato .log, sin nombres ni datos financieros.",
+        "Para solicitar borrar una obra debe llevar 30 días pausada; la solicitud puede cancelarse durante al menos otros 30 días. El borrado definitivo de obras con datos sigue bloqueado.",
+        "La recuperación de cierres históricos comprueba la obra original directamente con Firebase; sin conexión o permisos de lectura no crea la copia."
       ]
     },
     {
