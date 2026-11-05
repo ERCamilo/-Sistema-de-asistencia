@@ -100,7 +100,24 @@ export class NfcIntegration {
         if (!this.valid()) return;
         const region = this.reader.node('enrollment');
         this.reader.dialog.dataset.nfcHasCard = this.cardUid ? 'true' : 'false';
-        region.innerHTML = `${nfcEmployeeSummary(this.context.employee, this.context.config)}<p class="nfc-enrollment-status" role="status" aria-live="polite">${escapeHTML(this.note)}</p>${this.error ? `<p class="nfc-enrollment-error" role="alert">${escapeHTML(this.error)}</p>` : ''}`;
+        const state = !this.busy && !this.error ? this.result?.status : null;
+        const feedback = {
+            registrada: ['success', 'Tarjeta asociada correctamente', 'circle-check', 'El registro fue confirmado por el webhook.'],
+            mismo_empleado: ['notice', 'Esta tarjeta ya está asociada a este empleado', 'info', 'No es necesario volver a guardarla.'],
+            otro_empleado: ['warning', 'Esta tarjeta ya está asociada a otro empleado', 'alert-triangle', 'No se puede guardar esta asociación.'],
+            disponible: ['available', 'Tarjeta disponible', 'credit-card', 'Todavía no está asociada. Revisa los datos antes de guardar.']
+        }[state];
+        const icons = {
+            'circle-check': '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>',
+            info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
+            'alert-triangle': '<path d="M10.3 4.4 2 19h20L13.7 4.4a2 2 0 0 0-3.4 0Z"/><path d="M12 10v4m0 3h.01"/>',
+            'credit-card': '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>'
+        };
+        const symbol = feedback ? `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[feedback[2]]}</svg>` : '';
+        const statusContent = feedback
+            ? `<div class="nfc-feedback nfc-feedback--${feedback[0]}" role="status" aria-live="polite" aria-atomic="true"><span class="nfc-feedback-icon" aria-hidden="true">${symbol}</span><div><strong>${feedback[1]}</strong><p>${feedback[3]}</p>${state === 'registrada' || state === 'mismo_empleado' ? `<small>${escapeHTML(this.context.employee.name)} · N.º ${escapeHTML(this.context.employee.number ?? '')}</small>` : ''}</div></div>`
+            : `<p class="nfc-enrollment-status" role="status" aria-live="polite">${escapeHTML(this.note)}</p>`;
+        region.innerHTML = `${nfcEmployeeSummary(this.context.employee, this.context.config)}${statusContent}${this.error ? `<p class="nfc-enrollment-error" role="alert">${escapeHTML(this.error)}</p>` : ''}`;
         this.reader.externalBusy = this.busy; this.reader.controls();
         const register = this.reader.node('register');
         register.hidden = this.result?.status !== 'disponible' || !!this.pending; register.disabled = this.busy;

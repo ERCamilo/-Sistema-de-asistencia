@@ -52,6 +52,54 @@ test.each(['mismo_empleado', 'otro_empleado'])('%s prevents a redundant or confl
     expect(send).toHaveBeenCalledTimes(1); expect(reader.node('register').hidden).toBe(true);
     expect(reader.node('enrollment').textContent).toContain(status === 'mismo_empleado' ? 'ya está asociada' : 'otro empleado');
 });
+test('NFC feedback distinguishes available, confirmed, same owner and other owner with accessible SVG', async () => {
+    open(); await scanCard();
+    let panel = reader.dialog.querySelector('.nfc-feedback');
+    expect(panel.classList.contains('nfc-feedback--available')).toBe(true);
+    expect(panel.textContent).toContain('Todavía no está asociada');
+    expect(panel.getAttribute('role')).toBe('status');
+    expect(panel.querySelector('svg').getAttribute('aria-hidden')).toBe('true');
+    reader.node('register').click(); await flush();
+    panel = reader.dialog.querySelector('.nfc-feedback');
+    expect(panel.classList.contains('nfc-feedback--success')).toBe(true);
+    expect(panel.textContent).toContain('Tarjeta asociada correctamente');
+    expect(panel.textContent).toContain('Uno');
+    expect(reader.node('register').hidden).toBe(true);
+});
+test.each([['mismo_empleado','notice'],['otro_empleado','warning']])('NFC feedback for %s remains visible without a duplicate save', async (status, tone) => {
+    send.mockResolvedValue({status, employeeId:status === 'mismo_empleado' ? 'e1' : 'e2'});
+    open(); await scanCard();
+    const panel = reader.dialog.querySelector('.nfc-feedback');
+    expect(panel.classList.contains('nfc-feedback--' + tone)).toBe(true);
+    expect(panel.textContent).toContain(status === 'mismo_empleado' ? 'No es necesario volver' : 'No se puede guardar');
+    expect(panel.textContent).not.toContain('Dos');
+    expect(reader.node('register').hidden).toBe(true);
+    await ui.submit('register');
+    expect(send).toHaveBeenCalledTimes(1);
+});
+test('NFC status remains until a new reading, and a failed save never shows success', async () => {
+    open(); await scanCard();
+    await ui.submit('register');
+    expect(reader.dialog.querySelector('.nfc-feedback--success')).not.toBeNull();
+    await flush();
+    expect(reader.dialog.querySelector('.nfc-feedback--success')).not.toBeNull();
+    await reader.start();
+    expect(reader.dialog.querySelector('.nfc-feedback--success')).toBeNull();
+    reader.reader.onreading({ serialNumber: '04:00:ab:cd:ef:12:34', message: { records: [] } });
+    await flush();
+    send.mockRejectedValueOnce(Object.assign(Error('Respuesta perdida'), { code: 'TIMEOUT' }));
+    await ui.submit('register');
+    expect(reader.dialog.querySelector('.nfc-feedback--success')).toBeNull();
+    expect(reader.dialog.querySelector('[role="alert"]').textContent).toContain('Respuesta perdida');
+});
+test('an unconfirmed registration payload is never presented as success', async () => {
+    open(); await scanCard();
+    send.mockRejectedValueOnce(Object.assign(Error('El webhook no confirmó esta solicitud'), { code: 'INVALID_RESPONSE' }));
+    await ui.submit('register');
+    expect(reader.dialog.querySelector('.nfc-feedback--success')).toBeNull();
+    expect(reader.node('retry').hidden).toBe(false);
+    expect(reader.node('register').hidden).toBe(true);
+});
 test('a failed registration retries the identical payload, request ID and endpoint', async () => {
     open(); await scanCard(); send.mockRejectedValueOnce(Object.assign(Error('Respuesta perdida'), { code: 'TIMEOUT' }));
     await ui.submit('register'); const first = send.mock.calls[1];
@@ -152,4 +200,12 @@ test('replacing the underlying editor invalidates the request even when the empl
     expect(reader.dialog.open).toBe(false); expect(signal.aborted).toBe(true);
     pending.resolve({ status: 'disponible', employeeId: null }); await work;
     expect(host.querySelector('[data-nfc-employee]').dataset.nfcEmployee).toBe('e2');
+});
+
+test('employee NFC entry uses the same regular icon and an accessible action label', () => {
+    const entry = NfcEmployeeEntry(employees[0]);
+    expect(entry).toContain('data-icon="nfc"');
+    expect(entry).toContain('aria-hidden="true"');
+    expect(entry).toContain('Asociar tarjeta NFC');
+    expect(entry).not.toContain('<rect');
 });

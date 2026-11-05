@@ -1,6 +1,15 @@
 {
-  "version": "1.7.125",
+  "version": "1.7.126",
   "changelog": [
+    {
+      "version": "1.7.126",
+      "date": "2026-11-05",
+      "title": "Estados NFC más claros y nuevo icono",
+      "items": [
+        "La asociación NFC confirmada destaca en verde, mientras que las tarjetas ya registradas muestran advertencias diferenciadas y persistentes.",
+        "El lector y el editor de empleados utilizan el icono NFC regular, y se mejora el contraste de los avisos en pantallas pequeñas."
+      ]
+    },
     {
       "version": "1.7.125",
       "date": "2026-11-03",

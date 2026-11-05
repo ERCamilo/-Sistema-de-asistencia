@@ -1,8 +1,8 @@
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { readNfcPreferences } from './NfcPreferences.js';
 import { nfcEndpoint } from './NfcCore.js';
+import { nfcIcon } from './NfcIcon.js';
 
-export const nfcCardIcon = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9v6m3-6v6m4-5a3 3 0 0 1 0 4m3-7a7 7 0 0 1 0 10"/></svg>';
 
 export function NfcEmployeeEntry(employee) {
     const id = escapeAttr(employee?.id || '');
@@ -11,7 +11,7 @@ export function NfcEmployeeEntry(employee) {
     let ready = true;
     try { nfcEndpoint(config); } catch (_) { ready = false; }
     const hint = !employee?.id ? 'Guarda el empleado antes de asociar una tarjeta.' : !ready ? 'Configura una URL válida en Ajustes → Pruebas.' : 'Registro experimental en el webhook elegido.';
-    return `<section class="employee-nfc-entry" data-nfc-editor="${id}"><button type="button" data-nfc-employee="${id}" ${employee?.id && ready ? '' : 'disabled'}>${nfcCardIcon}<span>Asociar tarjeta NFC</span></button><small>${hint}</small></section>`;
+    return `<section class="employee-nfc-entry" data-nfc-editor="${id}"><button type="button" data-nfc-employee="${id}" ${employee?.id && ready ? '' : 'disabled'}>${nfcIcon}<span>Asociar tarjeta NFC</span></button><small>${hint}</small></section>`;
 }
 
 export function NfcSettingsFields() {
