@@ -59,7 +59,7 @@ window.ready=true;
                 assert.equal(request.headers().authorization,undefined);assert.equal(data.context.ownerUid,undefined);
                 const key=data.cardUid;
                 const saved=registry.get(key);
-                let result={ok:true,schemaVersion:1,requestId:data.requestId,cardUid:data.cardUid,employeeId:saved?.employeeId || null,status:saved?'mismo_empleado':'disponible'};
+                let result={ok:true,schemaVersion:1,requestId:data.requestId,cardUid:data.cardUid,employeeId:saved?.employeeId || null,status:saved?(saved.employeeId===data.employee.id?'mismo_empleado':'otro_empleado'):'disponible'};
                 if(data.action==='asociar'){
                     const row=saved || {employeeId:data.employee.id,registeredAt:'2026-10-27T18:00:00Z'};
                     registry.set(key,row);result={...result,...row,status:saved?'mismo_empleado':'registrada'};
@@ -74,7 +74,13 @@ window.ready=true;
             await page.setViewport({ width, height: 740 });
             await page.goto(`http://127.0.0.1:${server.address().port}/nfc-fixture`); await page.waitForFunction('window.ready');
             assert.equal(await page.evaluate(()=>typeof nfcIntegration.adapter.getUser),'undefined');
+            const consistentNfcIcon = await page.evaluate(() => {
+                const icon = document.querySelector('[data-settings-action="test-nfc-read"] [data-icon="nfc"]');
+                return !!icon && icon.getAttribute('aria-hidden') === 'true' && icon.querySelectorAll('path').length === 4;
+            });
+            assert.ok(consistentNfcIcon, 'Settings must show the standard decorative NFC icon');
             await page.click('[data-settings-action=test-nfc-read]');
+            assert.ok(await page.$('dialog.nfc-test-dialog header [data-icon="nfc"]'), 'Reader header shares the NFC icon');
             await page.click('[data-nfc-test=start]');
             assert.equal(await page.evaluate(() => nfcTest.reading), true);
             await page.evaluate(() => emitCard('04:00:ab:cd:ef:12:34'));
@@ -104,6 +110,7 @@ window.ready=true;
             assert.equal(await page.$('[data-nfc-employee]'),null);
             await page.click('.nfc-settings-fields .stg-switch-row');
             await page.waitForSelector('[data-nfc-employee]');
+            assert.ok(await page.$('[data-nfc-employee] [data-icon="nfc"]'), 'Employee action shares the NFC icon');
             await page.$eval('#empName',input=>{input.value='Borrador sin guardar';input.dispatchEvent(new Event('input',{bubbles:true}));});
             await page.click('[data-nfc-employee]');
             await page.click('[data-nfc-test=start]');await page.evaluate(()=>emitCard('04:00:ab:cd:ef:12:34'));
@@ -125,6 +132,73 @@ window.ready=true;
             await page.click('[data-nfc-test=retry]');
             await page.waitForFunction('!nfcIntegration.busy && nfcIntegration.result?.status === "mismo_empleado"');
             assert.equal(calls.length,3);assert.deepEqual(calls[1].data,calls[2].data);assert.equal(registry.size,1);
+            // Issue #328: each feedback state is rendered by the actual NFC modal and a mocked correlated webhook.
+            // A previously associated UID must be recognized through a fresh lookup, not a repeated save.
+            await page.screenshot({path:path.join(output,`nfc-same-after-retry-${width}.png`)});
+            await page.click('[data-nfc-test=close]');
+            assert.equal(await page.$eval('#empName',n=>n.value),'Borrador sin guardar');
+
+            const startEnrollment = async (uid, expected) => {
+                await page.click('[data-nfc-employee]');
+                await page.click('[data-nfc-test=start]');
+                await page.evaluate(value => emitCard(value), uid);
+                await page.waitForFunction(status => !nfcIntegration.busy && nfcIntegration.result?.status === status, {}, expected);
+            };
+            const checkFeedback = async (tone, title, canSave) => {
+                const feedback = await page.evaluate(() => {
+                    const el=nfcTest.dialog.querySelector('.nfc-feedback');
+                    if (!el) return null;
+                    const b=el.getBoundingClientRect(), d=nfcTest.dialog.getBoundingClientRect();
+                    const svg=el.querySelector('svg');
+                    const styles=getComputedStyle(el);
+                    return {className:el.className, text:el.textContent, title:el.querySelector('strong')?.textContent,
+                        live:el.getAttribute('aria-live'), atomic:el.getAttribute('aria-atomic'),
+                        svgHidden:svg?.getAttribute('aria-hidden'), svgPath:svg?.children.length,
+                        x:b.x, right:b.right, dialogRight:d.right, overflow:el.scrollWidth>el.clientWidth,
+                        background:styles.backgroundColor, border:styles.borderTopColor};
+                });
+                assert.ok(feedback, 'Visible feedback required');
+                assert.ok(feedback.className.includes('nfc-feedback--'+tone), JSON.stringify(feedback));
+                assert.equal(feedback.title,title);
+                assert.equal(feedback.live,'polite');
+                assert.equal(feedback.atomic,'true');
+                assert.equal(feedback.svgHidden,'true');
+                assert.ok(feedback.svgPath>0);
+                assert.ok(feedback.x>=0 && feedback.right<=width && feedback.right<=feedback.dialogRight+1 && !feedback.overflow,JSON.stringify(feedback));
+                assert.equal(await page.$eval('[data-nfc-test=register]',b=>!b.hidden && !b.disabled),canSave);
+                const axeReport=await page.evaluate(async()=> (await axe.run(nfcTest.dialog,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})));
+                assert.deepEqual(axeReport,[],title+' accessibility');
+                return feedback;
+            };
+
+            // Successful association is only possible after a valid server registration response.
+            await startEnrollment('04:00:ab:cd:ef:23:45','disponible');
+            assert.equal(await page.$eval('.nfc-feedback--available strong',n=>n.textContent),'Tarjeta disponible');
+            await page.click('[data-nfc-test=register]');
+            await page.waitForFunction('!nfcIntegration.busy && nfcIntegration.result?.status === "registrada"');
+            const success = await checkFeedback('success','Tarjeta asociada correctamente',false);
+            assert.ok(success.text.includes('Juan Pérez') && success.text.includes('001'));
+            await page.screenshot({path:path.join(output,`nfc-confirmed-${width}.png`)});
+            await page.click('[data-nfc-test=close]');
+
+            // Existing association, same employee: informative state, never submit again.
+            const callsBeforeSame=calls.length;
+            await startEnrollment('04:00:ab:cd:ef:23:45','mismo_empleado');
+            const same = await checkFeedback('notice','Esta tarjeta ya está asociada a este empleado',false);
+            assert.ok(same.text.includes('No es necesario volver a guardarla'));
+            assert.equal(calls.length,callsBeforeSame+1);
+            await page.screenshot({path:path.join(output,`nfc-same-owner-${width}.png`)});
+            await page.click('[data-nfc-test=close]');
+
+            // Occupied by another employee: do not expose that employee's identity or allow a save.
+            registry.set('0400ABCDEF3456',{employeeId:'e2',registeredAt:'2026-10-27T18:00:00Z'});
+            const callsBeforeConflict=calls.length;
+            await startEnrollment('04:00:ab:cd:ef:34:56','otro_empleado');
+            const conflict=await checkFeedback('warning','Esta tarjeta ya está asociada a otro empleado',false);
+            assert.ok(conflict.text.includes('No se puede guardar esta asociación'));
+            assert.ok(!conflict.text.includes('e2') && !conflict.text.includes('Dos'));
+            assert.equal(calls.length,callsBeforeConflict+1);
+            await page.screenshot({path:path.join(output,`nfc-other-owner-${width}.png`)});
             await page.click('[data-nfc-test=close]');
             assert.equal(await page.$eval('#empName',n=>n.value),'Borrador sin guardar');
             await page.select('[data-nfc-setting=mode]','production');
@@ -133,7 +207,7 @@ window.ready=true;
             await page.type('[data-nfc-setting=customUrl]','https://custom.example.test/nfc');
             await page.click('[data-nfc-setting-action=save-url]');
             assert.ok(await page.$eval('.nfc-endpoint',n=>n.textContent.includes('https://custom.example.test/nfc')));
-            assert.equal(calls.length,3);
+            assert.equal(calls.length,7);
             await page.screenshot({path:path.join(output,`nfc-settings-${width}.png`)});
             await page.click('.nfc-settings-fields .stg-switch-row');
             assert.equal(await page.$('[data-nfc-employee]'),null);
@@ -141,6 +215,6 @@ window.ready=true;
 
         }
         assert.deepEqual(errors, []); assert.deepEqual(outgoing, []);
-        console.log('✓ NFC: 320/390/768/1440px, real employee editor, local settings, reused modal, lookup/register/retry with stable ID and preserved draft. NFC and webhook responses are simulated; no real external requests.');
+        console.log('✓ NFC: 320/390/768/1440px, real employee editor, all four visual feedback states, aria and axe, no redundant/occupied saves, lookup/register/retry with stable ID and preserved draft. NFC and webhook responses simulated; no external requests.');
     } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
