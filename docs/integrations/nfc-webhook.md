@@ -16,7 +16,7 @@ No basta con importar el cliente o responder HTTP 200 para registrar una tarjeta
 4. Abrir un empleado guardado y pulsar Asociar tarjeta NFC. Un empleado nuevo se guarda primero. Se envían nombre y número guardados; los cambios pendientes del formulario no se pierden ni se confunden con datos guardados.
 5. Pulsar Leer tarjeta y autorizar NFC. El mismo modal del diagnóstico muestra el empleado, UID y destino.
 6. Si la consulta confirma disponible, revisar y pulsar Guardar asociación. Si ya es de ese empleado, se indica sin duplicar. Si pertenece a otro, no se permite reemplazar.
-7. El éxito solo aparece tras una confirmación válida del servidor. Si se pierde la respuesta de un guardado, puede haberse aplicado: Reintentar conserva petición, identificador y destino. Cerrar el modal no revierte el servidor.
+7. El éxito solo aparece tras una confirmación válida del servidor. Si se pierde la respuesta de un guardado, puede haberse aplicado: Reintentar conserva petición, identificador y destino. Cerrar el modal no revierte el servidor. «Volver a consultar» crea una consulta nueva de disponibilidad; no reutiliza la respuesta anterior ni guarda una asociación automáticamente.
 
 Ocultar Pruebas no desactiva la preferencia. Desactivar asociaciones cancela el lector y las solicitudes del cliente, y retira el acceso del editor sin reemplazar su borrador. La prueba de lectura sin empleado sigue disponible y no envía datos.
 
@@ -89,6 +89,14 @@ Después de persistir, HTTP 200 o 201:
 Si ya estaba registrada para ese empleado, `status: mismo_empleado`, con el mismo employeeId y registeredAt original. Para una asociación, la fecha del servidor es obligatoria. Un `{ok:true}` genérico, HTML, datos incompletos o IDs diferentes no se aceptan como confirmación.
 
 Errores: HTTP 400/422 para payload inválido, 401/403 si el destino rechaza acceso (no disparan un login de Firebase), 409 para asociación incompatible/requestId reutilizado con otros datos, 5xx para fallos de persistencia. No usar una respuesta exitosa cuando Sheets/base de datos falla. El cliente no imprime cuerpos técnicos con posibles credenciales.
+
+Para HTTP 409, el cliente reconoce un JSON `{ "schemaVersion": 1, "ok": false, "error": "CODIGO" }` con estos motivos:
+
+- `TARJETA_OCUPADA`: informa que pertenece a otro empleado y permite consultar de nuevo con otro requestId.
+- `EMPLEADO_CON_TARJETA`: conserva la asociación existente, explica que no se puede reemplazar aquí y permite leer su tarjeta actual. No ofrece repetir un registro incompatible.
+- `REQUEST_ID_REUTILIZADO`: pide volver a leer la tarjeta para preparar una consulta nueva. No repite el registro rechazado.
+
+Los errores desconocidos o sin JSON conservan el aviso genérico de conflicto y permiten una consulta nueva. Los mensajes se eligen de una lista fija; no se muestran textos arbitrarios del servidor. Solo los reintentos de un guardado sin confirmación mantienen el requestId y el cuerpo originales.
 
 ## Reglas del registro
 

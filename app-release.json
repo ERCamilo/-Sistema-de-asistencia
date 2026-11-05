@@ -1,6 +1,16 @@
 {
-  "version": "1.7.125",
+  "version": "1.7.126",
   "changelog": [
+    {
+      "version": "1.7.126",
+      "date": "2026-11-05",
+      "title": "Asociaciones NFC más claras",
+      "items": [
+        "Volver a consultar una tarjeta comprueba su disponibilidad actual después de un conflicto.",
+        "Los avisos distinguen una tarjeta ocupada de un empleado que ya tiene otra tarjeta y orientan cómo continuar.",
+        "El editor conserva completos los nombres con comillas y muestra literalmente las notas del empleado."
+      ]
+    },
     {
       "version": "1.7.125",
       "date": "2026-11-03",

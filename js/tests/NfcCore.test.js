@@ -80,3 +80,29 @@ test('legacy Firebase account metadata is not sent to the webhook', () => {
     expect(req.context).toEqual(context);
     expect(JSON.stringify(req)).not.toContain('legacy-user');
 });
+
+test.each([
+    ['TARJETA_OCUPADA', 'otro empleado'],
+    ['EMPLEADO_CON_TARJETA', 'ya tiene otra tarjeta'],
+    ['REQUEST_ID_REUTILIZADO', 'identificador']
+])('a known conflict exposes its specific reason without echoing server text: %s', async (serverCode, message) => {
+    const json = jest.fn(async () => ({ schemaVersion: 1, ok: false, error: serverCode, detail: 'PRIVATE SERVER DATA' }));
+    const fetchImpl = async () => ({ ok: false, status: 409, json });
+    const error = await sendNfcRequest(NFC_ENDPOINT, request('asociar'), { fetchImpl }).catch(error => error);
+    expect(error).toMatchObject({ code: 'CONFLICT', serverCode });
+    expect(error.message).toContain(message);
+    expect(error.message).not.toContain('PRIVATE SERVER DATA');
+    expect(json).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+    { schemaVersion: 1, ok: false, error: 'UNKNOWN_PRIVATE_REASON' },
+    { schemaVersion: 1, ok: false, error: 'toString' },
+    { schemaVersion: 2, ok: false, error: 'EMPLEADO_CON_TARJETA' },
+    { schemaVersion: 1, ok: true, error: 'EMPLEADO_CON_TARJETA' }
+])('unrecognized conflict bodies retain a generic, recoverable message: %j', async body => {
+    const fetchImpl = async () => ({ ok: false, status: 409, json: async () => body });
+    const error = await sendNfcRequest(NFC_ENDPOINT, request('asociar'), { fetchImpl }).catch(error => error);
+    expect(error).toMatchObject({ code: 'CONFLICT', serverCode: null });
+    expect(error.message).not.toContain(body.error);
+});
