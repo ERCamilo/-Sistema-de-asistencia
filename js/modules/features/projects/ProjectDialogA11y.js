@@ -35,6 +35,9 @@ export function attachProjectDialogA11y(overlay, {
     };
     const onKeydown = event => {
         if (!overlay.isConnected) return;
+        // A confirmation above the project list owns Escape and focus.
+        const top = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')].pop();
+        if (top && top !== dialog) return;
         if (event.key === 'Escape' && typeof onEscape === 'function') {
             event.preventDefault();
             onEscape();

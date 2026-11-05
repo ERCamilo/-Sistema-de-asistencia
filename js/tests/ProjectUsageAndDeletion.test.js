@@ -166,10 +166,11 @@ describe('menú de obras: contenido y borrado de obras vacías', () => {
         await waitFor(() => !!list.querySelector('[data-project-delete]'));
         list.querySelector('[data-project-delete]').click();
         expect(service.deleteEmptyProject).not.toHaveBeenCalled();
-        list.querySelector('[data-project-delete-cancel]').click();
+        document.querySelector('[data-project-action-cancel]').click();
+        await new Promise(resolve => setTimeout(resolve, 5));
         expect(service.deleteEmptyProject).not.toHaveBeenCalled();
         list.querySelector('[data-project-delete]').click();
-        list.querySelector('[data-project-delete-confirm]').click();
+        document.querySelector('[data-project-action-confirm]').click();
         await waitFor(() => !list.querySelector('[data-project-id="B"]'));
         expect(service.deleteEmptyProject).toHaveBeenCalledTimes(1);
         expect(renderProjectListHTML({ projects: [project('B')] })).toContain('Datos sin verificar');

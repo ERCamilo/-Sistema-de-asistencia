@@ -259,6 +259,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/projects/DefaultProject.js",
     "./js/modules/features/projects/EntityProjectScope.js",
     "./js/modules/features/projects/Project.js",
+    "./js/modules/features/projects/ProjectActionDialog.js",
     "./js/modules/features/projects/ProjectAdoption.js",
     "./js/modules/features/projects/ProjectCatalogSync.js",
     "./js/modules/features/projects/ProjectConflictArchive.js",

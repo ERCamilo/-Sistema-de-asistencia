@@ -49,7 +49,8 @@ describe('interfaz del borrado de obra en dos períodos de 30 días', () => {
             B: { ...verifiedEmpty.B, empty: false, payrollClosures: 5 }
         } });
         expect(occupied).not.toContain('data-project-delete="B"');
-        expect(occupied).toContain('No existe borrado automático con historial');
+        expect(occupied).not.toContain('No existe borrado automático con historial');
+        expect(occupied).toContain('data-project-impact');
         expect(occupied).toContain('data-project-cancel-request="B"');
     });
     test('solicitar y cancelar exige el servicio, no llama el borrado', async () => {
@@ -71,11 +72,13 @@ describe('interfaz del borrado de obra en dos períodos de 30 días', () => {
         await waitFor(() => container.querySelector('[data-project-request-delete]'));
         container.querySelector('[data-project-request-delete]').click();
         expect(service.changeProjectDeletionRequest).not.toHaveBeenCalled();
-        container.querySelector('[data-project-request-confirm]').click();
+        document.querySelector('[data-project-action-confirm]').click();
         await waitFor(() => container.querySelector('[data-project-cancel-request]'));
         expect(service.changeProjectDeletionRequest).toHaveBeenCalledWith('B', { cancel: false });
         expect(container.querySelector('[data-project-delete]')).toBeNull();
         container.querySelector('[data-project-cancel-request]').click();
+        expect(service.changeProjectDeletionRequest).toHaveBeenCalledTimes(1);
+        document.querySelector('[data-project-action-confirm]').click();
         await waitFor(() => container.querySelector('[data-project-request-delete]'));
         expect(service.changeProjectDeletionRequest).toHaveBeenCalledWith('B', { cancel: true });
         expect(service.deleteEmptyProject).not.toHaveBeenCalled();

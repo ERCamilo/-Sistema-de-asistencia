@@ -250,3 +250,11 @@ a servidor** por esta función.
   producción; **no se relajaron ni eliminaron aserciones**.
 - No se validó una cuenta real ni la ausencia de carreras de
   creación/restauración entre clientes después de la lectura remota.
+
+## Confirmaciones y estados visuales — 5 de noviembre
+
+Las acciones de pausar, reactivar, archivar, sacar del archivo, solicitar/cancelar eliminación y retirar una obra vacía exigen confirmación contextual con nombre de obra, SVG y una explicación corta. Cancelar, tocar el fondo o pulsar Escape no escribe. La pausa conserva el historial y no permite seleccionar la obra para trabajar. Sacar del archivo vuelve a Pausadas; requiere reactivación posterior.
+
+El listado identifica estados mediante icono, etiqueta y borde semántico. No depende solo del color. La advertencia de borrado con historial aparece únicamente al pulsar Revisar eliminación, junto con los detalles de impacto local. Se mantienen las barreras de 30+30 y no se habilita borrado de datos.
+
+Pruebas: ProjectActionDialog.test.js cubre confirmaciones, cancelación, doble toque, foco, Escape y contexto de eliminación. scripts/check-project-actions.cjs reproduce el flujo con los módulos y CSS reales, servicios ficticios y red restringida a loopback, en 320/390/1280 px, con axe y movimiento reducido. La CI ejecuta este recorrido.

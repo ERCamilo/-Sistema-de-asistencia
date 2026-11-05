@@ -58,9 +58,9 @@ describe('archivado reversible de obras y protección de borrado', () => {
         });
         expect(html).toContain('data-project-status-action="archive"');
         expect(html).toContain('Archivar obra');
-        expect(html).toContain('data-project-delete-protected');
+        expect(html).toContain('data-project-impact');
         expect(html).not.toContain('data-project-delete-confirm');
-        expect(html).toContain('Por seguridad, el borrado definitivo con datos está deshabilitado');
+        expect(html).not.toContain('El borrado definitivo con datos está deshabilitado');
     });
 
     test('previsualización del borrado con dependencias no ejecuta ninguna eliminación', async () => {

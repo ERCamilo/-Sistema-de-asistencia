@@ -1,3 +1,4 @@
+import { confirmProjectAction } from './ProjectActionDialog.js';
 import { PROJECT_STATUS } from './Project.js';
 import { projectDeletionPolicy } from './ProjectDeletionPolicy.js';
 import { projectSetupService } from './ProjectSetupService.js';
@@ -10,7 +11,7 @@ import { openProjectNameConflicts } from './ProjectNameConflictUI.js';
 export const PROJECT_FILTERS = Object.freeze({ ALL: 'all', ACTIVE: PROJECT_STATUS.ACTIVE, CLOSED: PROJECT_STATUS.CLOSED, ARCHIVED: PROJECT_STATUS.ARCHIVED });
 const STATUS_ICONS = Object.freeze({
     active: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
-    closed: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
+    closed: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>',
     archived: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16v13H4zM3 3h18v4H3zM9 11h6"/></svg>'
 });
 const ICONS = Object.freeze({
@@ -23,8 +24,8 @@ const ICONS = Object.freeze({
 });
 
 export const PROJECT_STATUS_META = Object.freeze({
-    [PROJECT_STATUS.ACTIVE]: Object.freeze({ label: 'Activo', badgeClass: 'badge-status-active', icon: STATUS_ICONS.active, description: 'Proyecto en curso' }),
-    [PROJECT_STATUS.CLOSED]: Object.freeze({ label: 'Cerrado', badgeClass: 'badge-status-closed', icon: STATUS_ICONS.closed, description: 'Cerrado para operaciones' }),
+    [PROJECT_STATUS.ACTIVE]: Object.freeze({ label: 'Activa', badgeClass: 'badge-status-active', icon: STATUS_ICONS.active, description: 'Proyecto en curso' }),
+    [PROJECT_STATUS.CLOSED]: Object.freeze({ label: 'Pausada', badgeClass: 'badge-status-closed', icon: STATUS_ICONS.closed, description: 'Cerrado para operaciones' }),
     [PROJECT_STATUS.ARCHIVED]: Object.freeze({ label: 'Archivado', badgeClass: 'badge-status-archived', icon: STATUS_ICONS.archived, description: 'Archivado visualmente' })
 });
 
@@ -87,7 +88,7 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
             + (project.status === PROJECT_STATUS.CLOSED
                 ? '<button type="button" class="project-action is-secondary" data-project-status-action="reopen"'
                     + ' data-project-status-id="' + esc(project.id) + '"' + (unavailable ? ' disabled' : '')
-                    + '>Reabrir obra</button>' : '')
+                    + '>Reactivar obra</button>' : '')
             + (unavailable ? '<small class="project-help">'
                 + (project.deletionRequestedAt != null ? 'Cancela primero la solicitud de eliminación.'
                     : isDefault ? 'La obra inicial debe permanecer activa.' : 'Cambia primero a otra obra activa.')
@@ -128,21 +129,6 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
                 + (usage[project.id].deleteReason || deletingId ? ' disabled' : '')
                 + '>Finalizar eliminación de obra vacía</button>';
         }
-        if (deletion.stage === 'ready-for-review' && usage[project.id]?.verified
-            && !usage[project.id].empty) {
-            deletionActions += '<p class="project-help" role="status">'
-                + 'La eliminación sigue bloqueada porque hay datos o relaciones. '
-                + 'No existe borrado automático con historial.</p>';
-        }
-        if (confirmRequestId === project.id) {
-            deletionActions += '<div class="project-notice is-warning">'
-                + '<strong>¿Solicitar la eliminación de esta obra?</strong>'
-                + '<p>No se borrará todavía. Tendrás al menos 30 días adicionales para cancelar. '
-                + 'El borrado con historial seguirá bloqueado hasta verificar respaldo y sincronización.</p>'
-                + '<button type="button" class="project-action is-secondary" data-project-request-cancel>Volver</button>'
-                + '<button type="button" class="project-action is-danger" data-project-request-confirm="'
-                + esc(project.id) + '">Confirmar solicitud</button></div>';
-        }
         deletionActions += '</div>';
     }
     const switchAction = allowSwitch && project.status === PROJECT_STATUS.ACTIVE && !isActiveContext
@@ -171,17 +157,13 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
             </div>
             ${project.metadata?.deletionConflict ? '<div class="project-notice is-warning">Borrado remoto pendiente: esta obra conserva datos o está en uso aquí.</div>' : ''}
             ${renderProjectUsageHTML(usage[project.id])}
-            ${usage[project.id]?.verified && !usage[project.id].empty
-                ? '<div class="project-notice is-warning" data-project-delete-protected>'
-                    + '<strong>Esta obra conserva historial y relaciones.</strong>'
-                    + '<p>Antes de eliminarla hay que respaldar, identificar datos compartidos y coordinar el borrado en todos los dispositivos. '
-                    + 'Por seguridad, el borrado definitivo con datos está deshabilitado. Puedes cerrar y archivar la obra sin perder su historial.</p>'
-                    + '<button type="button" class="project-action is-secondary" data-project-impact="' + esc(project.id)
-                    + '">Revisar impacto de eliminación</button></div>' : ''}
+            ${allowSwitch && usage[project.id]?.verified && !usage[project.id].empty
+                ? '<button type="button" class="project-action is-secondary" data-project-impact="' + esc(project.id)
+                    + '">Revisar eliminación</button>' : ''}
             ${usage[project.id]?.verified && usage[project.id].empty && deletion.canFinalizeEmpty
                 && !protectedProject && usage[project.id].deleteReason
                 ? '<p class="project-help">' + esc(usage[project.id].deleteReason) + '</p>' : ''}
-            ${confirmDeleteId === project.id && usage[project.id]?.empty && deletion.canFinalizeEmpty ? `<div class="project-notice is-warning project-delete-confirm"><strong>¿Finalizar eliminación de «${esc(project.name)}»?</strong><p>Solo se retirará la obra vacía del catálogo, conservando una lápida sincronizable para impedir su reaparición.</p><div class="project-actions"><button type="button" class="project-action is-secondary" data-project-delete-cancel ${deletingId ? 'disabled' : ''}>Conservar</button><button type="button" class="project-action is-danger" data-project-delete-confirm="${esc(project.id)}" ${deletingId ? 'disabled' : ''}>${deletingId ? 'Comprobando…' : 'Confirmar borrado'}</button></div></div>` : ''}
+
             ${project.metadata?.notes ? `<div class="project-notes">${esc(project.metadata.notes)}</div>` : ''}
             ${project.metadata?.clonedFrom ? `<div class="project-meta">Basado en: <code>${esc(project.metadata.clonedFrom.sourceProjectId || 'otro proyecto')}</code></div>` : ''}
         </li>`;
@@ -198,13 +180,13 @@ export function renderProjectListHTML({ projects = [], activeProjectId = null, d
     const stats = calculateProjectStats(list);
     const options = { activeProjectId, defaultProjectId, allowSwitch, usage, confirmDeleteId, confirmRequestId, deletingId, now };
     const tab = (key, text) => `<button type="button" class="project-filter-tab ${currentFilter === key ? 'is-active' : ''}" data-project-filter="${key}" role="tab" aria-selected="${currentFilter === key}">${text}</button>`;
-    const tabs = `<div class="project-filter-tabs project-list-tabs" role="tablist" aria-label="Filtrar proyectos por estado">${tab(PROJECT_FILTERS.ALL, `Todos (${stats.total})`)}${tab(PROJECT_FILTERS.ACTIVE, `Activos (${stats.active})`)}${tab(PROJECT_FILTERS.CLOSED, `Cerrados (${stats.closed})`)}${tab(PROJECT_FILTERS.ARCHIVED, `Archivados (${stats.archived})`)}</div>`;
+    const tabs = `<div class="project-filter-tabs project-list-tabs" role="tablist" aria-label="Filtrar proyectos por estado">${tab(PROJECT_FILTERS.ALL, `Todos (${stats.total})`)}${tab(PROJECT_FILTERS.ACTIVE, `Activos (${stats.active})`)}${tab(PROJECT_FILTERS.CLOSED, `Pausadas (${stats.closed})`)}${tab(PROJECT_FILTERS.ARCHIVED, `Archivados (${stats.archived})`)}</div>`;
     if (!stats.total) return `${tabs}<div class="project-list-empty" data-empty-state="all">No hay proyectos registrados en el sistema.</div>`;
 
     let content = '';
     if (currentFilter === PROJECT_FILTERS.ALL) {
         const grouped = groupProjectsByStatus(list);
-        content = `<div class="project-list-grouped" data-projects-list>${renderSectionGroup('Proyectos activos', PROJECT_STATUS.ACTIVE, grouped[PROJECT_STATUS.ACTIVE], options)}${renderSectionGroup('Proyectos cerrados', PROJECT_STATUS.CLOSED, grouped[PROJECT_STATUS.CLOSED], options)}${renderSectionGroup('Proyectos archivados', PROJECT_STATUS.ARCHIVED, grouped[PROJECT_STATUS.ARCHIVED], options)}</div>`;
+        content = `<div class="project-list-grouped" data-projects-list>${renderSectionGroup('Proyectos activos', PROJECT_STATUS.ACTIVE, grouped[PROJECT_STATUS.ACTIVE], options)}${renderSectionGroup('Obras pausadas', PROJECT_STATUS.CLOSED, grouped[PROJECT_STATUS.CLOSED], options)}${renderSectionGroup('Proyectos archivados', PROJECT_STATUS.ARCHIVED, grouped[PROJECT_STATUS.ARCHIVED], options)}</div>`;
     } else {
         const filtered = filterProjects(list, currentFilter);
         if (!filtered.length) {
@@ -223,147 +205,78 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
     let currentActiveId = activeProjectId;
     let currentDefaultId = defaultProjectId;
     let currentFilter = initialFilter;
-    let usage = {}, usageGeneration = 0, confirmDeleteId = null, confirmRequestId = null, deletingId = null, deleteError = '';
+    let usage = {}, usageGeneration = 0, deletingId = null, deleteError = '';
     let statusBusyId = null;
     const shouldAllowSwitch = allowSwitch || typeof onSwitchProject === 'function';
 
     function render() {
-        container.innerHTML = renderProjectListHTML({ projects: currentProjects, activeProjectId: currentActiveId, defaultProjectId: currentDefaultId, currentFilter, allowSwitch: shouldAllowSwitch, usage, confirmDeleteId, confirmRequestId, deletingId });
+        container.innerHTML = renderProjectListHTML({ projects: currentProjects, activeProjectId: currentActiveId, defaultProjectId: currentDefaultId, currentFilter, allowSwitch: shouldAllowSwitch, usage, deletingId });
         if (deleteError) container.insertAdjacentHTML('afterbegin', `<div class="project-status-line is-error" role="alert">${esc(deleteError)}</div>`);
+        async function perform(id, action, operation) {
+            if (statusBusyId || deletingId) return;
+            const project = currentProjects.find(row => String(row.id) === String(id));
+            if (!project) return;
+            const trigger = document.activeElement;
+            statusBusyId = id;
+            try {
+                const confirmed = await confirmProjectAction(action, project);
+                if (!confirmed || !container.isConnected) return;
+                const result = await operation();
+                const fresh = result?.state || await setupService.getState();
+                currentProjects = fresh.projects;
+                currentActiveId = fresh.activeProjectId;
+                currentDefaultId = fresh.defaultProjectId;
+                deleteError = '';
+                window.showNotification?.('Cambio guardado.', 'success');
+            } catch (error) {
+                deleteError = error?.message || 'No se pudo completar la operación.';
+            } finally {
+                statusBusyId = null;
+                await refreshUsage();
+                if (container.isConnected) {
+                    render();
+                    const attr = action === 'request' ? 'data-project-request-delete'
+                        : action === 'cancel' ? 'data-project-cancel-request'
+                        : action === 'delete' ? 'data-project-delete' : 'data-project-status-id';
+                    const replacement = [...container.querySelectorAll('[' + attr + ']')].find(el => el.getAttribute(attr) === String(id));
+                    (replacement || container.querySelector('button') || trigger)?.focus?.();
+                }
+            }
+        }
         container.querySelectorAll('[data-project-request-delete]').forEach(button => button.addEventListener('click', () => {
-            if (statusBusyId || deletingId || button.disabled) return;
-            confirmRequestId = button.dataset.projectRequestDelete;
-            deleteError = '';
-            render();
-            container.querySelector('[data-project-request-confirm]')?.focus();
+            if (!button.disabled) void perform(button.dataset.projectRequestDelete, 'request',
+                () => setupService.changeProjectDeletionRequest(button.dataset.projectRequestDelete, { cancel: false }));
         }));
-        container.querySelector('[data-project-request-cancel]')?.addEventListener('click', () => {
-            confirmRequestId = null;
-            render();
-        });
-        container.querySelectorAll('[data-project-request-confirm]').forEach(button => button.addEventListener('click', async () => {
-            if (statusBusyId || deletingId || !confirmRequestId) return;
-            const id = confirmRequestId;
-            confirmRequestId = null;
-            statusBusyId = id;
-            render();
-            try {
-                const result = await setupService.changeProjectDeletionRequest(id, { cancel: false });
-                const fresh = result.state || await setupService.getState();
-                currentProjects = fresh.projects;
-                currentActiveId = fresh.activeProjectId;
-                currentDefaultId = fresh.defaultProjectId;
-                window.showNotification?.('Solicitud guardada. La obra permanecerá disponible para cancelar durante 30 días.', 'success');
-            } catch (error) {
-                deleteError = error?.message || 'No se pudo solicitar la eliminación.';
-            } finally {
-                statusBusyId = null;
-                await refreshUsage();
-                render();
-            }
-        }));
-        container.querySelectorAll('[data-project-cancel-request]').forEach(button => button.addEventListener('click', async () => {
-            if (statusBusyId || deletingId || button.disabled) return;
-            const id = button.dataset.projectCancelRequest;
-            statusBusyId = id;
-            render();
-            try {
-                const result = await setupService.changeProjectDeletionRequest(id, { cancel: true });
-                const fresh = result.state || await setupService.getState();
-                currentProjects = fresh.projects;
-                currentActiveId = fresh.activeProjectId;
-                currentDefaultId = fresh.defaultProjectId;
-                window.showNotification?.('Solicitud cancelada. La obra y sus datos se conservan.', 'success');
-            } catch (error) {
-                deleteError = error?.message || 'No se pudo cancelar la solicitud.';
-            } finally {
-                statusBusyId = null;
-                await refreshUsage();
-                render();
-            }
+        container.querySelectorAll('[data-project-cancel-request]').forEach(button => button.addEventListener('click', () => {
+            if (!button.disabled) void perform(button.dataset.projectCancelRequest, 'cancel',
+                () => setupService.changeProjectDeletionRequest(button.dataset.projectCancelRequest, { cancel: true }));
         }));
         container.querySelectorAll('[data-project-delete]').forEach(button => button.addEventListener('click', () => {
-            if (deletingId || button.disabled) return;
-            confirmDeleteId = button.dataset.projectDelete;
-            deleteError = '';
-            render();
-            container.querySelector('[data-project-delete-confirm]')?.focus();
+            if (!button.disabled) void perform(button.dataset.projectDelete, 'delete',
+                () => setupService.deleteEmptyProject(button.dataset.projectDelete));
         }));
-        container.querySelector('[data-project-delete-cancel]')?.addEventListener('click', () => {
-            confirmDeleteId = null;
-            render();
-        });
-        container.querySelector('[data-project-delete-confirm]')?.addEventListener('click', async () => {
-            if (deletingId) return;
-            deletingId = confirmDeleteId;
-            render();
-            try {
-                await setupService.deleteEmptyProject(deletingId);
-                const fresh = await setupService.getState();
-                currentProjects = fresh.projects;
-                currentActiveId = fresh.activeProjectId;
-                currentDefaultId = fresh.defaultProjectId;
-                confirmDeleteId = null;
-                window.showNotification?.('Obra vacía borrada.', 'success');
-            } catch (error) { deleteError = error.message || String(error); }
-            finally { deletingId = null; await refreshUsage(); render(); }
-        });
-        container.querySelectorAll('[data-project-status-action]').forEach(button => button.addEventListener('click', async () => {
-            if (statusBusyId || deletingId || button.disabled) return;
-            const targetId = button.dataset.projectStatusId;
-            const action = button.dataset.projectStatusAction;
-            if (!targetId || !action || typeof setupService.transitionProjectStatus !== 'function') return;
-            statusBusyId = targetId;
-            button.disabled = true;
-            try {
-                const result = await setupService.transitionProjectStatus(targetId, action);
-                const fresh = result.state || await setupService.getState();
-                currentProjects = fresh.projects;
-                currentActiveId = fresh.activeProjectId;
-                currentDefaultId = fresh.defaultProjectId;
-                const description = action === 'archive' ? 'Obra archivada, historial conservado.'
-                    : action === 'close' ? 'Obra cerrada para nuevas operaciones.'
-                    : action === 'unarchive' ? 'Obra fuera del archivo. Puedes reabrirla.'
-                    : 'Obra reabierta.';
-                window.showNotification?.(description, 'success');
-            } catch (error) {
-                deleteError = error?.message || 'No se pudo cambiar el estado de la obra.';
-            } finally {
-                statusBusyId = null;
-                await refreshUsage();
-                render();
-            }
+        container.querySelectorAll('[data-project-status-action]').forEach(button => button.addEventListener('click', () => {
+            if (!button.disabled && typeof setupService.transitionProjectStatus === 'function')
+                void perform(button.dataset.projectStatusId, button.dataset.projectStatusAction,
+                    () => setupService.transitionProjectStatus(button.dataset.projectStatusId, button.dataset.projectStatusAction));
         }));
         container.querySelectorAll('[data-project-impact]').forEach(button => button.addEventListener('click', async () => {
-            if (typeof setupService.previewProjectDeletion !== 'function') return;
+            if (statusBusyId || deletingId || typeof setupService.previewProjectDeletion !== 'function') return;
+            statusBusyId = button.dataset.projectImpact;
             button.disabled = true;
             try {
                 const report = await setupService.previewProjectDeletion(button.dataset.projectImpact);
-                const names = {
-                    employees: 'Empleados', positions: 'Puestos', leaders: 'Líderes',
+                if (!container.isConnected) return;
+                const names = { employees: 'Empleados', positions: 'Puestos', leaders: 'Líderes',
                     attendance: 'Asistencias', loans: 'Préstamos', payrollClosures: 'Cierres',
-                    pettyCash: 'Caja chica', other: 'Relaciones adicionales', pending: 'Sincronizaciones pendientes'
-                };
-                const host = button.closest('[data-project-delete-protected]');
-                const previous = host?.querySelector('[data-project-impact-report]');
-                previous?.remove();
-                if (host) {
-                    const details = document.createElement('div');
-                    details.setAttribute('data-project-impact-report', '');
-                    details.setAttribute('role', 'status');
-                    const rows = report.blockers.map(item =>
-                        '<li>' + esc(names[item.kind] || item.kind) + ': ' + item.count + '</li>').join('');
-                    details.innerHTML = '<strong>Dependencias comprobadas en este dispositivo</strong>'
-                        + '<ul>' + rows + '</ul><p>' + esc(report.warning) + '</p>'
-                        + '<p>No se ha ejecutado ningún borrado ni creado un respaldo en esta revisión.</p>';
-                    host.appendChild(details);
-                }
+                    pettyCash: 'Caja chica', other: 'Relaciones', pending: 'Por sincronizar' };
+                const rows = report.blockers.map(item => '<li>' + esc(names[item.kind] || item.kind) + ': ' + esc(item.count) + '</li>').join('');
+                await confirmProjectAction('impact', currentProjects.find(row => String(row.id) === button.dataset.projectImpact), {
+                    details: '<details data-project-impact-report><summary>Ver registros en este dispositivo</summary><ul>' + rows + '</ul></details>'
+                });
             } catch (error) {
                 deleteError = error?.message || 'No se pudieron revisar las dependencias.';
-                render();
-            } finally {
-                button.disabled = false;
-            }
+            } finally { statusBusyId = null; render(); }
         }));
         container.querySelectorAll('[data-project-name-conflict]').forEach(button => button.addEventListener('click', async () => {
             closeProjectListModal();
