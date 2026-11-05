@@ -17,7 +17,7 @@ export function useAuditUser(uid){
   }
 }
 useAuditUser(options.uid);
-export const {doc,getDoc,updateDoc,deleteDoc,collection,serverTimestamp,query,orderBy,limit,Timestamp,where,documentId,writeBatch,runTransaction,startAfter}=sdk;
+export const {doc,getDoc,getDocFromServer,updateDoc,deleteDoc,collection,serverTimestamp,query,orderBy,limit,Timestamp,where,documentId,writeBatch,runTransaction,startAfter}=sdk;
 export const getDocs=(...args)=>sdk.getDocs(...args);
 export const setDoc=(...args)=>sdk.setDoc(...args);
 export const onSnapshot=(...args)=>sdk.onSnapshot(...args);

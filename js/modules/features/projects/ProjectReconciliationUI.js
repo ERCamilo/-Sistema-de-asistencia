@@ -1,6 +1,7 @@
 import { reviewFinancialPlanRepair } from './ProjectFinancialPlanRepair.js';
 import { diagnoseExtendedProjectData } from './ProjectExtendedDiagnostics.js';
 import { recoveredClosureSources } from './ProjectFinancialRecovery.js';
+import { saveHistoricalClosureRecovery } from './ProjectHistoricalClosureRecovery.js';
 import indexedDBService from '../../services/IndexedDBService.js';
 import { state, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { eventBus } from '../../core/Events.js';
@@ -8,6 +9,8 @@ import { Modal } from '../../components/Modal.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { projectSetupService } from './ProjectSetupService.js';
+import { applyProjectConflictArchive, projectConflictArchiveStore } from './ProjectConflictArchive.js';
+import { shareProjectDiagnosticLog } from './ProjectDiagnosticLog.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { analyzeProjectOwnership, CLASSIFICATION } from './ProjectOwnershipReconciliation.js';
 import { projectNameKey } from './ProjectNames.js';
@@ -49,7 +52,8 @@ function emptySnapshot() {
     return {
         enabled: false, projectPayrollConfigs: [], payrollClosures: [], projects: [], activeProjects: [], employeeRows: [],
         otherIssues: [], diagnosticIssues: [], diagnosticReadErrors: [], pettyCashRows: [], pettyCashProjects: [], pendingEmployeeCount: 0,
-        orphanAttendanceKeys: [], totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0
+        orphanAttendanceKeys: [], totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0,
+        pendingCases: [], archivedCases: [], archivedCount: 0
     };
 }
 function initialModalState() {
@@ -62,6 +66,7 @@ function initialModalState() {
         entitySelectedIds: new Set(), entityTargetProjectId: '', entityBusy: false, entityMessage: '',
         includeOrphanAttendance: false,
         pendingMerge: null,
+        showArchivePending: false, showArchiveHistory: false,
         busy: false, message: ''
     };
 }
@@ -89,7 +94,8 @@ function signature(model) {
         other: model.otherIssues.map(issue => [issue.collection, issue.recordKey, issue.status]),
         diagnostics: model.diagnosticIssues,
         cash: model.pettyCashRows.map(row => row.id),
-        projects: model.projects.map(project => [project.id, project.name, project.status])
+        projects: model.projects.map(project => [project.id, project.name, project.status]),
+        archived: model.archivedCases?.map(item => [item.id, item.reason]) || []
     });
 }
 export function buildLocalReconciliationViewModel(appState, projectState) {
@@ -200,6 +206,16 @@ export async function refreshProjectReconciliationSnapshot() {
                 pettyCash: { ...(state.pettyCash || {}), projects: Array.isArray(cash) ? cash : (state.pettyCash?.projects || []), periods: value(3), movements: value(4) }
             }, setup);
             next.diagnosticReadErrors = stores.filter((store, index) => reads[index].status === 'rejected');
+            try {
+                const archived = await projectConflictArchiveStore.list();
+                next = applyProjectConflictArchive(next, archived);
+            } catch (error) {
+                // If archive storage is unavailable, do not hide any records.
+                next = applyProjectConflictArchive(next, []);
+                if (error?.message && !/Inicia sesión/.test(error.message)) {
+                    next.diagnosticReadErrors.push('conflictArchive');
+                }
+            }
         } catch (error) {
             console.warn('No se pudo actualizar Pendientes de asignación:', error);
         }
@@ -244,6 +260,12 @@ export function renderProjectReconciliationSettingsAction() {
             + '<span class="r07-recon-settings-count" aria-hidden="true">' + n + '</span>'
             + '<span class="stg-action-copy"><strong>' + escapeHTML(title) + '</strong>'
             + '<small>Revisa la obra de los datos pendientes.</small></span></button>';
+    }
+    if (snapshot.archivedCount) {
+        html += '<button type="button" class="stg-action r07-recon-settings-action"'
+            + ' data-settings-action="open-project-reconciliation">'
+            + '<span class="stg-action-copy"><strong>Conflictos archivados (' + snapshot.archivedCount + ')</strong>'
+            + '<small>Consultar o restaurar incidencias sin modificar los datos originales.</small></span></button>';
     }
     return html;
 }
@@ -563,6 +585,8 @@ function renderDuplicateTools() {
 async function applyDuplicateMerges() {
     const pairs = modalState.pendingMerge || [];
     if (!pairs.length || modalState.busy) return;
+    const startedFromModal = activeModal;
+    const originalModalState = modalState;
     modalState.busy = true;
     rerenderModal();
     let merged = 0;
@@ -579,13 +603,21 @@ async function applyDuplicateMerges() {
             }
         }
         if (merged) await duplicates.persistDuplicateResolution();
-        modalState.message = merged ? merged + ' empleado(s) duplicado(s) fusionado(s).' : 'No se fusionó ningún empleado: los datos cambiaron. Revisa de nuevo.';
+        if (activeModal === startedFromModal) {
+            modalState.message = merged ? merged + ' empleado(s) duplicado(s) fusionado(s).'
+                : 'No se fusionó ningún empleado: los datos cambiaron. Revisa de nuevo.';
+        }
     } catch (error) {
         console.error('Fusión de duplicados:', error);
-        modalState.message = 'No se pudo completar la fusión. Revisa la lista antes de continuar.';
+        if (activeModal === startedFromModal) modalState.message = 'No se pudo completar la fusión. Revisa la lista antes de continuar.';
     } finally {
-        modalState.busy = false;
-        modalState.pendingMerge = null;
+        originalModalState.busy = false;
+        originalModalState.pendingMerge = null;
+    }
+    if (activeModal !== startedFromModal) {
+        await refreshProjectReconciliationSnapshot();
+        window.render?.();
+        return;
     }
     resetPositionAuditCache();
     await refreshProjectReconciliationSnapshot();
@@ -1278,18 +1310,29 @@ function renderFinancialConfirmation() {
         + (modalState.message ? '<p role="status">' + escapeHTML(modalState.message) + '</p>' : '')
         + '</div><div class="r07-recon-footer"><button type="button" class="btn-secondary r07-recon-footer-btn" data-r07-action="cancel-plan"'
         + (modalState.busy ? ' disabled' : '') + '>Atrás</button>'
+        + '<button type="button" class="btn-secondary r07-recon-footer-btn"'
+        + ' data-r07-action="close">Salir por ahora</button>'
+        + diagnosticReportButton()
         + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="apply-plan"'
         + (modalState.busy || !review.ok ? ' disabled' : '') + '>' + (modalState.busy ? 'Guardando…' : 'Confirmar asignación') + '</button></div></div>';
 }
 async function applyFinancialPlanResolution() {
     if (modalState.busy || !modalState.financialReview) return;
     const financialPlan = { ...modalState.financialReview };
+    const startedFromModal = activeModal;
+    const originalModalState = modalState;
     modalState.busy = true;
     modalState.message = '';
     rerenderModal();
     try {
         const result = await applyOwnershipRepair({ action: REPAIR_ACTION.MAP_FINANCIAL_PLAN,
             employees: [{ id: financialPlan.employeeId }], financialPlan });
+        if (activeModal !== startedFromModal) {
+            await refreshProjectReconciliationSnapshot();
+            window.render?.();
+            window.showNotification?.('La asignación terminó después de salir. Revisa el resultado antes de repetirla.', 'warning');
+            return;
+        }
         if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(result.status)) throw new Error(result.reason || 'No se pudo asignar el plan.');
         await refreshProjectReconciliationSnapshot();
         modalState.financialReview = null;
@@ -1300,10 +1343,178 @@ async function applyFinancialPlanResolution() {
             ? 'Plan guardado localmente. Sincronización pendiente.' : 'Obra del plan actualizada.',
             result.cloudQueued === false ? 'warning' : 'success');
     } catch (error) {
-        modalState.message = error.message || 'No se pudo guardar. Revisa el plan nuevamente.';
+        if (activeModal === startedFromModal) modalState.message = error.message || 'No se pudo guardar. Revisa el plan nuevamente.';
+    } finally {
+        originalModalState.busy = false;
+        if (activeModal === startedFromModal) rerenderModal();
+    }
+}
+
+function diagnosticReportButton() {
+    return '<button type="button" class="btn-secondary r07-recon-footer-btn"'
+        + ' data-r07-action="share-diagnostics"'
+        + ' title="Genera un .log sin nombres, sueldos ni números de empleado">'
+        + 'Compartir diagnóstico (.log)</button>';
+}
+
+async function shareReconciliationDiagnostic() {
+    try {
+        const result = await shareProjectDiagnosticLog(snapshot);
+        if (result.action === 'downloaded') {
+            window.showNotification?.('Diagnóstico .log descargado. Puedes revisarlo y enviarlo a soporte.', 'success');
+        } else if (result.action === 'shared') {
+            window.showNotification?.('Diagnóstico entregado a la opción de compartir elegida.', 'success');
+        }
+    } catch (_) {
+        window.showNotification?.('No se pudo generar el archivo .log.', 'error');
+    }
+}
+
+function renderArchiveCasePanel() {
+    const pending = snapshot.pendingCases || [];
+    const archived = snapshot.archivedCases || [];
+    if (!pending.length && !archived.length) return '';
+    const items = (rows, action, text) => rows.map(row =>
+        '<li class="r07-recon-archive-row"><span><strong>' + escapeHTML(row.label)
+        + '</strong><small>' + escapeHTML(row.reason) + '</small></span>'
+        + '<button type="button" class="btn-secondary r07-recon-note-action"'
+        + ' data-r07-action="' + action + '" data-r07-case-id="' + escapeHTML(row.id) + '">'
+        + escapeHTML(text) + '</button></li>').join('');
+    // Keep the archive panels independent from <details> used by diagnostics:
+    // the financial drill-down structure must remain unchanged.
+    return '<section class="r07-wizard-diagnostics" data-r07-conflict-archive>'
+        + '<button type="button" class="btn-secondary r07-recon-note-action"'
+        + ' data-r07-action="toggle-archive-pending" aria-expanded="' + modalState.showArchivePending + '">'
+        + 'Conflictos que puedes archivar (' + pending.length + ')</button>'
+        + (modalState.showArchivePending ? '<p>Archivar solo oculta el aviso en este dispositivo y cuenta. '
+            + 'No borra cierres, pagos, préstamos ni empleados.</p>'
+            + '<ul class="r07-recon-archive-list">' + items(pending, 'archive-case', 'Archivar conflicto')
+            + '</ul>' : '')
+        + (archived.length ? '<button type="button" class="btn-secondary r07-recon-note-action"'
+            + ' data-r07-action="toggle-archive-history" aria-expanded="' + modalState.showArchiveHistory + '">'
+            + 'Conflictos archivados (' + archived.length + ')</button>'
+            + (modalState.showArchiveHistory ? '<ul class="r07-recon-archive-list">'
+                + items(archived, 'restore-case', 'Restaurar') + '</ul>' : '') : '')
+        + '</section>';
+}
+
+async function changeArchiveCase(caseId, archived) {
+    if (modalState.busy) return;
+    const cases = archived ? snapshot.pendingCases : snapshot.archivedCases;
+    const item = (cases || []).find(row => row.id === caseId);
+    if (!item) return;
+    modalState.busy = true;
+    try {
+        await projectConflictArchiveStore.setCase(item, { archived });
+        await refreshProjectReconciliationSnapshot();
+        modalState.message = archived
+            ? 'Conflicto archivado. Los datos originales permanecen intactos.'
+            : 'Conflicto restaurado a los pendientes.';
+        const ids = new Set(snapshot.employeeRows.map(row => row.id));
+        for (const id of [...modalState.selectedIds]) if (!ids.has(id)) modalState.selectedIds.delete(id);
+        window.render?.();
+    } catch (error) {
+        modalState.message = error?.message || 'No se pudo actualizar el archivo.';
     } finally {
         modalState.busy = false;
         rerenderModal();
+    }
+}
+
+function recoverableHistoricalClosures() {
+    const known = new Set(snapshot.projects.map(project => String(project.id)));
+    const employees = new Set((state.employees || []).map(person => String(person.id)));
+    const recovered = recoveredClosureSources(snapshot.payrollClosures);
+    return snapshot.payrollClosures.filter(source => source?.id
+        && !known.has(String(source.projectId || ''))
+        && source.rows?.length && !recovered.has(String(source.id))
+        && source.rows.some(record => record.employeeId && !employees.has(String(record.employeeId))));
+}
+
+function hasFinancialRecoveryOutsideHistoricalClosures() {
+    const known = new Set(snapshot.projects.map(project => String(project.id)));
+    const historical = new Set(recoverableHistoricalClosures().map(item => String(item.id)));
+    const recovered = recoveredClosureSources(snapshot.payrollClosures);
+    const employeesFinancial = (state.employees || []).some(person =>
+        ['loans', 'advances', 'bonuses', 'deductions'].some(kind => (person[kind] || []).some(record =>
+            record && (!known.has(String(record.projectId || ''))
+                || (record.payments || []).some(payment =>
+                    !known.has(String(payment.payrollProjectId || payment.projectId
+                        || payment.payrollBatchSnapshot?.projectId || '')))))));
+    const configs = snapshot.projectPayrollConfigs.some(row =>
+        !known.has(String(row.projectId || '')) && Object.keys(row).length > 1);
+    const closures = snapshot.payrollClosures.some(row =>
+        !known.has(String(row.projectId || '')) && row.rows?.length
+        && !recovered.has(String(row.id)) && !historical.has(String(row.id)));
+    return employeesFinancial || configs || closures;
+}
+
+function renderHistoricalTargetSelector() {
+    if (!recoverableHistoricalClosures().length || !snapshot.activeProjects.length) return '';
+    return '<fieldset class="r07-recon-fieldset" data-r07-historical-recovery-target>'
+        + '<legend>Recuperación de cierres con empleados eliminados</legend>'
+        + '<label for="r07-historical-target">Obra activa para guardar una copia histórica</label>'
+        + '<select id="r07-historical-target" data-r07-control="historical-target-project">'
+        + '<option value="">Selecciona una obra</option>'
+        + snapshot.activeProjects.map(project =>
+            '<option value="' + escapeHTML(project.id) + '"'
+            + (modalState.targetProjectId === project.id ? ' selected' : '') + '>'
+            + escapeHTML(project.name || project.id) + '</option>').join('')
+        + '</select><p>Los cierres originales y sus importes permanecerán intactos. '
+        + 'Se solicitará confirmación antes de guardar una copia.</p></fieldset>';
+}
+
+function renderHistoricalClosureAction(row) {
+    if (row?.kind !== 'closures') return '';
+    const source = snapshot.payrollClosures.find(closure => String(closure.id) === String(row.key));
+    if (!source?.rows?.length || recoveredClosureSources(snapshot.payrollClosures).has(String(source.id))) return '';
+    const known = new Set(snapshot.projects.map(project => String(project.id)));
+    if (known.has(String(source.projectId || ''))) return '';
+    const currentEmployees = new Set((state.employees || []).map(person => String(person.id)));
+    if (!source.rows.some(record => record.employeeId && !currentEmployees.has(String(record.employeeId)))) return '';
+    const target = modalState.action === 'map' ? modalState.targetProjectId : '';
+    const permitted = !!target && snapshot.activeProjects.some(project => project.id === target);
+    return '<button type="button" class="btn-secondary r07-recon-note-action"'
+        + ' data-r07-action="recover-historical-closure" data-r07-closure-id="' + escapeHTML(source.id) + '"'
+        + (permitted ? '' : ' disabled')
+        + '>Recuperar copia histórica en obra seleccionada</button>'
+        + (permitted ? '' : '<small>Elige primero una obra activa de destino.</small>');
+}
+
+async function recoverHistoricalClosure(closureId) {
+    if (modalState.busy || modalState.action !== 'map' || !modalState.targetProjectId) return;
+    const target = modalState.targetProjectId;
+    const source = snapshot.payrollClosures.find(item => String(item.id) === String(closureId));
+    if (!source || !snapshot.activeProjects.some(item => item.id === target)) return;
+    const targetName = snapshot.projects.find(item => item.id === target)?.name || target;
+    const confirmed = typeof window?.confirm === 'function' && window.confirm(
+        'Se guardará una COPIA histórica del cierre en «' + targetName + '». '
+        + 'El original, sus importes y sus pagos no se modificarán. '
+        + 'No se recrearán empleados eliminados. ¿Continuar?'
+    );
+    if (!confirmed) return;
+    const startedFromModal = activeModal;
+    modalState.busy = true;
+    modalState.message = '';
+    rerenderModal();
+    try {
+        const result = await saveHistoricalClosureRecovery({ sourceId: closureId, targetProjectId: target });
+        await refreshProjectReconciliationSnapshot();
+        window.render?.();
+        window.showNotification?.(result.created
+            ? 'Copia histórica guardada localmente. La sincronización quedó pendiente.'
+            : 'Este cierre ya estaba recuperado en esa obra.', result.created ? 'warning' : 'success');
+        if (activeModal === startedFromModal) {
+            modalState.message = 'Los importes y el cierre original se conservaron. La recuperación histórica no genera nuevos pagos.';
+        }
+    } catch (error) {
+        if (activeModal === startedFromModal) modalState.message = error?.message || 'No se pudo recuperar el cierre histórico.';
+        else window.showNotification?.(error?.message || 'Falló la recuperación del cierre histórico.', 'error');
+    } finally {
+        if (activeModal === startedFromModal) {
+            modalState.busy = false;
+            rerenderModal();
+        }
     }
 }
 
@@ -1326,7 +1537,8 @@ function renderExtendedDiagnostics() {
             if (!rows.length) return '';
             return '<details class="r07-wizard-details"><summary>' + rows.length + ' · ' + title + '</summary>'
                 + '<p>' + hint + '</p><ul>' + rows.map(row => '<li><strong>' + escapeHTML(row.label)
-                    + '</strong> · ' + escapeHTML(row.reason) + renderFinancialReviewAction(row) + '</li>').join('') + '</ul></details>';
+                    + '</strong> · ' + escapeHTML(row.reason) + renderFinancialReviewAction(row)
+                    + renderHistoricalClosureAction(row) + '</li>').join('') + '</ul></details>';
         }).join('') + '</section>';
 }
 
@@ -1346,16 +1558,19 @@ function modalContent() {
     const preflight = currentPreflight();
     if (!snapshot.employeeRows.length && !catalogIssues().length && !snapshot.pettyCashRows.length
         && !snapshot.orphanAttendanceKeys.length
-        && !hasFinancialRecoveryData() && (snapshot.diagnosticIssues.length || snapshot.diagnosticReadErrors.length)) {
+        && (!hasFinancialRecoveryData() || !hasFinancialRecoveryOutsideHistoricalClosures())
+        && (snapshot.diagnosticIssues.length || snapshot.diagnosticReadErrors.length)) {
         return '<div class="r07-recon-shell r07-wizard"><div class="r07-wizard-content">'
-            + renderExtendedDiagnostics() + '</div><div class="r07-recon-footer">'
+            + renderHistoricalTargetSelector() + renderExtendedDiagnostics() + renderArchiveCasePanel()
+            + '</div><div class="r07-recon-footer">'
+            + diagnosticReportButton()
             + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="close">Cerrar</button></div></div>';
     }
     const step = modalState.step;
     const allSelected = snapshot.employeeRows.length > 0 && snapshot.employeeRows.every(row => modalState.selectedIds.has(row.id));
     const selectedCatalog = selectedCatalogIds('positions').length + selectedCatalogIds('leaders').length;
     const stages = [
-        renderExtendedDiagnostics() + '<fieldset class="r07-recon-fieldset"><legend>Elige la obra de destino</legend><div class="r07-recon-choices">'
+        renderExtendedDiagnostics() + renderArchiveCasePanel() + '<fieldset class="r07-recon-fieldset"><legend>Elige la obra de destino</legend><div class="r07-recon-choices">'
             + renderChoice('map', 'Usar una obra existente', 'Asigna los datos a una obra activa.')
             + renderChoice('create', 'Crear una obra', 'Define el nombre de la nueva obra.')
             + '</div>' + renderActionControl(preflight) + '</fieldset>'
@@ -1394,6 +1609,9 @@ function modalContent() {
         + '</div><div class="r07-recon-footer">'
         + '<button type="button" class="btn-secondary r07-recon-footer-btn" data-r07-action="' + (step ? 'wizard-back' : 'close') + '"' + (modalState.busy ? ' disabled' : '') + '>' + (step ? 'Atrás' : 'Cancelar') + '</button>'
         + '<div class="r07-recon-footer-hint" aria-live="polite">' + escapeHTML(hint) + '</div>'
+        + '<button type="button" class="btn-secondary r07-recon-footer-btn"'
+        + ' data-r07-action="close">Salir por ahora</button>'
+        + diagnosticReportButton()
         + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="wizard-next"' + (step === 4 ? ' hidden' : '') + (hint || modalState.busy ? ' disabled' : '') + '>Continuar</button>'
         + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="apply"' + (step !== 4 ? ' hidden' : '') + (!canApply(preflight) || hint || modalState.busy ? ' disabled' : '') + '>' + (modalState.busy ? 'Aplicando…' : 'Aplicar todo') + '</button>'
         + '</div></div>';
@@ -1484,7 +1702,12 @@ export async function openProjectReconciliation({ onClose } = {}) {
     activeModal.element.querySelector('.modal-container')?.classList.add('r07-wizard-modal');
     activeModal.element.addEventListener('keydown', event => {
         if (modalState.busy) {
-            if (event.key === 'Escape') event.stopPropagation();
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                closeProjectReconciliation();
+                window.showNotification?.('La operación iniciada continúa. Revisa el resultado antes de repetirla.', 'warning');
+            }
             return;
         }
         if (event.key === 'Escape' && modalState.step > 0) {
@@ -1559,6 +1782,7 @@ async function applyLocalResolution() {
     modalState.busy = true;
     modalState.message = '';
     rerenderModal();
+    const startedFromModal = activeModal;
     const appliedAction = modalState.action;
     try {
         const base = {
@@ -1603,6 +1827,14 @@ async function applyLocalResolution() {
         }
 
         const result = await applyOwnershipRepair(params);
+        if (activeModal !== startedFromModal) {
+            // The user exited while the transaction ran. Do not mutate a newly
+            // opened wizard or present a stale success to its decisions.
+            await refreshProjectReconciliationSnapshot();
+            window.render?.();
+            window.showNotification?.('La operación terminó. Revisa los pendientes antes de repetirla.', 'warning');
+            return;
+        }
         if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(result.status)) {
             modalState.busy = false;
             modalState.message = repairFailureText(result);
@@ -1656,6 +1888,10 @@ async function applyLocalResolution() {
         }
     } catch (error) {
         console.error('Error en Pendientes de asignación:', error);
+        if (activeModal !== startedFromModal) {
+            window.showNotification?.('La operación terminó con error después de salir. Revisa los pendientes.', 'error');
+            return;
+        }
         modalState.busy = false;
         modalState.message = error?.message || 'No se pudo aplicar la asignación.';
         rerenderModal();
@@ -1687,17 +1923,25 @@ function selectedCatalogIds(collection) {
 
 async function applyCatalogResolution() {
     if (modalState.entityBusy || !modalState.entityTargetProjectId || !modalState.entitySelectedIds.size) return;
+    const startedFromModal = activeModal;
+    const originalModalState = modalState;
     const selected = catalogIssues().filter(issue => modalState.entitySelectedIds.has(catalogIssueKey(issue)));
     modalState.entityBusy = true;
     modalState.entityMessage = '';
     rerenderModal();
     try {
+        const targetProjectId = originalModalState.entityTargetProjectId;
         const result = await applyOwnershipRepair({
             action: REPAIR_ACTION.MAP_CATALOG_ENTITIES,
-            employees: [], targetProjectId: modalState.entityTargetProjectId,
+            employees: [], targetProjectId,
             positionIds: selected.filter(issue => issue.collection === 'positions').map(issue => issue.record?.id),
             leaderIds: selected.filter(issue => issue.collection === 'leaders').map(issue => issue.record?.id)
         });
+        if (activeModal !== startedFromModal) {
+            await refreshProjectReconciliationSnapshot();
+            window.render?.();
+            return;
+        }
         if (result.status !== REPAIR_STATUS.OK) {
             modalState.entityMessage = repairFailureText(result);
         } else {
@@ -1709,10 +1953,10 @@ async function applyCatalogResolution() {
             window.showNotification?.('Puestos y líderes asignados a la obra.', 'success');
         }
     } catch (error) {
-        modalState.entityMessage = error?.message || 'No se pudo guardar la asignación.';
+        if (activeModal === startedFromModal) modalState.entityMessage = error?.message || 'No se pudo guardar la asignación.';
     } finally {
-        modalState.entityBusy = false;
-        if (activeModal?.isOpen) rerenderModal();
+        originalModalState.entityBusy = false;
+        if (activeModal === startedFromModal && activeModal?.isOpen) rerenderModal();
     }
 }
 
@@ -1742,7 +1986,8 @@ function handleClick(event) {
     const target = event.target.closest?.('[data-r07-action]');
     if (!target) return;
     const action = target.dataset.r07Action;
-    if (modalState.busy) return;
+    if (modalState.busy && action !== 'close' && action !== 'share-diagnostics') return;
+    if (action === 'share-diagnostics') return shareReconciliationDiagnostic();
     if (action === 'review-plan') {
         const row = snapshot.diagnosticIssues.find(item => item.key === target.dataset.planKey);
         const review = financialReviewFor(row?.planSelection);
@@ -1761,6 +2006,20 @@ function handleClick(event) {
         return;
     }
     if (action === 'apply-plan') return applyFinancialPlanResolution();
+    if (action === 'toggle-archive-pending') {
+        modalState.showArchivePending = !modalState.showArchivePending;
+        rerenderModal();
+        return;
+    }
+    if (action === 'toggle-archive-history') {
+        modalState.showArchiveHistory = !modalState.showArchiveHistory;
+        rerenderModal();
+        return;
+    }
+    if (action === 'recover-historical-closure') return recoverHistoricalClosure(target.dataset.r07ClosureId);
+    if (action === 'archive-case' || action === 'restore-case') {
+        return changeArchiveCase(target.dataset.r07CaseId, action === 'archive-case');
+    }
     if (action === 'include-linked-relation') {
         // Recompute the conflict instead of trusting a stale or forged DOM button.
         const conflict = (currentPreflight().conflicts || []).find(item => {
@@ -1826,7 +2085,12 @@ function handleClick(event) {
         rerenderModal();
         return;
     }
-    if (action === 'close') return closeProjectReconciliation();
+    if (action === 'close') {
+        const inProgress = modalState.busy;
+        closeProjectReconciliation();
+        if (inProgress) window.showNotification?.('La operación iniciada continúa. Revisa el resultado antes de repetirla.', 'warning');
+        return;
+    }
     if (action === 'apply') return applyLocalResolution();
     if (action === 'create-similar-position') {
         return createSimilarPosition(target.dataset.employeeId, target.dataset.fromPositionId);
@@ -1961,6 +2225,12 @@ function handleChange(event) {
         modalState.positionRemaps = {};
         modalState.positionCopies = {};
         if (modalState.action === 'create') ensureCreateProjectId();
+        rerenderModal();
+        return;
+    }
+    if (event.target?.dataset?.r07Control === 'historical-target-project') {
+        modalState.targetProjectId = event.target.value;
+        modalState.action = modalState.targetProjectId ? 'map' : '';
         rerenderModal();
         return;
     }

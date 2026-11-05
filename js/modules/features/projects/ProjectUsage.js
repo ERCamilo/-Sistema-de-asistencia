@@ -1,5 +1,6 @@
 import indexedDBService from '../../services/IndexedDBService.js';
 import { peekEntityScope } from './EntityProjectScope.js';
+import { projectDeletionPolicy } from './ProjectDeletionPolicy.js';
 
 const id = value => String(value ?? '').trim();
 const SKIP_STORES = new Set(['projects', 'projectPayrollConfigs', 'syncLocks', 'employeePhotos', 'pettyCashReceipts']);
@@ -123,6 +124,9 @@ export async function deleteEmptyProject(projectId, { idb = indexedDBService, ge
                 if (projectId === protectedIds.defaultProjectId) throw new Error('La obra inicial se conserva como referencia del sistema.');
                 const usage = summarizeProjectUsage([row], data, { liveState: getLiveState(), defaultProjectId: protectedIds.defaultProjectId })[projectId];
                 if (!usage.empty) throw new Error('La obra contiene datos o sincronizaciones pendientes. No se borró. Actualiza la lista.');
+                if (!projectDeletionPolicy(row).canFinalizeEmpty) {
+                    throw new Error('Se requieren 30 días pausada y otros 30 tras solicitar la eliminación.');
+                }
                 const now = Math.max(Date.now(), (Number(row.updatedAt) || 0) + 1);
                 saved = { ...row, deletedAt: row.deletedAt || now, updatedAt: now };
                 tx.objectStore('projects').put(saved);
