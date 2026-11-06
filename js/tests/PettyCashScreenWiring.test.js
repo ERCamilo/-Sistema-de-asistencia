@@ -163,3 +163,64 @@ describe('abrir un registro', () => {
         expect(state.pettyCash.editMov).toBeNull();
     });
 });
+
+describe('barra superior compacta', () => {
+    const twoPeriods = () => {
+        seed();
+        state.pettyCash.periods.push({ id: 'p0', projectId: 'c1', label: 'Septiembre', status: 'cerrada', openingDate: '2026-09-01', closingDate: '2026-09-30' });
+    };
+    test('una sola barra: caja, periodo y acciones pequeñas, sin las tarjetas grandes de periodo', () => {
+        twoPeriods(); paint();
+        const bar = document.querySelector('[data-pcn-topbar]');
+        expect(bar).not.toBeNull();
+        expect(bar.querySelector('select[onchange*="pcSelectProject"]')).not.toBeNull();
+        expect(bar.querySelector('select[data-pcn-period]').options).toHaveLength(2);
+        expect(bar.querySelector('select[data-pcn-period]').value).toBe('p1');
+        for (const fn of ['pcEditProject', 'pcEditProjectFiscal', 'pcDeleteProject', 'pcNewProject', 'pcNewPeriod']) {
+            expect(bar.querySelector(`[data-app-fn="${fn}"]`)).not.toBeNull();
+        }
+        expect(document.querySelector('button[data-app-fn="pcSelectPeriod"]')).toBeNull();
+        expect(document.body.textContent.split('Saldo total del proyecto')).toHaveLength(2);   // una sola vez (dentro de la tarjeta), no una fila grande aparte
+    });
+    test('elegir otro periodo en la lista usa el manejador de siempre', () => {
+        twoPeriods(); paint();
+        expect(document.querySelector('select[data-pcn-period]').getAttribute('onchange')).toContain('pcSelectPeriod(this.value)');
+    });
+    test('con más de un periodo, el saldo total del proyecto va dentro de la tarjeta de saldo', () => {
+        twoPeriods(); paint();
+        expect(document.querySelector('[data-pcn-balance] [data-pcn-project-total]')).not.toBeNull();
+        seed(); paint();
+        expect(document.querySelector('[data-pcn-project-total]')).toBeNull();
+    });
+    test('sin interruptor, la barra de siempre', () => {
+        seed(movimientos(), {}); paint();
+        expect(document.querySelector('[data-pcn-topbar]')).toBeNull();
+        expect(document.querySelector('[data-app-fn="pcNewPeriod"]')).not.toBeNull();
+    });
+});
+
+describe('encabezado en la columna izquierda', () => {
+    test('con caja y periodo, el título, la barra de caja y el periodo van dentro de la pantalla, antes del saldo', () => {
+        seed(); paint();
+        const main = document.querySelector('[data-pcn-screen] .pcn-main');
+        const order = [...main.children].map((el) => (el.matches('.pcn-page-title') ? 'title' : el.hasAttribute('data-pcn-topbar') ? 'topbar' : el.matches('.pcn-period-head') ? 'period' : el.hasAttribute('data-pcn-balance') ? 'balance' : '?'));
+        expect(order.slice(0, 4)).toEqual(['title', 'topbar', 'period', 'balance']);
+        expect(document.querySelector('.pc-wrap > .pcn-page-title')).toBeNull();
+    });
+    test('los botones de periodo (Excel, Cerrar periodo) siguen al final de la columna', () => {
+        seed(); paint();
+        const main = document.querySelector('[data-pcn-screen] .pcn-main');
+        expect(main.lastElementChild.querySelector('[data-app-fn="pcExportExcel"]')).not.toBeNull();
+    });
+    test('sin ninguna caja, la barra queda arriba como antes', () => {
+        seed(); state.pettyCash.projects = []; state.pettyCash.periods = []; state.pettyCash.selectedProjectId = null; state.pettyCash.selectedPeriodId = null; paint();
+        expect(document.querySelector('[data-pcn-screen]')).toBeNull();
+        expect(document.querySelector('[data-pcn-topbar]')).not.toBeNull();
+    });
+    test('con el editor abierto el encabezado sigue en la columna de la lista, no encima del editor', async () => {
+        seed(); paint();
+        window.pcOpenMovement('g2'); await flush();
+        expect(document.querySelector('[data-pcn-screen] .pcn-main [data-pcn-topbar]')).not.toBeNull();
+        expect(document.querySelector('[data-pcn-side] [data-pcn-topbar]')).toBeNull();
+    });
+});

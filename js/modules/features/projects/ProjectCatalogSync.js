@@ -42,7 +42,7 @@ import { readProjectUsageData, summarizeProjectUsage, protectDeletedProjects } f
 import { isDetachedRestoreSyncBlocked } from "../../services/DetachedRestoreGuard.js";
 import { state } from '../../core/AppState.js';
 
-const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'notSameAs'];
+const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'deletionRequestedAt', 'notSameAs'];
 const PAYROLL_CONFIG_STORE = 'projectPayrollConfigs';
 
 let _lastDuplicates = [];
@@ -75,7 +75,10 @@ function cleanIdList(value) {
 export function toCatalogDoc(project) {
     const out = {};
     for (const field of CATALOG_FIELDS) {
-        if (project?.[field] !== undefined && project?.[field] !== null) out[field] = project[field];
+        if (field === 'deletionRequestedAt' && Object.prototype.hasOwnProperty.call(project || {}, field)) {
+            // Explicit null clears a pending request in a Firestore merge write.
+            out[field] = project[field] ?? null;
+        } else if (project?.[field] !== undefined && project?.[field] !== null) out[field] = project[field];
     }
     out.id = trimId(project?.id);
     const notSame = cleanIdList(out.notSameAs);

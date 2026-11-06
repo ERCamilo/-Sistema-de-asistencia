@@ -1,23 +1,21 @@
 /**
- * Estado de pantalla del editor de factura: tamaño y zoom de la imagen,
- * secciones plegables, dato activo y lo escrito sin guardar.
+ * Estado de pantalla del editor de factura: vista de la foto (zoom y posición),
+ * reparto foto/formulario, secciones plegables, dato activo y lo escrito sin guardar.
  */
 import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature } from '../modules/features/pettycash/PettyCashEditorUi.js';
 import { receiptEditorHTML } from '../modules/features/pettycash/PettyCashReceiptEditor.js';
 
 describe('editorUiAction', () => {
-    test('estado inicial: total activo, imagen ampliada y tamaño medio, secciones en automático', () => {
-        expect(defaultEditorUi()).toEqual({ field: 'total', zoom: true, size: 1, more: null, itemsOpen: false, secOpen: null, draft: {} });
+    test('estado inicial: total activo, foto sin vista fija (la elige el visor) y secciones en automático', () => {
+        expect(defaultEditorUi()).toEqual({ field: 'total', view: null, viewKey: null, split: null, more: null, itemsOpen: false, secOpen: null, draft: {} });
     });
-    test('el tamaño da la vuelta: pequeña → media → grande → pequeña', () => {
-        let ui = { ...defaultEditorUi(), size: 0 };
-        const seen = [];
-        for (let i = 0; i < 4; i++) { ui = editorUiAction(ui, 'size'); seen.push(ui.size); }
-        expect(seen).toEqual([1, 2, 0, 1]);
+    test('el tamaño y el zoom de antes ya no son acciones: los maneja el visor', () => {
+        const ui = defaultEditorUi();
+        expect(editorUiAction(ui, 'size')).toEqual(ui);
+        expect(editorUiAction(ui, 'zoom')).toEqual(ui);
     });
-    test('el zoom, los artículos y la seguridad se alternan', () => {
+    test('los artículos y la seguridad se alternan', () => {
         let ui = defaultEditorUi();
-        expect(editorUiAction(ui, 'zoom').zoom).toBe(false);
         expect(editorUiAction(ui, 'items').itemsOpen).toBe(true);
         expect(editorUiAction(editorUiAction(ui, 'items'), 'items').itemsOpen).toBe(false);
         expect(editorUiAction(ui, 'security', null, { secOpen: false }).secOpen).toBe(true);
@@ -29,14 +27,14 @@ describe('editorUiAction', () => {
         expect(editorUiAction(ui, 'more', null, { more: false }).more).toBe(true);
     });
     test('elegir un dato lo vuelve el activo sin tocar lo demás', () => {
-        const ui = { ...defaultEditorUi(), zoom: false, size: 2 };
-        expect(editorUiAction(ui, 'field', 'ncf')).toEqual({ ...ui, field: 'ncf' });
+        const ui = { ...defaultEditorUi(), view: { s: 2, x: -10, y: -20 }, viewKey: 'total', split: 50 };
+        expect(editorUiAction(ui, 'field', 'ncf')).toEqual({ ...ui, field: 'ncf', mark: false });
     });
     test('una acción desconocida no cambia nada y no muta el estado anterior', () => {
         const ui = defaultEditorUi();
         const frozen = Object.freeze({ ...ui, draft: Object.freeze({}) });
         expect(editorUiAction(frozen, 'nada')).toEqual(ui);
-        expect(() => editorUiAction(frozen, 'size')).not.toThrow();
+        expect(() => editorUiAction(frozen, 'items')).not.toThrow();
     });
 });
 
@@ -72,26 +70,55 @@ describe('draftSignature', () => {
     });
 });
 
-describe('centerEditorBox', () => {
-    const { centerEditorBox } = require('../modules/features/pettycash/PettyCashEditorUi.js');
-    const rect = (l, t, w, h) => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h });
+describe('fitEditorScreen', () => {
+    const { fitEditorScreen } = require('../modules/features/pettycash/PettyCashEditorUi.js');
+    const setup = (editing = 'true') => {
+        document.body.innerHTML = `<div data-pcn-screen data-editing="${editing}"></div>`;
+        const el = document.querySelector('[data-pcn-screen]');
+        el.getBoundingClientRect = () => ({ top: 300 });
+        return el;
+    };
     afterEach(() => { document.body.innerHTML = ''; });
 
-    test('con la imagen ampliada, lleva el recuadro al centro de la ventana', () => {
-        document.body.innerHTML = '<div data-pcn-win data-zoom="true"><div data-pcn-box></div></div>';
-        const win = document.querySelector('[data-pcn-win]');
-        const box = document.querySelector('[data-pcn-box]');
-        win.getBoundingClientRect = () => rect(0, 100, 300, 280);
-        box.getBoundingClientRect = () => rect(400, 700, 100, 40);
-        win.scrollLeft = 0; win.scrollTop = 0;
-        expect(centerEditorBox(document)).toBe(true);
-        expect(win.scrollLeft).toBe(300);   // centro del recuadro 450 − centro de la ventana 150
-        expect(win.scrollTop).toBe(480);    // centro del recuadro 720 − centro de la ventana 240
+    test('en pantalla ancha y editando, la pantalla ocupa lo que queda de la ventana (lista y detalle se desplazan por separado)', () => {
+        const el = setup();
+        expect(fitEditorScreen({ doc: document, win: { innerHeight: 900, scrollY: 0, matchMedia: () => ({ matches: true }) } })).toBe(true);
+        expect(el.style.height).toBe('588px');   // 900 − 300 − 12
     });
-    test('sin zoom o sin recuadro no mueve nada', () => {
-        document.body.innerHTML = '<div data-pcn-win data-zoom="false"><div data-pcn-box></div></div>';
-        expect(centerEditorBox(document)).toBe(false);
-        document.body.innerHTML = '<div data-pcn-win data-zoom="true"></div>';
-        expect(centerEditorBox(document)).toBe(false);
+    test('tiene en cuenta cuánto se ha desplazado la página', () => {
+        const el = setup();
+        el.getBoundingClientRect = () => ({ top: 100 });   // ya se desplazó 200 px
+        fitEditorScreen({ doc: document, win: { innerHeight: 900, scrollY: 200, matchMedia: () => ({ matches: true }) } });
+        expect(el.style.height).toBe('588px');
+    });
+    test('nunca queda más baja de 420 px', () => {
+        const el = setup();
+        fitEditorScreen({ doc: document, win: { innerHeight: 500, scrollY: 0, matchMedia: () => ({ matches: true }) } });
+        expect(el.style.height).toBe('420px');
+    });
+    test('en teléfono (hoja inferior) o sin editar, quita la altura fija', () => {
+        const el = setup();
+        el.style.height = '500px';
+        expect(fitEditorScreen({ doc: document, win: { innerHeight: 900, scrollY: 0, matchMedia: () => ({ matches: false }) } })).toBe(false);
+        expect(el.style.height).toBe('');
+        const el2 = setup('false');
+        el2.style.height = '500px';
+        fitEditorScreen({ doc: document, win: { innerHeight: 900, scrollY: 0, matchMedia: () => ({ matches: true }) } });
+        expect(el2.style.height).toBe('');
+    });
+});
+
+describe('marcar datos en la foto (editorUiAction)', () => {
+    test('«mark» entra y sale del modo de marcar', () => {
+        let ui = defaultEditorUi();
+        expect(ui.mark).toBeUndefined();
+        ui = editorUiAction(ui, 'mark');
+        expect(ui.mark).toBe(true);
+        ui = editorUiAction(ui, 'mark');
+        expect(ui.mark).toBe(false);
+    });
+    test('elegir otro dato sale del modo de marcar', () => {
+        const ui = editorUiAction({ ...defaultEditorUi(), mark: true }, 'field', 'ncf');
+        expect(ui).toMatchObject({ field: 'ncf', mark: false });
     });
 });

@@ -10,6 +10,13 @@ import { Header } from '../modules/ui/Header.js';
 
 if (!globalThis.structuredClone) globalThis.structuredClone = value => JSON.parse(JSON.stringify(value));
 const project = (id, name = id, extra = {}) => ({ id, name, status: 'active', schemaVersion: 1, createdAt: 1, updatedAt: 10, ...extra });
+// Legacy immediate-delete fixtures now represent a project that has already
+// completed both user-visible 30-day waiting periods.
+const eligibleForFinalReview = () => ({
+    status: 'closed',
+    closedAt: Date.now() - 70 * 86400000,
+    deletionRequestedAt: Date.now() - 35 * 86400000
+});
 const snapshot = rows => ({ forEach: fn => rows.forEach(row => fn({ id: row.id, data: () => row })) });
 const tick = () => new Promise(resolve => setTimeout(resolve, 1));
 const waitFor = async predicate => { for (let n = 0; n < 100; n++) { if (predicate()) return; await tick(); } throw new Error('La interfaz no terminó'); };
@@ -20,7 +27,7 @@ describe('menú de obras: contenido y borrado de obras vacías', () => {
         resetEntityScope(); localStorage.clear(); setProjectsEnabled(true);
         db = new IndexedDBService(`project-usage-${Math.random()}`); await db.init();
         await db.update('projects', project('A', 'Obra inicial'));
-        await db.update('projects', project('B', 'Obra vacía'));
+        await db.update('projects', project('B', 'Obra vacía', eligibleForFinalReview()));
         localStorage.setItem('asistencia_active_project_id', 'A');
         localStorage.setItem('asistencia_default_project_id', 'A');
         document.body.innerHTML = '';
@@ -151,15 +158,19 @@ describe('menú de obras: contenido y borrado de obras vacías', () => {
             deleteEmptyProject: jest.fn(async target => deleteEmptyProject(target, { idb: db })),
             getState: async () => ({ projects: await new ProjectStore({ db }).listAll(), activeProjectId: 'A', defaultProjectId: 'A' })
         };
-        mountProjectList(list, { projects: [project('B')], setupService: service });
+        mountProjectList(list, {
+            projects: [project('B', 'Obra vacía', eligibleForFinalReview())],
+            setupService: service, allowSwitch: true
+        });
         expect(list.querySelector('[data-project-delete]')).toBeNull();
         await waitFor(() => !!list.querySelector('[data-project-delete]'));
         list.querySelector('[data-project-delete]').click();
         expect(service.deleteEmptyProject).not.toHaveBeenCalled();
-        list.querySelector('[data-project-delete-cancel]').click();
+        document.querySelector('[data-project-action-cancel]').click();
+        await new Promise(resolve => setTimeout(resolve, 5));
         expect(service.deleteEmptyProject).not.toHaveBeenCalled();
         list.querySelector('[data-project-delete]').click();
-        list.querySelector('[data-project-delete-confirm]').click();
+        document.querySelector('[data-project-action-confirm]').click();
         await waitFor(() => !list.querySelector('[data-project-id="B"]'));
         expect(service.deleteEmptyProject).toHaveBeenCalledTimes(1);
         expect(renderProjectListHTML({ projects: [project('B')] })).toContain('Datos sin verificar');

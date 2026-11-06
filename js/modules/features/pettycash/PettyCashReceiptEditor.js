@@ -15,6 +15,8 @@
 import { fixesFor, receiptNotes } from './PettyCashReceiptChecks.js';
 import { RECEIPT_STATES, movementReviewState } from './PettyCashReceiptReview.js';
 import { formatPettyCashDate, receiptBackupState } from './PettyCashPresentation.js';
+import { receiptDate, datesConflict } from './PettyCashDates.js';
+import { effectiveBox, isValidBox } from './PettyCashBoxMath.js';
 
 /** id del campo → clave del gasto y tipo (lo usan el render y el guardado). */
 export const EDITOR_FIELDS = Object.freeze({
@@ -34,7 +36,6 @@ export const EDITOR_FIELDS = Object.freeze({
     'pce-propina': { key: 'propina', type: 'number' },
     'pce-exento': { key: 'exento', type: 'number' },
     'pce-itbisincl': { key: 'itbisIncluido', type: 'checkbox' },
-    'pce-femision': { key: 'fechaEmision', type: 'date' },
     'pce-fvenc': { key: 'fechaVencimiento', type: 'date' },
     'pce-notas': { key: 'notas', type: 'textarea' },
     'pce-receipt': { key: 'hasReceipt', type: 'checkbox' }
@@ -46,8 +47,10 @@ export const EDITOR_CATEGORIES = Object.freeze(['Materiales', 'Transporte', 'Com
 
 /** Datos que el lector enmarca en la foto, en el orden de los chips. */
 const BOX_FIELDS = Object.freeze([
-    ['rncEmisor', 'RNC emisor'], ['ncf', 'NCF'], ['date', 'Fecha'], ['subtotal', 'Subtotal'], ['itbis', 'ITBIS'], ['total', 'Total']
+    ['rncEmisor', 'RNC emisor'], ['ncf', 'NCF'], ['date', 'Fecha'], ['subtotal', 'Subtotal'], ['itbis', 'ITBIS'], ['total', 'Total'],
+    ['paidTo', 'Comercio'], ['cliente', 'Cliente'], ['rncCliente', 'RNC cliente'], ['descuento', 'Descuento'], ['propina', 'Propina'], ['exento', 'Exento']
 ]);
+const MARKABLE = new Set(BOX_FIELDS.map(([k]) => k));
 const LABELS = Object.freeze({
     paidTo: 'Comercio', rncEmisor: 'RNC emisor', ncf: 'NCF', date: 'Fecha', subtotal: 'Subtotal', itbis: 'ITBIS',
     propina: 'Propina', total: 'Total', descuento: 'Descuento', exento: 'Exento', cliente: 'Cliente', rncCliente: 'RNC del cliente',
@@ -57,7 +60,6 @@ const INPUT_FOR_ISSUE = Object.freeze({
     total: 'pce-total', ncf: 'pce-ncf', rncEmisor: 'pce-rnc', rncCliente: 'pce-rnccli', date: 'pce-date', itbis: 'pce-itbis'
 });
 const RED_ISSUES = new Set(['client-rnc', 'ncf-duplicate']);
-const WINDOW_SIZES = ['pequeña', 'media', 'grande'];
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const rd = (n) => 'RD$ ' + (Number(n) || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -73,6 +75,11 @@ function mergeDraft(mov, draft) {
 const CLOSE_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const DOWNLOAD_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></svg>';
 const SHARE_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.6M8.2 13.2l7.6 4.6"/></svg>';
+const ICON = (d) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ZOOM_OUT_ICON = ICON('<path d="M5 12h14"/>');
+const ZOOM_IN_ICON = ICON('<path d="M12 5v14M5 12h14"/>');
+const ZOOM_ALL_ICON = ICON('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>');
+const ZOOM_BOX_ICON = ICON('<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>');
 function queueNavHTML(queue) {
     if (!queue || !(queue.total > 1)) return '';
     return `<div class="pcn-queue" data-pcn-queue>
@@ -92,53 +99,75 @@ function fileInputs(disabled) {
             <input type="file" accept="image/*,application/pdf" onchange="window.pcPhotoEdit(this)" style="display:none;"></label>`;
 }
 
-function viewerHTML(mov, { cerrada, ui, source }) {
+function viewerHTML(mov, { cerrada, ui, source, rescan = {} }) {
     const hasPhoto = !!(mov.hasReceipt || mov.receiptStatus);
     if (!hasPhoto) {
         return `<div class="pcn-view" data-pcn-view>
-            <div class="pcn-win pcn-win--empty" data-pcn-win data-size="${ui.size}" data-zoom="false">
+            <div class="pcn-win pcn-win--empty" data-pcn-win>
                 <p>Este gasto no tiene foto de factura</p>
                 <div class="pcn-empty-actions">${fileInputs(cerrada)}</div>
             </div>
         </div>`;
     }
     const field = ui.field;
-    const box = mov.ocrBoxes?.[field];
+    const found = effectiveBox(mov, field);
     const isPdf = source?.mime === 'application/pdf';
-    const showBox = !isPdf && hasBox(box);
+    const showBox = !isPdf && !!found;
+    const canMark = !cerrada && !!source && !isPdf && MARKABLE.has(field);
+    const markOn = canMark && !!ui.mark;
+    const label = LABELS[field] || field;
     let stage;
     if (source === undefined) stage = '<p class="pcn-msg">Cargando comprobante…</p>';
     else if (!source) stage = '<p class="pcn-msg">Comprobante no disponible en este momento. Verifica la conexión.</p>';
     else {
         const src = isPdf ? (source.preview || '') : source.url;
-        const [y0, x0, y1, x1] = showBox ? box : [0, 0, 0, 0];
-        const zoomOn = ui.zoom && showBox;
-        const width = zoomOn ? Math.min(260, Math.max(112, 100 / (((x1 - x0) / 1000) * 1.1))) : 100;
-        stage = `<div class="pcn-stage" style="width:${pct(width)}%">
-            ${src ? `<img class="pcn-img" src="${esc(src)}" alt="Foto de la factura">` : ''}
-            ${showBox ? `<div class="pcn-box" data-pcn-box style="left:${pct(x0 / 10)}%;top:${pct(y0 / 10)}%;width:${pct((x1 - x0) / 10)}%;height:${pct((y1 - y0) / 10)}%"><span class="pcn-tag">${esc(LABELS[field] || '')}</span></div>` : ''}
-        </div>
-        ${isPdf ? '<p class="pcn-msg pcn-msg--pdf">PDF: no hay recuadros. Abre el original con «Ver comprobante».</p>' : ''}`;
+        const [y0, x0, y1, x1] = showBox ? found.box : [0, 0, 0, 0];
+        const edit = markOn ? (showBox ? 'adjust' : 'draw') : '';
+        stage = `<div class="pcn-stage" data-pcn-stage data-edit="${edit}" data-key="${esc(field)}"${showBox ? ` data-box="${found.box.join(',')}"` : ''}>
+            ${src ? `<img class="pcn-img" src="${esc(src)}" alt="Foto de la factura" draggable="false" decoding="async">` : ''}
+            ${showBox ? `<div class="pcn-box" data-pcn-box data-source="${found.source}" style="left:${pct(x0 / 10)}%;top:${pct(y0 / 10)}%;width:${pct((x1 - x0) / 10)}%;height:${pct((y1 - y0) / 10)}%"><span class="pcn-tag">${esc(label)}</span>${edit === 'adjust' ? '<i class="pcn-handle" data-pcn-handle></i>' : ''}</div>` : ''}
+        </div>`;
     }
-    const chips = BOX_FIELDS.filter(([k]) => hasBox(mov.ocrBoxes?.[k]) && !isPdf).map(([k, label]) =>
-        `<button type="button" class="pcn-chip" data-pcn-chip data-app-fn="pcEditorField" data-arg="${k}" aria-pressed="${k === field}">${label}</button>`).join('');
-    const noBox = source && !showBox && !isPdf && field
-        ? `<p class="pcn-note" data-pcn-nobox>«${esc(LABELS[field] || field)}» no tiene recuadro del lector. Revisa la foto y escríbelo.</p>` : '';
+    const chips = BOX_FIELDS.filter(([k]) => !!effectiveBox(mov, k) && !isPdf).map(([k, name]) =>
+        `<button type="button" class="pcn-chip" data-pcn-chip data-app-fn="pcEditorField" data-arg="${k}" aria-pressed="${k === field}">${name}</button>`).join('');
+    const hasOcrBox = isValidBox(mov.ocrBoxes?.[field]);
+    const markButtons = canMark ? `
+            <button type="button" class="pcn-tool" data-app-fn="pcEditorMark">${markOn ? 'Listo' : (showBox ? 'Ajustar recuadro' : `Marcar «${esc(label)}» en la foto`)}</button>
+            ${found?.source === 'manual' ? `<button type="button" class="pcn-tool" data-app-fn="pcEditorBoxClear" data-arg="${esc(field)}">${hasOcrBox ? 'Volver al recuadro del lector' : 'Quitar mi marca'}</button>` : ''}` : '';
+    // Enderezar parte de la foto original: no con PDF, ni con la miniatura, ni mientras carga.
+    const canStraighten = !cerrada && !!source && !isPdf && !source.reduced;
+    const markHint = markOn
+        ? `<p class="pcn-note" data-pcn-mark-hint>${showBox ? 'Arrastra el recuadro para moverlo, o su esquina para cambiarle el tamaño.' : `Arrastra sobre la foto para encerrar «${esc(label)}».`}</p>` : '';
+    const noBox = source && !showBox && !isPdf && field && !markOn
+        ? `<p class="pcn-note" data-pcn-nobox>«${esc(label)}» no tiene recuadro.${canMark ? ' Márcalo con «Marcar en la foto» o escríbelo.' : ' Revisa la foto y escríbelo.'}</p>` : '';
     return `<div class="pcn-view" data-pcn-view>
         <div class="pcn-winwrap">
-            <div class="pcn-win" data-pcn-win data-size="${ui.size}" data-zoom="${!!(ui.zoom && showBox)}">${stage}</div>
-            ${source ? `<div class="pcn-fbar" data-pcn-fbar>
+            <div class="pcn-win" data-pcn-win>${stage}</div>
+            ${source ? `<div class="pcn-zbar" data-pcn-zbar>
+                <button type="button" class="pcn-fb" data-pcn-zoom="out" aria-label="Alejar" title="Alejar">${ZOOM_OUT_ICON}</button>
+                <span class="pcn-zpct" data-pcn-zoom-pct aria-live="off">100 %</span>
+                <button type="button" class="pcn-fb" data-pcn-zoom="in" aria-label="Acercar" title="Acercar">${ZOOM_IN_ICON}</button>
+                <button type="button" class="pcn-fb" data-pcn-zoom="all" aria-label="Ver la factura entera" title="Ver toda la factura">${ZOOM_ALL_ICON}</button>
+                ${showBox ? `<button type="button" class="pcn-fb" data-pcn-zoom="box" aria-label="Ir al dato" title="Ir al dato">${ZOOM_BOX_ICON}</button>` : ''}
+            </div>
+            <div class="pcn-fbar" data-pcn-fbar>
                 <button type="button" class="pcn-fb" data-app-fn="pcEditorDownload" aria-label="Descargar foto" title="Descargar">${DOWNLOAD_ICON}</button>
                 <button type="button" class="pcn-fb" data-app-fn="pcEditorShare" aria-label="Compartir foto" title="Compartir">${SHARE_ICON}</button>
             </div>` : ''}
         </div>
+        <div class="pcn-split" data-pcn-split role="separator" aria-orientation="horizontal" aria-label="Cambiar el tamaño de la foto" tabindex="0"><i></i></div>
+        ${isPdf ? '<p class="pcn-msg pcn-msg--pdf">PDF: no hay recuadros. Abre el original con «Ver comprobante».</p>' : ''}
         ${chips ? `<div class="pcn-chips">${chips}</div>` : ''}
         <div class="pcn-tools">
-            <button type="button" class="pcn-tool" data-app-fn="pcEditorSize">Imagen: ${WINDOW_SIZES[ui.size] || WINDOW_SIZES[1]}</button>
-            ${showBox ? `<button type="button" class="pcn-tool" data-app-fn="pcEditorZoom">${ui.zoom ? 'Ver completa' : 'Ampliar'}</button>` : ''}
+            ${markButtons}
             <button type="button" class="pcn-tool" data-app-fn="pcViewReceipt" data-arg="${esc(mov.id)}">Ver comprobante</button>
-            ${cerrada ? '' : `<button type="button" class="pcn-tool" data-app-fn="pcRescanReceipt" data-arg="${esc(mov.id)}">Reescanear</button>${fileInputs(false)}`}
+            ${cerrada ? '' : `<button type="button" class="pcn-tool" data-app-fn="pcRescanReceipt" data-arg="${esc(mov.id)}" data-pcn-rescan-btn${rescan.busy ? ' disabled aria-busy="true"' : ''}>${rescan.busy ? 'Leyendo…' : 'Reescanear'}</button>${canStraighten ? '<button type="button" class="pcn-tool" data-app-fn="pcEditorStraighten" data-pcn-straighten>Enderezar</button>' : ''}${fileInputs(false)}`}
         </div>
+        ${rescan.busy ? '<p class="pcn-note" data-pcn-rescan data-tone="busy" role="status">Leyendo la factura… puede tardar unos segundos.</p>' : ''}
+        ${!rescan.busy && rescan.result?.text ? `<p class="pcn-note" data-pcn-rescan data-tone="${rescan.result.tone === 'error' ? 'error' : rescan.result.tone === 'warn' ? 'warn' : 'ok'}" role="status">${esc(rescan.result.text)}</p>` : ''}
+        ${source?.staged && !isPdf ? `<p class="pcn-note" data-pcn-staged data-tone="ok" role="status">Foto enderezada: se guardará cuando confirmes el gasto. <button type="button" class="pcn-linkbtn" data-app-fn="pcEditorUndoStraighten">Volver a la original</button></p>` : ''}
+        ${source?.reduced && !isPdf ? `<p class="pcn-note" data-pcn-reduced>Vista reducida: la foto original no está en este teléfono y no se pudo bajar del respaldo. <button type="button" class="pcn-linkbtn" data-app-fn="pcEditorReloadSource">Reintentar</button></p>` : ''}
+        ${markHint}
         ${noBox}
     </div>`;
 }
@@ -188,12 +217,34 @@ function issueCardHTML(issue, cerrada) {
 // ── formulario ──────────────────────────────────────────────────────────
 function fieldHTML(id, label, mov, { cerrada, span = '', type = null, mode = 'text', warn = false, low = false } = {}) {
     const def = EDITOR_FIELDS[id];
-    const value = mov[def.key] == null ? '' : mov[def.key];
+    // La fecha de la factura es la de emisión; `date` solo es el respaldo (PettyCashDates).
+    const value = id === 'pce-date' ? receiptDate(mov) : (mov[def.key] == null ? '' : mov[def.key]);
     const kind = type || (def.type === 'number' ? 'number' : def.type === 'date' ? 'date' : 'text');
     const extra = def.type === 'number' ? ' step="0.01" inputmode="decimal"' : (mode === 'numeric' ? ' inputmode="numeric"' : '');
     return `<div class="pcn-field ${span}">
         <label class="pcn-label" for="${id}">${label}${low ? ' <span class="pcn-low" data-pcn-low title="El lector no está seguro de este dato"></span>' : ''}</label>
         <input id="${id}" class="pcn-input${warn ? ' is-warn' : ''}" type="${kind}"${extra} ${cerrada ? 'disabled' : ''} value="${esc(value)}">
+    </div>`;
+}
+
+/**
+ * Gasto con dos fechas distintas (registros antiguos): se muestran las dos y se guarda la
+ * que la persona elija; nunca se decide por ella. Desaparece al escribir otra fecha.
+ */
+function datesNoticeHTML(movement, draft, cerrada) {
+    const conflict = datesConflict(movement);
+    if (!conflict) return '';
+    if (draft && 'date' in draft && draft.date !== receiptDate(movement)) return '';
+    const emission = formatPettyCashDate(conflict.emission);
+    const record = formatPettyCashDate(conflict.record);
+    const buttons = cerrada ? '' : `<div class="pcn-fixes">
+            <button type="button" class="pcn-fix" data-app-fn="pcEditorPickDate" data-arg="emision">Usar la de emisión (${esc(emission)})</button>
+            <button type="button" class="pcn-fix" data-app-fn="pcEditorPickDate" data-arg="registro">Usar la del registro (${esc(record)})</button>
+        </div>`;
+    return `<div class="pcn-issue" data-pcn-dates data-tone="amber">
+        <b>Esta factura tiene dos fechas distintas.</b>
+        <div class="pcn-issue-detail">Emisión: ${esc(emission)} · Registro: ${esc(record)}.${conflict.swapped ? ' Parecen tener el día y el mes invertidos: revisa cuál es la de la factura.' : ''} Mientras no elijas, no se cambia ninguna; la lista y el Excel usan la de emisión.</div>
+        ${buttons}
     </div>`;
 }
 
@@ -231,10 +282,10 @@ function confidenceHTML(mov, ui) {
 }
 
 function footerHTML(mov, cerrada) {
+    // Un solo botón: guardar los cambios también da el registro por revisado.
     return `<div class="pcn-footer">
-        ${(mov.reviewPending && !cerrada) ? `<button type="button" class="pcn-btn pcn-btn--ok" data-app-fn="pcConfirmMovement" data-arg="${esc(mov.id)}">✓ Confirmar</button>` : ''}
         <button type="button" class="pcn-btn" data-app-fn="pcCancelMovementEdit">${cerrada ? 'Cerrar' : 'Cancelar'}</button>
-        ${cerrada ? '' : '<button type="button" class="pcn-btn pcn-btn--primary" data-app-fn="pcSaveMovementEdit">Guardar cambios</button>'}
+        ${cerrada ? '' : `<button type="button" class="pcn-btn pcn-btn--primary" data-app-fn="pcSaveMovementEdit">${mov.reviewPending ? 'Confirmar y guardar' : 'Guardar cambios'}</button>`}
     </div>`;
 }
 
@@ -272,8 +323,8 @@ export function editorViewState(movement, { context = {}, ui = {}, showConfidenc
  *   queue: registros que piden atención; con más de uno se ofrece ir al anterior/siguiente
  *   source: undefined = cargando, null = no disponible, {url, mime, preview} = lista
  */
-export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui = {}, source, showConfidence = false, queue = null } = {}) {
-    const view = { field: 'total', zoom: true, size: 1, more: null, itemsOpen: false, secOpen: null, draft: {}, ...ui };
+export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui = {}, source, showConfidence = false, queue = null, rescan = {} } = {}) {
+    const view = { field: 'total', view: null, viewKey: null, split: null, more: null, itemsOpen: false, secOpen: null, draft: {}, ...ui };
     const mov = mergeDraft(movement, view.draft);
     if (mov.type !== 'gasto') return reposicionHTML(mov, cerrada);
 
@@ -316,9 +367,10 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
             ${queueNavHTML(queue)}
             ${closeButtonHTML()}
         </header>
-        <div class="pcn-body" onchange="window.pcEditorTouch?.()" onfocusin="window.pcEditorFocusIn?.(event)">
-            ${viewerHTML(mov, { cerrada, ui: view, source })}
+        <div class="pcn-body"${Number.isFinite(Number(view.split)) && view.split ? ` style="--pcn-split:${pct(view.split)}%"` : ''} onchange="window.pcEditorTouch?.()" onfocusin="window.pcEditorFocusIn?.(event)">
+            ${viewerHTML(mov, { cerrada, ui: view, source, rescan })}
             <div class="pcn-form">
+                ${datesNoticeHTML(movement, view.draft, cerrada)}
                 ${review.issues.map((i) => issueCardHTML(i, cerrada)).join('')}
                 ${notes.length ? `<div class="pcn-notes" data-pcn-notes>${notes.map((n) => `<div>${esc(n.message)}${n.hint ? ' ' + esc(n.hint) : ''}</div>`).join('')}</div>` : ''}
                 <input id="pce-receipt" type="checkbox" hidden ${hasPhoto ? 'checked' : ''}>
@@ -326,7 +378,7 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
                     ${f('pce-tienda', 'Comercio', { span: 'pcn-c2' })}
                     ${f('pce-rnc', 'RNC del emisor', { mode: 'numeric' })}
                     ${f('pce-ncf', 'NCF')}
-                    ${f('pce-date', 'Fecha')}
+                    ${f('pce-date', 'Fecha de la factura')}
                     ${f('pce-subtotal', 'Subtotal')}
                     ${f('pce-itbis', 'ITBIS')}
                     ${f('pce-total', 'Total de la factura')}
@@ -343,7 +395,7 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
                 <section class="pcn-fold">
                     <button type="button" class="pcn-fold-head" data-app-fn="pcEditorMore" aria-expanded="${moreOpen}">
                         <span>Más datos${extraCount || warn.rncCliente ? ` <i class="pcn-badge${warn.rncCliente ? ' is-red' : ''}">${extraCount || '!'}</i>` : ''}</span>
-                        <small>Cliente · descuento · propina · exento · fechas · notas</small>
+                        <small>Cliente · descuento · propina · exento · vencimiento · notas</small>
                     </button>
                     <div class="pcn-grid pcn-fold-body" data-pcn-more ${moreOpen ? '' : 'hidden'}>
                         ${f('pce-cliente', 'Cliente', { span: 'pcn-c2' })}
@@ -352,7 +404,6 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
                         ${f('pce-descuento', 'Descuento')}
                         ${f('pce-propina', 'Propina')}
                         ${f('pce-exento', 'Exento')}
-                        ${f('pce-femision', 'Fecha de emisión')}
                         ${f('pce-fvenc', 'Vencimiento')}
                         <div class="pcn-field pcn-c3">
                             <label class="pcn-label" for="pce-notas">Notas</label>
@@ -360,8 +411,7 @@ export function receiptEditorHTML(movement, { cerrada = false, context = {}, ui 
                         </div>
                     </div>
                 </section>
-                ${itemsHTML(mov, view)}
-                ${showConfidence ? confidenceHTML(mov, view) : ''}
+                ${itemsHTML(mov, view)}${showConfidence ? confidenceHTML(mov, view) : ''}
                 ${footerHTML(mov, cerrada)}
             </div>
         </div>

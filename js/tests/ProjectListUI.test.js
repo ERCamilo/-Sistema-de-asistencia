@@ -100,9 +100,9 @@ describe('F2.1 ProjectListUI — Pure calculations and data helpers', () => {
     });
 
     test('PROJECT_STATUS_META provides metadata for active, closed, and archived states', () => {
-        expect(PROJECT_STATUS_META[PROJECT_STATUS.ACTIVE].label).toBe('Activo');
+        expect(PROJECT_STATUS_META[PROJECT_STATUS.ACTIVE].label).toBe('Activa');
         expect(PROJECT_STATUS_META[PROJECT_STATUS.ACTIVE].badgeClass).toBe('badge-status-active');
-        expect(PROJECT_STATUS_META[PROJECT_STATUS.CLOSED].label).toBe('Cerrado');
+        expect(PROJECT_STATUS_META[PROJECT_STATUS.CLOSED].label).toBe('Pausada');
         expect(PROJECT_STATUS_META[PROJECT_STATUS.CLOSED].badgeClass).toBe('badge-status-closed');
         expect(PROJECT_STATUS_META[PROJECT_STATUS.ARCHIVED].label).toBe('Archivado');
         expect(PROJECT_STATUS_META[PROJECT_STATUS.ARCHIVED].badgeClass).toBe('badge-status-archived');
@@ -126,7 +126,7 @@ describe('F2.1 ProjectListUI — HTML Rendering and XSS Sanitization', () => {
         expect(html).toContain('Construcción Torre 1');
         expect(html).toContain('PRJ-ABC');
         expect(html).toContain('data-status-badge="active"');
-        expect(html).toContain('Activo');
+        expect(html).toContain('Activa');
         expect(html).toContain('data-active-context-badge="true"');
         expect(html).toContain('En uso');
         expect(html).toContain('data-default-project-badge="true"');
@@ -193,7 +193,7 @@ describe('F2.1 ProjectListUI — HTML Rendering and XSS Sanitization', () => {
 
         expect(html).toContain('Todos (3)');
         expect(html).toContain('Activos (1)');
-        expect(html).toContain('Cerrados (1)');
+        expect(html).toContain('Pausadas (1)');
         expect(html).toContain('Archivados (1)');
         expect(html).toContain('data-project-filter="all"');
         expect(html).toContain('aria-selected="true"');

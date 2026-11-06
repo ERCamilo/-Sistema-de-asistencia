@@ -52,6 +52,53 @@ describe('createCameraDiagnostics', () => {
     });
 });
 
+describe('summarizeDiagnostics: calidad de las fotos', () => {
+    test('cuenta las fotos que salieron borrosas, oscuras o planas y la nitidez promedio', () => {
+        const events = [
+            { type: 'shot', origin: 'sensor', sharp: 0.8, lum: 170, flag: null },
+            { type: 'shot', origin: 'sensor', sharp: 0.1, lum: 160, flag: 'blurry' },
+            { type: 'shot', origin: 'video', sharp: 0.2, lum: 50, flag: 'dark' },
+            { type: 'shot', origin: 'video', sharp: 0, lum: 190, flag: 'flat' },
+            { type: 'shot', origin: 'video' }
+        ];
+        const s = summarizeDiagnostics(events).shots;
+        expect(s.flagged).toEqual({ blurry: 1, dark: 1, flat: 1 });
+        expect(s.measured).toBe(4);              // la última no se pudo medir
+        expect(s.avgSharp).toBeCloseTo(0.28, 2);
+    });
+    test('sin mediciones, todo en cero y sin dividir por cero', () => {
+        const s = summarizeDiagnostics([{ type: 'shot', origin: 'sensor' }]).shots;
+        expect(s.flagged).toEqual({ blurry: 0, dark: 0, flat: 0 });
+        expect(s.measured).toBe(0);
+        expect(s.avgSharp).toBe(0);
+    });
+});
+
+describe('summarizeDiagnostics: fotos enderezadas', () => {
+    test('cuenta cuántas se enderezaron, la inclinación y el tiempo de guardado', () => {
+        const events = [
+            { type: 'shot', origin: 'sensor', saveMs: 1200, straightened: { skew: 10, persp: 1.1 } },
+            { type: 'shot', origin: 'sensor', saveMs: 1000, straightened: { skew: 6, persp: 1.0 } },
+            { type: 'shot', origin: 'video', saveMs: 400 }
+        ];
+        const s = summarizeDiagnostics(events);
+        expect(s.straightened).toEqual({ count: 2, avgSkew: 8, avgPersp: 1.05, avgSaveMs: 1100, declined: {} });
+        expect(s.shots.count).toBe(3);
+    });
+    test('cuenta por qué no se enderezaron las demás', () => {
+        const events = [
+            { type: 'shot', origin: 'sensor', straightenDeclined: 'straight' },
+            { type: 'shot', origin: 'sensor', straightenDeclined: 'straight' },
+            { type: 'shot', origin: 'video', straightenDeclined: 'landscape' },
+            { type: 'shot', origin: 'video', straightened: { skew: 5, persp: 1 }, saveMs: 800 }
+        ];
+        expect(summarizeDiagnostics(events).straightened.declined).toEqual({ straight: 2, landscape: 1 });
+    });
+    test('sin fotos enderezadas, todo en cero', () => {
+        expect(summarizeDiagnostics([{ type: 'shot', origin: 'sensor' }]).straightened).toEqual({ count: 0, avgSkew: 0, avgPersp: 0, avgSaveMs: 0, declined: {} });
+    });
+});
+
 describe('summarizeDiagnostics', () => {
     const events = [
         { type: 'shot', origin: 'sensor', grabMs: 140, saveMs: 900, kb: 500, mime: 'image/webp' },
@@ -67,7 +114,7 @@ describe('summarizeDiagnostics', () => {
 
     test('fotos: de dónde salieron, tiempos y peso promedio', () => {
         const s = summarizeDiagnostics(events);
-        expect(s.shots).toEqual({ count: 3, sensor: 2, video: 1, other: 0, avgGrabMs: 107, avgSaveMs: 633, avgKb: 300, webp: 2 });
+        expect(s.shots).toEqual({ count: 3, sensor: 2, video: 1, other: 0, avgGrabMs: 107, avgSaveMs: 633, avgKb: 300, webp: 2, measured: 0, avgSharp: 0, flagged: { blurry: 0, dark: 0, flat: 0 } });
     });
 
     test('factura larga: cuántas partes se tomaron con ✓, revisión en vivo y unión', () => {

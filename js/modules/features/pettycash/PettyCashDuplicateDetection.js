@@ -13,7 +13,7 @@ function normalizeIdentifier(value) {
 }
 
 function invoiceDate(movement) {
-    const value = movement?.fechaEmision || movement?.date || '';
+    const value = receiptDate(movement);
     return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
 }
 
@@ -102,6 +102,8 @@ export function normalizeDuplicateText(value) {
  * Detecta candidatos duplicados sin modificar ni bloquear los movimientos.
  * Cada registro posterior se enlaza con el registro canónico más antiguo.
  */
+
+import { receiptDate } from './PettyCashDates.js';
 export function detectPettyCashDuplicates(movements = [], periods = []) {
     const periodLabels = new Map(
         (Array.isArray(periods) ? periods : []).map((period) => [period.id, period.label])

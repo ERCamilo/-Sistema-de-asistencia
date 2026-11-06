@@ -44,18 +44,32 @@ export function receiptStoragePath(uid, txId) {
 }
 
 /**
+ * Lo que se manda al lector: 2400 px de ancho y calidad 0.9. Con 1600 px y 0.82 la
+ * letra pequeña (montos, totales) se leía mal. Nunca se agranda una foto chica.
+ */
+export const OCR_MAX_WIDTH = 2400;
+export const OCR_QUALITY = 0.9;
+const OCR_MAX_DATA_URL_CHARS = 9_000_000;
+
+/**
  * Comprime un File de imagen a un data URL JPEG (~maxWidth px).
  * @returns {Promise<string>} data URL ('data:image/jpeg;base64,...')
  */
-export async function compressImage(file, maxWidth = 1600, quality = 0.82) {
+export async function compressImage(file, maxWidth = OCR_MAX_WIDTH, quality = OCR_QUALITY) {
     const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, maxWidth / bitmap.width);
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const draw = (width, q) => {
+        const scale = Math.min(1, width / bitmap.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', q);
+    };
+    let url = draw(maxWidth, quality);
+    // El servidor rechaza lo que pase de ~10 MB: una factura muy larga se reduce una vez más.
+    if (url.length > OCR_MAX_DATA_URL_CHARS) url = draw(Math.round(maxWidth * 0.75), Math.max(0.75, quality - 0.08));
     if (typeof bitmap.close === 'function') bitmap.close();
-    return canvas.toDataURL('image/jpeg', quality);
+    return url;
 }
 
 function pdfFallbackThumbnail(fileName = 'Factura PDF') {

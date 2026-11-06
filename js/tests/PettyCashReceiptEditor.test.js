@@ -15,7 +15,7 @@ const gasto = (over = {}) => ({
     items: [{ descripcion: 'Cemento gris', cantidad: 20, precio: 3000 }, { descripcion: 'Varilla 3/8', cantidad: 10, precio: 1000 }],
     ...over
 });
-const ui = (over = {}) => ({ field: 'total', zoom: true, size: 1, more: null, itemsOpen: false, secOpen: null, draft: {}, ...over });
+const ui = (over = {}) => ({ field: 'total', view: null, viewKey: null, split: null, more: null, itemsOpen: false, secOpen: null, draft: {}, ...over });
 const render = (mov, opts = {}) => {
     document.body.innerHTML = receiptEditorHTML(mov, { cerrada: false, context, ui: ui(), source: null, showConfidence: false, ...opts });
     return document.body;
@@ -29,7 +29,7 @@ describe('ids del formulario', () => {
         render(gasto());
         for (const id of EDITOR_FIELD_IDS) expect(document.getElementById(id)).not.toBeNull();
         for (const id of ['pce-amount', 'pce-date', 'pce-tienda', 'pce-rnc', 'pce-cliente', 'pce-rnccli', 'pce-ncf', 'pce-cat', 'pce-desc',
-            'pce-receipt', 'pce-subtotal', 'pce-itbis', 'pce-total', 'pce-femision', 'pce-fvenc', 'pce-notas',
+            'pce-receipt', 'pce-subtotal', 'pce-itbis', 'pce-total', 'pce-fvenc', 'pce-notas',
             'pce-descuento', 'pce-propina', 'pce-exento', 'pce-itbisincl']) {
             expect(EDITOR_FIELD_IDS).toContain(id);
         }
@@ -179,13 +179,36 @@ describe('imagen de la factura', () => {
         expect(document.querySelector('[data-pcn-nobox]')).not.toBeNull();
     });
 
-    test('el tamaño de la ventana y el zoom salen de la interfaz', () => {
-        render(gasto({ ocrBoxes: boxes }), { source, ui: ui({ size: 2, zoom: false }) });
-        const win = document.querySelector('[data-pcn-win]');
-        expect(win.dataset.size).toBe('2');
-        expect(win.dataset.zoom).toBe('false');
-        expect(document.querySelector('[data-app-fn="pcEditorZoom"]').textContent).toContain('Ampliar');
-        expect(document.querySelector('[data-app-fn="pcEditorSize"]').textContent).toContain('grande');
+    test('la foto tiene su barra de zoom y ya no los botones de tamaño ni «Ampliar»', () => {
+        render(gasto({ ocrBoxes: boxes }), { source });
+        expect(document.querySelector('[data-app-fn="pcEditorSize"]')).toBeNull();
+        expect(document.querySelector('[data-app-fn="pcEditorZoom"]')).toBeNull();
+        const bar = document.querySelector('[data-pcn-zbar]');
+        expect([...bar.querySelectorAll('[data-pcn-zoom]')].map((b) => b.dataset.pcnZoom)).toEqual(['out', 'in', 'all', 'box']);
+        [...bar.querySelectorAll('button')].forEach((b) => expect(b.getAttribute('aria-label')).toBeTruthy());
+        expect(bar.querySelector('[data-pcn-zoom-pct]')).not.toBeNull();
+    });
+
+    test('el recuadro del dato activo viaja en la foto para que el visor lo enfoque', () => {
+        render(gasto({ ocrBoxes: boxes }), { source });
+        const stage = document.querySelector('[data-pcn-stage]');
+        expect(stage.dataset.key).toBe('total');
+        expect(stage.dataset.box).toBe('790,520,850,920');
+        expect(stage.getAttribute('style') || '').not.toContain('width:');   // el ancho lo da la ventana, no un porcentaje
+    });
+
+    test('un dato sin recuadro: sin «ir al dato» y la foto no lleva recuadro', () => {
+        render(gasto({ ocrBoxes: boxes }), { source, ui: ui({ field: 'cliente' }) });
+        expect(document.querySelector('[data-pcn-stage]').hasAttribute('data-box')).toBe(false);
+        expect(document.querySelector('[data-pcn-zoom="box"]')).toBeNull();
+    });
+
+    test('el reparto foto/formulario guardado sale como variable de la hoja y hay un divisor para moverlo', () => {
+        render(gasto({ ocrBoxes: boxes }), { source, ui: ui({ split: 55 }) });
+        expect(document.querySelector('.pcn-body').getAttribute('style')).toContain('--pcn-split:55%');
+        const split = document.querySelector('[data-pcn-split]');
+        expect(split.getAttribute('role')).toBe('separator');
+        expect(split.getAttribute('aria-label')).toBeTruthy();
     });
 
     test('PDF: muestra la vista previa y aclara que no hay recuadros', () => {
@@ -302,5 +325,149 @@ describe('descargar y compartir la foto', () => {
         expect(document.querySelector('[data-pcn-fbar]')).toBeNull();
         render(gasto({ hasReceipt: false, receiptStatus: null }));
         expect(document.querySelector('[data-pcn-fbar]')).toBeNull();
+    });
+});
+
+describe('un solo botón para guardar', () => {
+    test('un registro por revisar se guarda con «Confirmar y guardar»; no hay un Confirmar aparte', () => {
+        render(gasto({ reviewPending: true }));
+        const buttons = [...document.querySelectorAll('.pcn-footer button')].map((b) => [b.dataset.appFn, b.textContent.trim()]);
+        expect(buttons).toEqual([['pcCancelMovementEdit', 'Cancelar'], ['pcSaveMovementEdit', 'Confirmar y guardar']]);
+        expect(document.querySelector('[data-app-fn="pcConfirmMovement"]')).toBeNull();
+    });
+    test('un registro ya confirmado se guarda con «Guardar cambios»', () => {
+        render(gasto());
+        expect(document.querySelector('[data-app-fn="pcSaveMovementEdit"]').textContent).toContain('Guardar cambios');
+    });
+});
+
+describe('aprovechar el espacio bajo la imagen', () => {
+    test('artículos y seguridad de la lectura van con el formulario: la foto queda libre y fija', () => {
+        render(gasto(), { showConfidence: true });
+        expect(document.querySelector('.pcn-form [data-pcn-items]')).not.toBeNull();
+        expect(document.querySelector('.pcn-form [data-pcn-confidence]')).not.toBeNull();
+        expect(document.querySelector('[data-pcn-view] [data-pcn-items]')).toBeNull();
+        expect(document.querySelector('[data-pcn-view] [data-pcn-confidence]')).toBeNull();
+    });
+    test('también cuando el gasto no tiene foto', () => {
+        render(gasto({ hasReceipt: false, receiptStatus: null }));
+        expect(document.querySelector('.pcn-form [data-pcn-items]')).not.toBeNull();
+    });
+});
+
+describe('la foto y su recuadro viajan juntos al visor', () => {
+    const source = { url: 'blob:abc', mime: 'image/jpeg' };
+    test('sin recuadro (PDF o lectura sin recuadros) la foto no lleva recuadro que enfocar', () => {
+        render(gasto(), { source });
+        expect(document.querySelector('[data-pcn-stage]').hasAttribute('data-box')).toBe(false);
+        render(gasto(), { source: { url: 'x', mime: 'application/pdf', preview: 'data:image/png;base64,AAA' } });
+        expect(document.querySelector('[data-pcn-stage]').hasAttribute('data-box')).toBe(false);
+    });
+    test('con recuadro lo lleva, en la misma escala 0–1000 que dibuja', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] } }), { source });
+        expect(document.querySelector('[data-pcn-stage]').dataset.box).toBe('790,520,850,920');
+        expect(document.querySelector('[data-pcn-box]')).not.toBeNull();
+    });
+});
+
+describe('marcar la posición de un dato en la foto', () => {
+    const source = { url: 'blob:abc', mime: 'image/jpeg' };
+    const withUi = (over) => ui(over);
+
+    test('un dato sin recuadro ofrece «Marcar … en la foto»', () => {
+        render(gasto(), { source, ui: withUi({ field: 'total' }) });
+        const mark = document.querySelector('[data-app-fn="pcEditorMark"]');
+        expect(mark.textContent).toContain('Marcar «Total» en la foto');
+        expect(document.querySelector('[data-pcn-nobox]').textContent).toContain('Marcar');
+    });
+    test('también los datos que el lector nunca enmarca: comercio, cliente, descuento, propina, exento…', () => {
+        for (const field of ['paidTo', 'cliente', 'rncCliente', 'descuento', 'propina', 'exento']) {
+            render(gasto(), { source, ui: withUi({ field }) });
+            expect(document.querySelector('[data-app-fn="pcEditorMark"]')).not.toBeNull();
+        }
+    });
+    test('el recuadro del lector se puede ajustar; el puesto a mano se puede quitar', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] } }), { source });
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]').textContent).toContain('Ajustar recuadro');
+        expect(document.querySelector('[data-app-fn="pcEditorBoxClear"]')).toBeNull();
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] }, manualBoxes: { total: [700, 500, 760, 900] } }), { source });
+        const clear = document.querySelector('[data-app-fn="pcEditorBoxClear"]');
+        expect(clear.dataset.arg).toBe('total');
+        expect(clear.textContent).toContain('lector');   // vuelve al del lector
+        render(gasto({ manualBoxes: { total: [700, 500, 760, 900] } }), { source });
+        expect(document.querySelector('[data-app-fn="pcEditorBoxClear"]').textContent).toContain('Quitar');
+    });
+    test('el recuadro a mano se dibuja en lugar del del lector, y los chips incluyen los marcados a mano', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] }, manualBoxes: { total: [100, 200, 160, 800], cliente: [300, 50, 350, 600] } }), { source });
+        expect(document.querySelector('[data-pcn-box]').getAttribute('style')).toContain('left:20%');
+        expect([...document.querySelectorAll('[data-pcn-chip]')].map((c) => c.dataset.arg)).toEqual(['total', 'cliente']);
+    });
+    test('modo marcar sin recuadro: se puede trazar sobre la foto y se explica cómo', () => {
+        render(gasto(), { source, ui: withUi({ field: 'total', mark: true }) });
+        const stage = document.querySelector('[data-pcn-stage]');
+        expect(stage.dataset.edit).toBe('draw');
+        expect(stage.dataset.key).toBe('total');
+        expect(document.querySelector('[data-pcn-mark-hint]').textContent).toContain('Arrastra');
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]').textContent).toContain('Listo');
+    });
+    test('modo marcar con recuadro: se puede mover y cambiar de tamaño', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] } }), { source, ui: withUi({ mark: true }) });
+        expect(document.querySelector('[data-pcn-stage]').dataset.edit).toBe('adjust');
+        expect(document.querySelector('[data-pcn-box] [data-pcn-handle]')).not.toBeNull();
+    });
+    test('fuera del modo marcar no hay manejadores ni se traza', () => {
+        render(gasto({ ocrBoxes: { total: [790, 520, 850, 920] } }), { source });
+        expect(document.querySelector('[data-pcn-stage]').dataset.edit).toBe('');
+        expect(document.querySelector('[data-pcn-handle]')).toBeNull();
+    });
+    test('con PDF, periodo cerrado o sin foto no se ofrece marcar', () => {
+        render(gasto(), { source: { url: 'x', mime: 'application/pdf', preview: 'data:image/png;base64,AA' } });
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]')).toBeNull();
+        render(gasto(), { source, cerrada: true });
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]')).toBeNull();
+        render(gasto(), { source: null });
+        expect(document.querySelector('[data-app-fn="pcEditorMark"]')).toBeNull();
+    });
+});
+
+describe('enderezar la foto desde el editor', () => {
+    const photo = { url: 'blob:abc', mime: 'image/jpeg' };
+    const btn = () => document.querySelector('[data-app-fn="pcEditorStraighten"]');
+    test('con una foto original se ofrece «Enderezar»', () => {
+        render(gasto(), { source: photo });
+        expect(btn()).not.toBeNull();
+        expect(btn().textContent).toMatch(/Enderezar/);
+        expect(btn().className).toContain('pcn-tool');
+    });
+    test('no se ofrece con PDF, periodo cerrado, sin foto, cargando o con solo la miniatura', () => {
+        render(gasto(), { source: { url: 'x', mime: 'application/pdf', preview: 'data:image/png;base64,AA' } });
+        expect(btn()).toBeNull();
+        render(gasto(), { source: photo, cerrada: true });
+        expect(btn()).toBeNull();
+        render(gasto({ hasReceipt: false, receiptStatus: null }), { source: null });
+        expect(btn()).toBeNull();
+        render(gasto(), { source: undefined });
+        expect(btn()).toBeNull();
+        render(gasto(), { source: null });
+        expect(btn()).toBeNull();
+        render(gasto(), { source: { url: 'data:image/jpeg;base64,AA', mime: 'image/jpeg', reduced: true } });
+        expect(btn()).toBeNull();
+    });
+    test('con la foto enderezada en espera se avisa, y se puede volver a la original', () => {
+        render(gasto(), { source: { ...photo, staged: true } });
+        const note = document.querySelector('[data-pcn-staged]');
+        expect(note).not.toBeNull();
+        expect(note.textContent).toMatch(/enderezada/i);
+        expect(note.textContent).toMatch(/confirmes|guardes/i);
+        expect(document.querySelector('[data-app-fn="pcEditorUndoStraighten"]')).not.toBeNull();
+        render(gasto(), { source: photo });
+        expect(document.querySelector('[data-pcn-staged]')).toBeNull();
+        expect(document.querySelector('[data-app-fn="pcEditorUndoStraighten"]')).toBeNull();
+    });
+    test('el botón sigue a «Reescanear», sin quitar nada de lo que ya había', () => {
+        render(gasto(), { source: photo });
+        const labels = [...document.querySelectorAll('.pcn-tools .pcn-tool')].map((el) => el.textContent.trim());
+        expect(labels).toEqual(expect.arrayContaining(['Ver comprobante', 'Reescanear']));
+        expect(labels.indexOf('Enderezar')).toBeGreaterThan(labels.indexOf('Ver comprobante'));
     });
 });

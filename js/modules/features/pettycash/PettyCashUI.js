@@ -47,8 +47,16 @@ import { receiptReviewState, checkReceipt, fixesFor } from './PettyCashReceiptCh
 import { movementReviewState, reviewFilterCounts, needsAttention } from './PettyCashReceiptReview.js';
 import { screenHTML } from './PettyCashScreen.js';
 import { receiptFileName, downloadReceipt, shareReceipt } from './PettyCashReceiptShare.js';
+import { isValidBox } from './PettyCashBoxMath.js';
+import { resolveReceiptOriginal } from './PettyCashReceiptSource.js';
+import { receiptDate } from './PettyCashDates.js';
+import { rescanSummary } from './PettyCashRescan.js';
+import { attachBoxEditor } from './PettyCashBoxEditor.js';
+import { createStraightenFlow } from './PettyCashStraightenFlow.js';
+import { boxesForDisplay, applyStagedBoxes } from './PettyCashCorners.js';
+import { attachPhotoViewer } from './PettyCashPhotoViewer.js';
 import { receiptEditorHTML, editorViewState, EDITOR_FIELDS } from './PettyCashReceiptEditor.js';
-import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, centerEditorBox } from './PettyCashEditorUi.js';
+import { defaultEditorUi, editorUiAction, readEditorDraft, draftSignature, fitEditorScreen } from './PettyCashEditorUi.js';
 import { projectFiscal, projectFiscalFormHTML, readProjectFiscalForm } from './PettyCashProjectFiscal.js';
 import {
     isReceiptReadyForBackup,
@@ -508,6 +516,7 @@ export async function scanPettyCashDraftReceipt(form) {
 export function openPettyCashVoiceMovement(movement) {
     const d = pc();
     d.selectedProjectId = movement.projectId; d.selectedPeriodId = movement.periodId; d.editMov = movement.id;
+    clearStagedEdit(d);          // lo que estaba en espera era de otro gasto
     persist(); window.changeTab?.('pettycash');
 }
 export async function discardPettyCashVoiceDraft(form) {
@@ -636,6 +645,8 @@ function receiptCamera() {
             return { id: movement.id, previewUrl: capture.previewDataUrl };
         },
         getItemsState: (ids) => cameraItemsState(ids),
+        autoCrop: () => state.settings?.receiptAutoCrop === true,
+        straighten: () => state.settings?.receiptStraighten === true,
         onFix: (id, fix) => applyReceiptFix(id, fix),
         onRescan: (id) => rereadReceipt(id),
         diag: cameraDiagnostics(),
@@ -994,8 +1005,18 @@ export function PettyCashTab() {
         if (pers.length) d.selectedPeriodId = pers[0].id;
     }
     const proj = currentProject();
+    if (newPettyCashScreen()) {
+        // Título, avisos, caja y periodo viajan dentro de la columna de la lista: así, con el editor
+        // abierto, el detalle ocupa todo el alto de la pantalla.
+        const top = `<div class="pcn-page-title">${icons.get('dollar', { size: 20 })} Caja Chica</div>${_receiptQueueBanner(d)}${_compactTopbar(d, obra, proj)}`;
+        const period = proj ? currentPeriod() : null;
+        const inner = period
+            ? _periodPanel(period, top)
+            : `${top}${proj ? '<div style="color:#64748b;padding:20px 0;">Selecciona o crea un periodo de caja.</div>' : _emptyProjects(obra)}`;
+        return `<div class="pc-wrap" style="max-width:1280px;margin:0 auto;padding:16px;color:#e2e8f0;">${inner}</div>`;
+    }
     return `
-    <div class="pc-wrap" style="max-width:${newPettyCashScreen() ? 1280 : 980}px;margin:0 auto;padding:16px;color:#e2e8f0;">
+    <div class="pc-wrap" style="max-width:980px;margin:0 auto;padding:16px;color:#e2e8f0;">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
             <h2 style="margin:0;font-size:1.4rem;display:flex;align-items:center;gap:8px;">
                 ${icons.get('dollar', { size: 22 })} Caja Chica
@@ -1136,6 +1157,38 @@ function _projectBar(d, obra = { obraId: null, knownObraIds: [], obras: [] }) {
     </div>`;
 }
 
+// ── pantalla nueva: barra superior de una línea (caja, periodo y acciones) ──
+function _compactTopbar(d, obra, proj) {
+    const view = filterCajasByObra(d.projects, { ...obra, showAll: !!d.showAllObras, selectedId: d.selectedProjectId });
+    const obraName = (id) => obra.obras.find((item) => item.id === id)?.name || 'otra obra';
+    const suffix = (p) => {
+        if (!view.scoped) return '';
+        const relation = cajaObraRelation(p, obra.obraId, obra.knownObraIds);
+        if (relation === 'orphan') return ' (sin obra)';
+        return relation === 'other' ? ` (${obraName(getOfficialProjectId(p))})` : '';
+    };
+    const projectOptions = view.visible.map((p) => `<option value="${p.id}" ${p.id === d.selectedProjectId ? 'selected' : ''}>${esc(p.name + suffix(p))}</option>`).join('');
+    const period = proj ? currentPeriod() : null;
+    const periods = proj ? periodsOfProject(d.periods, proj.id) : [];
+    const periodOptions = periods.map((p) => `<option value="${p.id}" ${period && p.id === period.id ? 'selected' : ''}>${esc(p.label)}${p.status === 'cerrada' ? ' 🔒' : ''}</option>`).join('');
+    const scopeLink = view.scoped && view.hiddenCount > 0
+        ? `<button type="button" class="pcn-link" data-app-fn="pcToggleAllObras" data-petty-obra-filter>${d.showAllObras
+            ? `Ver solo las cajas de ${esc(obraName(obra.obraId))}`
+            : `Ver cajas de todas las obras (${view.hiddenCount} más)`}</button>` : '';
+    const iconBtn = (fn, title, icon) => `<button type="button" class="pcn-icon-btn pcn-icon-btn--sm" data-app-fn="${fn}" title="${title}" aria-label="${title}">${icon}</button>`;
+    return `<div class="pcn-topbar" data-pcn-topbar>
+        <select class="pcn-select" onchange="window.pcSelectProject(this.value)" aria-label="Caja chica">
+            <option value="">— Selecciona un proyecto —</option>${projectOptions}
+        </select>
+        ${proj ? `<select class="pcn-select pcn-select--period" data-pcn-period onchange="window.pcSelectPeriod(this.value)" aria-label="Periodo">${periodOptions}</select>
+        <button type="button" class="pcn-link" data-app-fn="pcNewPeriod">+ Periodo</button>
+        ${iconBtn('pcEditProject', 'Renombrar proyecto', '✏️')}${iconBtn('pcEditProjectFiscal', 'Datos fiscales del proyecto', '🧾')}${iconBtn('pcDeleteProject', 'Eliminar proyecto', '🗑️')}` : ''}
+        <button type="button" class="pcn-link" data-app-fn="pcNewProject">+ Proyecto</button>
+        ${scopeLink}
+        ${_officialLinkDiagnostic(d, proj)}
+    </div>`;
+}
+
 // F1.7 (DEP-SA-001): diagnóstico visible mínimo del vínculo oficial.
 // Sólo con Projects ON; nunca filtra ni altera selección — las filas
 // huérfanas y el historial se conservan y sólo se anuncian.
@@ -1199,7 +1252,7 @@ function _projectBody(proj) {
     ${period ? _periodPanel(period) : '<div style="color:#64748b;padding:20px 0;">Selecciona o crea un periodo de caja.</div>'}`;
 }
 
-function _periodPanel(period) {
+function _periodPanel(period, top = '') {
     const d = pc();
     const movs = movementsOfPeriod(d.movements, period.id);
     const duplicateFindings = detectPettyCashDuplicates(d.movements, d.periods);
@@ -1230,7 +1283,7 @@ function _periodPanel(period) {
     const editMov = d.editMov ? movs.find(m => m.id === d.editMov) : null;
 
     if (newPettyCashScreen()) {
-        return _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary: r, cerrada, editMov });
+        return _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary: r, cerrada, editMov, top });
     }
 
     return `
@@ -1326,7 +1379,7 @@ function attentionQueueIds(period) {
 }
 
 function _periodHeaderHTML(period, cerrada) {
-    return `<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+    return `<div class="pcn-period-head" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
         <div>
             <div style="font-weight:700;font-size:1.05rem;display:flex;align-items:center;gap:8px;">
                 ${esc(period.label)} ${cerrada ? '<span style="font-size:.7rem;color:#fbbf24;">🔒 cerrada</span>' : ''}
@@ -1345,7 +1398,7 @@ function _periodFooterHTML(cerrada) {
     </div>`;
 }
 
-function _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary, cerrada, editMov }) {
+function _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, activeMovementBatchIds, summary, cerrada, editMov, top = '' }) {
     const d = pc();
     const query = String(d.movementSearchQuery || '').slice(0, 120);
     const searched = filterPettyCashMovements(visibleMovs, query);
@@ -1366,27 +1419,25 @@ function _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, acti
         cerrada && period.efectivoContado !== undefined && period.efectivoContado !== null ? _conciliacionBlock(period) : '',
         d.form && !cerrada ? _movementForm(d.form) : ''
     ].join('');
-    return `<div class="pcn-period">
-        ${_periodHeaderHTML(period, cerrada)}
-        ${screenHTML({
-            period: { label: period.label, cerrada },
-            summary,
-            cameraMode: state.settings?.newReceiptCamera === true ? 'camera' : 'native',
-            items: page.items.map((movement) => byId.get(movement.id)),
-            counts, filter, reviewFirst: d.reviewFirst !== false,
-            selectedId: editMov?.id || null,
-            editing: !!editMov,
-            editorHTML: editMov ? _movementEditForm(editMov, cerrada) : '',
-            slots: {
-                before,
-                search: _movementSearchControl(query),
-                sort: `${_duplicateSummary(searched, duplicatesByMovement)}${_movementSortControls(d, filtered.length, visibleMovs.length)}`
-            },
-            hasMore: page.hasMore,
-            moreLabel: `Mostrar 50 más · ${page.visible} de ${page.total}`
-        })}
-        ${_periodFooterHTML(cerrada)}
-    </div>`;
+    return screenHTML({
+        period: { label: period.label, cerrada },
+        summary: { ...summary, projectTotal: periodsOfProject(d.periods, period.projectId).length > 1 ? saldoProyectoFlat(d.movements, period.projectId) : null },
+        cameraMode: state.settings?.newReceiptCamera === true ? 'camera' : 'native',
+        items: page.items.map((movement) => byId.get(movement.id)),
+        counts, filter, reviewFirst: d.reviewFirst !== false,
+        selectedId: editMov?.id || null,
+        editing: !!editMov,
+        editorHTML: editMov ? _movementEditForm(editMov, cerrada) : '',
+        slots: {
+            top: `${top}${_periodHeaderHTML(period, cerrada)}`,
+            before,
+            search: _movementSearchControl(query),
+            sort: `${_duplicateSummary(searched, duplicatesByMovement)}${_movementSortControls(d, filtered.length, visibleMovs.length)}`,
+            after: _periodFooterHTML(cerrada)
+        },
+        hasMore: page.hasMore,
+        moreLabel: `Mostrar 50 más · ${page.visible} de ${page.total}`
+        });
 }
 
 function _conciliacionBlock(period) {
@@ -1512,10 +1563,16 @@ async function loadEditorSource(movId) {
             } catch { /* sin red: se usa la vista previa */ }
         }
         if (!source && (rec?.dataUrl || rec?.previewDataUrl)) {
-            source = { url: rec.dataUrl || rec.previewDataUrl, mime: 'image/jpeg', preview: rec.previewDataUrl || null };
+            // Con la miniatura (480 px) la foto se ve borrosa: se avisa en lugar de dejar que parezca un fallo.
+            source = { url: rec.dataUrl || rec.previewDataUrl, mime: 'image/jpeg', preview: rec.previewDataUrl || null, reduced: !rec.dataUrl };
         }
     } catch { source = null; }
     if (d.editMov !== movId) {
+        if (source?.objectUrl) { try { URL.revokeObjectURL(source.url); } catch { /* noop */ } }
+        return;
+    }
+    // Si mientras tanto se dejó una foto enderezada en espera, esa es la que se ve: la original no la pisa.
+    if (d._editSource?.staged) {
         if (source?.objectUrl) { try { URL.revokeObjectURL(source.url); } catch { /* noop */ } }
         return;
     }
@@ -1523,29 +1580,52 @@ async function loadEditorSource(movId) {
     repaintEditor();
 }
 /** Abre el editor de un gasto: pantalla en su estado inicial y la foto cargándose. */
+function clearStagedEdit(d) {
+    d._editPhoto = null; d._editPhotoCapture = null; d._editPhotoFor = null; d._editBoxes = null;
+}
 function openEditorState(movId) {
     const d = pc();
     releaseEditorSource();
+    clearStagedEdit(d);
     d._editorUi = defaultEditorUi();
+    d._rescanResult = null;
     if (newPettyCashScreen() && movId) loadEditorSource(movId);
 }
-/** Repinta y, con la imagen ampliada, centra el recuadro del dato activo. */
+/** Repinta; el visor de la foto acerca solo al recuadro del dato activo (PettyCashPhotoViewer). */
 function repaintEditor() {
     window.render?.();
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => centerEditorBox(document));
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { fitEditorScreen(); });
+    if (!_editorResizeBound && typeof window.addEventListener === 'function') {
+        _editorResizeBound = true;
+        window.addEventListener('resize', () => fitEditorScreen());
+    }
 }
+let _editorResizeBound = false;
+let _boxEditorDetach = null;
+let _photoViewer = null;
+let _straightenFlow = null;
+const EDITOR_BOX_KEYS = new Set(['rncEmisor', 'ncf', 'date', 'subtotal', 'itbis', 'total', 'paidTo', 'cliente', 'rncCliente', 'descuento', 'propina', 'exento']);
 function closeEditorState() {
     releaseEditorSource();
+    pc()._editBoxes = null;
+    pc()._editPhotoFor = null;
     pc()._editorUi = null;
+    pc()._rescanResult = null;
+}
+/** Foto que ve el editor: la enderezada en espera (grande), si no la nueva elegida (miniatura), si no la guardada. */
+function editorPhotoSource(d) {
+    if (d._editSource?.staged) return d._editSource;
+    return d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource;
 }
 function _newMovementEditor(mov, cerrada) {
     const d = pc();
-    return receiptEditorHTML(mov, {
+    return receiptEditorHTML(boxesForDisplay(mov, d._editBoxes), {
         cerrada,
         context: editorContext(mov),
         ui: editorUi(),
-        source: d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource,
+        source: editorPhotoSource(d),
         showConfidence: state.settings?.pettyCashReadConfidence === true,
+        rescan: { busy: !!d._rescanStatus, result: d._rescanResult || null },
         queue: (() => {
             const period = d.periods.find((item) => item.id === mov.periodId);
             const ids = attentionQueueIds(period);
@@ -1565,7 +1645,7 @@ function _movementEditForm(mov, cerrada) {
         <div style="font-weight:700;margin-bottom:10px;">${isGasto ? '🏪 Detalle del gasto' : '💰 Detalle de la reposición'}${cerrada ? ' <span style="font-size:.7rem;color:#fbbf24;">(periodo cerrado · solo lectura)</span>' : ''}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
             ${lab('Monto (RD$)', inp('pce-amount', mov.amount, 'number', 'step="0.01" min="0" inputmode="decimal"'))}
-            ${lab('Fecha del movimiento', inp('pce-date', mov.date || today(), 'date'))}
+            ${lab(isGasto ? 'Fecha de la factura' : 'Fecha del movimiento', inp('pce-date', receiptDate(mov) || today(), 'date'))}
             ${isGasto ? `
             ${lab('Tienda / proveedor', inp('pce-tienda', mov.paidTo))}
             ${lab('RNC / comprobante de la empresa', inp('pce-rnc', mov.rncEmisor))}
@@ -1595,7 +1675,6 @@ function _movementEditForm(mov, cerrada) {
             ${lab('Subtotal', inp('pce-subtotal', mov.subtotal, 'number', 'step="0.01"'))}
             ${lab('ITBIS', inp('pce-itbis', mov.itbis, 'number', 'step="0.01"'))}
             ${lab('Total', inp('pce-total', mov.total, 'number', 'step="0.01"'))}
-            ${lab('Fecha emisión', inp('pce-femision', mov.fechaEmision, 'date'))}
             ${lab('Fecha vencimiento', inp('pce-fvenc', mov.fechaVencimiento, 'date'))}
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Notas / detalles<textarea id="pce-notas" ${ro} rows="2" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;resize:vertical;">${esc(mov.notas || '')}</textarea></label>
             ${(Array.isArray(mov.items) && mov.items.length) ? `<div style="grid-column:1/-1;border-top:1px solid #334155;margin-top:6px;padding-top:10px;"><div style="font-size:.72rem;color:#64748b;font-weight:700;letter-spacing:.04em;margin-bottom:6px;">ARTÍCULOS (${mov.items.length})</div>${mov.items.map(it => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:.8rem;color:#cbd5e1;padding:2px 0;"><span>${esc((it.cantidad ? it.cantidad + '× ' : '') + (it.descripcion || '—'))}</span><span style="color:#94a3b8;white-space:nowrap;">${it.precio != null ? rd(it.precio) : ''}</span></div>`).join('')}</div>` : ''}
@@ -1721,7 +1800,7 @@ function _reviewPendingMovementsTable(
                                 ${duplicate ? '<div style="font-size:.64rem;color:#fdba74;margin-top:3px;">⚠ Posible duplicado</div>' : ''}
                                 ${isExpense && receiptBackupState(movement) ? `<div style="margin-top:4px;">${receiptBackupBadge(movement)}</div>` : ''}
                             </td>
-                            <td class="pc-review-date" style="padding:10px;color:#cbd5e1;white-space:nowrap;">${esc(formatPettyCashDate(movement.fechaEmision || movement.date))}</td>
+                            <td class="pc-review-date" style="padding:10px;color:#cbd5e1;white-space:nowrap;">${esc(formatPettyCashDate(receiptDate(movement)))}</td>
                             <td class="pc-review-amount" style="padding:10px;text-align:right;font-weight:850;color:${isExpense ? '#f87171' : '#34d399'};white-space:nowrap;">${isExpense ? '−' : '+'} ${rd(movement.amount)}</td>
                             <td class="pc-review-actions" style="padding:8px 10px;">
                                 <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;">
@@ -1779,7 +1858,7 @@ function _movementsList(
                         ${isGasto ? receiptBackupBadge(m) : ''}
                         ${isGasto && m.category ? `<span style="font-size:.68rem;background:#1e293b;border:1px solid #334155;padding:1px 7px;border-radius:999px;color:#94a3b8;">${esc(m.category)}</span>` : ''}
                     </div>
-                    <div style="font-size:.72rem;color:#64748b;">📅 ${esc(formatPettyCashDate(m.date))}${isGasto && m.ncf ? ' · NCF: ' + esc(m.ncf) : ''}${m.description && isGasto && m.paidTo ? ' · ' + esc(m.description) : ''}</div>
+                    <div style="font-size:.72rem;color:#64748b;">📅 ${esc(formatPettyCashDate(receiptDate(m)))}${isGasto && m.ncf ? ' · NCF: ' + esc(m.ncf) : ''}${m.description && isGasto && m.paidTo ? ' · ' + esc(m.description) : ''}</div>
                     ${duplicate ? `<button type="button" data-app-fn="pcOpenDuplicateReference" data-arg="${esc(duplicate.referenceId)}" data-app-stop="1"
                         title="${esc(duplicate.reason)}. Abrir registro de referencia."
                         style="margin-top:6px;background:${duplicateColor};border:none;color:#fff;border-radius:999px;padding:4px 8px;font-size:.66rem;font-weight:800;cursor:pointer;">
@@ -1831,6 +1910,7 @@ export async function savePettyCashMovementDraft(form, fields, { periodId = null
         mov.paidTo = String(fields.paidTo || '').trim();
         mov.category = fields.category || '';
         mov.hasReceipt = !!fields.hasReceipt || !!photo;
+        mov.fechaEmision = mov.date; // la fecha que se confirma en el formulario es la de la factura
         if (hasLocalOriginal) {
             mov.receiptStatus = 'local';
             mov.receiptStorage = 'local-only';
@@ -1851,7 +1931,6 @@ export async function savePettyCashMovementDraft(form, fields, { periodId = null
             if (form.ocr.propina != null) mov.propina = form.ocr.propina;
             if (form.ocr.exento != null) mov.exento = form.ocr.exento;
             if (form.ocr.itbisIncluido != null) mov.itbisIncluido = form.ocr.itbisIncluido;
-            if (form.ocr.fechaEmision) mov.fechaEmision = form.ocr.fechaEmision;
             if (form.ocr.notas) mov.notas = form.ocr.notas;
             if (Array.isArray(form.ocr.items) && form.ocr.items.length) mov.items = form.ocr.items;
         }
@@ -2190,7 +2269,7 @@ export function registerPettyCashGlobals() {
         pc()._editPhotoCapture = null;
         pc()._rescanStatus = null;
         openEditorState(movId);
-        window.render?.();
+        if (newPettyCashScreen()) repaintEditor(); else window.render?.();
     };
     window.pcOpenDuplicateReference = (movId) => {
         const d = pc();
@@ -2227,12 +2306,85 @@ export function registerPettyCashGlobals() {
         d._editorUi = editorUiAction(ui, name, arg, shown);
         repaintEditor();
     };
-    window.pcEditorSize = editorAct('size');
-    window.pcEditorZoom = editorAct('zoom');
     window.pcEditorItems = editorAct('items');
     window.pcEditorMore = editorAct('more');
     window.pcEditorSecurity = editorAct('security');
     window.pcEditorField = editorAct('field');
+    window.pcEditorMark = editorAct('mark');
+    // Posición de un dato puesta a mano (manualBoxes): manda sobre la del lector y sobrevive a volver a leer la factura.
+    const saveManualBoxes = async (mov, manualBoxes) => {
+        const d = pc();
+        const draft = readEditorDraft(document);
+        await applyReceiptFix(mov.id, { patch: { manualBoxes } });
+        d._editorUi = { ...editorUi(), draft };
+        repaintEditor();
+    };
+    // Con la foto enderezada en espera, las marcas son de la foto nueva y esperan con ella (no se escriben en el gasto).
+    const writeManualBoxes = async (mov, manualBoxes) => {
+        const d = pc();
+        if (!d._editBoxes) { await saveManualBoxes(mov, manualBoxes); return; }
+        const draft = readEditorDraft(document);
+        d._editBoxes = { ...d._editBoxes, manualBoxes };
+        d._editorUi = { ...editorUi(), draft };
+        repaintEditor();
+    };
+    window.pcEditorBoxCommit = async (key, box) => {
+        const mov = editingMovement();
+        if (!mov || !isValidBox(box) || !EDITOR_BOX_KEYS.has(key)) return;
+        const shown = boxesForDisplay(mov, pc()._editBoxes);
+        await writeManualBoxes(mov, { ...(shown.manualBoxes || {}), [key]: box.slice() });
+    };
+    window.pcEditorBoxClear = async (key) => {
+        const mov = editingMovement();
+        const shown = mov ? boxesForDisplay(mov, pc()._editBoxes) : null;
+        if (!shown || !shown.manualBoxes || !(key in shown.manualBoxes)) return;
+        const rest = { ...shown.manualBoxes };
+        delete rest[key];
+        await writeManualBoxes(mov, rest);
+    };
+    // Zoom, arrastre y divisor de la foto: la vista vive en el estado del editor y no repinta mientras se mueve.
+    if (typeof document !== 'undefined' && !_photoViewer) {
+        _photoViewer = attachPhotoViewer({
+            doc: document,
+            getUi: () => pc()?._editorUi || null,
+            setUi: (patch) => { const d = pc(); if (d?._editorUi) d._editorUi = { ...d._editorUi, ...patch }; }
+        });
+    }
+    if (typeof document !== 'undefined' && !_boxEditorDetach) {
+        _boxEditorDetach = attachBoxEditor({ doc: document, onCommit: (key, box) => window.pcEditorBoxCommit?.(key, box) });
+    }
+    // Enderezar a mano: la foto original, cuatro esquinas que se arrastran y la foto enderezada en espera hasta confirmar.
+    if (!_straightenFlow) {
+        _straightenFlow = createStraightenFlow({
+            doc: document,
+            getState: () => pc(),
+            getMovement: editingMovement,
+            isClosed: (mov) => pc().periods.find((item) => item.id === mov.periodId)?.status === 'cerrada',
+            resolveOriginal: async (txId) => resolveReceiptOriginal({
+                txId,
+                getReceipt: (id) => indexedDBService.getReceipt(id),
+                lookup: APP_CONFIG?.RECEIPT_UPLOAD_URL && auth?.currentUser
+                    ? async (id) => lookupReceiptBackup({ url: APP_CONFIG.RECEIPT_UPLOAD_URL, idToken: await auth.currentUser.getIdToken(), txId: id })
+                    : null
+            }),
+            prepareCapture: prepareReceiptCapture,
+            notify: (message, type) => window.showNotification?.(message, type),
+            repaint: repaintEditor,
+            releaseSource: releaseEditorSource,
+            reloadSource: () => { const d = pc(); if (d.editMov) loadEditorSource(d.editMov); },
+            readDraft: () => readEditorDraft(document)
+        });
+    }
+    window.pcEditorStraighten = () => _straightenFlow.start();
+    window.pcEditorUndoStraighten = () => _straightenFlow.undo();
+    window.pcEditorReloadSource = () => {
+        const d = pc();
+        if (!d.editMov) return;
+        releaseEditorSource();
+        d._editSource = undefined;
+        window.render?.();
+        loadEditorSource(d.editMov);
+    };
     window.pcEditorFocus = (id) => {
         const d = pc();
         const mov = editingMovement();
@@ -2243,6 +2395,20 @@ export function registerPettyCashGlobals() {
         d._editorUi = { ...ui, field: key || ui.field, more: hidden ? true : ui.more };
         window.render?.();
         setTimeout(() => document.getElementById(id)?.focus?.(), 0);
+    };
+    // Gasto con dos fechas distintas: se guarda la que la persona elija, en las dos claves.
+    window.pcEditorPickDate = async (which) => {
+        const d = pc();
+        const mov = editingMovement();
+        if (!mov) return;
+        const value = which === 'registro' ? mov.date : mov.fechaEmision;
+        if (!value) return;
+        const draft = readEditorDraft(document);
+        delete draft.date;
+        delete draft.fechaEmision;
+        await applyReceiptFix(mov.id, { patch: { date: value, fechaEmision: value } });
+        d._editorUi = { ...editorUi(), draft };
+        window.render?.();
     };
     window.pcEditorFix = async (arg) => {
         const [code, kind] = String(arg || '').split('|');
@@ -2284,7 +2450,7 @@ export function registerPettyCashGlobals() {
     const editorFile = () => {
         const d = pc();
         const mov = editingMovement();
-        const source = d._editPhoto ? { url: d._editPhoto, mime: 'image/jpeg' } : d._editSource;
+        const source = editorPhotoSource(d);
         return mov && source?.url ? { url: source.url, mime: source.mime || 'image/jpeg', name: receiptFileName(mov, source.mime || 'image/jpeg') } : null;
     };
     window.pcEditorDownload = async () => {
@@ -2326,7 +2492,7 @@ export function registerPettyCashGlobals() {
     window.pcEditorFocusIn = (event) => {
         const key = EDITOR_FIELDS[event?.target?.id]?.key;
         const mov = editingMovement();
-        if (!key || !mov || !Array.isArray(mov.ocrBoxes?.[key])) return;
+        if (!key || !mov || !Array.isArray(boxesForDisplay(mov, pc()._editBoxes).ocrBoxes?.[key])) return;
         const ui = editorUi();
         if (ui.field === key) return;
         pc()._editorUi = { ...ui, field: key, draft: readEditorDraft(document) };
@@ -2474,23 +2640,34 @@ export function registerPettyCashGlobals() {
             }
             : null;
         if (!prepared) {
+            // Solo el original sirve para leer: la miniatura de 480 px hace que el lector falle en montos y totales.
+            const found = await resolveReceiptOriginal({
+                txId: movId,
+                getReceipt: (id) => indexedDBService.getReceipt(id),
+                lookup: APP_CONFIG?.RECEIPT_UPLOAD_URL
+                    ? async (id) => lookupReceiptBackup({ url: APP_CONFIG.RECEIPT_UPLOAD_URL, idToken: await user.getIdToken(), txId: id })
+                    : null
+            });
+            if (!found.ok) {
+                Modal.alert({ title: 'Re-escanear', message: 'No se pudo obtener la foto original (hace falta conexión para bajarla del respaldo). La miniatura no sirve para leer la factura.' });
+                return;
+            }
             try {
-                const rec = await indexedDBService.getReceipt(movId);
-                if (rec?.originalBlob) {
-                    prepared = await prepareReceiptForOcr(rec.originalBlob);
-                    prepared.mimeType = rec.originalType || prepared.mimeType;
-                    prepared.fileName = rec.originalName || prepared.fileName;
-                } else if (rec?.dataUrl || rec?.previewDataUrl) {
-                    prepared = {
-                        fileDataUrl: rec.dataUrl || rec.previewDataUrl,
-                        mimeType: 'image/jpeg',
-                        fileName: rec.originalName || 'factura.jpg'
-                    };
+                if (found.dataUrl) {
+                    prepared = { fileDataUrl: found.dataUrl, mimeType: found.type, fileName: found.name || 'factura.jpg' };
+                } else {
+                    prepared = await prepareReceiptForOcr(found.blob);
+                    prepared.fileName = found.name || prepared.fileName;
                 }
-            } catch { /* noop */ }
+            } catch {
+                Modal.alert({ title: 'Re-escanear', message: 'No se pudo preparar la foto para leerla.' });
+                return;
+            }
         }
         if (!prepared?.fileDataUrl) { Modal.alert({ title: 'Re-escanear', message: 'No hay un comprobante para escanear. Agrega o cambia el archivo primero.' }); return; }
         d._rescanStatus = '⏳ Escaneando...';
+        d._rescanResult = null;
+        if (newPettyCashScreen()) d._editorUi = { ...editorUi(), draft: readEditorDraft(document) };
         window.render?.();
         try {
             await indexedDBService.updateReceiptJob(movId, {
@@ -2507,11 +2684,27 @@ export function registerPettyCashGlobals() {
                 fileName: prepared.fileName
             });
             const normalized = normalizeReceiptOcr(data, CATEGORIAS);
+            const before = { ...mov };
+            const savedOcrBoxes = mov.ocrBoxes;
             applyReceiptOcrToMovement(mov, normalized);
+            if (d._editBoxes) {
+                // La foto enderezada aún no se guardó: sus recuadros esperan con ella. Los nuevos del lector
+                // ganan sobre los pasados de la foto vieja, y la foto vigente conserva los suyos hasta confirmar.
+                const fresh = mov.ocrBoxes && mov.ocrBoxes !== savedOcrBoxes ? mov.ocrBoxes : d._editBoxes.ocrBoxes;
+                d._editBoxes = { ...d._editBoxes, ocrBoxes: fresh };
+                if (savedOcrBoxes === undefined) delete mov.ocrBoxes; else mov.ocrBoxes = savedOcrBoxes;
+            }
             mov.reviewPending = true;
             mov.localDraft = true;
             mov.updatedAt = Date.now();
             d._rescanStatus = null;
+            d._rescanResult = rescanSummary(before, mov, normalized.got);
+            // Lo que el lector cambió gana sobre lo escrito antes de volver a leer.
+            if (d._editorUi?.draft) {
+                const draft = { ...d._editorUi.draft };
+                d._rescanResult.keys.forEach((key) => { delete draft[key]; });
+                d._editorUi = { ...d._editorUi, draft };
+            }
             await indexedDBService.updateReceiptJob(movId, {
                 queueStatus: 'awaiting-review',
                 ocrStatus: normalized.got ? 'extracted' : 'needs-review',
@@ -2537,6 +2730,7 @@ export function registerPettyCashGlobals() {
             getReceiptQueueProcessor().scheduleNextRetry().catch(() => null);
             await refreshReceiptQueueSummary();
             pc()._rescanStatus = null;
+            pc()._rescanResult = { tone: 'error', text: 'No se pudo leer la factura. Revisa la conexión y vuelve a intentarlo.', keys: [] };
             window.render?.();
             Modal.alert({ title: 'Re-escanear', message: 'No se pudo escanear. (' + (e.message || '') + ')' });
         }
@@ -2752,8 +2946,17 @@ export function registerPettyCashGlobals() {
         if (!file) return;
         try {
             const capture = await prepareReceiptCapture(file);
-            pc()._editPhoto = capture.previewDataUrl;
-            pc()._editPhotoCapture = capture;
+            const d = pc();
+            const hadStaged = !!d._editSource?.staged;
+            d._editPhoto = capture.previewDataUrl;
+            d._editPhotoCapture = capture;
+            d._editPhotoFor = d.editMov;
+            // Los recuadros del gasto son de la foto vieja: no se dibujan sobre esta otra y, al confirmar, se limpian.
+            d._editBoxes = { ocrBoxes: {}, manualBoxes: {} };
+            if (hadStaged) {                      // otra foto sustituye a la enderezada: ya no hay nada que mostrar de ella
+                releaseEditorSource();
+                d._editSource = undefined;
+            }
             window.render?.();
         }
         catch (e) {
@@ -2836,7 +3039,9 @@ export function registerPettyCashGlobals() {
         const amount = parseFloat(document.getElementById('pce-amount')?.value);
         if (!Number.isFinite(amount) || amount <= 0) { Modal.alert({ title: 'Monto inválido', message: 'Ingresa un monto válido mayor que 0.' }); return; }
         mov.amount = round2(amount);
-        mov.date = document.getElementById('pce-date')?.value || mov.date;
+        // Solo se escribe la fecha si la persona la cambió: un gasto con dos fechas distintas conserva las dos.
+        const typedDate = document.getElementById('pce-date')?.value || '';
+        if (typedDate && typedDate !== receiptDate(mov)) { mov.date = typedDate; if (mov.type === 'gasto') mov.fechaEmision = typedDate; }
         mov.description = txt('pce-desc');
         if (mov.type === 'gasto') {
             mov.paidTo = txt('pce-tienda');
@@ -2849,7 +3054,7 @@ export function registerPettyCashGlobals() {
             mov.subtotal = numOrNull('pce-subtotal');
             mov.itbis = numOrNull('pce-itbis');
             mov.total = numOrNull('pce-total');
-            mov.fechaEmision = document.getElementById('pce-femision')?.value || null;
+            if (!mov.fechaEmision) mov.fechaEmision = mov.date; // la fecha de la factura es la de emisión
             mov.fechaVencimiento = document.getElementById('pce-fvenc')?.value || null;
             mov.notas = document.getElementById('pce-notas')?.value?.trim() || '';
             // Datos fiscales que solo trae el editor nuevo: sin el campo, el gasto queda como está.
@@ -2863,8 +3068,10 @@ export function registerPettyCashGlobals() {
         mov.reviewPending = false; // guardar el detalle = revisado/confirmado
         delete mov.localDraft;
         mov.updatedAt = Date.now();
-        const pendingPhoto = d._editPhoto;
-        const pendingCapture = d._editPhotoCapture;
+        // Lo que está en espera solo vale para el gasto al que pertenece (nunca se le pone a otro la foto de uno).
+        const stagedForOther = !!d._editPhotoFor && d._editPhotoFor !== mov.id;
+        const pendingPhoto = stagedForOther ? null : d._editPhoto;
+        const pendingCapture = stagedForOther ? null : d._editPhotoCapture;
         let receiptReadyForBackup = false;
         // Sustituir la copia local únicamente después de que el usuario guarde.
         if (pendingPhoto && pendingCapture && mov.type === 'gasto') {
@@ -2883,6 +3090,8 @@ export function registerPettyCashGlobals() {
                 mov.receiptPageCount = pendingCapture.pageCount;
                 mov.hasReceipt = true;
                 mov.updatedAt = Date.now();
+                // Los recuadros de la foto enderezada se escriben junto con ella, no antes (ni si la foto no se guardó).
+                if (d._editBoxes && !stagedForOther) applyStagedBoxes(mov, d._editBoxes);
                 receiptReadyForBackup = true;
             } catch (e) {
                 console.warn('⚠️ saveReceipt local (edit):', e);
@@ -2899,7 +3108,7 @@ export function registerPettyCashGlobals() {
                 console.warn('confirm existing receipt after edit', e);
             }
         }
-        d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null;
+        d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null; d._editBoxes = null; d._editPhotoFor = null;
         closeEditorState();
         persist();
         await saveMovement(

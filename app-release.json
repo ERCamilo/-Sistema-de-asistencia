@@ -1,24 +1,82 @@
 {
-  "version": "1.7.122",
+  "version": "1.7.127",
   "changelog": [
     {
-      "version": "1.7.122",
-      "date": "2026-11-01",
-      "title": "Corrección de feriados simultáneos",
+      "version": "1.7.127",
+      "date": "2026-11-05",
+      "title": "Ajustes de Multiobra sin cambios perdidos",
       "items": [
-        "Guarda dos o más feriados diferentes sin perder una fecha cuando las ediciones llegan juntas.",
-        "Al quitar un feriado se conservan todas las otras fechas ya confirmadas.",
-        "Mantiene la jornada, las horas, la nómina y los parámetros de la obra frente a guardados atrasados."
+        "Dos incrementos rápidos de horas se acumulan correctamente y se conservan las ediciones de fechas distintas.",
+        "Las respuestas atrasadas no reemplazan las horas confirmadas ni se guarda configuración inicial de una cuenta anterior.",
+        "Añadir o quitar feriados conserva los demás feriados y los ajustes recientes de jornada, período de pago y factor de horas extra.",
+        "Guardar opciones predeterminadas de nómina no revierte horas ni feriados ya confirmados.",
+        "Mantiene el archivo de incidencias, los cierres históricos protegidos, la pausa y las confirmaciones visuales de obras."
+      ]
+    },
+    {
+      "version": "1.7.126",
+      "date": "2026-11-03",
+      "title": "Archivar incidencias y conservar cierres históricos",
+      "items": [
+        "Los problemas de Multiobra que no pueden resolverse se pueden archivar y restaurar, sin borrar sus datos.",
+        "El asistente permite salir por ahora, incluso si hay una operación pendiente, y protege sus decisiones de respuestas atrasadas.",
+        "Pausar, archivar o reactivar una obra muestra una confirmación breve con iconos y conserva el historial; sus estados se distinguen en la lista.",
+        "Puedes recuperar una copia histórica de cierres sin empleado en una obra activa, manteniendo los importes y el cierre original.",
+        "Antes de borrar una obra con historial se pueden revisar las dependencias; el borrado masivo permanece bloqueado por seguridad.",
+        "Ahora puedes descargar o compartir un informe de problemas de Multiobra en formato .log, sin nombres ni datos financieros.",
+        "Para solicitar borrar una obra debe llevar 30 días pausada; la solicitud puede cancelarse durante al menos otros 30 días. El borrado definitivo de obras con datos sigue bloqueado.",
+        "La recuperación de cierres históricos comprueba la obra original directamente con Firebase; sin conexión o permisos de lectura no crea la copia."
+      ]
+    },
+    {
+      "version": "1.7.125",
+      "date": "2026-11-03",
+      "title": "Endereza tus facturas con las cuatro esquinas",
+      "items": [
+        "En el editor de la factura, «Enderezar» abre la foto con cuatro puntos: arrástralos hasta las esquinas del papel y la foto queda recta. Sirve también con fotos de la galería y con las que ya tomaste.",
+        "La foto enderezada se guarda cuando confirmas el gasto; puedes volver a la original antes de confirmar, y los recuadros de los datos se acomodan a la foto nueva.",
+        "El recorte automático ya no corta las facturas curvas o con sombra, y el enderezado automático no toca un papel curvo.",
+        "Los botones del editor de la factura (Reescanear, Enderezar, Ver comprobante…) ahora se ven como botones, con borde y fondo."
+      ]
+    },
+    {
+      "version": "1.7.124",
+      "date": "2026-11-02",
+      "title": "Enderezar facturas al tomar la foto",
+      "items": [
+        "Activa en Ajustes → Pruebas «Enderezar facturas»: la cámara busca las cuatro esquinas del papel y lo deja recto aunque lo hayas tomado girado o en ángulo.",
+        "Ante la duda no toca la foto, y si el papel ya está recto tampoco; no se aplica a la factura larga ni a las fotos de la galería.",
+        "El diagnóstico de la cámara cuenta cuántas fotos se enderezaron y cuánto se inclinaban."
+      ]
+    },
+    {
+      "version": "1.7.123",
+      "date": "2026-11-02",
+      "title": "Fotos de facturas más nítidas y fechas coherentes",
+      "items": [
+        "La fecha de la factura es siempre la de emisión: la lista, el orden, los avisos y el Excel muestran la misma. Las facturas que ya tenían dos fechas distintas las muestran y te dejan elegir cuál es la correcta.",
+        "La cámara enfoca de forma continua, enfoca donde tocas el visor y avisa en el momento si la foto salió borrosa u oscura. Puedes activar en Ajustes → Pruebas el recorte automático del fondo de la factura.",
+        "El lector entiende las fechas como día/mes/año y copia los montos tal como están impresos."
+      ]
+    },
+    {
+      "version": "1.7.122",
+      "date": "2026-11-02",
+      "title": "Revisa facturas con la foto siempre a la vista",
+      "items": [
+        "Acerca y aleja la foto con dos dedos, la rueda o los botones; al elegir un dato la foto se enfoca sola y queda fija mientras revisas el formulario.",
+        "Reescanear lee siempre la foto original, nunca la miniatura, muestra «Leyendo…» y te dice qué datos cambiaron.",
+        "El lector recibe la foto más grande y nítida para leer mejor montos y totales."
       ]
     },
     {
       "version": "1.7.121",
       "date": "2026-11-01",
-      "title": "Feriados concurrentes sin pérdidas",
+      "title": "Caja chica renovada y lecturas más fieles",
       "items": [
-        "Dos fechas marcadas como feriados a la vez se conservan sin sustituirse.",
-        "Quitar un feriado no elimina otras fechas confirmadas.",
-        "La configuración de nómina conserva las horas, jornadas, períodos y factores de horas extra anteriores."
+        "Prueba la pantalla nueva de Caja chica desde Ajustes → Pruebas: saldo y botón de foto arriba, gastos en tarjetas con su estado y el editor de la factura junto a la foto.",
+        "Marca tú mismo dónde está cada dato en la foto, y descarga o comparte la foto de la factura.",
+        "Las fotos tomadas con la cámara llegan al lector de facturas con su tipo de archivo correcto, para que lea mejor."
       ]
     },
     {
@@ -86,27 +144,6 @@
         "La nueva versión se prepara en segundo plano y espera tu confirmación para guardar y reiniciar.",
         "Si la descarga se interrumpe, puedes reintentar o recargar sin quedar esperando indefinidamente.",
         "Reparar interfaz renueva los archivos de la aplicación y conserva tus datos, fotos y comprobantes."
-      ]
-    },
-    {
-      "version": "1.7.113",
-      "date": "2026-10-27",
-      "title": "Feriados y nómina sin sobrescrituras",
-      "items": [
-        "Cambiar un feriado conserva la jornada base, el período de pago y el factor de horas extra ya confirmados.",
-        "Las opciones predeterminadas de nómina se guardan sin revertir horas ni feriados recientes.",
-        "Se preservan las mejoras de concurrencia de horas y el aislamiento de obras de las versiones anteriores."
-      ]
-    },
-    {
-      "version": "1.7.112",
-      "date": "2026-10-27",
-      "title": "Horas y feriados sin cambios perdidos",
-      "items": [
-        "Dos pulsaciones rápidas de +0.5 horas se acumulan correctamente.",
-        "Las ediciones simultáneas en días distintos se conservan.",
-        "Los ajustes de feriados no revierten las horas ya confirmadas, ni los cambios de horas revierten feriados.",
-        "Las respuestas atrasadas no reemplazan valores recientes y se descartan configuraciones iniciales de cuentas anteriores."
       ]
     },
     {

@@ -23,6 +23,8 @@
  * Probado en js/tests/PettyCashReceiptChecks.test.js.
  */
 
+import { receiptDate } from './PettyCashDates.js';
+
 const digits = (value) => String(value ?? '').replace(/\D/g, '');
 const num = (value) => {
     if (value === null || value === undefined || value === '') return null;
@@ -254,7 +256,7 @@ export function checkReceipt(movement, { period = null, movements = [], today = 
     }
 
     // Periodo cerrado: sus fechas. Periodo abierto: desde su apertura hasta 30 días después de hoy.
-    const rawDate = movement.fechaEmision || movement.date;
+    const rawDate = receiptDate(movement);
     const date = parseReceiptDate(rawDate);
     if (period && date) {
         const from = period.openingDate || shiftDays(today, -30);

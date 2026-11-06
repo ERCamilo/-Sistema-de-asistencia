@@ -1,3 +1,4 @@
+import { receiptDate } from './PettyCashDates.js';
 function normalizeSearchText(value) {
     return String(value ?? '')
         .normalize('NFD')
@@ -20,7 +21,7 @@ function compactIdentifier(value) {
 function movementSearchText(movement) {
     const recordNumber = Number(movement?.recordNumber);
     const amount = Number(movement?.amount);
-    const date = movement?.fechaEmision || movement?.date || '';
+    const date = receiptDate(movement);
     return normalizeSearchText([
         Number.isInteger(recordNumber) && recordNumber > 0
             ? `registro ${String(recordNumber).padStart(3, '0')} numero ${recordNumber}`

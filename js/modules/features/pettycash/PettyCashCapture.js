@@ -13,6 +13,7 @@
  *
  * Probado en js/tests/PettyCashCapture.test.js.
  */
+import { straightenCanvas } from './PettyCashPaperStraighten.js';
 
 /** Lado largo máximo de la foto guardada (≈ 6–7 MP en una factura vertical). */
 export const MAX_PHOTO_LONG_SIDE = 3000;
@@ -100,6 +101,24 @@ export function renderShot(shot, { doc = globalThis.document, makeCanvas = () =>
     canvas.getContext('2d').drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, size.w, size.h);
     try { source?.close?.(); } catch (_) { /* ya liberada */ }
     return canvas;
+}
+
+/**
+ * De la toma a la foto que se guarda. Si la toma trae las esquinas del papel (`shot.quad`, ver
+ * PettyCashPaperStraighten.js) se endereza el recorte ya dibujado; si enderezar falla o no
+ * devuelve nada, se guarda el recorte tal cual: nunca se pierde la foto por esto.
+ * Una foto ya hecha (galería) pasa sin tocar.
+ */
+export async function photoFromShot(shot, { doc = globalThis.document, render = renderShot, encode = encodeImage, straightenCanvasFn = straightenCanvas } = {}) {
+    if (shot instanceof Blob) return shot;
+    const canvas = render(shot, { doc });
+    if (Array.isArray(shot.quad)) {
+        try {
+            const straight = await straightenCanvasFn(canvas, shot.quad, { doc, maxSide: MAX_PHOTO_LONG_SIDE });
+            if (straight) return encode(straight);
+        } catch (_) { /* se guarda el recorte sin enderezar */ }
+    }
+    return encode(canvas);
 }
 
 /** Toma, recorta y guarda en WebP (o JPEG) en un solo paso. */
