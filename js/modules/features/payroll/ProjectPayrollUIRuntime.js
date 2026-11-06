@@ -294,6 +294,11 @@ export class ProjectPayrollUIRuntime {
         }
         const normalized = normalizeProjectPayrollConfig(configPayload(config, request.projectId));
         validateProjectPayrollConfig(normalized);
+        // Preserve an explicit adjustment-only patch through normalization so
+        // the repository does not reapply stale values of unrelated fields.
+        if (Object.prototype.hasOwnProperty.call(config || {}, '__payrollDefaultsPatch')) {
+            normalized.__payrollDefaultsPatch = clone(config.__payrollDefaultsPatch);
+        }
         const persisted = await this.configStore.putConfig(normalized);
         announcePayrollConfigChanged(persisted);
         this.commitIfCurrent(request, () => {

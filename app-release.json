@@ -1,6 +1,18 @@
 {
-  "version": "1.7.126",
+  "version": "1.7.127",
   "changelog": [
+    {
+      "version": "1.7.127",
+      "date": "2026-11-05",
+      "title": "Ajustes de Multiobra sin cambios perdidos",
+      "items": [
+        "Dos incrementos rápidos de horas se acumulan correctamente y se conservan las ediciones de fechas distintas.",
+        "Las respuestas atrasadas no reemplazan las horas confirmadas ni se guarda configuración inicial de una cuenta anterior.",
+        "Añadir o quitar feriados conserva los demás feriados y los ajustes recientes de jornada, período de pago y factor de horas extra.",
+        "Guardar opciones predeterminadas de nómina no revierte horas ni feriados ya confirmados.",
+        "Mantiene el archivo de incidencias, los cierres históricos protegidos, la pausa y las confirmaciones visuales de obras."
+      ]
+    },
     {
       "version": "1.7.126",
       "date": "2026-11-03",
