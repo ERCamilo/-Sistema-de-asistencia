@@ -48,7 +48,9 @@ Se reutiliza la tarjeta de posición asignada, con su tarifa, unidad, SVG y colo
 - **Switch «Posición de préstamo»:** inicialmente apagado para datos sin configuración. Al activarlo aparece la etiqueta sólida **Préstamo** en esa tarjeta del empleado y se expande el contenido.
 - **Líder del equipo:** para quién trabaja en esa posición. Su nómina recibe el grupo de descuento cuando paga otro líder.
 - **Líder que paga:** nómina en la que se paga el importe completo. Se sugiere desde la primera posición y puede cambiarse en un desplegable.
-- **Ayuda «?» junto al título del switch:** pulsable con ratón, teclado y teléfono; muestra una explicación breve y un diagrama. No depende de pasar el cursor.
+- **Ayuda «?» junto al título del switch:** pulsable con ratón, teclado y teléfono; abre un modal contextual independiente con una explicación breve y un diagrama. No depende de pasar el cursor ni expande la tarjeta.
+
+El modal **Equipo y pagador** mantiene la tarjeta de posición detrás, sin reemplazarla ni modificar sus campos. Se cierra con **Entendido**, la X, Escape o pulsando fuera. Mientras está abierto, el foco queda dentro de la ayuda; al cerrar vuelve a «?» y se conserva el scroll y los líderes seleccionados. En pantallas bajas, solo se desplaza el contenido de ayuda y el botón de cierre sigue accesible.
 
 La ayuda muestra dos recorridos, para no dar a entender que dos líderes pagan el mismo sueldo:
 
@@ -73,9 +75,9 @@ La revisión de la maqueta usa geometría real: la tarjeta crece/recoge su conte
 
 - Los líderes entran con opacidad y un desplazamiento de 6 px, con un desfase breve entre campos; la nota aparece después. El contenido saliente se desvanece antes de terminar de recoger el espacio.
 - La etiqueta Préstamo entra con una transición suave de opacidad/escala propia, sin un salto de altura en el encabezado. El borde acompaña el cambio.
-- La ayuda conserva el contenido durante su salida; al abrirla, entran primero las definiciones y después las dos rutas. Insertar texto nuevo no debe saltarse esa entrada gradual.
+- La ayuda abre un modal propio con entrada de 180 ms y salida de 140 ms, mediante opacidad y desplazamiento breve. Entran primero las definiciones y después las dos rutas. La tarjeta de fondo no cambia de altura al abrir o cerrar la ayuda.
 - Invertir el switch durante una transición retoma desde el estado visual actual. No hay temporizadores finales que oculten tarde una tarjeta que el usuario ya reabrió.
-- La tarjeta, los selectores y el modal permanecen montados. Cerrar un bloque lo vuelve inerte para teclado/lector sin robar el foco; las selecciones se conservan. No se restaura un scroll viejo al terminar la animación.
+- La tarjeta y sus selectores permanecen montados. Desactivar el préstamo vuelve inertes los campos ocultos; las selecciones se conservan. La ayuda usa otro diálogo modal sin desmontar el editor; al cerrarla restituye el foco a «?» y la posición de lectura guardada al abrirla. Ningún cierre tardío puede ocultar una ayuda reabierta.
 - El ancho se mantiene estable cuando aparece la barra de desplazamiento. Los cambios de valor no reinician la entrada de campos ya visibles.
 - Con `prefers-reduced-motion`, los estados se aplican inmediatamente, sin retardos de entrada ni animaciones pendientes.
 
@@ -201,4 +203,4 @@ La autorización actual cubre esta propuesta de diseño. El PR de documentación
 
 ### Revisión del switch y la ayuda
 
-Maqueta comprobada en 320/390/1280 px: switch accesible, etiqueta Préstamo, expansión de campos, ayuda pulsable con dos rutas, selección obligatoria de líderes, preservación al desactivar/reactivar y ausencia de efectos ocultos cuando el switch está apagado. El checkbox del grupo cambia únicamente el ajuste del líder, manteniendo marcada la posición y el sueldo del pagador. Cuando ambos líderes coinciden, se conserva la etiqueta solicitada pero no se crea un descuento contra el mismo líder. Las vistas revisadas pasan WCAG A/AA y no usan servicios externos.
+Maqueta comprobada en 320/390/1280 px: switch accesible, etiqueta Préstamo, expansión de campos, ayuda en modal separado con dos rutas, cierre por X/Entendido/Escape/fondo, foco contenido y retorno a «?», selección obligatoria de líderes, preservación al desactivar/reactivar y ausencia de efectos ocultos cuando el switch está apagado. El checkbox del grupo cambia únicamente el ajuste del líder, manteniendo marcada la posición y el sueldo del pagador. Cuando ambos líderes coinciden, se conserva la etiqueta solicitada pero no se crea un descuento contra el mismo líder. Las vistas revisadas pasan WCAG A/AA y no usan servicios externos.
