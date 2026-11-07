@@ -10,7 +10,7 @@ import { mergeDuplicateEmployees, purgeMergedEmployeesFromLocalStore } from '../
 import { EmployeeEditorDraft, readEmployeeForm } from '../../features/employees/EmployeeEditorDraft.js';
 import { eventBus } from '../../core/Events.js';
 import { collectPositionDays, reassignPositionDays } from '../../services/AttendancePositionAudit.js';
-import { escapeHTML } from '../../utils/Sanitize.js';
+import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
 import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
 import { peekEntityScope, entityInScope } from '../../features/projects/ProjectContext.js';
@@ -40,7 +40,7 @@ export class EmployeeModal {
         const emp = employeeId ? (state.employees.find(e => e.id === employeeId) || state.employees.find(e => e.key === employeeId)) : null;
         const isEdit = !!emp;
         const mainTitle = isEdit ? 'Editar Empleado' : 'Nuevo Empleado';
-        const subtitle = isEdit ? emp.name : null;
+        const subtitle = isEdit ? escapeHTML(emp.name) : null;
 
         // Lógica de número sugerido (F1.4: sólo empleados del proyecto activo)
         const scope = peekEntityScope();
@@ -85,7 +85,7 @@ export class EmployeeModal {
                         ${!isEdit ? `<span id="auto-gen-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); padding: 2px 8px; border-radius: 99px; font-size: 0.65rem; font-weight: 700; animation: pulse 2s infinite;">✨ GENERADO AUTOMÁTICAMENTE</span>` : ''}
                     </label>
                     <input type="text" id="empNumber" class="form-input" 
-                           value="${suggestedNumber}" 
+                           value="${escapeAttr(suggestedNumber)}"
                            placeholder="001" 
                            required 
                            pattern="[0-9A-Za-z\\-]+"
@@ -95,12 +95,12 @@ export class EmployeeModal {
                 
                 <div class="form-group">
                     <label class="form-label">📝 Nombre Completo *</label>
-                    <input type="text" id="empName" class="form-input" value="${emp?.name || ''}" placeholder="Ej: Miguel Rodríguez" required>
+                    <input type="text" id="empName" class="form-input" value="${escapeAttr(emp?.name || '')}" placeholder="Ej: Miguel Rodríguez" required>
                 </div>
                 
                 <div class="form-group">
                     <label class="form-label">📅 Fecha de Contratación</label>
-                    <input type="date" id="empHireDate" class="form-input" value="${hireDateValue}">
+                    <input type="date" id="empHireDate" class="form-input" value="${escapeAttr(hireDateValue)}">
                 </div>
                 
                 ${VoiceNameEntry(emp, state.settings?.voiceMvpEnabled === true)}
@@ -121,17 +121,17 @@ export class EmployeeModal {
                 <div id="optionalFieldsContainer" style="display: ${showOptionalFields ? 'block' : 'none'}; animation: fadeIn 0.3s ease-out;">
                     <div class="form-group">
                         <label class="form-label">📞 Teléfono</label>
-                        <input type="tel" id="empPhone" class="form-input" value="${emp?.phone || ''}" placeholder="+1-809-555-1234">
+                        <input type="tel" id="empPhone" class="form-input" value="${escapeAttr(emp?.phone || '')}" placeholder="+1-809-555-1234">
                     </div>
                     
                     <div class="form-group">
                         <label class="form-label">📧 Correo Electrónico</label>
-                        <input type="email" id="empEmail" class="form-input" value="${emp?.email || ''}" placeholder="empleado@ejemplo.com">
+                        <input type="email" id="empEmail" class="form-input" value="${escapeAttr(emp?.email || '')}" placeholder="empleado@ejemplo.com">
                     </div>
                     
                     <div class="form-group">
                         <label class="form-label">📝 Notas Internas</label>
-                        <textarea id="empNotes" class="form-textarea" placeholder="Habilidades, observaciones, historial..." style="min-height: 80px;">${emp?.notes || ''}</textarea>
+                        <textarea id="empNotes" class="form-textarea" placeholder="Habilidades, observaciones, historial..." style="min-height: 80px;">${escapeHTML(emp?.notes || '')}</textarea>
                     </div>
                 </div>
                 
@@ -141,7 +141,7 @@ export class EmployeeModal {
                             Metadatos del Sistema
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
-                            <div style="display: flex; justify-content: space-between;"><span style="color: #64748b;">ID Interno:</span> <span style="color: #94a3b8; font-family: monospace;">${emp.id}</span></div>
+                            <div style="display: flex; justify-content: space-between;"><span style="color: #64748b;">ID Interno:</span> <span style="color: #94a3b8; font-family: monospace;">${escapeHTML(emp.id)}</span></div>
                             <div style="display: flex; justify-content: space-between;"><span style="color: #64748b;">Estado:</span> <span style="color: ${emp.active ? '#10b981' : '#f43f5e'}; font-weight: 700;">${emp.active ? 'ACTIVO' : 'INACTIVO'}</span></div>
                         </div>
                     </div>

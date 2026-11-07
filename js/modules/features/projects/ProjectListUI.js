@@ -1,4 +1,6 @@
+import { confirmProjectAction } from './ProjectActionDialog.js';
 import { PROJECT_STATUS } from './Project.js';
+import { projectDeletionPolicy } from './ProjectDeletionPolicy.js';
 import { projectSetupService } from './ProjectSetupService.js';
 import { mountProjectCreateForm, openProjectCreateModal, closeProjectCreateModal } from './ProjectCreateUI.js';
 import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
@@ -9,7 +11,7 @@ import { openProjectNameConflicts } from './ProjectNameConflictUI.js';
 export const PROJECT_FILTERS = Object.freeze({ ALL: 'all', ACTIVE: PROJECT_STATUS.ACTIVE, CLOSED: PROJECT_STATUS.CLOSED, ARCHIVED: PROJECT_STATUS.ARCHIVED });
 const STATUS_ICONS = Object.freeze({
     active: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
-    closed: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
+    closed: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>',
     archived: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16v13H4zM3 3h18v4H3zM9 11h6"/></svg>'
 });
 const ICONS = Object.freeze({
@@ -22,8 +24,8 @@ const ICONS = Object.freeze({
 });
 
 export const PROJECT_STATUS_META = Object.freeze({
-    [PROJECT_STATUS.ACTIVE]: Object.freeze({ label: 'Activo', badgeClass: 'badge-status-active', icon: STATUS_ICONS.active, description: 'Proyecto en curso' }),
-    [PROJECT_STATUS.CLOSED]: Object.freeze({ label: 'Cerrado', badgeClass: 'badge-status-closed', icon: STATUS_ICONS.closed, description: 'Cerrado para operaciones' }),
+    [PROJECT_STATUS.ACTIVE]: Object.freeze({ label: 'Activa', badgeClass: 'badge-status-active', icon: STATUS_ICONS.active, description: 'Proyecto en curso' }),
+    [PROJECT_STATUS.CLOSED]: Object.freeze({ label: 'Pausada', badgeClass: 'badge-status-closed', icon: STATUS_ICONS.closed, description: 'Cerrado para operaciones' }),
     [PROJECT_STATUS.ARCHIVED]: Object.freeze({ label: 'Archivado', badgeClass: 'badge-status-archived', icon: STATUS_ICONS.archived, description: 'Archivado visualmente' })
 });
 
@@ -67,11 +69,68 @@ export function renderProjectUsageHTML(usage) {
     return `<div class="project-usage" data-project-usage><span class="project-badge ${usage.empty ? 'badge-status-active' : ''}" data-project-empty="${usage.empty}">${usage.empty ? 'Vacía' : 'Con datos'}</span>${Object.entries(labels).filter(([key]) => ['employees', 'positions', 'loans'].includes(key) || usage[key] > 0).map(([key, label]) => `<span class="project-usage-item"><strong>${usage[key]}</strong> ${label[usage[key] === 1 ? 0 : 1]}</span>`).join('')}</div>`;
 }
 
-export function renderProjectItemHTML(project, { activeProjectId = null, defaultProjectId = null, allowSwitch = false, usage = {}, confirmDeleteId = null, deletingId = null } = {}) {
+export function renderProjectItemHTML(project, { activeProjectId = null, defaultProjectId = null, allowSwitch = false, usage = {}, confirmDeleteId = null, confirmRequestId = null, deletingId = null, now = Date.now() } = {}) {
     if (!project) return '';
     const statusMeta = PROJECT_STATUS_META[project.status] || PROJECT_STATUS_META[PROJECT_STATUS.ACTIVE];
     const isActiveContext = !!(activeProjectId && String(project.id) === String(activeProjectId));
     const isDefault = !!(defaultProjectId && String(project.id) === String(defaultProjectId));
+    const statusOperations = {
+        [PROJECT_STATUS.ACTIVE]: ['close', 'Pausar obra'],
+        [PROJECT_STATUS.CLOSED]: ['archive', 'Archivar obra'],
+        [PROJECT_STATUS.ARCHIVED]: ['unarchive', 'Sacar del archivo']
+    };
+    const operation = statusOperations[project.status];
+    const unavailable = isDefault || isActiveContext || !!deletingId || project.deletionRequestedAt != null;
+    const statusAction = allowSwitch && operation
+        ? '<div class="project-status-actions"><button type="button" class="project-action is-secondary"'
+            + ' data-project-status-action="' + operation[0] + '" data-project-status-id="' + esc(project.id) + '"'
+            + (unavailable ? ' disabled' : '') + '>' + esc(operation[1]) + '</button>'
+            + (project.status === PROJECT_STATUS.CLOSED
+                ? '<button type="button" class="project-action is-secondary" data-project-status-action="reopen"'
+                    + ' data-project-status-id="' + esc(project.id) + '"' + (unavailable ? ' disabled' : '')
+                    + '>Reactivar obra</button>' : '')
+            + (unavailable ? '<small class="project-help">'
+                + (project.deletionRequestedAt != null ? 'Cancela primero la solicitud de eliminación.'
+                    : isDefault ? 'La obra inicial debe permanecer activa.' : 'Cambia primero a otra obra activa.')
+                + '</small>' : '') + '</div>'
+        : '';
+    const deletion = projectDeletionPolicy(project, now);
+    const protectedProject = isDefault || isActiveContext;
+    let deletionActions = '';
+    if (allowSwitch && ['closed', 'archived'].includes(project.status)) {
+        let message = '';
+        if (protectedProject) message = 'La obra inicial o en uso no se puede eliminar.';
+        else if (deletion.stage === 'paused-wait') {
+            message = 'Pausada. Faltan ' + deletion.remainingDays
+                + ' días para poder solicitar su eliminación (desde ' + formatProjectDate(deletion.eligibleAt) + ').';
+        } else if (deletion.stage === 'eligible-to-request') {
+            message = 'Cumplió 30 días pausada. Puedes solicitar su eliminación; después habrá otros 30 días para cancelarla.';
+        } else if (deletion.stage === 'grace-period') {
+            message = 'Eliminación solicitada. Restan ' + deletion.remainingDays + ' días de espera, hasta el '
+                + formatProjectDate(deletion.finalizeAt) + '. Puedes cancelar la solicitud.';
+        } else if (deletion.stage === 'ready-for-review') {
+            message = 'Cumplió 30 días desde la solicitud. Falta la revisión final de seguridad.';
+        } else if (deletion.stage === 'invalid') {
+            message = 'La fecha de pausa o de solicitud necesita revisión. No se permite borrar.';
+        }
+        deletionActions = '<div class="project-delete-actions" data-project-deletion-policy="'
+            + esc(deletion.stage) + '"><p class="project-help">' + esc(message) + '</p>';
+        if (!protectedProject && deletion.canRequest) {
+            deletionActions += '<button type="button" class="project-action is-secondary"'
+                + ' data-project-request-delete="' + esc(project.id) + '">Solicitar eliminación</button>';
+        }
+        if (!protectedProject && deletion.canCancel) {
+            deletionActions += '<button type="button" class="project-action is-secondary"'
+                + ' data-project-cancel-request="' + esc(project.id) + '">Cancelar solicitud</button>';
+        }
+        if (!protectedProject && deletion.canFinalizeEmpty && usage[project.id]?.verified && usage[project.id].empty) {
+            deletionActions += '<button type="button" class="project-action is-secondary is-delete-project"'
+                + ' data-project-delete="' + esc(project.id) + '"'
+                + (usage[project.id].deleteReason || deletingId ? ' disabled' : '')
+                + '>Finalizar eliminación de obra vacía</button>';
+        }
+        deletionActions += '</div>';
+    }
     const switchAction = allowSwitch && project.status === PROJECT_STATUS.ACTIVE && !isActiveContext
         ? `<div style="margin-top:10px"><button type="button" class="project-action is-secondary btn-switch-project" data-project-switch="${esc(project.id)}" data-switch-project="${esc(project.id)}">${ICONS.switch}<span>Cambiar a este proyecto</span></button></div>` : '';
     return `
@@ -87,6 +146,8 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
                     ${project.metadata?.nameConflict ? '<button type="button" class="project-action is-secondary" data-project-name-conflict>Resolver nombre repetido</button>' : ''}
                     <div class="project-id" data-project-id-display>${esc(project.id)}</div>
                     ${switchAction}
+                    ${statusAction}
+                    ${deletionActions}
                 </div>
                 <div class="project-item-dates">
                     <div>Creado: <strong>${formatProjectDate(project.createdAt)}</strong></div>
@@ -96,8 +157,13 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
             </div>
             ${project.metadata?.deletionConflict ? '<div class="project-notice is-warning">Borrado remoto pendiente: esta obra conserva datos o está en uso aquí.</div>' : ''}
             ${renderProjectUsageHTML(usage[project.id])}
-            ${usage[project.id]?.verified && usage[project.id].empty ? `<div class="project-delete-actions"><button type="button" class="project-action is-secondary is-delete-project" data-project-delete="${esc(project.id)}" ${usage[project.id].deleteReason || deletingId ? 'disabled' : ''}>Borrar obra vacía</button>${usage[project.id].deleteReason ? `<span class="project-help">${esc(usage[project.id].deleteReason)}</span>` : ''}</div>` : ''}
-            ${confirmDeleteId === project.id && usage[project.id]?.empty ? `<div class="project-notice is-warning project-delete-confirm"><strong>¿Borrar «${esc(project.name)}»?</strong><p>Se quitará del menú y se sincronizará su eliminación.</p><div class="project-actions"><button type="button" class="project-action is-secondary" data-project-delete-cancel ${deletingId ? 'disabled' : ''}>Conservar</button><button type="button" class="project-action is-danger" data-project-delete-confirm="${esc(project.id)}" ${deletingId ? 'disabled' : ''}>${deletingId ? 'Comprobando…' : 'Confirmar borrado'}</button></div></div>` : ''}
+            ${allowSwitch && usage[project.id]?.verified && !usage[project.id].empty
+                ? '<button type="button" class="project-action is-secondary" data-project-impact="' + esc(project.id)
+                    + '">Revisar eliminación</button>' : ''}
+            ${usage[project.id]?.verified && usage[project.id].empty && deletion.canFinalizeEmpty
+                && !protectedProject && usage[project.id].deleteReason
+                ? '<p class="project-help">' + esc(usage[project.id].deleteReason) + '</p>' : ''}
+
             ${project.metadata?.notes ? `<div class="project-notes">${esc(project.metadata.notes)}</div>` : ''}
             ${project.metadata?.clonedFrom ? `<div class="project-meta">Basado en: <code>${esc(project.metadata.clonedFrom.sourceProjectId || 'otro proyecto')}</code></div>` : ''}
         </li>`;
@@ -109,18 +175,18 @@ function renderSectionGroup(title, status, items, options) {
     return `<section class="project-status-group"><div class="project-status-heading">${meta.icon}<span>${esc(title)} (${items.length})</span></div><ul class="project-list" role="list">${items.map(p => renderProjectItemHTML(p, options)).join('')}</ul></section>`;
 }
 
-export function renderProjectListHTML({ projects = [], activeProjectId = null, defaultProjectId = null, currentFilter = PROJECT_FILTERS.ALL, allowSwitch = false, usage = {}, confirmDeleteId = null, deletingId = null } = {}) {
+export function renderProjectListHTML({ projects = [], activeProjectId = null, defaultProjectId = null, currentFilter = PROJECT_FILTERS.ALL, allowSwitch = false, usage = {}, confirmDeleteId = null, confirmRequestId = null, deletingId = null, now = Date.now() } = {}) {
     const list = Array.isArray(projects) ? projects : [];
     const stats = calculateProjectStats(list);
-    const options = { activeProjectId, defaultProjectId, allowSwitch, usage, confirmDeleteId, deletingId };
+    const options = { activeProjectId, defaultProjectId, allowSwitch, usage, confirmDeleteId, confirmRequestId, deletingId, now };
     const tab = (key, text) => `<button type="button" class="project-filter-tab ${currentFilter === key ? 'is-active' : ''}" data-project-filter="${key}" role="tab" aria-selected="${currentFilter === key}">${text}</button>`;
-    const tabs = `<div class="project-filter-tabs project-list-tabs" role="tablist" aria-label="Filtrar proyectos por estado">${tab(PROJECT_FILTERS.ALL, `Todos (${stats.total})`)}${tab(PROJECT_FILTERS.ACTIVE, `Activos (${stats.active})`)}${tab(PROJECT_FILTERS.CLOSED, `Cerrados (${stats.closed})`)}${tab(PROJECT_FILTERS.ARCHIVED, `Archivados (${stats.archived})`)}</div>`;
+    const tabs = `<div class="project-filter-tabs project-list-tabs" role="tablist" aria-label="Filtrar proyectos por estado">${tab(PROJECT_FILTERS.ALL, `Todos (${stats.total})`)}${tab(PROJECT_FILTERS.ACTIVE, `Activos (${stats.active})`)}${tab(PROJECT_FILTERS.CLOSED, `Pausadas (${stats.closed})`)}${tab(PROJECT_FILTERS.ARCHIVED, `Archivados (${stats.archived})`)}</div>`;
     if (!stats.total) return `${tabs}<div class="project-list-empty" data-empty-state="all">No hay proyectos registrados en el sistema.</div>`;
 
     let content = '';
     if (currentFilter === PROJECT_FILTERS.ALL) {
         const grouped = groupProjectsByStatus(list);
-        content = `<div class="project-list-grouped" data-projects-list>${renderSectionGroup('Proyectos activos', PROJECT_STATUS.ACTIVE, grouped[PROJECT_STATUS.ACTIVE], options)}${renderSectionGroup('Proyectos cerrados', PROJECT_STATUS.CLOSED, grouped[PROJECT_STATUS.CLOSED], options)}${renderSectionGroup('Proyectos archivados', PROJECT_STATUS.ARCHIVED, grouped[PROJECT_STATUS.ARCHIVED], options)}</div>`;
+        content = `<div class="project-list-grouped" data-projects-list>${renderSectionGroup('Proyectos activos', PROJECT_STATUS.ACTIVE, grouped[PROJECT_STATUS.ACTIVE], options)}${renderSectionGroup('Obras pausadas', PROJECT_STATUS.CLOSED, grouped[PROJECT_STATUS.CLOSED], options)}${renderSectionGroup('Proyectos archivados', PROJECT_STATUS.ARCHIVED, grouped[PROJECT_STATUS.ARCHIVED], options)}</div>`;
     } else {
         const filtered = filterProjects(list, currentFilter);
         if (!filtered.length) {
@@ -139,38 +205,79 @@ export function mountProjectList(container, { projects = [], activeProjectId = n
     let currentActiveId = activeProjectId;
     let currentDefaultId = defaultProjectId;
     let currentFilter = initialFilter;
-    let usage = {}, usageGeneration = 0, confirmDeleteId = null, deletingId = null, deleteError = '';
+    let usage = {}, usageGeneration = 0, deletingId = null, deleteError = '';
+    let statusBusyId = null;
     const shouldAllowSwitch = allowSwitch || typeof onSwitchProject === 'function';
 
     function render() {
-        container.innerHTML = renderProjectListHTML({ projects: currentProjects, activeProjectId: currentActiveId, defaultProjectId: currentDefaultId, currentFilter, allowSwitch: shouldAllowSwitch, usage, confirmDeleteId, deletingId });
+        container.innerHTML = renderProjectListHTML({ projects: currentProjects, activeProjectId: currentActiveId, defaultProjectId: currentDefaultId, currentFilter, allowSwitch: shouldAllowSwitch, usage, deletingId });
         if (deleteError) container.insertAdjacentHTML('afterbegin', `<div class="project-status-line is-error" role="alert">${esc(deleteError)}</div>`);
-        container.querySelectorAll('[data-project-delete]').forEach(button => button.addEventListener('click', () => {
-            if (deletingId || button.disabled) return;
-            confirmDeleteId = button.dataset.projectDelete;
-            deleteError = '';
-            render();
-            container.querySelector('[data-project-delete-confirm]')?.focus();
-        }));
-        container.querySelector('[data-project-delete-cancel]')?.addEventListener('click', () => {
-            confirmDeleteId = null;
-            render();
-        });
-        container.querySelector('[data-project-delete-confirm]')?.addEventListener('click', async () => {
-            if (deletingId) return;
-            deletingId = confirmDeleteId;
-            render();
+        async function perform(id, action, operation) {
+            if (statusBusyId || deletingId) return;
+            const project = currentProjects.find(row => String(row.id) === String(id));
+            if (!project) return;
+            const trigger = document.activeElement;
+            statusBusyId = id;
             try {
-                await setupService.deleteEmptyProject(deletingId);
-                const fresh = await setupService.getState();
+                const confirmed = await confirmProjectAction(action, project);
+                if (!confirmed || !container.isConnected) return;
+                const result = await operation();
+                const fresh = result?.state || await setupService.getState();
                 currentProjects = fresh.projects;
                 currentActiveId = fresh.activeProjectId;
                 currentDefaultId = fresh.defaultProjectId;
-                confirmDeleteId = null;
-                window.showNotification?.('Obra vacía borrada.', 'success');
-            } catch (error) { deleteError = error.message || String(error); }
-            finally { deletingId = null; await refreshUsage(); render(); }
-        });
+                deleteError = '';
+                window.showNotification?.('Cambio guardado.', 'success');
+            } catch (error) {
+                deleteError = error?.message || 'No se pudo completar la operación.';
+            } finally {
+                statusBusyId = null;
+                await refreshUsage();
+                if (container.isConnected) {
+                    render();
+                    const attr = action === 'request' ? 'data-project-request-delete'
+                        : action === 'cancel' ? 'data-project-cancel-request'
+                        : action === 'delete' ? 'data-project-delete' : 'data-project-status-id';
+                    const replacement = [...container.querySelectorAll('[' + attr + ']')].find(el => el.getAttribute(attr) === String(id));
+                    (replacement || container.querySelector('button') || trigger)?.focus?.();
+                }
+            }
+        }
+        container.querySelectorAll('[data-project-request-delete]').forEach(button => button.addEventListener('click', () => {
+            if (!button.disabled) void perform(button.dataset.projectRequestDelete, 'request',
+                () => setupService.changeProjectDeletionRequest(button.dataset.projectRequestDelete, { cancel: false }));
+        }));
+        container.querySelectorAll('[data-project-cancel-request]').forEach(button => button.addEventListener('click', () => {
+            if (!button.disabled) void perform(button.dataset.projectCancelRequest, 'cancel',
+                () => setupService.changeProjectDeletionRequest(button.dataset.projectCancelRequest, { cancel: true }));
+        }));
+        container.querySelectorAll('[data-project-delete]').forEach(button => button.addEventListener('click', () => {
+            if (!button.disabled) void perform(button.dataset.projectDelete, 'delete',
+                () => setupService.deleteEmptyProject(button.dataset.projectDelete));
+        }));
+        container.querySelectorAll('[data-project-status-action]').forEach(button => button.addEventListener('click', () => {
+            if (!button.disabled && typeof setupService.transitionProjectStatus === 'function')
+                void perform(button.dataset.projectStatusId, button.dataset.projectStatusAction,
+                    () => setupService.transitionProjectStatus(button.dataset.projectStatusId, button.dataset.projectStatusAction));
+        }));
+        container.querySelectorAll('[data-project-impact]').forEach(button => button.addEventListener('click', async () => {
+            if (statusBusyId || deletingId || typeof setupService.previewProjectDeletion !== 'function') return;
+            statusBusyId = button.dataset.projectImpact;
+            button.disabled = true;
+            try {
+                const report = await setupService.previewProjectDeletion(button.dataset.projectImpact);
+                if (!container.isConnected) return;
+                const names = { employees: 'Empleados', positions: 'Puestos', leaders: 'Líderes',
+                    attendance: 'Asistencias', loans: 'Préstamos', payrollClosures: 'Cierres',
+                    pettyCash: 'Caja chica', other: 'Relaciones', pending: 'Por sincronizar' };
+                const rows = report.blockers.map(item => '<li>' + esc(names[item.kind] || item.kind) + ': ' + esc(item.count) + '</li>').join('');
+                await confirmProjectAction('impact', currentProjects.find(row => String(row.id) === button.dataset.projectImpact), {
+                    details: '<details data-project-impact-report><summary>Ver registros en este dispositivo</summary><ul>' + rows + '</ul></details>'
+                });
+            } catch (error) {
+                deleteError = error?.message || 'No se pudieron revisar las dependencias.';
+            } finally { statusBusyId = null; render(); }
+        }));
         container.querySelectorAll('[data-project-name-conflict]').forEach(button => button.addEventListener('click', async () => {
             closeProjectListModal();
             window.closeProjectSetupModal?.();

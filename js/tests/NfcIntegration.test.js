@@ -116,6 +116,42 @@ test('HTTP conflict removes save until availability is checked again', async () 
     await ui.submit('retry'); expect(send.mock.calls.at(-1)[1].action).toBe('consultar');
     expect(reader.node('register').hidden).toBe(false);
 });
+
+test('retry after a conflict bypasses the old cached availability response', async () => {
+    const replies = new Map(); let occupied = false;
+    send.mockImplementation(async (_, req) => {
+        if (req.action === 'asociar') throw Object.assign(Error('Tarjeta ocupada'), { code: 'CONFLICT', serverCode: 'TARJETA_OCUPADA' });
+        if (!replies.has(req.requestId)) replies.set(req.requestId,
+            occupied ? { status: 'otro_empleado', employeeId: 'e2' } : { status: 'disponible', employeeId: null });
+        return replies.get(req.requestId);
+    });
+    open(); await scanCard(); const first = send.mock.calls[0]; occupied = true;
+    await ui.submit('register'); await ui.submit('retry');
+    const latest = send.mock.calls.at(-1);
+    expect(latest[0]).toBe(first[0]); expect(latest[1].cardUid).toBe(first[1].cardUid);
+    expect(latest[1].requestId).not.toBe(first[1].requestId);
+    expect(latest[1].action).toBe('consultar');
+    expect(ui.result.status).toBe('otro_empleado');
+    expect(reader.node('register').hidden).toBe(true);
+});
+
+test('retrying a failed lookup starts a fresh query without registering', async () => {
+    send.mockRejectedValueOnce(Object.assign(Error('Conexión perdida'), { code: 'NETWORK' }));
+    open(); await scanCard(); const first = send.mock.calls[0][1];
+    await ui.submit('retry');
+    expect(send.mock.calls[1][1].requestId).not.toBe(first.requestId);
+    expect(send.mock.calls.every(([, req]) => req.action === 'consultar')).toBe(true);
+});
+
+test.each(['EMPLEADO_CON_TARJETA', 'REQUEST_ID_REUTILIZADO'])('%s does not offer an ineffective retry or registration', async serverCode => {
+    open(); await scanCard();
+    send.mockRejectedValueOnce(Object.assign(Error('Conflicto específico'), { code: 'CONFLICT', serverCode }));
+    await ui.submit('register');
+    expect(reader.node('register').hidden).toBe(true); expect(reader.node('retry').hidden).toBe(true);
+    await ui.submit('retry'); expect(send).toHaveBeenCalledTimes(2);
+    expect(reader.node('start').disabled).toBe(false);
+    await scanCard(); expect(send.mock.calls.at(-1)[1].action).toBe('consultar');
+});
 test('double touch sends a single register request', async () => {
     open(); await scanCard(); const pending = deferred(); send.mockImplementationOnce(() => pending.promise);
     const a = ui.submit('register'); const b = ui.submit('register'); await flush();

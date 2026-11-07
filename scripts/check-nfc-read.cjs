@@ -16,7 +16,7 @@ import {DOMDiff} from '/js/modules/utils/DOMDiff.js';
 import {EmployeeModal} from '/js/modules/ui/modals/EmployeeModal.js';
 import * as EmployeesUI from '/js/modules/features/employees/EmployeesUI.js';
 import {state,stateManager} from '/js/modules/core/AppState.js';
-stateManager.batchSetState(raw=>{raw.employees=[{id:'e1',key:'e1',number:'001',name:'Juan Pérez',active:true,positions:['job'],hireDate:'2026-01-01'}];raw.positions=[{id:'job',name:'Puesto',hourlyRate:100,active:true}];raw.leaders=[];raw.attendance={};Object.assign(raw.settings,{regularHoursPerDay:8,overtimeFactor:1,holidayFactor:2,holidays:[],payPeriod:{},projectsEnabled:false});});
+stateManager.batchSetState(raw=>{raw.employees=[{id:'e1',key:'e1',number:'001',name:'Juan "El Maestro" Pérez',active:true,positions:['job'],hireDate:'2026-01-01'}];raw.positions=[{id:'job',name:'Puesto',hourlyRate:100,active:true}];raw.leaders=[];raw.attendance={};Object.assign(raw.settings,{regularHoursPerDay:8,overtimeFactor:1,holidayFactor:2,holidays:[],payPeriod:{},projectsEnabled:false});});
 localStorage.removeItem('sa-nfc-preferences:v1:local-device');
 const draw=()=>DOMDiff.apply(document.querySelector('#entry'),SettingsNfcReadTestCard(NfcSettingsFields()));
 
@@ -61,6 +61,8 @@ window.ready=true;
                 const saved=registry.get(key);
                 let result={ok:true,schemaVersion:1,requestId:data.requestId,cardUid:data.cardUid,employeeId:saved?.employeeId || null,status:saved?(saved.employeeId===data.employee.id?'mismo_empleado':'otro_empleado'):'disponible'};
                 if(data.action==='asociar'){
+                    const conflict=saved && saved.employeeId!==data.employee.id?'TARJETA_OCUPADA':!saved && [...registry.values()].some(row=>row.employeeId===data.employee.id)?'EMPLEADO_CON_TARJETA':null;
+                    if(conflict){request.respond({status:409,headers,body:JSON.stringify({schemaVersion:1,ok:false,error:conflict})});return;}
                     const row=saved || {employeeId:data.employee.id,registeredAt:'2026-10-27T18:00:00Z'};
                     registry.set(key,row);result={...result,...row,status:saved?'mismo_empleado':'registrada'};
                     if(failRegister){failRegister=false;request.respond({status:500,headers,body:'{}'});return;}
@@ -73,6 +75,8 @@ window.ready=true;
             calls.length=0;registry.clear();
             await page.setViewport({ width, height: 740 });
             await page.goto(`http://127.0.0.1:${server.address().port}/nfc-fixture`); await page.waitForFunction('window.ready');
+            assert.equal(await page.$eval('#empName',node=>node.value),'Juan "El Maestro" Pérez');
+            assert.equal(await page.$eval('.modal-subtitle',node=>node.textContent),'Juan "El Maestro" Pérez');
             assert.equal(await page.evaluate(()=>typeof nfcIntegration.adapter.getUser),'undefined');
             const consistentNfcIcon = await page.evaluate(() => {
                 const icon = document.querySelector('[data-settings-action="test-nfc-read"] [data-icon="nfc"]');
@@ -115,7 +119,7 @@ window.ready=true;
             await page.click('[data-nfc-employee]');
             await page.click('[data-nfc-test=start]');await page.evaluate(()=>emitCard('04:00:ab:cd:ef:12:34'));
             await page.waitForFunction('!nfcIntegration.busy && nfcIntegration.result?.status === "disponible"');
-            assert.equal(calls.length,1);assert.equal(calls[0].data.employee.name,'Juan Pérez');
+            assert.equal(calls.length,1);assert.equal(calls[0].data.employee.name,'Juan "El Maestro" Pérez');
             const enrollment=await page.evaluate(()=>{const d=nfcTest.dialog;const r=d.getBoundingClientRect();return {left:r.left,right:r.right,bottom:r.bottom,overflow:d.scrollWidth>d.clientWidth,buttons:[...d.querySelectorAll('button:not([hidden])')].map(b=>{const x=b.getBoundingClientRect();return {width:x.width,height:x.height,bottom:x.bottom}})}});
             assert.ok(enrollment.left>=0 && enrollment.right<=width && enrollment.bottom<=740 && !enrollment.overflow,JSON.stringify(enrollment));
             for(const b of enrollment.buttons)assert.ok(b.width>=44 && b.height>=44 && b.bottom<=740,JSON.stringify(b));
@@ -171,13 +175,17 @@ window.ready=true;
                 return feedback;
             };
 
+            // The preceding retry scenario already registered the employee in this synthetic fixture.
+            // Reset only the isolated mock registry before testing the independent visual states.
+            registry.clear();
+
             // Successful association is only possible after a valid server registration response.
             await startEnrollment('04:00:ab:cd:ef:23:45','disponible');
             assert.equal(await page.$eval('.nfc-feedback--available strong',n=>n.textContent),'Tarjeta disponible');
             await page.click('[data-nfc-test=register]');
             await page.waitForFunction('!nfcIntegration.busy && nfcIntegration.result?.status === "registrada"');
             const success = await checkFeedback('success','Tarjeta asociada correctamente',false);
-            assert.ok(success.text.includes('Juan Pérez') && success.text.includes('001'));
+            assert.ok(success.text.includes('Juan "El Maestro" Pérez') && success.text.includes('001'));
             await page.screenshot({path:path.join(output,`nfc-confirmed-${width}.png`)});
             await page.click('[data-nfc-test=close]');
 
@@ -201,13 +209,41 @@ window.ready=true;
             await page.screenshot({path:path.join(output,`nfc-other-owner-${width}.png`)});
             await page.click('[data-nfc-test=close]');
             assert.equal(await page.$eval('#empName',n=>n.value),'Borrador sin guardar');
+
+            // Another device associates the UID after our availability check.
+            await page.click('[data-nfc-employee]');await page.click('[data-nfc-test=start]');
+            await page.evaluate(()=>emitCard('04:00:ab:cd:ef:56:78'));
+            await page.waitForFunction('!nfcIntegration.busy && nfcIntegration.result?.status === "disponible"');
+            const oldLookupId=calls.at(-1).data.requestId;
+            registry.set('0400ABCDEF5678',{employeeId:'e2',registeredAt:'2026-10-30T10:00:00Z'});
+            await page.click('[data-nfc-test=register]');
+            await page.waitForFunction('!nfcIntegration.busy && !!nfcIntegration.error');
+            assert.ok(await page.$eval('.nfc-enrollment-error',n=>n.textContent.includes('otro empleado')));
+            await page.click('[data-nfc-test=retry]');
+            await page.waitForFunction('!nfcIntegration.busy && nfcIntegration.result?.status === "otro_empleado"');
+            assert.notEqual(calls.at(-1).data.requestId,oldLookupId);
+            assert.equal(await page.$eval('[data-nfc-test=register]',n=>n.hidden),true);
+            await page.screenshot({path:path.join(output,`nfc-conflict-${width}.png`)});
+            await page.click('[data-nfc-test=close]');
+
+            // A different free UID cannot replace the employee's existing card.
+            await page.click('[data-nfc-employee]');await page.click('[data-nfc-test=start]');
+            await page.evaluate(()=>emitCard('04:00:ab:cd:ef:99:99'));
+            await page.waitForFunction('!nfcIntegration.busy && nfcIntegration.result?.status === "disponible"');
+            await page.click('[data-nfc-test=register]');
+            await page.waitForFunction('!nfcIntegration.busy && !!nfcIntegration.error');
+            assert.ok(await page.$eval('.nfc-enrollment-error',n=>n.textContent.includes('ya tiene otra tarjeta')));
+            assert.equal(await page.$eval('[data-nfc-test=retry]',n=>n.hidden),true);
+            assert.equal(await page.$eval('[data-nfc-test=register]',n=>n.hidden),true);
+            await page.click('[data-nfc-test=close]');
+            const callsAfterConflicts=calls.length;
             await page.select('[data-nfc-setting=mode]','production');
             assert.ok(await page.$eval('.nfc-endpoint',n=>n.textContent.includes('/webhook/')));
             await page.select('[data-nfc-setting=mode]','custom');
             await page.type('[data-nfc-setting=customUrl]','https://custom.example.test/nfc');
             await page.click('[data-nfc-setting-action=save-url]');
             assert.ok(await page.$eval('.nfc-endpoint',n=>n.textContent.includes('https://custom.example.test/nfc')));
-            assert.equal(calls.length,7);
+            assert.equal(calls.length,callsAfterConflicts);
             await page.screenshot({path:path.join(output,`nfc-settings-${width}.png`)});
             await page.click('.nfc-settings-fields .stg-switch-row');
             assert.equal(await page.$('[data-nfc-employee]'),null);
@@ -215,6 +251,6 @@ window.ready=true;
 
         }
         assert.deepEqual(errors, []); assert.deepEqual(outgoing, []);
-        console.log('✓ NFC: 320/390/768/1440px, real employee editor, all four visual feedback states, aria and axe, no redundant/occupied saves, lookup/register/retry with stable ID and preserved draft. NFC and webhook responses simulated; no external requests.');
+        console.log('✓ NFC: 320/390/768/1440px, modal and four visual states, accessibility, quoted names, no redundant/occupied saves, fresh lookup after conflict, stable registration retry and preserved draft. NFC/webhook simulated; no external requests.');
     } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

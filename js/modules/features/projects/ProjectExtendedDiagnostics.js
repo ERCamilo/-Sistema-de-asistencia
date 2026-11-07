@@ -18,9 +18,17 @@ export function diagnoseExtendedProjectData(data = {}, projects = []) {
     for (const [index, closure] of list(data.payrollClosures).entries()) {
         if (recovered.has(id(closure.id))) continue;
         const reason = ownershipReason(closure);
-        if (reason) add('closures', closure.id || index,
-            [closure.periodStart, closure.periodEnd].filter(Boolean).join(' — ') || 'Cierre de nómina',
-            reason, closure.projectId);
+        const deletedEmployees = list(closure.rows).map(row => id(row.employeeId))
+            .filter(employeeId => employeeId && !employeeIds.has(employeeId));
+        if (reason || (deletedEmployees.length && !closure.recovery?.historicalOnly)) {
+            add('closures', closure.id || index,
+                [closure.periodStart, closure.periodEnd].filter(Boolean).join(' — ') || 'Cierre de nómina',
+                reason || 'El empleado original ya no está disponible; se conserva el cierre histórico',
+                closure.projectId);
+            // A valid closed work retains its own financial history. Missing
+            // roster rows are informational, not a reason to migrate it.
+            if (!reason) issues[issues.length - 1].informational = true;
+        }
     }
     for (const [index, config] of list(data.projectPayrollConfigs).entries()) {
         const reason = ownershipReason(config);

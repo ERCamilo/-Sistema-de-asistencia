@@ -137,7 +137,9 @@ export class NfcIntegration {
     }
     async submit(action) {
         if (!this.valid() || this.busy) return;
-        if (action === 'retry' && !this.pending && this.lookupRequest) { await this.perform(this.lookupRequest); return; }
+        // A lookup retry must read the current association, not replay a cached
+        // availability response. Only uncertain registration retries keep their ID.
+        if (action === 'retry' && !this.pending && this.lookupRequest) { await this.readCard({ uid: this.cardUid }); return; }
         if (this.result?.status !== 'disponible' && !this.pending) return;
         try {
             this.pending ||= buildNfcRequest('asociar', { ...this.context, requestId: this.requestId(), cardUid: this.cardUid });
@@ -162,7 +164,16 @@ export class NfcIntegration {
             if (!this.valid(generation)) return;
             this.error = error.message || 'No se pudo completar la operación.';
             if (error.code === 'CONFLICT') {
-                this.pending = null; this.result = null; this.note = 'La asociación cambió. Consulta de nuevo antes de guardar.';
+                this.pending = null; this.result = null;
+                if (error.serverCode === 'EMPLEADO_CON_TARJETA') {
+                    this.lookupRequest = null;
+                    this.note = 'La asociación existente se conserva. Puedes leer su tarjeta actual para comprobarla.';
+                } else if (error.serverCode === 'REQUEST_ID_REUTILIZADO') {
+                    this.lookupRequest = null;
+                    this.note = 'Lee la tarjeta para preparar una consulta nueva.';
+                } else {
+                    this.note = 'Consulta de nuevo la disponibilidad antes de guardar.';
+                }
             } else if (request.action === 'asociar') this.note = 'No se pudo confirmar el registro. Puede haberse guardado; reintentar usa la misma solicitud.';
             else { this.result = null; this.note = 'No se confirmó la disponibilidad. Puedes volver a consultar.'; }
         } finally {

@@ -42,7 +42,7 @@ import { readProjectUsageData, summarizeProjectUsage, protectDeletedProjects } f
 import { isDetachedRestoreSyncBlocked } from "../../services/DetachedRestoreGuard.js";
 import { state } from '../../core/AppState.js';
 
-const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'notSameAs'];
+const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'deletionRequestedAt', 'notSameAs'];
 const PAYROLL_CONFIG_STORE = 'projectPayrollConfigs';
 
 let _lastDuplicates = [];
@@ -75,7 +75,10 @@ function cleanIdList(value) {
 export function toCatalogDoc(project) {
     const out = {};
     for (const field of CATALOG_FIELDS) {
-        if (project?.[field] !== undefined && project?.[field] !== null) out[field] = project[field];
+        if (field === 'deletionRequestedAt' && Object.prototype.hasOwnProperty.call(project || {}, field)) {
+            // Explicit null clears a pending request in a Firestore merge write.
+            out[field] = project[field] ?? null;
+        } else if (project?.[field] !== undefined && project?.[field] !== null) out[field] = project[field];
     }
     out.id = trimId(project?.id);
     const notSame = cleanIdList(out.notSameAs);
@@ -247,8 +250,9 @@ export async function removeEmptyAdoptionLeftovers({ idb = indexedDBService } = 
 }
 
 /** Una obra recibida nace con la configuración de nómina de la obra por defecto. */
-async function seedPayrollConfig(projectId, { idb = indexedDBService } = {}) {
+async function seedPayrollConfig(projectId, { idb = indexedDBService, valid = () => true } = {}) {
     try {
+        if (!valid()) return false;
         // Compute the candidate first; a later atomic check decides whether
         // it still needs to be created.
         const seedId = trimId(peekEntityScope()?.defaultProjectId || readLocalStorage(DEFAULT_PROJECT_LS_KEY));
@@ -256,14 +260,18 @@ async function seedPayrollConfig(projectId, { idb = indexedDBService } = {}) {
         const config = seed ? { ...cloneConfig(seed), projectId } : createDefaultConfig(projectId, {});
         const candidate = { ...config, seeded: true, updatedAt: Date.now() };
         if (typeof idb.atomicMutate === 'function') {
-            const result = await idb.atomicMutate(PAYROLL_CONFIG_STORE, projectId, existing =>
-                existing ? { write: false, value: existing } : { write: true, value: candidate }
-            );
+            const result = await idb.atomicMutate(PAYROLL_CONFIG_STORE, projectId, existing => {
+                // Validate while the actual IndexedDB write transaction is
+                // live; a queued seed from another account must not commit.
+                if (!valid()) return { write: false, value: existing };
+                return existing ? { write: false, value: existing } : { write: true, value: candidate };
+            });
             return result?.seeded === true;
         }
         // Nontransactional legacy adapters only; the actual IDB uses the
         // single-transaction conditional insert above.
-        if (await idb.get(PAYROLL_CONFIG_STORE, projectId)) return false;
+        if (!valid() || await idb.get(PAYROLL_CONFIG_STORE, projectId)) return false;
+        if (!valid()) return false;
         await idb.update(PAYROLL_CONFIG_STORE, candidate);
         return true;
     } catch (_) {
@@ -374,7 +382,7 @@ async function applyRemoteCatalog(uid, remoteList, {
     for (const project of plan.storeLocal) {
         verify();
         if (project.deletedAt != null) continue;
-        await seedPayrollConfig(trimId(project.id), { idb });
+        await seedPayrollConfig(trimId(project.id), { idb, valid });
     }
     let published = 0;
     for (const project of plan.publish) {

@@ -110,3 +110,8 @@ jobs:
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: npm run test:payroll-controls
+
+      - name: Project action confirmations in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: node scripts/check-project-actions.cjs
