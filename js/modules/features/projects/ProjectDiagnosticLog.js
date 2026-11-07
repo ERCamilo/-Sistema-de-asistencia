@@ -30,6 +30,27 @@ function reasonCode(value) {
     return 'REVIEW_REQUIRED';
 }
 
+
+/**
+ * Conservative classification of diagnostics, based only on normalized kinds
+ * and explanatory reasons already present in the local snapshot. This does not
+ * prove that a remote record exists, or authorize a financial repair.
+ */
+export function classifyProjectDiagnosticIssue(issue = {}) {
+    if (issue.readError) return { status: 'READ_FAILED', label: 'Lectura fallida: reintenta la revisión' };
+    if (issue.informational && issue.kind === 'closures') {
+        return { status: 'HISTORICAL_READ_ONLY', label: 'Historial conservado: no modificar el cierre original' };
+    }
+    const reason = String(issue.reason || '').toLowerCase();
+    if (/no est[aá] disponible localmente|comprueba la sincronizaci[oó]n|falta.*localmente/.test(reason)) {
+        return { status: 'SYNC_REVIEW', label: 'Pendiente de comprobar sincronización o respaldo' };
+    }
+    if (/sin obra asignada|obra de origen no est[aá] disponible/.test(reason)) {
+        return { status: 'REPAIRABLE', label: 'Revisar la obra de destino antes de reasignar' };
+    }
+    return { status: 'MANUAL_REVIEW', label: 'Requiere revisión manual; no modificar automáticamente' };
+}
+
 function group(rows) {
     const counts = new Map();
     for (const entry of rows) {
@@ -85,13 +106,25 @@ export function buildProjectDiagnosticLog(snapshot = {}, {
         '[CASOS ANONIMOS]',
         // A bounded case-by-case sequence is more useful to support than only
         // totals, without exposing employee identifiers or financial facts.
-        ...issueCodes.slice(0, 250).map((code, index) =>
-            'caso-' + String(index + 1).padStart(3, '0') + ' codigo=' + code),
+        ...issueCodes.slice(0, 250).map((code, index) => {
+            const employeeCount = employee.length;
+            const catalogCount = catalog.length;
+            const diagnosticCount = diagnostic.length;
+            const diagnosticIndex = index - employeeCount - catalogCount;
+            const issue = diagnosticIndex >= 0 && diagnosticIndex < diagnosticCount
+                ? list(snapshot.diagnosticIssues)[diagnosticIndex] : null;
+            const status = issue ? classifyProjectDiagnosticIssue(issue).status
+                : 'MANUAL_REVIEW';
+            const cause = issue ? reasonCode(issue.reason) : 'REVIEW_REQUIRED';
+            return 'caso-' + String(index + 1).padStart(3, '0')
+                + ' codigo=' + code + ' estado=' + status + ' causa=' + cause;
+        }),
         ...(issueCodes.length > 250 ? ['Casos restantes omitidos por limite de tamano: '
             + (issueCodes.length - 250)] : []),
         '',
         '[FALLOS DE LECTURA]',
         ...(readErrors.length ? group(readErrors) : ['Ninguno']),
+        ...readErrors.slice(0, 250).map(code => code + ' estado=READ_FAILED causa=READ_ERROR'),
         '',
         '[LIMITACIONES]',
         'Clasificacion sin datos personales. No incluye la consola ni el contenido de IndexedDB.',

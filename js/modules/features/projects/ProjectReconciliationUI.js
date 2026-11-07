@@ -10,7 +10,7 @@ import { escapeHTML } from '../../utils/Sanitize.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { projectSetupService } from './ProjectSetupService.js';
 import { applyProjectConflictArchive, projectConflictArchiveStore } from './ProjectConflictArchive.js';
-import { shareProjectDiagnosticLog } from './ProjectDiagnosticLog.js';
+import { shareProjectDiagnosticLog, classifyProjectDiagnosticIssue } from './ProjectDiagnosticLog.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { analyzeProjectOwnership, CLASSIFICATION } from './ProjectOwnershipReconciliation.js';
 import { projectNameKey } from './ProjectNames.js';
@@ -67,7 +67,7 @@ function initialModalState() {
         includeOrphanAttendance: false,
         pendingMerge: null,
         showArchivePending: false, showArchiveHistory: false,
-        busy: false, message: ''
+        busy: false, message: '', outcome: null
     };
 }
 function initialImportModalState() {
@@ -1537,7 +1537,9 @@ function renderExtendedDiagnostics() {
             if (!rows.length) return '';
             return '<details class="r07-wizard-details"><summary>' + rows.length + ' · ' + title + '</summary>'
                 + '<p>' + hint + '</p><ul>' + rows.map(row => '<li><strong>' + escapeHTML(row.label)
-                    + '</strong> · ' + escapeHTML(row.reason) + renderFinancialReviewAction(row)
+                    + '</strong> · <span data-r07-diagnostic-status="' + escapeHTML(classifyProjectDiagnosticIssue(row).status) + '">'
+                    + escapeHTML(classifyProjectDiagnosticIssue(row).label) + '</span> · '
+                    + escapeHTML(row.reason) + renderFinancialReviewAction(row)
                     + renderHistoricalClosureAction(row) + '</li>').join('') + '</ul></details>';
         }).join('') + '</section>';
 }
@@ -1553,7 +1555,32 @@ function renderCashChoices() {
         + '</fieldset>';
 }
 
+function renderReconciliationOutcome() {
+    const outcome = modalState.outcome;
+    if (!outcome) return '';
+    const completed = outcome.status === 'completed';
+    const pending = outcome.status === 'pending';
+    const title = completed ? 'Completado' : pending ? 'Completado con pendientes' : 'Falló la operación';
+    const cloudMessage = outcome.cloudQueued === false
+        ? 'Guardado localmente; la sincronización en la nube está pendiente.'
+        : completed || pending ? 'La operación local terminó. Comprueba la sincronización en los otros dispositivos.' : '';
+    return '<div class="r07-recon-shell r07-wizard" data-r07-result data-r07-result-status="' + escapeHTML(outcome.status) + '">'
+        + '<div class="r07-wizard-content" role="status" aria-live="polite">'
+        + '<div class="r07-wizard-heading"><h2 id="r07-wizard-title" tabindex="-1">' + title + '</h2></div>'
+        + '<div class="r07-recon-message">' + escapeHTML(outcome.message || '') + '</div>'
+        + '<p>' + (outcome.beforeCount ?? 0) + ' incidencias iniciales · '
+        + (outcome.pendingCount ?? 0) + ' pendientes tras la revisión.</p>'
+        + (cloudMessage ? '<p>' + escapeHTML(cloudMessage) + '</p>' : '')
+        + (outcome.pendingCount ? '<p>Las incidencias restantes no se han descartado ni borrado.</p>' : '')
+        + '</div><div class="r07-recon-footer">'
+        + diagnosticReportButton()
+        + ((pending || !completed) ? '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="result-continue">Continuar con pendientes</button>' : '')
+        + '<button type="button" class="btn-secondary r07-recon-footer-btn" data-r07-action="result-exit">'
+        + (completed ? 'Volver a Proyectos' : 'Salir') + '</button></div></div>';
+}
+
 function modalContent() {
+    if (modalState.outcome) return renderReconciliationOutcome();
     if (modalState.financialReview) return renderFinancialConfirmation();
     const preflight = currentPreflight();
     if (!snapshot.employeeRows.length && !catalogIssues().length && !snapshot.pettyCashRows.length
@@ -1781,6 +1808,7 @@ async function applyLocalResolution() {
 
     modalState.busy = true;
     modalState.message = '';
+    const beforePendingCount = snapshot.totalPendingCount;
     rerenderModal();
     const startedFromModal = activeModal;
     const appliedAction = modalState.action;
@@ -1837,7 +1865,10 @@ async function applyLocalResolution() {
         }
         if (![REPAIR_STATUS.OK, REPAIR_STATUS.NO_OP].includes(result.status)) {
             modalState.busy = false;
-            modalState.message = repairFailureText(result);
+            modalState.outcome = {
+                status: 'failed', message: repairFailureText(result), beforeCount: beforePendingCount,
+                pendingCount: snapshot.totalPendingCount
+            };
             rerenderModal();
             return;
         }
@@ -1873,11 +1904,17 @@ async function applyLocalResolution() {
         modalState.includeOrphanAttendance = false;
         modalState.selectedIds = new Set(snapshot.employeeRows.map(row => row.id));
 
-        if ((snapshot.totalPendingCount === 0) || appliedAction === 'later') {
-            closeProjectReconciliation();
-        } else {
-            rerenderModal();
-        }
+        modalState.outcome = {
+            status: snapshot.totalPendingCount === 0 ? 'completed' : 'pending',
+            beforeCount: beforePendingCount,
+            pendingCount: snapshot.totalPendingCount,
+            cloudQueued: result.cloudQueued,
+            message: snapshot.totalPendingCount === 0
+                ? 'La revisión terminó sin incidencias de asignación pendientes.'
+                : 'La revisión terminó, pero todavía quedan incidencias por resolver.'
+        };
+        rerenderModal();
+        activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
 
         // Emit only after this modal has consumed the post-commit snapshot.
         // Otherwise the projects:created listener starts a competing async
@@ -1893,8 +1930,14 @@ async function applyLocalResolution() {
             return;
         }
         modalState.busy = false;
-        modalState.message = error?.message || 'No se pudo aplicar la asignación.';
+        modalState.outcome = {
+            status: 'failed',
+            message: error?.message || 'No se pudo aplicar la asignación.',
+            beforeCount: beforePendingCount,
+            pendingCount: snapshot.totalPendingCount
+        };
         rerenderModal();
+        activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
     }
 }
 
@@ -1988,6 +2031,16 @@ function handleClick(event) {
     const action = target.dataset.r07Action;
     if (modalState.busy && action !== 'close' && action !== 'share-diagnostics') return;
     if (action === 'share-diagnostics') return shareReconciliationDiagnostic();
+    if (action === 'result-exit') return closeProjectReconciliation();
+    if (action === 'result-continue') {
+        modalState.outcome = null;
+        modalState.step = 0;
+        modalState.message = '';
+        rerenderModal();
+        activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
+        return;
+    }
+    if (modalState.outcome) return;
     if (action === 'review-plan') {
         const row = snapshot.diagnosticIssues.find(item => item.key === target.dataset.planKey);
         const review = financialReviewFor(row?.planSelection);

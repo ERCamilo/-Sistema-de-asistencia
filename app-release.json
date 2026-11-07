@@ -1,6 +1,16 @@
 {
-  "version": "1.7.128",
+  "version": "1.7.129",
   "changelog": [
+    {
+      "version": "1.7.129",
+      "date": "2026-11-07",
+      "title": "Multiobra muestra resultados y diagnósticos claros",
+      "items": [
+        "Tras aplicar una reparación de datos, el asistente muestra un resultado persistente con las incidencias restantes y permite continuar o salir.",
+        "Los fallos de asignación conservan el motivo del conflicto y no se confunden con una operación completada.",
+        "El diagnóstico distingue registros históricos, revisión de sincronización, casos reparables y errores de lectura; el informe .log mantiene la privacidad."
+      ]
+    },
     {
       "version": "1.7.128",
       "date": "2026-11-07",
