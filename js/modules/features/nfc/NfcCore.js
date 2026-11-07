@@ -37,7 +37,28 @@ export function buildNfcRequest(action, { requestId, cardUid, employee, context,
 }
 
 export class NfcRequestError extends Error {
-    constructor(message, code) { super(message); this.name = 'NfcRequestError'; this.code = code; }
+    constructor(message, code, serverCode = null) {
+        super(message); this.name = 'NfcRequestError'; this.code = code; this.serverCode = serverCode;
+    }
+}
+
+const NFC_CONFLICT_MESSAGES = Object.freeze({
+    TARJETA_OCUPADA: 'Esta tarjeta ya pertenece a otro empleado. Vuelve a consultar antes de guardar.',
+    EMPLEADO_CON_TARJETA: 'Este empleado ya tiene otra tarjeta. Esta opción no permite reemplazarla.',
+    REQUEST_ID_REUTILIZADO: 'El identificador de esta solicitud ya se utilizó con otros datos. Vuelve a leer la tarjeta.'
+});
+
+async function nfcConflictError(response) {
+    let serverCode = null;
+    try {
+        const body = await response.json();
+        if (body?.schemaVersion === NFC_SCHEMA_VERSION && body.ok === false
+            && typeof body.error === 'string' && Object.prototype.hasOwnProperty.call(NFC_CONFLICT_MESSAGES, body.error)) {
+            serverCode = body.error;
+        }
+    } catch (_) { /* Proxies and older endpoints may omit a JSON error body. */ }
+    return new NfcRequestError(serverCode ? NFC_CONFLICT_MESSAGES[serverCode]
+        : 'La tarjeta o el empleado ya tienen una asociación incompatible. Vuelve a consultar.', 'CONFLICT', serverCode);
 }
 
 export function readNfcResponse(data, request) {
@@ -65,7 +86,7 @@ export async function sendNfcRequest(endpoint, request, { signal, fetchImpl = gl
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(request), signal: controller.signal
         });
-        if (response.status === 409) throw new NfcRequestError('La tarjeta o el empleado ya tienen una asociación incompatible. Vuelve a consultar.', 'CONFLICT');
+        if (response.status === 409) throw await nfcConflictError(response);
         if ([401, 403].includes(response.status)) throw new NfcRequestError('El webhook rechazó el acceso. Revisa la configuración del destino.', 'ACCESS');
         if (response.status === 404) throw new NfcRequestError('El webhook no está disponible. En Test, activa «Listen for test event» en n8n.', 'NOT_FOUND');
         if (!response.ok) throw new NfcRequestError('El webhook no pudo completar la operación.', 'HTTP');
