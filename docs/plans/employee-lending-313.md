@@ -6,7 +6,9 @@ Issue: https://github.com/ERCamilo/-Sistema-de-asistencia/issues/313. Código de
 
 ## Regla acordada más reciente
 
-Una posición distingue **Líder** (equipo al que corresponde el trabajo) y **Quién paga** (líder en cuya nómina se paga al empleado). El pagador se sugiere desde la posición principal/primera y se puede cambiar en una lista desplegable.
+Cada posición asignada ofrece un switch **Posición de préstamo**. Al activarlo, la tarjeta muestra una etiqueta sólida **Préstamo** y se expande para configurar los responsables.
+
+Una posición marcada distingue **Líder** (equipo al que corresponde el trabajo) y **Quién paga** (líder en cuya nómina se paga al empleado). El pagador se sugiere desde la posición principal/primera y se puede cambiar en una lista desplegable.
 
 El importe completo que ya corresponde a la posición/asignación, con las reglas salariales normales de SA, se paga una sola vez en la nómina del pagador. En la nómina del líder del equipo aparece una deducción especial por el personal pagado desde otras nóminas.
 
@@ -41,11 +43,29 @@ Un saldo negativo del líder no debe disparar las validaciones de salario negati
 
 ### 1. Posición: líder y pagador
 
-Se reutiliza la tarjeta de posición asignada y su tarifa, unidad, SVG y color actuales. Los campos son **Líder del equipo** y **Quién paga**, ambos por empleado/asignación. El pagador se elige en un desplegable y se sugiere desde la primera posición. Cambiar uno de estos valores no modifica el puesto global ni los demás empleados.
+Se reutiliza la tarjeta de posición asignada, con su tarifa, unidad, SVG y color actuales.
 
-No hace falta otro selector de modalidad. Si líder y pagador coinciden, se paga en su nómina normal y no se genera una compensación consigo mismo. La marca de trabajo con distinto pagador puede derivarse de esos dos valores, sin sumar otro interruptor de configuración innecesario.
+- **Switch «Posición de préstamo»:** inicialmente apagado para datos sin configuración. Al activarlo aparece la etiqueta sólida **Préstamo** en esa tarjeta del empleado y se expande el contenido.
+- **Líder del equipo:** para quién trabaja en esa posición. Su nómina recibe el grupo de descuento cuando paga otro líder.
+- **Líder que paga:** nómina en la que se paga el importe completo. Se sugiere desde la primera posición y puede cambiarse en un desplegable.
+- **Ayuda «?» junto al título del switch:** pulsable con ratón, teclado y teléfono; muestra una explicación breve y un diagrama. No depende de pasar el cursor.
 
-Cambiar el pagador no cambia la tarifa que el usuario ya configuró. Cambiar la tarifa o los responsables requiere versión/fecha efectiva para no reinterpretar lo trabajado. Deben seguir siendo legibles las identidades históricas de líderes/puestos archivados.
+La ayuda muestra dos recorridos, para no dar a entender que dos líderes pagan el mismo sueldo:
+
+```text
+Luis (paga)    → nómina de Luis   → Juan recibe su sueldo
+Marcos (equipo) → su nómina      → descuento por ese trabajo
+```
+
+Las dos rutas representan un salario único y un ajuste separado. No se dibuja «Luis paga a nómina de Marcos y Marcos vuelve a pagar a Juan», porque la regla confirmada ubica el sueldo en la nómina de Luis. Si equipo y pagador coinciden, se indica «Mismo líder: sin descuento entre nóminas».
+
+Los campos y la ayuda pertenecen a la posición de ese empleado, sin modificar el catálogo global. Con el switch apagado, los campos se ocultan y se conserva el comportamiento normal del puesto; los valores guardados para una posible reactivación no deben aplicarse a los cálculos normales.
+
+Al reactivar dentro del borrador se conservan las selecciones válidas del usuario. Ambos líderes son obligatorios antes de guardar una posición marcada. Si faltan datos, el formulario los deja pendientes y explica qué seleccionar; no se inventa un líder ni un pago.
+
+El switch no es el checkbox del grupo de descuento: **el switch configura la posición para trabajo nuevo; el checkbox del grupo aplica/excluye ese ajuste del líder en el período**. Desmarcar la posición no borra ni reinterpreta tramos ya registrados o cierres históricos: el estado del switch y los responsables quedan versionados/conservados con el trabajo.
+
+Cambiar el pagador no cambia la tarifa configurada. Editar tarifa, responsables o estado del switch requiere una versión/fecha efectiva. Los líderes/puestos archivados siguen identificados en el historial.
 
 ### 2. Asistencia y nómina del pagador
 
@@ -96,6 +116,8 @@ Un feriado de 8 h sigue siendo 1 jornada real. Si el pago usa un factor 2, el de
 
 Si la tarifa del puesto es habitualmente $1,200 pero Juan tiene una tarifa efectiva aceptada de $900, se calculan $900. SA no registra ni deduce un posible regalo de $300 que desconoce.
 
+El libro muestra ejemplos con el switch de posición activado. Su selector Aplicar descuento corresponde al checkbox del grupo del período, no al switch de configuración de la posición.
+
 Archivos de revisión: [datos ficticios](employee-lending-313/ejemplos.json), [Excel comparativo](employee-lending-313/ejemplos-cesion.xlsx) y [fuente de maqueta](employee-lending-313/maqueta.html.example). Descargar/renombrar la fuente como `.html` permite abrirla sin conexión. Solo simula datos en memoria.
 
 ## Filtros, períodos y riesgos que hay que resolver
@@ -112,7 +134,7 @@ Archivos de revisión: [datos ficticios](employee-lending-313/ejemplos.json), [E
 
 Separar trabajo, salario por pagar y ajuste del líder. Los nombres siguientes son ilustrativos:
 
-- Asignación del empleado: `workLeaderId`, `payerLeaderId`, tarifa vigente y versión/fecha efectiva. El primero puede sugerirse desde el catálogo y el segundo desde la primera posición; no son modificaciones globales del puesto.
+- Asignación del empleado: `isLoanPosition`, `workLeaderId`, `payerLeaderId`, tarifa vigente y versión/fecha efectiva. El líder del equipo puede sugerirse desde el catálogo y el pagador desde la primera posición; no son modificaciones globales del puesto.
 - Tramo de asistencia: posición, horas base/extra y datos históricos de equipo, pagador y condiciones aceptadas. Las horas tienen una sola fuente.
 - Nómina canónica de empleados: salarios reales con sus pagadores, sin filas falsas de empleado para representar la deducción del líder.
 - `leaderPayrollAdjustment`: colección separada, con líder afectado, período/obra, `enabled`, total y detalle de trabajo pagado por otros líderes. No participa en los ajustes ni préstamos personales.
@@ -151,7 +173,8 @@ El Excel compara el estado aplicado/desactivado y los casos de uno/dos empleados
 
 La implementación deberá demostrar además:
 
-- Sin otra nómina pagadora, los resultados actuales se conservan.
+- Con el switch apagado o ausente, los resultados normales actuales se conservan; no basta que haya valores ocultos diferentes en los selectores.
+- Al activarlo, la etiqueta y los campos aparecen en la misma tarjeta; al desactivarlo se ocultan sin borrar el historial.
 - En el líder del equipo solo hay empleados normales por sus salarios reales y una fila de ajuste separada; Juan no aparece como otro empleado pagable por el mismo tramo.
 - El grupo y sus hijos no admiten descuentos, bonos, préstamos ni selección en acciones masivas; tampoco aumentan el conteo de empleados a pagar de ese líder.
 - Contraer/expandir no cambia importes; el checkbox cambia únicamente el ajuste del líder.
@@ -161,3 +184,7 @@ La implementación deberá demostrar además:
 - Resumen de salarios y saldo de líderes se identifican por separado; no se presenta uno como si fuera el otro.
 
 La autorización actual cubre esta propuesta de diseño. El PR de documentación no habilita la función ni sustituye el PR de implementación posterior.
+
+### Revisión del switch y la ayuda
+
+Maqueta comprobada en 320/390/1280 px: switch accesible, etiqueta Préstamo, expansión de campos, ayuda pulsable con dos rutas, selección obligatoria de líderes, preservación al desactivar/reactivar y ausencia de efectos ocultos cuando el switch está apagado. El checkbox del grupo cambia únicamente el ajuste del líder, manteniendo marcada la posición y el sueldo del pagador. Cuando ambos líderes coinciden, se conserva la etiqueta solicitada pero no se crea un descuento contra el mismo líder. Las vistas revisadas pasan WCAG A/AA y no usan servicios externos.

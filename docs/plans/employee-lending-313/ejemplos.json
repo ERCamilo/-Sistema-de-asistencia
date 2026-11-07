@@ -8,7 +8,8 @@
   "workPosition": {
     "name": "Electricista",
     "leader": "Marcos",
-    "effectiveDailyRate": 900
+    "effectiveDailyRate": 900,
+    "isLoanPosition": true
   },
   "payer": "Luis",
   "ownEmployeesPayroll": 500,
@@ -92,5 +93,6 @@
       "employeeWages": 1800
     }
   ],
-  "note": "Descuento real sobre el subtotal del líder, confirmado por el usuario. Los datos siguen siendo ejemplos, no pagos reales. No hay reparto de salario ni registro de regalos/pagos externos. Ajuste del líder separado de empleados; sin préstamos ni bonificaciones personales."
+  "note": "Descuento real sobre el subtotal del líder, confirmado por el usuario. Los datos siguen siendo ejemplos, no pagos reales. No hay reparto de salario ni registro de regalos/pagos externos. Ajuste del líder separado de empleados; sin préstamos ni bonificaciones personales.",
+  "positionSwitchNote": "Ejemplos con Posición de préstamo activada. Switch apagado: comportamiento normal; el checkbox Aplicar descuento del grupo es un control distinto."
 }
