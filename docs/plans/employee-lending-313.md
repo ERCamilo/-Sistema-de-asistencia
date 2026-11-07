@@ -67,6 +67,20 @@ El switch no es el checkbox del grupo de descuento: **el switch configura la pos
 
 Cambiar el pagador no cambia la tarifa configurada. Editar tarifa, responsables o estado del switch requiere una versión/fecha efectiva. Los líderes/puestos archivados siguen identificados en el historial.
 
+### Animación de la tarjeta y aparición del contenido
+
+La revisión de la maqueta usa geometría real: la tarjeta crece/recoge su contenido sin escalar el texto ni sustituir sus nodos. La expansión dura aproximadamente 300 ms y el cierre 280 ms, con la curva de `design.md`.
+
+- Los líderes entran con opacidad y un desplazamiento de 6 px, con un desfase breve entre campos; la nota aparece después. El contenido saliente se desvanece antes de terminar de recoger el espacio.
+- La etiqueta Préstamo entra con una transición suave de opacidad/escala propia, sin un salto de altura en el encabezado. El borde acompaña el cambio.
+- La ayuda conserva el contenido durante su salida; al abrirla, entran primero las definiciones y después las dos rutas. Insertar texto nuevo no debe saltarse esa entrada gradual.
+- Invertir el switch durante una transición retoma desde el estado visual actual. No hay temporizadores finales que oculten tarde una tarjeta que el usuario ya reabrió.
+- La tarjeta, los selectores y el modal permanecen montados. Cerrar un bloque lo vuelve inerte para teclado/lector sin robar el foco; las selecciones se conservan. No se restaura un scroll viejo al terminar la animación.
+- El ancho se mantiene estable cuando aparece la barra de desplazamiento. Los cambios de valor no reinician la entrada de campos ya visibles.
+- Con `prefers-reduced-motion`, los estados se aplican inmediatamente, sin retardos de entrada ni animaciones pendientes.
+
+Verificación de esta revisión: 320/390/1280 px, muestras intermedias de la altura/opacidad, entrada escalonada de la ayuda, reversión a mitad del cierre sin salto geométrico, mismos nodos/foco, salida completa y reducción de movimiento. Los importes del ejemplo se mantienen ($500−$900=−$400; al excluir el grupo, $500), y las vistas examinadas pasan WCAG A/AA. Es una mejora de la maqueta, no una modificación del cálculo de SA.
+
 ### 2. Asistencia y nómina del pagador
 
 La asistencia se registra con el flujo habitual. Cada tramo usa su tarifa efectiva, calendario y recargos normales, resueltos para la posición/líder de trabajo efectivo. Cambiar únicamente el pagador no cambia el salario ni sus recargos. El registro identifica quién recibe el trabajo y quién lo paga. Seleccionar una posición no duplica las horas ni copia un sueldo completo en dos nóminas.
