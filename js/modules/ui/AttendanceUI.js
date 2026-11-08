@@ -1,3 +1,4 @@
+import { effectivePositionLeaderId } from '../features/employees/EmployeePositionAssignments.js';
 /**
  * 🎨 AttendanceUI.js - Componentes de la Interfaz de Asistencia
  * Parte de la Fase 4: Modularización y Componentización
@@ -520,11 +521,8 @@ export function PositionFilters() {
 
     const leaderCounts = new Map();
     activeLeaders.forEach(leader => {
-        const leaderPositionIds = new Set(allActivePositions
-            .filter(position => position.leaderId === leader.id)
-            .map(position => position.id));
         leaderCounts.set(leader.id, activeEmployees.filter(employee =>
-            employee.positions?.some(positionId => leaderPositionIds.has(positionId))
+            employee.positions?.some(positionId => String(effectivePositionLeaderId(employee, state.positions.find(position => String(position.id) === String(positionId)))) === String(leader.id))
         ).length);
     });
 
@@ -1197,7 +1195,7 @@ export function getFilteredEmployeesForDay() {
 
     // Filtrar por Líder
     if (state.filters.leaderId && state.filters.leaderId !== 'all') {
-        employees = employees.filter(emp => emp.positions?.some(pid => state.positions.find(p => p.id === pid)?.leaderId === state.filters.leaderId));
+        employees = employees.filter(emp => emp.positions?.some(pid => String(effectivePositionLeaderId(emp, state.positions.find(p => p.id === pid))) === String(state.filters.leaderId)));
     }
 
     // Filtrar por Posición
@@ -1617,7 +1615,7 @@ export function getFilteredEmployeesForWeek(week, positionMapArg = null) {
     employees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
 
     if (state.filters.leaderId && state.filters.leaderId !== 'all') {
-        employees = employees.filter(emp => emp.positions?.some(pid => positionMap.get(pid)?.leaderId === state.filters.leaderId));
+        employees = employees.filter(emp => emp.positions?.some(pid => String(effectivePositionLeaderId(emp, positionMap.get(pid))) === String(state.filters.leaderId)));
     }
 
     if (state.filters.search) {

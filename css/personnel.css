@@ -2641,3 +2641,51 @@
     cursor: pointer;
 }
 .employee-draft-notice button:disabled { opacity: 0.6; cursor: default; }
+
+/* Employee-specific team and payer; only the alternate payer expands. */
+.employee-position-leaders { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; border-top: 1px solid #2b3848; padding-top: 6px; }
+.employee-position-leaders label { display: grid; gap: 4px; min-width: 0; font-size: .72rem; color: #b4c0cf; }
+.employee-position-leaders .form-input { width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px; background: #101720; color: #e5ebf2; border: 1px solid #344254; border-radius: 10px; }
+.employee-position-leaders__note { margin: 4px 0 0; color: #a4b1c7; font-size: .68rem; line-height: 1.35; }
+.employee-position-work-leader { grid-area: 2 / 1 / 3 / -1; min-width: 0; }
+.is-loan-position .employee-position-work-leader { grid-column-end: 2; }
+.employee-position-loan-switch { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+.employee-position-loan-switch > label { display: flex; align-items: center; justify-content: space-between; flex: 1; min-height: 44px; color: #e5ebf2; }
+.employee-position-loan-switch input { appearance: none; position: relative; width: 44px; height: 24px; margin: 0; border-radius: 20px; background: #455268; cursor: pointer; }
+.employee-position-loan-switch input::after { content: ''; position: absolute; inset: 3px auto auto 3px; width: 18px; height: 18px; border-radius: 50%; background: #e5ebf2; transition: transform 180ms ease; }
+.employee-position-loan-switch input:checked { background: #22c4c9; }
+.employee-position-loan-switch input:checked::after { transform: translateX(20px); background: #101720; }
+.employee-position-leaders__help { flex: 0 0 44px; width: 44px; min-height: 44px; border: 0; border-radius: 50%; background: transparent; color: #b4c0cf; font-size: 1rem; cursor: pointer; }
+.employee-position-payer-reveal { grid-area: 2 / 2 / 3 / 3; min-width: 0; display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 280ms cubic-bezier(.2,.8,.2,1), visibility 0s linear 280ms; }
+.employee-position-payer-reveal > div { min-height: 0; overflow: hidden; }
+.employee-position-payer-reveal label, .employee-position-payer-reveal p { opacity: 0; transform: translateY(6px); transition: opacity 90ms ease, transform 130ms ease; }
+.employee-position-payer-reveal p { margin-top: 4px; }
+.employee-position-payer-reveal[data-open="true"] { grid-template-rows: 1fr; visibility: visible; transition: grid-template-rows 300ms cubic-bezier(.2,.8,.2,1), visibility 0s; }
+.employee-position-payer-reveal[data-open="true"] label, .employee-position-payer-reveal[data-open="true"] p { opacity: 1; transform: none; transition: opacity 160ms ease 65ms, transform 190ms cubic-bezier(.2,.8,.2,1) 65ms; }
+.employee-position-payer-reveal[data-open="true"] p { transition-delay: 110ms; }
+.employee-position-loan-badge { position: absolute; top: -9px; right: 0; padding: 4px 7px; border-radius: 6px; background: #e7b85e; color: #101720; font-size: .62rem; font-weight: 750; opacity: 0; visibility: hidden; transform: scale(.88); transition: opacity 130ms ease, transform 180ms ease, visibility 0s linear 180ms; }
+.is-loan-position .employee-position-loan-badge { opacity: 1; visibility: visible; transform: none; transition: opacity 170ms ease 35ms, transform 210ms cubic-bezier(.2,.8,.2,1) 35ms, visibility 0s; }
+.employee-position-role-help { color: #b4c0cf; line-height: 1.6; }
+.employee-position-role-help strong { color: #e5ebf2; }
+.employee-position-role-flow { display: grid; grid-template-columns: minmax(0,1fr) 12px minmax(0,1fr) 12px minmax(0,1fr); gap: 4px; align-items: center; margin-top: 12px; }
+.employee-position-role-flow > span { display: grid; gap: 4px; padding: 10px 5px; border-radius: 8px; background: #182231; text-align: center; overflow-wrap: anywhere; }
+.employee-position-role-flow small { font-size: .53rem; }
+.employee-position-role-flow strong { font-size: .72rem; }
+.employee-position-role-flow i { color: #22c4c9; font-style: normal; }
+@media (prefers-reduced-motion: reduce) { .employee-position-payer-reveal, .employee-position-payer-reveal *, .employee-position-loan-badge, .employee-position-loan-switch input::after { transition: none !important; } }
+.payroll-leader-adjustment { margin: 16px 0; padding: 16px; border: 1px solid #3d4149; border-left: 3px solid #e7b85e; border-radius: 14px; background: #182231; color: #e5ebf2; }
+.payroll-leader-adjustment__heading, .payroll-leader-adjustment summary, .payroll-leader-adjustment__balance { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.payroll-leader-adjustment__heading label { display: flex; gap: 10px; align-items: center; min-height: 44px; font-size: .8rem; }
+.payroll-leader-adjustment input { width: 22px; height: 22px; accent-color: #22c4c9; }
+.payroll-leader-adjustment summary { padding: 12px 0; cursor: pointer; font-size: .85rem; }
+.payroll-leader-adjustment summary small { display: block; margin-top: 5px; color: #a4b1c7; font-size: .7rem; }
+.payroll-leader-adjustment article { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid #344254; font-size: .75rem; }
+.payroll-leader-adjustment article span, .payroll-leader-adjustment p { color: #a4b1c7; font-size: .72rem; line-height: 1.5; }
+.payroll-leader-adjustment__balance { flex-wrap: wrap; padding-top: 12px; border-top: 1px solid #344254; font-size: .8rem; }
+.payroll-leader-adjustment summary, .payroll-leader-adjustment input { scroll-margin-block: 100px; }
+.payroll-leader-adjustment summary > span { flex: 1; min-width: 0; }
+.payroll-leader-adjustment summary > strong, .payroll-leader-adjustment summary > svg { flex-shrink: 0; white-space: nowrap; }
+.payroll-leader-adjustment details[open] > summary > svg { transform: rotate(180deg); }
+.employee-position-editor__metrics-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #465164; border-radius: 10px; background: #182231; color: #b4c0cf; font-size: .72rem; line-height: 1.5; }
+.employee-position-editor__metrics-notice[hidden] { display: none; }
+.employee-position-editor__metrics-notice button { min-height: 44px; padding: 8px 10px; border: 1px solid #455268; border-radius: 8px; background: #101720; color: #e5ebf2; cursor: pointer; }

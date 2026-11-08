@@ -61,11 +61,16 @@ function organization(source, options, hoursPerDay) {
     const positions = ids.map(id => {
         const parts = entries.filter(item => text(item.positionId) === id);
         const position = (options.positions || []).find(item => text(item.id) === id);
-        const leader = position?.leaderId == null ? null : (options.leaders || []).find(item => text(item.id) === text(position.leaderId));
-        if (leader) leaders.set(text(leader.id), { id: text(leader.id), name: text(leader.name), number: text(leader.number) });
+        const payerIds = [...new Set(parts.map(part => part.assignmentSchemaVersion === 1 ? text(part.payerLeaderId) : text(position?.leaderId)).filter(Boolean))];
+        for (const payerId of payerIds) {
+            const captured = parts.find(part => text(part.payerLeaderId) === payerId);
+            const leader = (options.leaders || []).find(item => text(item.id) === payerId);
+            if (leader || captured?.payerLeaderName) leaders.set(payerId, { id: payerId,
+                name: text(captured?.payerLeaderName || leader?.name), number: text(leader?.number) });
+        }
         return {
             id, name: text(parts[0]?.positionName || position?.name),
-            leaderId: leader ? text(leader.id) : null, workDays: equivalentDays(parts, hoursPerDay),
+            leaderId: payerIds.length === 1 ? payerIds[0] : null, workDays: equivalentDays(parts, hoursPerDay),
             dailyRate: appliedDailyRate(parts, hoursPerDay)
         };
     });
