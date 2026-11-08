@@ -1,3 +1,5 @@
+import { renderPositionAssignmentControls, attachPositionAssignmentControls } from './EmployeePositionAssignmentUI.js';
+import { effectivePositionLeaderId } from './EmployeePositionAssignments.js';
 import { escapeAttr, escapeHTML } from '../../utils/Sanitize.js';
 import { fromStoredHourly, toStoredHourly } from '../payroll/SalaryConversion.js';
 import {
@@ -29,7 +31,9 @@ export function renderAssignedPositionCard({
     regularHours,
     snapshot,
     totalAssigned,
-    settings = {}
+    settings = {},
+    leaders = [],
+    primaryLeaderId = null
 }) {
     const positionId = String(position.id);
     const storedCustom = Number(employee?.positionSalaries?.[positionId]);
@@ -41,7 +45,7 @@ export function renderAssignedPositionCard({
     const metrics = getPositionPeriodMetrics(snapshot, positionId);
     const accrued = snapshot?.payrollAvailable === false
         ? null
-        : calculatePositionAccrued(metrics, hourlyRate, settings);
+        : metrics.frozenAccrued ?? calculatePositionAccrued(metrics, hourlyRate, settings);
     const color = safePositionColor(position.color);
 
     return `
@@ -53,6 +57,7 @@ export function renderAssignedPositionCard({
                  data-overtime-hours="${Number(metrics.overtimeHours) || 0}"
                  data-holiday-hours="${Number(metrics.holidayHours) || 0}"
                  data-rest-day-hours="${Number(metrics.restDayHours) || 0}"
+                 data-frozen-accrued="${metrics.frozenAccrued ?? ''}"
                  data-rest-day-factor="${Number(metrics.restDayFactor) || 1.5}"
                  style="--position-accent: ${color};">
             <input type="checkbox" name="empPosition" value="${escapeAttr(positionId)}" checked hidden>
@@ -102,6 +107,7 @@ export function renderAssignedPositionCard({
                     Usar predeterminada
                 </button>
             </div>
+            ${renderPositionAssignmentControls({ employee, position, leaders, primaryLeaderId })}
         </article>
     `;
 }
@@ -113,7 +119,7 @@ export function renderEmployeePositionEditor(state, employee, regularHours) {
         .filter(Boolean);
     const employeeView = employee
         ? employee
-        : { positions: [], positionSalaries: {}, positionSalaryModes: {} };
+        : { positions: [], positionSalaries: {}, positionSalaryModes: {}, positionAssignments: {} };
 
     return `
         <section class="employee-position-editor" data-employee-position-editor
@@ -133,7 +139,9 @@ export function renderEmployeePositionEditor(state, employee, regularHours) {
                     regularHours,
                     snapshot,
                     totalAssigned: assignedPositions.length,
-                    settings: state.settings
+                    settings: state.settings,
+                    leaders: state.leaders || [],
+                    primaryLeaderId: effectivePositionLeaderId(employee, state.positions.find(p => String(p.id) === String(employee?.positions?.[0])))
                 })).join('')}
             </div>
             <div class="employee-position-editor__empty${assignedPositions.length ? ' is-hidden' : ''}"
@@ -166,6 +174,7 @@ export function attachEmployeePositionEditor({ root, state, employee, regularHou
 
     const recalculateCard = card => {
         if (snapshot.payrollAvailable === false) return;
+        if (card.dataset.frozenAccrued !== '') return;
         const input = card.querySelector('.custom-salary-input');
         const mode = card.querySelector('.custom-salary-mode')?.value || 'hourly';
         const hourlyRate = toStoredHourly(Number(input?.value) || 0, mode, regularHours);
@@ -182,6 +191,8 @@ export function attachEmployeePositionEditor({ root, state, employee, regularHou
     };
 
     const attachCard = card => {
+        const position = state.positions.find(p => String(p.id) === card.dataset.positionAssignment);
+        attachPositionAssignmentControls(card, { list, state, employee, position });
         const input = card.querySelector('.custom-salary-input');
         const modeSelect = card.querySelector('.custom-salary-mode');
         const reset = card.querySelector('[data-reset-position-rate]');
@@ -235,17 +246,20 @@ export function attachEmployeePositionEditor({ root, state, employee, regularHou
             regularHours,
             onAdd(position) {
                 const employeeView = employee
-                    ? { ...employee, positions: [], positionSalaries: {}, positionSalaryModes: {} }
-                    : { positions: [], positionSalaries: {}, positionSalaryModes: {} };
+                    ? { ...employee, positions: [], positionSalaries: {}, positionSalaryModes: {}, positionAssignments: {} }
+                    : { positions: [], positionSalaries: {}, positionSalaryModes: {}, positionAssignments: {} };
                 list.insertAdjacentHTML('beforeend', renderAssignedPositionCard({
                     position,
                     employee: employeeView,
                     regularHours,
                     snapshot,
                     totalAssigned: assignedIds.length + 1,
-                    settings: state.settings
+                    settings: state.settings,
+                    leaders: state.leaders || [],
+                    primaryLeaderId: list.querySelector('[data-position-work-leader]')?.value || position.leaderId || null
                 }));
                 attachCard(list.lastElementChild);
+                list.lastElementChild.querySelector('.employee-position-leaders').dataset.assignmentEdited = 'true';
                 updateAssignmentControls();
             }
         });

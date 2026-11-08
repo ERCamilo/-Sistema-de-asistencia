@@ -1,3 +1,4 @@
+import { prepareEmployeePositionAssignments, assignmentConfigurationChanged } from '../../features/employees/EmployeePositionAssignments.js';
 import { VoiceNameEntry } from '../../features/voice/VoiceNameEnrollmentUI.js';
 import { NfcEmployeeEntry } from '../../features/nfc/NfcViews.js';
 import { getActivePayrollSettings } from '../../features/payroll/ActivePayrollSettings.js';
@@ -269,7 +270,11 @@ export class EmployeeModal {
             return;
         }
         const { number, name, hireDate, phone, email, notes,
-            positions: selectedPositions, positionSalaries, positionSalaryModes } = plan.fields;
+            positions: selectedPositions, positionSalaries, positionSalaryModes, positionAssignments: requestedAssignments } = plan.fields;
+        let positionAssignments;
+        try {
+            positionAssignments = prepareEmployeePositionAssignments(draft?.currentEmployee(state) || existingEmp, requestedAssignments, { ...state, settings: getActivePayrollSettings(state), assignmentScope: scope }, Date.now(), positionSalaries);
+        } catch (error) { return window.showAlert(error.message, 'error'); }
 
         if (!number) return window.showAlert('El número de empleado es obligatorio', 'error');
         if (!name) return window.showAlert('El nombre es obligatorio', 'error');
@@ -307,12 +312,13 @@ export class EmployeeModal {
                 const posChanged = positionsChanged(
                     empToEdit.positions, selectedPositions,
                     empToEdit.positionSalaries, positionSalaries
-                );
+                ) || assignmentConfigurationChanged(empToEdit.positionAssignments, positionAssignments);
                 empToEdit.number = numberToUse;
                 empToEdit.name = name;
                 empToEdit.positions = selectedPositions;
                 empToEdit.positionSalaries = positionSalaries;
                 empToEdit.positionSalaryModes = positionSalaryModes;
+                if (Object.keys(positionAssignments).length) empToEdit.positionAssignments = positionAssignments;
                 empToEdit.hireDate = hireDate;
                 empToEdit.phone = phone;
                 empToEdit.email = email;
@@ -344,7 +350,7 @@ export class EmployeeModal {
             const nowNew = Date.now();
             state.employees.push({
                 id: newId, key: newId, number: numberToUse, name,
-                positions: selectedPositions, positionSalaries, positionSalaryModes, active: true,
+                positions: selectedPositions, positionSalaries, positionSalaryModes, positionAssignments, active: true,
                 hireDate, phone, email, notes,
                 statusHistory: [{ date: hireDate, active: true, timestamp: nowNew }],
                 // Empleado nuevo: sus puestos se asignan por primera vez ahora,

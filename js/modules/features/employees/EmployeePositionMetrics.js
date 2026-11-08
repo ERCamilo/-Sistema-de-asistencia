@@ -29,17 +29,19 @@ export function buildEmployeePositionPeriodSnapshot(state, employee, today = new
         [],
         []
     );
-    const metricsByPosition = new Map(
-        (payroll.breakdown || []).map(item => [String(item.positionId), {
-            days: Number(item.days) || 0,
-            regularHours: Number(item.regularHours) || 0,
-            overtimeHours: Number(item.overtimeHours) || 0,
-            holidayHours: Number(item.holidayHours) || 0,
-            restDayHours: Number(item.restDayHours) || 0,
-            restDayFactor: Number(item.restDayFactor) || 1.5
-        }])
-    );
+    const metricsByPosition = new Map();
+    const accruedByPosition = new Map();
+    const frozenPositions = new Set();
+    for (const item of payroll.breakdown || []) {
+        const key = String(item.positionId);
+        const metrics = metricsByPosition.get(key) || { ...EMPTY_METRICS, restDayFactor: Number(item.restDayFactor) || 1.5 };
+        for (const field of ['days', 'regularHours', 'overtimeHours', 'holidayHours', 'restDayHours']) metrics[field] += Number(item[field]) || 0;
+        accruedByPosition.set(key, (accruedByPosition.get(key) || 0) + Number(item.subtotal || 0));
+        if (item.assignmentSchemaVersion === 1) frozenPositions.add(key);
+        metricsByPosition.set(key, metrics);
+    }
 
+    for (const key of frozenPositions) metricsByPosition.get(key).frozenAccrued = accruedByPosition.get(key);
     return { period, metricsByPosition };
 }
 

@@ -128,7 +128,7 @@ import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
-import { stampAttendanceWrite, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
+import { stampAttendanceWrite as stampBaseAttendanceWrite, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
 import {
     buildBulkUndoPlan,
     buildClearVisibleAttendancePlan,
@@ -286,6 +286,14 @@ function armApplyingFlagWatchdog() {
     }, _APPLYING_FLAG_WATCHDOG_MS);
 }
 window.armApplyingFlagWatchdog = armApplyingFlagWatchdog;
+
+import { captureAttendancePositionAssignments } from './modules/features/employees/EmployeePositionAssignments.js';
+function stampAttendanceWrite(record, now = Date.now()) {
+    return stampBaseAttendanceWrite(captureAttendancePositionAssignments(record, {
+        employees: state.employees, positions: state.positions, leaders: state.leaders, attendance: state.attendance,
+        settings: getActivePayrollSettings(state)
+    }, now), now);
+}
 
 // ============================================
 // 🎯 EVENT DELEGATION MAESTRO (app.js)

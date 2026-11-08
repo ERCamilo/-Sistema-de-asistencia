@@ -1,3 +1,6 @@
+import { buildEmployeeAssignmentReport } from './EmployeeAssignmentReport.js';
+import { getEmployeePositionAssignment } from '../employees/EmployeePositionAssignments.js';
+import { renderPayrollLeaderAdjustments } from '../payroll/PayrollLeaderAdjustments.js';
 import { getActivePayrollSettings, getActiveDayHours } from '../payroll/ActivePayrollSettings.js';
 import icons from '../../ui/IconSystem.js';
 import { EmptyState } from '../../components/EmptyState.js';
@@ -843,6 +846,7 @@ function EmployeeReportContent() {
     }
     return `<div>
         ${ EmployeeReportGeneralSection(reportData) }
+        ${renderPayrollLeaderAdjustments(reportData.assignmentPayroll?.groups || [], { readOnly: true })}
                 ${ reportData.positions.map(posData => EmployeeReportPositionSection(posData, reportData.days)).join('') }
             </div>`;
 }
@@ -1081,7 +1085,7 @@ function calculateEmployeeReportData() {
     // El armado vive en EmployeeReportData (puro, testeado). Regla que arregla
     // el bug de campo 2026-07-10: EL HISTORIAL MANDA — los días registrados con
     // una posición desasignada o desactivada siguen apareciendo bajo ella.
-    return buildEmployeeReportData({
+    const report = buildEmployeeReportData({
         employees: state.employees,
         positions: state.positions,
         attendance: state.attendance,
@@ -1094,6 +1098,12 @@ function calculateEmployeeReportData() {
         settings: state.settings,
         restDayFactor: state.settings.restDayFactor
     });
+    if (report.leaderPositions) report.assignmentPayroll = buildEmployeeAssignmentReport({
+        state, settings: getActivePayrollSettings(state), report,
+        periodStart: getDateKey(parseDate(startDate)), periodEnd: getDateKey(parseDate(endDate)),
+        projectId: peekEntityScope().projectId || 'legacy', ownerId: globalThis.currentUser?.uid || 'local'
+    });
+    return report;
 }
 
 // ✅ wasEmployeeActiveInRange migrado a js/modules/utils/DateUtils.js
@@ -1684,9 +1694,11 @@ export async function exportEmployeeReportExcel() {
         // -------- GENERADORES DE HOJAS POR LÍDER Y POR POSICIÓN --------
         const generateLeaderSheets = () => {
             state.leaders.forEach(leader => {
-                const leaderPositions = reportData.positions.filter(p => p.position.leaderId === leader.id);
+                const leaderPositions = (reportData.leaderPositions || reportData.positions).filter(p => String(p.position.leaderId) === String(leader.id));
+                const payrollRows = reportData.assignmentPayroll?.rowsForLeader(String(leader.id)) || [];
+                const leaderAdjustment = reportData.assignmentPayroll?.groups.find(group => group.leaderId === String(leader.id));
                 const allLeaderPositionsCatalog = (state.positions || []).filter(p => p.leaderId === leader.id);
-                if (leaderPositions.length === 0 && allLeaderPositionsCatalog.length === 0) return;
+                if (leaderPositions.length === 0 && allLeaderPositionsCatalog.length === 0 && !leaderAdjustment) return;
 
                 const sheetName = (`Líder - ${leader.name}`).replace(/[*?:\\/\[\]]/g, '').slice(0, 31);
                 const sheet = workbook.addWorksheet(sheetName);
@@ -1705,7 +1717,13 @@ export async function exportEmployeeReportExcel() {
                     { header: 'Descripción/Nombre', key: 'name', width: 32 },
                     { header: 'Ocupación/Posición', key: 'position', width: 25 },
                     ...dayColumns,
-                    ...leaderTotalCols
+                    ...leaderTotalCols,
+                    ...(reportData.assignmentPayroll ? [
+                        { header: 'Salario bruto', key: 'gross', width: 18 },
+                        { header: 'Neto empleados', key: 'net', width: 18 },
+                        { header: 'Ajuste líder', key: 'leaderAdjustment', width: 18 },
+                        { header: 'Saldo líder', key: 'leaderBalance', width: 18 }
+                    ] : [])
                 ];
 
                 const extraColsAfterLeader = opts.dualTotalColumns ? 2 : 1;
@@ -1743,7 +1761,7 @@ export async function exportEmployeeReportExcel() {
                             leaderPosIdSet.has(pos.id) && (
                                 (Array.isArray(emp.positions) && emp.positions.includes(pos.id)) ||
                                 emp.position === pos.id
-                            )
+                            ) && (!reportData.assignmentPayroll || String((() => { const a = getEmployeePositionAssignment(emp, pos); return a.isLoanPosition ? a.payerLeaderId : a.workLeaderId; })()) === String(leader.id))
                         );
 
                         if (assignedPosList.length === 0) return;
@@ -1766,7 +1784,7 @@ export async function exportEmployeeReportExcel() {
                     });
                 }
 
-                if (employeeMap.size === 0) return;
+                if (employeeMap.size === 0 && !leaderAdjustment) return;
 
                 const sortedEmployees = Array.from(employeeMap.values())
                     .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
@@ -1823,7 +1841,12 @@ export async function exportEmployeeReportExcel() {
                         const row = {
                             idx: `${emp.number || ''}${suffix}`,
                             name: emp.name,
-                            position: item.positionName
+                            position: item.positionName,
+                            ...(reportData.assignmentPayroll ? {
+                                gross: (payrollRows.find(row => String(row._employeeId) === String(emp.id))?._positionBreakdown || [])
+                                    .filter(part => part.positionName === item.positionName).reduce((sum, part) => sum + Number(part.subtotal || 0), 0),
+                                net: j === 0 ? Number(payrollRows.find(row => String(row._employeeId) === String(emp.id))?.monto || 0) : null
+                            } : {})
                         };
                         if (opts.dualTotalColumns) {
                             row.totalExported = item.total || 0;
@@ -1863,6 +1886,17 @@ export async function exportEmployeeReportExcel() {
                     });
                 });
                 
+                if (reportData.assignmentPayroll) {
+                    const net = payrollRows.reduce((sum, row) => sum + Number(row.monto || 0), 0);
+                    sheet.addRow({ name: 'Subtotal de empleados', gross: payrollRows.reduce((sum, row) => sum + Number(row._brutoOriginal || 0), 0), net });
+                    if (leaderAdjustment) {
+                        sheet.addRow({ name: 'Personal pagado por otros líderes', position: leaderAdjustment.enabled ? 'Aplicado' : 'Desactivado',
+                            leaderAdjustment: leaderAdjustment.enabled ? -leaderAdjustment.amount : 0, leaderBalance: leaderAdjustment.balance });
+                        for (const entry of leaderAdjustment.entries) sheet.addRow({
+                            name: `${entry.employeeName} · #${entry.employeeNumber}`, position: `${entry.positionName} · paga ${entry.payerLeaderName} · ${entry.regularHours || 0} h base · total $${entry.amount.toFixed(2)}`
+                        });
+                    } else sheet.addRow({ name: 'Saldo del líder', leaderBalance: net });
+                }
                 applyTableStyles(sheet, 4, reportData.days.length + 3);
             });
         };

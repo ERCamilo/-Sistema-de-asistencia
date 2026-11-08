@@ -1,6 +1,17 @@
 {
-  "version": "1.7.128",
+  "version": "1.7.129",
   "changelog": [
+    {
+      "version": "1.7.129",
+      "date": "2026-11-08",
+      "title": "Líder y pagador por empleado",
+      "items": [
+        "Cada puesto propone su líder y permite cambiarlo solo para ese empleado.",
+        "Las posiciones de préstamo distinguen el equipo del líder que paga el salario completo.",
+        "La nómina separa el descuento opcional del líder de los salarios, préstamos y ajustes personales.",
+        "Las asistencias conservan sus condiciones y los reportes muestran el reparto sin duplicar pagos."
+      ]
+    },
     {
       "version": "1.7.128",
       "date": "2026-11-07",

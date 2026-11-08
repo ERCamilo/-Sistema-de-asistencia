@@ -135,7 +135,7 @@ testRunner.addSuite("EmployeeReportData — cableado en AnalyticsUI", {
             'AnalyticsUI debe importar el builder puro');
         const idx = SRC.indexOf('function calculateEmployeeReportData');
         const block = SRC.slice(idx, idx + 1600);
-        testRunner.assert(/return buildEmployeeReportData\(/.test(block),
+        testRunner.assert(/buildEmployeeReportData\(/.test(block),
             'calculateEmployeeReportData debe delegar (no duplicar la lógica con el bug viejo)');
         testRunner.assert(!/activePositions/.test(block),
             'el filtro viejo por posiciones activas no debe seguir en el wrapper');

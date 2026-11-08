@@ -114,6 +114,7 @@ export function getPayrollClosureGate({
 export function buildPayrollClosureDraft({
     employees = [],
     rows = [],
+    leaderAdjustments = [],
     periodStart,
     periodEnd,
     periodSource = 'custom',
@@ -142,8 +143,8 @@ export function buildPayrollClosureDraft({
         if (foreignRow) throw new Error(`El empleado "${foreignRow?._employeeId ?? foreignRow?.employeeId ?? foreignRow?.id ?? 'desconocido'}" no pertenece al proyecto "${closureProjectId}"`);
     }
     const fingerprint = projectAware
-        ? buildPayrollPreviewFingerprint({ projectId: closureProjectId, periodStart, periodEnd, rows })
-        : buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
+        ? buildPayrollPreviewFingerprint({ projectId: closureProjectId, periodStart, periodEnd, rows, leaderAdjustments })
+        : buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows, leaderAdjustments });
     const hasLoans = rows.some(item => money(item?._loans) > 0);
     // Un periodo ya pagado no cobra préstamos: enlaza los abonos ya anotados.
     const loanBatch = hasLoans && !registration ? buildPayrollLoanSettlementBatch({
@@ -160,6 +161,7 @@ export function buildPayrollClosureDraft({
         periodEnd,
         periodSource,
         rows,
+        leaderAdjustments,
         fingerprint,
         closedAt,
         closedBy,
