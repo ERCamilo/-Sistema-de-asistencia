@@ -3,13 +3,16 @@
   "regularHoursExample": 8,
   "primaryPosition": {
     "name": "Albañil",
-    "leader": "Luis"
+    "leader": "Luis",
+    "catalogLeader": "Luis",
+    "leaderEditablePerEmployee": true
   },
   "workPosition": {
     "name": "Electricista",
     "leader": "Marcos",
     "effectiveDailyRate": 900,
-    "isLoanPosition": true
+    "isLoanPosition": true,
+    "catalogLeader": "Marcos"
   },
   "payer": "Luis",
   "ownEmployeesPayroll": 500,
@@ -94,5 +97,17 @@
     }
   ],
   "note": "Descuento real sobre el subtotal del líder, confirmado por el usuario. Los datos siguen siendo ejemplos, no pagos reales. No hay reparto de salario ni registro de regalos/pagos externos. Ajuste del líder separado de empleados; sin préstamos ni bonificaciones personales.",
-  "positionSwitchNote": "Ejemplos con Posición de préstamo activada. Switch apagado: comportamiento normal; el checkbox Aplicar descuento del grupo es un control distinto."
+  "positionSwitchNote": "Líder del equipo siempre visible y editable, inicialmente sugerido desde el catálogo. Sin préstamo paga ese líder, incluido un valor individual diferente del catálogo; se ignora el pagador alternativo oculto. Activar préstamo expande solo el pagador. Aplicar descuento sigue siendo un checkbox de grupo independiente.",
+  "normalAssignmentExample": {
+    "employee": "Juan Pérez",
+    "position": "Albañil",
+    "catalogLeader": "Luis",
+    "workLeader": "Marcos",
+    "effectivePayer": "Marcos",
+    "isLoanPosition": false,
+    "amount": 900,
+    "leaderAdjustment": 0,
+    "otherEmployeesUnchanged": true
+  },
+  "payerSuggestionRule": "En un borrador nuevo se sugiere desde el líder efectivo de la posición principal hasta elegir un pagador manual. Los valores aceptados no se recalculan al editar después catálogo/posición principal."
 }

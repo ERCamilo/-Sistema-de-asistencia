@@ -1,14 +1,14 @@
 # Posiciones con otro líder pagador · propuesta simplificada de #313
 
-**Estado:** diseño para revisión, 07/11/2026. Recoge la última simplificación del usuario. No implementado; esta entrega solo modifica documentación y ejemplos ficticios.
+**Estado:** diseño para revisión, 08/11/2026. Incluye líder predeterminado editable por empleado y préstamo con pagador separado. No implementado; esta entrega solo modifica documentación y ejemplos ficticios.
 
 Issue: https://github.com/ERCamilo/-Sistema-de-asistencia/issues/313. Código de referencia: `92272bec` (SA 1.7.128).
 
 ## Regla acordada más reciente
 
-Cada posición asignada ofrece un switch **Posición de préstamo**. Al activarlo, la tarjeta muestra una etiqueta sólida **Préstamo** y se expande para configurar los responsables.
+Cada posición asignada muestra siempre **Líder del equipo**, inicialmente seleccionado desde el líder predeterminado del puesto. Como ocurre con la tarifa sugerida, se puede cambiar desde esa misma tarjeta solo para ese empleado, sin cambiar el catálogo ni a sus compañeros. Esto también se permite en su posición principal y no exige marcarla como préstamo.
 
-Una posición marcada distingue **Líder** (equipo al que corresponde el trabajo) y **Quién paga** (líder en cuya nómina se paga al empleado). El pagador se sugiere desde la posición principal/primera y se puede cambiar en una lista desplegable.
+El switch **Posición de préstamo** muestra la etiqueta sólida **Préstamo** y expande únicamente **Líder que paga**. Se sugiere desde el líder efectivo de la posición principal/primera y se puede cambiar en una lista desplegable. Sin préstamo, paga el líder efectivo del equipo, incluido un líder distinto del predeterminado del catálogo.
 
 El importe completo que ya corresponde a la posición/asignación, con las reglas salariales normales de SA, se paga una sola vez en la nómina del pagador. En la nómina del líder del equipo aparece una deducción especial por el personal pagado desde otras nóminas.
 
@@ -45,8 +45,9 @@ Un saldo negativo del líder no debe disparar las validaciones de salario negati
 
 Se reutiliza la tarjeta de posición asignada, con su tarifa, unidad, SVG y color actuales.
 
-- **Switch «Posición de préstamo»:** inicialmente apagado para datos sin configuración. Al activarlo aparece la etiqueta sólida **Préstamo** en esa tarjeta del empleado y se expande el contenido.
-- **Líder del equipo:** para quién trabaja en esa posición. Su nómina recibe el grupo de descuento cuando paga otro líder.
+- **Líder del equipo:** desplegable siempre visible, junto a la tarifa. Al asignar un puesto muestra seleccionado su líder predeterminado, identificado por una nota breve. Puede cambiarse para ese empleado sin activar préstamo, también en la posición principal. Una nota breve distingue el valor del catálogo de una elección individual.
+- **Switch «Posición de préstamo»:** inicialmente apagado para datos sin configuración. Al activarlo aparece la etiqueta sólida **Préstamo** y se expande únicamente el selector del pagador. No oculta ni reinicia el líder del equipo.
+- **Líder del equipo con préstamo:** su nómina recibe el grupo de descuento cuando paga otro líder.
 - **Líder que paga:** nómina en la que se paga el importe completo. Se sugiere desde la primera posición y puede cambiarse en un desplegable.
 - **Ayuda «?» junto al título del switch:** pulsable con ratón, teclado y teléfono; abre un modal contextual independiente con una explicación breve y un diagrama. No depende de pasar el cursor ni expande la tarjeta.
 
@@ -61,9 +62,13 @@ Marcos (equipo) → su nómina      → descuento por ese trabajo
 
 Las dos rutas representan un salario único y un ajuste separado. No se dibuja «Luis paga a nómina de Marcos y Marcos vuelve a pagar a Juan», porque la regla confirmada ubica el sueldo en la nómina de Luis. Si equipo y pagador coinciden, se indica «Mismo líder: sin descuento entre nóminas».
 
-Los campos y la ayuda pertenecen a la posición de ese empleado, sin modificar el catálogo global. Con el switch apagado, los campos se ocultan y se conserva el comportamiento normal del puesto; los valores guardados para una posible reactivación no deben aplicarse a los cálculos normales.
+Los campos y la ayuda pertenecen a la posición de ese empleado, sin modificar el catálogo global. Con el switch apagado, solo se oculta el pagador alternativo y se ignora su valor guardado: el líder elegido para el equipo sigue visible y recibe el salario en su nómina. Volver al líder predeterminado se hace seleccionándolo en la misma lista, sin otra pantalla.
 
-Al reactivar dentro del borrador se conservan las selecciones válidas del usuario. Ambos líderes son obligatorios antes de guardar una posición marcada. Si faltan datos, el formulario los deja pendientes y explica qué seleccionar; no se inventa un líder ni un pago.
+**Ejemplo sin préstamo:** Albañil tiene a Luis como líder de catálogo. Juan es Albañil, pero se elige a Marcos en su tarjeta. Marcos es su líder y paga el sueldo completo; no hay etiqueta Préstamo ni descuento entre nóminas. Luis sigue siendo el predeterminado de Albañil y la configuración de otros empleados no cambia.
+
+En un borrador nuevo, el pagador sugerido acompaña los cambios del líder de la posición principal mientras no se haya elegido uno manualmente. Una elección manual se conserva, aunque cambie el líder principal o se desactive/reactive el préstamo. Guardar la asignación fija los valores aceptados: editar luego el catálogo o la posición principal no cambia silenciosamente pagadores ya guardados ni períodos anteriores.
+
+Al reactivar dentro del borrador se conservan las selecciones válidas del usuario. Con préstamo activado son obligatorios el líder del equipo y el pagador. Sin préstamo se respeta el caso normal de SA sin líder asignado; esta mejora no convierte en obligatorios líderes que hoy son opcionales. Los datos antiguos conservan su compatibilidad hasta editar/configurar el caso. Si faltan datos, el formulario los deja pendientes y explica qué seleccionar; no se inventa un líder ni un pago.
 
 El switch no es el checkbox del grupo de descuento: **el switch configura la posición para trabajo nuevo; el checkbox del grupo aplica/excluye ese ajuste del líder en el período**. Desmarcar la posición no borra ni reinterpreta tramos ya registrados o cierres históricos: el estado del switch y los responsables quedan versionados/conservados con el trabajo.
 
@@ -73,11 +78,11 @@ Cambiar el pagador no cambia la tarifa configurada. Editar tarifa, responsables 
 
 La revisión de la maqueta usa geometría real: la tarjeta crece/recoge su contenido sin escalar el texto ni sustituir sus nodos. La expansión dura aproximadamente 300 ms y el cierre 280 ms, con la curva de `design.md`.
 
-- Los líderes entran con opacidad y un desplazamiento de 6 px, con un desfase breve entre campos; la nota aparece después. El contenido saliente se desvanece antes de terminar de recoger el espacio.
+- El líder del equipo está siempre visible. El pagador entra con opacidad y un desplazamiento de 6 px al activar el préstamo; su nota aparece después. El contenido saliente se desvanece antes de terminar de recoger el espacio.
 - La etiqueta Préstamo entra con una transición suave de opacidad/escala propia, sin un salto de altura en el encabezado. El borde acompaña el cambio.
 - La ayuda abre un modal propio con entrada de 180 ms y salida de 140 ms, mediante opacidad y desplazamiento breve. Entran primero las definiciones y después las dos rutas. La tarjeta de fondo no cambia de altura al abrir o cerrar la ayuda.
 - Invertir el switch durante una transición retoma desde el estado visual actual. No hay temporizadores finales que oculten tarde una tarjeta que el usuario ya reabrió.
-- La tarjeta y sus selectores permanecen montados. Desactivar el préstamo vuelve inertes los campos ocultos; las selecciones se conservan. La ayuda usa otro diálogo modal sin desmontar el editor; al cerrarla restituye el foco a «?» y la posición de lectura guardada al abrirla. Ningún cierre tardío puede ocultar una ayuda reabierta.
+- La tarjeta y sus selectores permanecen montados. Desactivar el préstamo vuelve inerte solo el pagador oculto; las selecciones se conservan. La ayuda usa otro diálogo modal sin desmontar el editor; al cerrarla restituye el foco a «?» y la posición de lectura guardada al abrirla. Ningún cierre tardío puede ocultar una ayuda reabierta.
 - El ancho se mantiene estable cuando aparece la barra de desplazamiento. Los cambios de valor no reinician la entrada de campos ya visibles.
 - Con `prefers-reduced-motion`, los estados se aplican inmediatamente, sin retardos de entrada ni animaciones pendientes.
 
@@ -144,13 +149,13 @@ Archivos de revisión: [datos ficticios](employee-lending-313/ejemplos.json), [E
 - **Cobros y bonificaciones masivos:** la fila especial y sus empleados de detalle no son candidatos. Los comandos deben operar únicamente sobre partes de salario real a cargo del pagador.
 - **Horas entre posiciones:** un empleado puede tener trabajo normal y trabajo con otro pagador. No cargar su sueldo entero en cada posición ni usar el puesto principal para reinterpretar el historial.
 - **Cierre, anulación y reexportación:** si el ajuste se llega a contabilizar, su referencia tiene que ser única y reversible por el mismo cierre; no duplicarlo al exportar o reintentar. Esta entrega de diseño no crea ese asiento ni define una liquidación financiera nueva.
-- **Datos viejos o incompletos:** sin pagador explícito se mantiene el comportamiento legacy hasta configurar el caso. No asignar pagadores históricos ni crear compensaciones retroactivas silenciosas.
+- **Datos viejos o incompletos:** las asignaciones antiguas sin los campos nuevos mantienen el comportamiento legacy hasta configurar el caso. Una asignación nueva sin préstamo usa su líder del equipo como pagador efectivo y no exige un pagador alternativo. No asignar pagadores históricos ni crear compensaciones retroactivas silenciosas.
 
 ## Modelo técnico propuesto para implementar después de revisar el diseño
 
 Separar trabajo, salario por pagar y ajuste del líder. Los nombres siguientes son ilustrativos:
 
-- Asignación del empleado: `isLoanPosition`, `workLeaderId`, `payerLeaderId`, tarifa vigente y versión/fecha efectiva. El líder del equipo puede sugerirse desde el catálogo y el pagador desde la primera posición; no son modificaciones globales del puesto.
+- Asignación del empleado: `isLoanPosition`, `workLeaderId`, `payerLeaderId`, tarifa vigente y versión/fecha efectiva. `workLeaderId` admite elección individual con el switch apagado. El catálogo solo inicializa el líder de una asignación nueva; la primera posición sugiere el pagador del préstamo durante el borrador hasta que haya elección manual. Los valores aceptados se conservan explícitamente por asignación; no son modificaciones globales ni enlaces dinámicos que reescriban otras asignaciones. Con préstamo apagado, el pagador efectivo es `workLeaderId` y el pagador alternativo guardado se ignora.
 - Tramo de asistencia: posición, horas base/extra y datos históricos de equipo, pagador y condiciones aceptadas. Las horas tienen una sola fuente.
 - Nómina canónica de empleados: salarios reales con sus pagadores, sin filas falsas de empleado para representar la deducción del líder.
 - `leaderPayrollAdjustment`: colección separada, con líder afectado, período/obra, `enabled`, total y detalle de trabajo pagado por otros líderes. No participa en los ajustes ni préstamos personales.
@@ -183,14 +188,16 @@ La fase actual sigue siendo el diseño. Las modalidades de reparto y el seguimie
 
 ## Verificación del diseño y criterios de la implementación futura
 
-La maqueta se comprobó en Chromium a 320, 390 y 1280 px: campos por empleado, salario completo, 500−900=−400, grupo único con varios empleados, detalle y checkbox independientes, selección de otro pagador y coincidencia equipo/pagador. Se conserva foco/scroll, un solo shell, pie visible y ausencia de desbordamiento horizontal. No realiza peticiones a servicios externos; WCAG A/AA en las vistas comprobadas.
+La maqueta se comprobó en Chromium a 320, 390 y 1280 px: campos por empleado, salario completo, 500−900=−400, grupo único con varios empleados, detalle y checkbox independientes, selección de otro pagador y coincidencia equipo/pagador. Se conserva foco/scroll y el editor montado detrás de la ayuda, pie visible y ausencia de desbordamiento horizontal. No realiza peticiones a servicios externos; WCAG A/AA en las vistas comprobadas.
 
 El Excel compara el estado aplicado/desactivado y los casos de uno/dos empleados. Sus fórmulas y valores iniciales fueron revisados para −400/−800 al aplicar y $500 al desactivar, sin cambiar los salarios de los empleados. Medio día $450, tarifa efectiva $1,200, recargo de ejemplo $1,800 y extra de ejemplo $1,203.75 coinciden con sus importes detallados. No se ejecutaron operaciones de SA.
 
 La implementación deberá demostrar además:
 
-- Con el switch apagado o ausente, los resultados normales actuales se conservan; no basta que haya valores ocultos diferentes en los selectores.
-- Al activarlo, la etiqueta y los campos aparecen en la misma tarjeta; al desactivarlo se ocultan sin borrar el historial.
+- Sin configuración nueva, los resultados legacy se conservan. En una asignación configurada sin préstamo, el salario pertenece al líder elegido del equipo aunque difiera del catálogo; el pagador alternativo oculto no tiene efecto.
+- Al asignar una posición, su líder predeterminado aparece seleccionado y se puede cambiar desde la misma tarjeta, también en la posición principal. Cambiarlo solo afecta a ese empleado y no altera la tarifa.
+- Al activar el préstamo, aparecen la etiqueta y el pagador; al desactivarlo se oculta solo el pagador. El líder del equipo, las selecciones y el historial no se borran.
+- El pagador sugerido de un borrador sigue al líder principal hasta una elección manual; editarlo después no sustituye una elección manual ni una asignación ya guardada.
 - En el líder del equipo solo hay empleados normales por sus salarios reales y una fila de ajuste separada; Juan no aparece como otro empleado pagable por el mismo tramo.
 - El grupo y sus hijos no admiten descuentos, bonos, préstamos ni selección en acciones masivas; tampoco aumentan el conteo de empleados a pagar de ese líder.
 - Contraer/expandir no cambia importes; el checkbox cambia únicamente el ajuste del líder.
@@ -203,4 +210,4 @@ La autorización actual cubre esta propuesta de diseño. El PR de documentación
 
 ### Revisión del switch y la ayuda
 
-Maqueta comprobada en 320/390/1280 px: switch accesible, etiqueta Préstamo, expansión de campos, ayuda en modal separado con dos rutas, cierre por X/Entendido/Escape/fondo, foco contenido y retorno a «?», selección obligatoria de líderes, preservación al desactivar/reactivar y ausencia de efectos ocultos cuando el switch está apagado. El checkbox del grupo cambia únicamente el ajuste del líder, manteniendo marcada la posición y el sueldo del pagador. Cuando ambos líderes coinciden, se conserva la etiqueta solicitada pero no se crea un descuento contra el mismo líder. Las vistas revisadas pasan WCAG A/AA y no usan servicios externos.
+Maqueta comprobada en 320/390/1280 px: switch accesible, etiqueta Préstamo, líder de catálogo seleccionado y editable con el switch apagado, expansión solo del pagador, ayuda en modal separado con dos rutas, cierre por X/Entendido/Escape/fondo, foco contenido y retorno a «?», selección obligatoria de líderes, preservación al desactivar/reactivar y ausencia de efectos del pagador oculto cuando el switch está apagado. El checkbox del grupo cambia únicamente el ajuste del líder, manteniendo marcada la posición y el sueldo del pagador. Cuando ambos líderes coinciden, se conserva la etiqueta solicitada pero no se crea un descuento contra el mismo líder. Las vistas revisadas pasan WCAG A/AA y no usan servicios externos.
