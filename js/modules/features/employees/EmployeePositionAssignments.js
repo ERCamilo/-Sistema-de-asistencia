@@ -1,4 +1,4 @@
-import { entityInScope } from '../projects/ProjectContext.js';
+import { entityInScope } from '../projects/EntityProjectScope.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { resolveRestDayFactor } from '../payroll/PayrollFactors.js';
 
@@ -95,7 +95,11 @@ export function prepareEmployeePositionAssignments(employee, requested = {}, sta
     const result = copy(employee?.positionAssignments || {});
     for (const [positionId, value] of Object.entries(requested)) {
         const position = state.positions.find(item => id(item.id) === id(positionId));
-        if (!position) throw new Error('El puesto ya no está disponible. Recarga el empleado.');
+        if (!position) {
+            const archived = employee?.positionAssignments?.[positionId];
+            if (archived && JSON.stringify(configuration(archived)) === JSON.stringify(configuration(value))) continue;
+            throw new Error('El puesto ya no está disponible. Recarga el empleado.');
+        }
         const next = configuration(value);
         const available = leaderId => (state.leaders || []).some(leader => id(leader.id) === leaderId
             && (!state.assignmentScope || entityInScope(leader, state.assignmentScope)));

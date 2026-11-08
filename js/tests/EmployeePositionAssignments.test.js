@@ -195,3 +195,11 @@ test('several borrowed employees produce one leader group and one optional disco
     const reordered={...closure,leaderAdjustments:closure.leaderAdjustments.map(group=>({...group,entries:group.entries.map(entry=>Object.fromEntries(Object.entries(entry).reverse()))}))};
     expect(validatePayrollClosureForScopedWrite(reordered,'obra')).toEqual(reordered);
 });
+
+
+test('retained assignment history of a deleted catalogue job does not block unrelated employee edits',()=>{
+    const state=fixture();configure(state);const employee=state.employees[0];
+    const accepted=JSON.parse(JSON.stringify(employee.positionAssignments));
+    employee.positions=['p1'];state.positions=state.positions.filter(position=>position.id!=='p2');
+    expect(prepareEmployeePositionAssignments(employee,accepted,state,NOW+10000)).toEqual(accepted);
+});

@@ -25,6 +25,8 @@ npm run lint:state
 npm run build
 ```
 
+También se comprueba el visor de fotos con su prueba original de Chromium, para verificar el arranque independiente de los servicios de imagen.
+
 La prueba de navegador usa el editor y la nómina reales, con Firebase sustituido y solicitudes externas bloqueadas. Comprueba 320/390/1280 px, líder predeterminado y cambio individual, sugerencia y elección manual del pagador, guardado real del formulario, ayuda y retorno, grupo único, checkbox/detalle independientes y WCAG A/AA en el grupo.
 
 Casos financieros cubiertos: $900 pagados una vez; $500 − $900 = −$400; grupo desactivado → $500; Juan + Pedro → descuento agrupado de $1,300 y saldo −$800; medio día; feriado; horas extra; mismo líder; cambio de pagador dentro del período; preservación de datos históricos, restore y sync; cobro único de ajustes personales; huellas de cierre con checkbox y saldos separados; hojas de líderes en Excel; pagador efectivo en SplitX.

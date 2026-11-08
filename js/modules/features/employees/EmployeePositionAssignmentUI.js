@@ -1,6 +1,6 @@
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { Modal } from '../../components/Modal.js';
-import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
+import { entityInScope, peekEntityScope } from '../projects/EntityProjectScope.js';
 import { getEmployeePositionAssignment } from './EmployeePositionAssignments.js';
 
 function leaderOptions(leaders, selected) {
