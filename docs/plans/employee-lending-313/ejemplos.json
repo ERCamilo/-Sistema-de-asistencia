@@ -1,0 +1,113 @@
+{
+  "status": "Diseño para implementar después de revisión; campos por empleado y saldo 500−900=−400 confirmados",
+  "regularHoursExample": 8,
+  "primaryPosition": {
+    "name": "Albañil",
+    "leader": "Luis",
+    "catalogLeader": "Luis",
+    "leaderEditablePerEmployee": true
+  },
+  "workPosition": {
+    "name": "Electricista",
+    "leader": "Marcos",
+    "effectiveDailyRate": 900,
+    "isLoanPosition": true,
+    "catalogLeader": "Marcos"
+  },
+  "payer": "Luis",
+  "ownEmployeesPayroll": 500,
+  "scenarios": [
+    {
+      "case": "Juan completo",
+      "employee": "Juan Pérez",
+      "number": "113",
+      "baseHours": 8,
+      "extraHours": 0,
+      "dailyRate": 900,
+      "factor": 1,
+      "amount": 900
+    },
+    {
+      "case": "Juan medio día",
+      "employee": "Juan Pérez",
+      "number": "113",
+      "baseHours": 4,
+      "extraHours": 0,
+      "dailyRate": 900,
+      "factor": 1,
+      "amount": 450
+    },
+    {
+      "case": "Otra tarifa efectiva",
+      "employee": "Juan Pérez",
+      "number": "113",
+      "baseHours": 8,
+      "extraHours": 0,
+      "dailyRate": 1200,
+      "factor": 1,
+      "amount": 1200
+    },
+    {
+      "case": "Feriado de ejemplo",
+      "employee": "Juan Pérez",
+      "number": "113",
+      "baseHours": 8,
+      "extraHours": 0,
+      "dailyRate": 900,
+      "factor": 2,
+      "amount": 1800
+    },
+    {
+      "case": "2 h extra de ejemplo",
+      "employee": "Juan Pérez",
+      "number": "113",
+      "baseHours": 8,
+      "extraHours": 2,
+      "dailyRate": 900,
+      "factor": 1,
+      "amount": 1203.75
+    },
+    {
+      "case": "Pedro medio día",
+      "employee": "Pedro Ruiz",
+      "number": "114",
+      "baseHours": 4,
+      "extraHours": 0,
+      "dailyRate": 800,
+      "factor": 1,
+      "amount": 400
+    }
+  ],
+  "comparison": [
+    {
+      "people": 1,
+      "group": 900,
+      "ownPayroll": 500,
+      "enabledBalance": -400,
+      "disabledBalance": 500,
+      "employeeWages": 1400
+    },
+    {
+      "people": 2,
+      "group": 1300,
+      "ownPayroll": 500,
+      "enabledBalance": -800,
+      "disabledBalance": 500,
+      "employeeWages": 1800
+    }
+  ],
+  "note": "Descuento real sobre el subtotal del líder, confirmado por el usuario. Los datos siguen siendo ejemplos, no pagos reales. No hay reparto de salario ni registro de regalos/pagos externos. Ajuste del líder separado de empleados; sin préstamos ni bonificaciones personales.",
+  "positionSwitchNote": "Líder del equipo siempre visible y editable, inicialmente sugerido desde el catálogo. Sin préstamo paga ese líder, incluido un valor individual diferente del catálogo; se ignora el pagador alternativo oculto. Activar préstamo expande solo el pagador. Aplicar descuento sigue siendo un checkbox de grupo independiente.",
+  "normalAssignmentExample": {
+    "employee": "Juan Pérez",
+    "position": "Albañil",
+    "catalogLeader": "Luis",
+    "workLeader": "Marcos",
+    "effectivePayer": "Marcos",
+    "isLoanPosition": false,
+    "amount": 900,
+    "leaderAdjustment": 0,
+    "otherEmployeesUnchanged": true
+  },
+  "payerSuggestionRule": "En un borrador nuevo se sugiere desde el líder efectivo de la posición principal hasta elegir un pagador manual. Los valores aceptados no se recalculan al editar después catálogo/posición principal."
+}
