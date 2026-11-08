@@ -73,6 +73,16 @@ const server = http.createServer((req,res) => {
   assert.equal(await page.$eval(secondary+' [data-position-work-leader]',e=>e.value),'L2');
   await page.click(secondary+' [data-position-loan-switch]');assert.equal(await page.$eval(secondary+' [data-position-work-leader]',e=>e.closest('[inert]')),null);
   await page.click(secondary+' [data-position-loan-switch]');await page.screenshot({path:path.join(output,'editor-'+width+'.png')});
+  const layout=await page.$eval(secondary,e=>{
+   const controls=e.querySelector('.employee-position-leaders'),work=e.querySelector('[data-position-work-leader]'),payer=e.querySelector('[data-position-payer]');
+   const a=work.getBoundingClientRect(),b=payer.getBoundingClientRect();
+   return {height:controls.getBoundingClientRect().height,sameRow:Math.abs(a.y-b.y)<1,sideBySide:a.right<=b.left,targets:[a.height,b.height,e.querySelector('.employee-position-loan-switch > label').getBoundingClientRect().height,e.querySelector('[data-position-leader-help]').getBoundingClientRect().height],overflow:controls.scrollWidth>controls.clientWidth};
+  });
+  assert.equal(layout.sameRow,true);assert.equal(layout.sideBySide,true);assert.equal(layout.overflow,false);
+  assert.ok(layout.height<=165,'Compact team/payer section must stay below 165px');
+  assert.ok(layout.targets.every(height=>height>=44),'Keep 44px touch targets');
+  await page.$(secondary+' .employee-position-leaders').then(e=>e.screenshot({path:path.join(output,'lideres-'+width+'.png')}));
+  console.log('Compact leaders '+width+'px: '+Math.round(layout.height)+'px height (previously 246px), side-by-side selectors and 44px touch targets');
   await page.click('#editor [data-button-index="1"]');await page.waitForFunction(()=>window.saved||alerts.length);
   assert.deepEqual(await page.evaluate(()=>alerts),[]);assert.equal(await page.evaluate(()=>auditState.employees[0].positionAssignments.p2.isLoanPosition),true);
   await page.evaluate(()=>window.showPayroll());await page.waitForSelector('.payroll-leader-adjustment');

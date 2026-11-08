@@ -17,11 +17,13 @@ export function renderPositionAssignmentControls({ employee, position, leaders =
     const available = leaders.filter(leader => entityInScope(leader, scope)
         && (leader.active !== false || [value.workLeaderId, payer].includes(String(leader.id))));
     return `<div class="employee-position-leaders" data-assignment-stored="${employee?.positionAssignments?.[position.id] ? 'true' : 'false'}">
-        <label>Líder del equipo<select class="form-input" data-position-work-leader>${leaderOptions(available, value.workLeaderId)}</select></label>
-        <p class="employee-position-leaders__note" data-work-leader-note></p>
         <div class="employee-position-loan-switch">
             <label><span>Posición de préstamo</span><input type="checkbox" role="switch" data-position-loan-switch ${value.isLoanPosition ? 'checked' : ''}></label>
             <button type="button" class="employee-position-leaders__help" data-position-leader-help aria-label="Equipo y pagador: explicación" aria-haspopup="dialog">?</button>
+        </div>
+        <div class="employee-position-work-leader">
+            <label>Líder del equipo<select class="form-input" data-position-work-leader>${leaderOptions(available, value.workLeaderId)}</select></label>
+            <p class="employee-position-leaders__note" data-work-leader-note></p>
         </div>
         <div class="employee-position-payer-reveal" data-position-payer-reveal data-open="${value.isLoanPosition}" aria-hidden="${!value.isLoanPosition}"><div>
             <label>Líder que paga<select class="form-input" data-position-payer data-payer-chosen="${value.payerChosen}" data-payer-established="${!!established}">${leaderOptions(available, payer)}</select></label>
@@ -48,10 +50,10 @@ export function attachPositionAssignmentControls(card, { list, state, employee, 
         card.classList.toggle('is-loan-position', active);
         card.querySelector('[data-position-loan-badge]').setAttribute('aria-hidden', String(!active));
         card.querySelector('[data-work-leader-note]').textContent = String(position.leaderId || '') === work.value
-            ? 'Predeterminado del puesto.' : 'Solo para este empleado. El catálogo no cambia.';
+            ? 'Del puesto' : 'Solo este empleado';
         card.querySelector('[data-position-payer-note]').textContent = payer.value && payer.value === work.value
-            ? 'Mismo líder: sin descuento entre nóminas.'
-            : payer.dataset.payerChosen === 'true' ? 'Elección de este empleado.' : 'Sugerido desde la posición principal.';
+            ? 'Sin ajuste entre nóminas'
+            : payer.dataset.payerChosen === 'true' ? 'Elegido para el empleado' : 'De la posición principal';
     };
     work.addEventListener('change', () => {
         mark(); update();

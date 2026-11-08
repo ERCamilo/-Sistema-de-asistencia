@@ -2643,21 +2643,23 @@
 .employee-draft-notice button:disabled { opacity: 0.6; cursor: default; }
 
 /* Employee-specific team and payer; only the alternate payer expands. */
-.employee-position-leaders { position: relative; display: grid; gap: 8px; border-top: 1px solid #2b3848; padding-top: 12px; }
-.employee-position-leaders label { display: grid; gap: 6px; font-size: .72rem; color: #b4c0cf; }
-.employee-position-leaders .form-input { width: 100%; min-width: 0; min-height: 44px; background: #101720; color: #e5ebf2; border: 1px solid #344254; border-radius: 10px; }
-.employee-position-leaders__note { margin: 0; color: #a4b1c7; font-size: .68rem; line-height: 1.5; }
-.employee-position-loan-switch { display: flex; align-items: center; gap: 8px; }
+.employee-position-leaders { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; border-top: 1px solid #2b3848; padding-top: 6px; }
+.employee-position-leaders label { display: grid; gap: 4px; min-width: 0; font-size: .72rem; color: #b4c0cf; }
+.employee-position-leaders .form-input { width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px; background: #101720; color: #e5ebf2; border: 1px solid #344254; border-radius: 10px; }
+.employee-position-leaders__note { margin: 4px 0 0; color: #a4b1c7; font-size: .68rem; line-height: 1.35; }
+.employee-position-work-leader { grid-area: 2 / 1 / 3 / -1; min-width: 0; }
+.is-loan-position .employee-position-work-leader { grid-column-end: 2; }
+.employee-position-loan-switch { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
 .employee-position-loan-switch > label { display: flex; align-items: center; justify-content: space-between; flex: 1; min-height: 44px; color: #e5ebf2; }
 .employee-position-loan-switch input { appearance: none; position: relative; width: 44px; height: 24px; margin: 0; border-radius: 20px; background: #455268; cursor: pointer; }
 .employee-position-loan-switch input::after { content: ''; position: absolute; inset: 3px auto auto 3px; width: 18px; height: 18px; border-radius: 50%; background: #e5ebf2; transition: transform 180ms ease; }
 .employee-position-loan-switch input:checked { background: #22c4c9; }
 .employee-position-loan-switch input:checked::after { transform: translateX(20px); background: #101720; }
-.employee-position-leaders__help { width: 44px; min-height: 44px; border: 0; border-radius: 50%; background: transparent; color: #b4c0cf; font-size: 1rem; cursor: pointer; }
-.employee-position-payer-reveal { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 280ms cubic-bezier(.2,.8,.2,1), visibility 0s linear 280ms; }
+.employee-position-leaders__help { flex: 0 0 44px; width: 44px; min-height: 44px; border: 0; border-radius: 50%; background: transparent; color: #b4c0cf; font-size: 1rem; cursor: pointer; }
+.employee-position-payer-reveal { grid-area: 2 / 2 / 3 / 3; min-width: 0; display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 280ms cubic-bezier(.2,.8,.2,1), visibility 0s linear 280ms; }
 .employee-position-payer-reveal > div { min-height: 0; overflow: hidden; }
 .employee-position-payer-reveal label, .employee-position-payer-reveal p { opacity: 0; transform: translateY(6px); transition: opacity 90ms ease, transform 130ms ease; }
-.employee-position-payer-reveal p { margin-top: 8px; }
+.employee-position-payer-reveal p { margin-top: 4px; }
 .employee-position-payer-reveal[data-open="true"] { grid-template-rows: 1fr; visibility: visible; transition: grid-template-rows 300ms cubic-bezier(.2,.8,.2,1), visibility 0s; }
 .employee-position-payer-reveal[data-open="true"] label, .employee-position-payer-reveal[data-open="true"] p { opacity: 1; transform: none; transition: opacity 160ms ease 65ms, transform 190ms cubic-bezier(.2,.8,.2,1) 65ms; }
 .employee-position-payer-reveal[data-open="true"] p { transition-delay: 110ms; }
