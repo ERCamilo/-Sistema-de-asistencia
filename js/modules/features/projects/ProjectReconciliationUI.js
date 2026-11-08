@@ -67,7 +67,7 @@ function initialModalState() {
         includeOrphanAttendance: false,
         pendingMerge: null,
         showArchivePending: false, showArchiveHistory: false,
-        busy: false, message: '', outcome: null
+        busy: false, message: '', outcome: null, outcomeConfirm: null, deferredCaseIds: new Set()
     };
 }
 function initialImportModalState() {
@@ -1535,8 +1535,9 @@ function renderExtendedDiagnostics() {
         + warning + groups.map(([kind, title, hint]) => {
             const rows = snapshot.diagnosticIssues.filter(issue => issue.kind === kind);
             if (!rows.length) return '';
-            return '<details class="r07-wizard-details"><summary>' + rows.length + ' · ' + title + '</summary>'
-                + '<p>' + hint + '</p><ul>' + rows.map(row => '<li><strong>' + escapeHTML(row.label)
+            return '<details class="r07-wizard-details" data-r07-diagnostic-group="' + escapeHTML(kind) + '"><summary>' + rows.length + ' · ' + title + '</summary>'
+                + '<p>' + hint + '</p><ul>' + rows.map(row => '<li data-r07-diagnostic-key="'
+                    + escapeHTML(row.key) + '"><strong>' + escapeHTML(row.label)
                     + '</strong> · <span data-r07-diagnostic-status="' + escapeHTML(classifyProjectDiagnosticIssue(row).status) + '">'
                     + escapeHTML(classifyProjectDiagnosticIssue(row).label) + '</span> · '
                     + escapeHTML(row.reason) + renderFinancialReviewAction(row)
@@ -1553,6 +1554,152 @@ function renderCashChoices() {
             + (modalState.pettyCashIds.has(record.id) ? ' checked' : '') + '>'
             + '<span><strong>' + escapeHTML(record.name || 'Caja sin nombre') + '</strong></span></label>').join('')
         + '</fieldset>';
+}
+
+// Results are derived from the newest locally inspected snapshot, never from
+// the pre-commit selection. Severity is conservative guidance, not an assertion
+// that a related record has been verified on Firestore.
+export function buildReconciliationOutcomeCases(model = {}) {
+    const cases = [];
+    const knownArchives = new Map((model.pendingCases || []).map(row => [String(row.id), row]));
+    const add = ({ id, kind, title, reason, recommendation, risk = 'medium', action = 'review',
+        actionLabel = 'Revisar ahora', canArchive = true, archived = false }) => {
+        if (!id || cases.some(row => row.id === id)) return;
+        cases.push({ id, kind, title, reason, recommendation, risk, action, actionLabel,
+            canArchive: canArchive && ['low', 'medium'].includes(risk) && knownArchives.has(id), archived });
+    };
+    for (const row of model.employeeRows || []) {
+        const title = 'Empleado ' + (row.employee?.number || 'sin número');
+        const reason = row.employeeIssue ? 'El empleado no tiene una obra válida.'
+            : 'Una o varias asistencias no tienen una obra válida.';
+        add({ id: 'employee:' + row.id, kind: 'employee', title, reason,
+            recommendation: 'Revisar el empleado y seleccionar la obra correcta.',
+            action: 'employee', actionLabel: 'Revisar empleado' });
+    }
+    for (const row of model.otherIssues || []) {
+        const collection = row.collection || 'registro';
+        add({ id: collection + ':' + row.recordKey, kind: 'entity',
+            title: collection === 'positions' ? 'Puesto sin obra válida'
+                : collection === 'leaders' ? 'Líder sin obra válida' : 'Registro sin obra válida',
+            reason: 'La relación con la obra necesita revisión.',
+            recommendation: 'Comprobar la obra y sus relaciones antes de reasignar.',
+            action: collection === 'positions' ? 'position'
+                : collection === 'leaders' ? 'leader' : 'review',
+            actionLabel: 'Revisar relación' });
+    }
+    for (const row of model.pettyCashRows || []) {
+        add({ id: 'pettyCash:' + row.id, kind: 'pettyCash', title: 'Caja chica sin obra válida',
+            reason: 'No se reconoce la obra relacionada con esta caja.',
+            recommendation: 'Revisar caja, períodos y movimientos antes de cambiar relaciones.',
+            risk: 'high', action: 'pettyCash', actionLabel: 'Revisar caja', canArchive: false });
+    }
+    for (const row of model.diagnosticIssues || []) {
+        if (row.informational) continue; // Historical notes are not unresolved work.
+        const classified = classifyProjectDiagnosticIssue(row);
+        const financial = ['payments', 'plans', 'closures'].includes(row.kind);
+        const risk = financial ? 'critical' : row.kind === 'cashLinks' ? 'high'
+            : classified.status === 'SYNC_REVIEW' ? 'high' : 'medium';
+        add({ id: 'diagnostic-' + row.kind + ':' + row.key, kind: 'diagnostic',
+            title: row.label || 'Revisión especial', reason: row.reason || classified.label,
+            recommendation: financial ? 'Revisar los vínculos financieros y conservar el historial antes de modificar datos.'
+                : classified.status === 'SYNC_REVIEW' ? 'Comprobar la descarga y el respaldo antes de reasignar.'
+                : classified.label,
+            risk, action: classified.status === 'SYNC_REVIEW' ? 'retry-read' : 'review',
+            actionLabel: classified.status === 'SYNC_REVIEW' ? 'Revisar datos locales' : 'Revisar problema',
+            canArchive: !financial });
+    }
+    for (const key of model.orphanAttendanceKeys || []) {
+        add({ id: 'orphanAttendance:' + key, kind: 'attendance',
+            title: 'Asistencia sin empleado', reason: 'No se encuentra el empleado original.',
+            recommendation: 'Identificar al empleado antes de reasignar la asistencia.',
+            risk: 'high', action: 'attendance', actionLabel: 'Revisar asistencia', canArchive: false });
+    }
+    for (const store of model.diagnosticReadErrors || []) {
+        add({ id: 'read-error:' + store, kind: 'read-error', title: 'Error al revisar datos',
+            reason: 'No fue posible leer una colección necesaria; no significa que se hayan perdido los registros.',
+            recommendation: 'Reintentar la lectura antes de concluir que falta información.',
+            risk: 'high', action: 'retry-read', actionLabel: 'Reintentar revisión',
+            canArchive: false });
+    }
+    // Previous archival actions are reversible and cannot be mistaken for fixed data.
+    for (const row of model.archivedCases || []) {
+        cases.push({ id: row.id, kind: row.kind, title: row.label,
+            reason: row.reason, recommendation: 'Conservado como archivo reversible; restaurar para revisarlo.',
+            risk: 'medium', action: 'review', actionLabel: 'Revisar archivo',
+            canArchive: false, archived: true });
+    }
+    const levels = { critical: 0, high: 1, medium: 2, low: 3 };
+    return cases.sort((a,b) => levels[a.risk] - levels[b.risk]);
+}
+
+const OUTCOME_RISK = {
+    low: ['Bajo', 'circle-check'],
+    medium: ['Medio', 'alert-triangle'],
+    high: ['Alto', 'shield-alert'],
+    critical: ['Crítico', 'shield-x']
+};
+function outcomeIcon(name) {
+    const path = {
+        'circle-check': '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+        'alert-triangle': '<path d="M10.3 3.9 2.1 18.1a2 2 0 0 0 1.7 3h16.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4m0 4h.01"/>',
+        'shield-alert': '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M12 8v5m0 4h.01"/>',
+        'shield-x': '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 9 6 6m0-6-6 6"/>'
+    }[name] || '';
+    return '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
+}
+function outcomeCaseById(id) {
+    return buildReconciliationOutcomeCases(snapshot).find(item => item.id === id) || null;
+}
+function outcomeConfirmMarkup() {
+    const confirm = modalState.outcomeConfirm;
+    if (!confirm) return '';
+    const row = outcomeCaseById(confirm.id);
+    if (!row) return '';
+    const archive = confirm.action === 'archive';
+    const riskWarning = row.risk === 'critical'
+        ? 'Riesgo crítico: podría afectar pagos, préstamos o cierres; evita realizar operaciones dependientes sin revisar los vínculos.'
+        : row.risk === 'high'
+            ? 'Riesgo alto: podría dejar datos incompletos o impedir una recuperación segura.'
+            : 'Esta relación seguirá pendiente de revisión.';
+    const warning = archive
+        ? 'Archivar solo oculta el aviso en esta cuenta y dispositivo; no resuelve el problema, no borra datos y puede impedir que veas nuevas advertencias hasta restaurarlo.'
+        : 'El problema permanece pendiente y puede afectar operaciones posteriores. No se modificarán ni borrarán datos. ' + riskWarning;
+    return '<section class="r07-outcome-confirm" role="group" aria-live="assertive"'
+        + ' aria-labelledby="r07-outcome-confirm-title" data-r07-outcome-confirm>'
+        + '<h3 id="r07-outcome-confirm-title">' + (archive ? '¿Archivar este problema?' : '¿Dejar para luego?') + '</h3>'
+        + '<p><strong>' + escapeHTML(row.title) + '</strong></p>'
+        + '<p>' + warning + '</p>'
+        + '<div class="r07-outcome-actions">'
+        + '<button type="button" class="btn-secondary" data-r07-action="result-confirm-cancel">Cancelar</button>'
+        + '<button type="button" class="btn-primary" data-r07-action="result-confirm-' + (archive ? 'archive' : 'defer') + '">Confirmar</button>'
+        + '</div></section>';
+}
+function renderOutcomeCases() {
+    const rows = buildReconciliationOutcomeCases(snapshot).filter(row => !row.archived);
+    if (!rows.length) return '';
+    return '<section class="r07-outcome-cases" aria-label="Problemas pendientes">'
+        + '<h3>Problemas que requieren atención (' + rows.length + ')</h3>'
+        + rows.map(row => {
+            const [riskLabel, icon] = OUTCOME_RISK[row.risk];
+            const deferred = modalState.deferredCaseIds.has(row.id);
+            return '<article class="r07-outcome-case r07-outcome-risk-' + row.risk + '"'
+                + ' data-r07-result-case="' + escapeHTML(row.id) + '">'
+                + '<div class="r07-outcome-case-header"><span data-r07-case-risk="' + row.risk + '"'
+                + ' class="r07-outcome-risk">' + outcomeIcon(icon) + escapeHTML(riskLabel) + '</span>'
+                + '<strong>' + escapeHTML(row.title) + '</strong></div>'
+                + '<p><strong>Motivo:</strong> ' + escapeHTML(row.reason) + '</p>'
+                + '<p><strong>Recomendación:</strong> ' + escapeHTML(row.recommendation) + '</p>'
+                + (deferred ? '<p class="r07-recon-hint">Dejado para luego; permanece pendiente.</p>' : '')
+                + '<div class="r07-outcome-actions">'
+                + '<button type="button" class="btn-primary" data-r07-action="result-review-case"'
+                + ' data-r07-case-id="' + escapeHTML(row.id) + '">' + escapeHTML(row.actionLabel) + '</button>'
+                + '<button type="button" class="btn-secondary" data-r07-action="result-defer-case"'
+                + ' data-r07-case-id="' + escapeHTML(row.id) + '">Dejar para luego</button>'
+                + (row.canArchive ? '<button type="button" class="btn-secondary"'
+                    + ' data-r07-action="result-archive-case" data-r07-case-id="'
+                    + escapeHTML(row.id) + '">Archivar</button>' : '')
+                + '</div></article>';
+        }).join('') + '</section>';
 }
 
 function renderReconciliationOutcome() {
@@ -1572,6 +1719,9 @@ function renderReconciliationOutcome() {
         + (outcome.pendingCount ?? 0) + ' pendientes tras la revisión.</p>'
         + (cloudMessage ? '<p>' + escapeHTML(cloudMessage) + '</p>' : '')
         + (outcome.pendingCount ? '<p>Las incidencias restantes no se han descartado ni borrado.</p>' : '')
+        + (snapshot.archivedCount ? '<p>' + snapshot.archivedCount
+            + ' incidencias archivadas: sus datos siguen sin corregir.</p>' : '')
+        + renderOutcomeCases() + outcomeConfirmMarkup()
         + '</div><div class="r07-recon-footer">'
         + diagnosticReportButton()
         + ((pending || !completed) ? '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="result-continue">Continuar con pendientes</button>' : '')
@@ -2018,6 +2168,44 @@ function useEquivalentPosition(_employeeId, fromPositionId, toPositionId) {
     setGroupPosition(fromPositionId, toPositionId);
 }
 
+async function retryOutcomeRead() {
+    if (modalState.busy) return;
+    modalState.busy = true;
+    try {
+        await refreshProjectReconciliationSnapshot(); // local stores only: do not claim a cloud check
+        if (modalState.outcome) {
+            modalState.outcome.pendingCount = snapshot.totalPendingCount;
+            modalState.outcome.message = 'Revisión local actualizada. Si falta información remota, comprueba la sincronización desde la aplicación.';
+        }
+    } finally {
+        modalState.busy = false;
+        rerenderModal();
+    }
+}
+async function archiveOutcomeCase() {
+    if (modalState.busy || modalState.outcomeConfirm?.action !== 'archive') return;
+    const row = outcomeCaseById(modalState.outcomeConfirm.id);
+    if (!row?.canArchive) return;
+    // The archive store accepts its stable case metadata; it must not change
+    // original employees, hours or financial rows.
+    const stored = (snapshot.pendingCases || []).find(item => item.id === row.id);
+    if (!stored) return;
+    modalState.busy = true;
+    try {
+        await projectConflictArchiveStore.setCase(stored, { archived: true });
+        await refreshProjectReconciliationSnapshot();
+        modalState.outcome.pendingCount = snapshot.totalPendingCount;
+        modalState.outcome.message = 'El aviso se archivó de forma reversible. Los datos no se han corregido ni borrado.';
+        modalState.outcomeConfirm = null;
+    } catch (error) {
+        modalState.outcomeConfirm = null;
+        modalState.outcome.message = error?.message || 'No fue posible archivar; el problema sigue pendiente.';
+    } finally {
+        modalState.busy = false;
+        rerenderModal();
+    }
+}
+
 function handleClick(event) {
     const importTarget = event.target.closest?.('[data-r07-import-action]');
     if (importTarget) {
@@ -2032,6 +2220,56 @@ function handleClick(event) {
     if (modalState.busy && action !== 'close' && action !== 'share-diagnostics') return;
     if (action === 'share-diagnostics') return shareReconciliationDiagnostic();
     if (action === 'result-exit') return closeProjectReconciliation();
+    if (action === 'result-confirm-cancel') {
+        modalState.outcomeConfirm = null;
+        rerenderModal();
+        return;
+    }
+    if (modalState.outcome && action === 'result-review-case') {
+        const row = outcomeCaseById(target.dataset.r07CaseId);
+        if (!row) return;
+        if (row.action === 'retry-read') return retryOutcomeRead();
+        modalState.outcome = null;
+        modalState.outcomeConfirm = null;
+        modalState.step = row.kind === 'employee' || row.action === 'pettyCash' ? 1
+            : row.action === 'leader' ? 2
+            : row.action === 'position' ? 3
+            : row.action === 'attendance' ? 4 : 0;
+        if (row.kind === 'employee') modalState.selectedIds = new Set([row.id.slice('employee:'.length)]);
+        rerenderModal();
+        if (row.kind === 'diagnostic') {
+            const group = row.id.split(':')[0].slice('diagnostic-'.length);
+            const panel = [...(activeModal?.element?.querySelectorAll('[data-r07-diagnostic-group]') || [])]
+                .find(item => item.dataset.r07DiagnosticGroup === group && !item.closest('[hidden]'));
+            if (panel) {
+                panel.open = true;
+                const selected = [...panel.querySelectorAll('[data-r07-diagnostic-key]')]
+                    .find(item => item.dataset.r07DiagnosticKey === row.id.split(':').slice(1).join(':'));
+                selected?.setAttribute('tabindex', '-1');
+                (selected || panel.querySelector('summary'))?.focus();
+                return;
+            }
+        }
+        activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
+        return;
+    }
+    if (modalState.outcome && ['result-defer-case', 'result-archive-case'].includes(action)) {
+        const row = outcomeCaseById(target.dataset.r07CaseId);
+        if (!row || (action === 'result-archive-case' && !row.canArchive)) return;
+        modalState.outcomeConfirm = { id: row.id,
+            action: action === 'result-archive-case' ? 'archive' : 'defer' };
+        rerenderModal();
+        activeModal?.element?.querySelector('#r07-outcome-confirm-title')?.focus();
+        return;
+    }
+    if (modalState.outcome && action === 'result-confirm-defer') {
+        if (!modalState.outcomeConfirm || modalState.outcomeConfirm.action !== 'defer') return;
+        modalState.deferredCaseIds.add(modalState.outcomeConfirm.id);
+        modalState.outcomeConfirm = null;
+        rerenderModal();
+        return;
+    }
+    if (modalState.outcome && action === 'result-confirm-archive') return archiveOutcomeCase();
     if (action === 'result-continue') {
         modalState.outcome = null;
         modalState.step = 0;
