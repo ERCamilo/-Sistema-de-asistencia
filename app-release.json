@@ -1,6 +1,16 @@
 {
-  "version": "1.7.129",
+  "version": "1.7.130",
   "changelog": [
+    {
+      "version": "1.7.130",
+      "date": "2026-11-08",
+      "title": "Pronunciaciones compartidas sin confusión",
+      "items": [
+        "Al revisar una pronunciación compartida, ves el nombre y número de los demás empleados que coinciden.",
+        "Al enseñar una pronunciación, el sistema avisa incluso si coincide con el nombre de otra persona y conserva la elección manual.",
+        "Puedes corregir una asociación sin borrar las de otros empleados ni cambiar préstamos o asistencias."
+      ]
+    },
     {
       "version": "1.7.129",
       "date": "2026-11-07",
