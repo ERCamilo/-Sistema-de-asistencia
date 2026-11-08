@@ -53,6 +53,14 @@ export function getActivePayrollSettings(state) {
     return view;
 }
 
+/** Loaded config only: monetary previews must not substitute another project's defaults. */
+export function peekActivePayrollConfig() {
+    if (!isProjectsEnabled()) return null;
+    const pid = activeProjectId();
+    return pid && cache.projectId === pid && cache.config
+        ? JSON.parse(JSON.stringify(cache.config)) : null;
+}
+
 /**
  * Horas base por día (dateKey → horas) de la obra activa. Mientras la obra no
  * tenga las suyas, se usan las generales (datos anteriores a multi-obra).

@@ -1,3 +1,6 @@
+import { refreshActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
+import { captureEntityProjectScope } from '../projects/EntityProjectScope.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { renderPositionAssignmentControls, attachPositionAssignmentControls } from './EmployeePositionAssignmentUI.js';
 import { effectivePositionLeaderId } from './EmployeePositionAssignments.js';
 import { escapeAttr, escapeHTML } from '../../utils/Sanitize.js';
@@ -22,7 +25,24 @@ function formatMoney(amount) {
 }
 
 function formatHours(hours) {
-    return `${(Number(hours) || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}h`;
+    return `${(Number(hours) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}h`;
+}
+
+function renderPositionMetrics(snapshot, positionId, hourlyRate, settings) {
+    const metrics = getPositionPeriodMetrics(snapshot, positionId);
+    const available = snapshot.metricsAvailable !== false;
+    const accrued = snapshot.payrollAvailable === false ? null
+        : metrics.frozenAccrued ?? calculatePositionAccrued(metrics, hourlyRate, settings);
+    return `<span><small>Días trabajados</small><strong data-position-days>${available ? Number(metrics.days) || 0 : '—'}</strong></span>
+        <span><small>Horas del período</small><strong data-position-total-hours>${available ? formatHours(getPositionTotalHours(metrics)) : '—'}</strong></span>
+        ${accrued === null ? '' : `<span><small>Acumulado</small><strong data-position-accrued>${formatMoney(accrued)}</strong></span>`}`;
+}
+
+function updateMetricAttributes(card, snapshot) {
+    const metrics = getPositionPeriodMetrics(snapshot, card.dataset.positionAssignment);
+    for (const field of ['regularHours', 'overtimeHours', 'holidayHours', 'restDayHours']) card.dataset[field] = String(Number(metrics[field]) || 0);
+    card.dataset.restDayFactor = String(Number(metrics.restDayFactor) || 1.5);
+    card.dataset.frozenAccrued = String(metrics.frozenAccrued ?? '');
 }
 
 export function renderAssignedPositionCard({
@@ -43,9 +63,6 @@ export function renderAssignedPositionCard({
     const mode = employee?.positionSalaryModes?.[positionId] === 'daily' ? 'daily' : 'hourly';
     const displayRate = fromStoredHourly(hourlyRate, mode, regularHours);
     const metrics = getPositionPeriodMetrics(snapshot, positionId);
-    const accrued = snapshot?.payrollAvailable === false
-        ? null
-        : metrics.frozenAccrued ?? calculatePositionAccrued(metrics, hourlyRate, settings);
     const color = safePositionColor(position.color);
 
     return `
@@ -77,9 +94,7 @@ export function renderAssignedPositionCard({
             </header>
 
             <div class="employee-position-assignment__metrics">
-                <span><small>Días trabajados</small><strong>${Number(metrics.days) || 0}</strong></span>
-                <span><small>Horas del período</small><strong>${formatHours(getPositionTotalHours(metrics))}</strong></span>
-                ${accrued === null ? '' : `<span><small>Acumulado</small><strong data-position-accrued>${formatMoney(accrued)}</strong></span>`}
+                ${renderPositionMetrics(snapshot, positionId, hourlyRate, snapshot.settings || settings)}
             </div>
 
             <div class="employee-position-assignment__salary">
@@ -128,10 +143,14 @@ export function renderEmployeePositionEditor(state, employee, regularHours) {
             <header class="employee-position-editor__heading">
                 <div>
                     <strong>Puestos asignados</strong>
-                    <span>${snapshot.period.periodStart} — ${snapshot.period.periodEnd}</span>
+                    <span data-position-period-label>${snapshot.period.periodStart ? `${snapshot.period.periodStart} — ${snapshot.period.periodEnd}` : 'Cargando período de la obra…'}</span>
                 </div>
-                <span>Período actual</span>
+                <span data-position-metrics-status role="status">${snapshot.metricsAvailable === false ? 'Pendiente' : 'Período actual'}</span>
             </header>
+            <div class="employee-position-editor__metrics-notice" data-position-metrics-notice hidden>
+                <span data-position-metrics-message></span>
+                <button type="button" data-retry-position-metrics>Reintentar</button>
+            </div>
             <div class="employee-position-editor__list" data-assigned-position-list>
                 ${assignedPositions.map(position => renderAssignedPositionCard({
                     position,
@@ -156,11 +175,11 @@ export function renderEmployeePositionEditor(state, employee, regularHours) {
     `;
 }
 
-export function attachEmployeePositionEditor({ root, state, employee, regularHours }) {
+export function attachEmployeePositionEditor({ root, state, employee, regularHours, ensureAttendanceRange, readState = () => state }) {
     const editor = root.querySelector('[data-employee-position-editor]');
     if (!editor) return;
 
-    const snapshot = buildEmployeePositionPeriodSnapshot(state, employee);
+    let snapshot = buildEmployeePositionPeriodSnapshot(state, employee);
     const list = editor.querySelector('[data-assigned-position-list]');
     const empty = editor.querySelector('[data-position-editor-empty]');
 
@@ -185,7 +204,7 @@ export function attachEmployeePositionEditor({ root, state, employee, regularHou
             restDayHours: Number(card.dataset.restDayHours) || 0,
             restDayFactor: Number(card.dataset.restDayFactor) || (state.settings?.restDayFactor || 1.5)
         };
-        const accrued = calculatePositionAccrued(metrics, hourlyRate, state.settings);
+        const accrued = calculatePositionAccrued(metrics, hourlyRate, snapshot.settings || state.settings);
         const output = card.querySelector('[data-position-accrued]');
         if (output) output.textContent = formatMoney(accrued);
     };
@@ -265,4 +284,75 @@ export function attachEmployeePositionEditor({ root, state, employee, regularHou
         });
     });
     updateAssignmentControls();
+
+    const scopeIdentity = () => {
+        const scope = captureEntityProjectScope();
+        return JSON.stringify([isProjectsEnabled(), scope.projectId, scope.defaultProjectId, globalThis.currentUser?.uid || null]);
+    };
+    const capturedScope = scopeIdentity();
+    let generation = 0;
+    const isCurrent = token => token === generation && root.isConnected
+        && !root.closest('[data-modal-closing]') && scopeIdentity() === capturedScope;
+    const currentSnapshot = () => {
+        const latest = readState();
+        const currentEmployee = employee?.id ? latest.employees?.find(item => String(item.id) === String(employee.id)) : null;
+        if (employee?.id && !currentEmployee) throw new Error('El empleado ya no está disponible.');
+        return buildEmployeePositionPeriodSnapshot(latest, currentEmployee);
+    };
+    const publish = next => {
+        snapshot = next;
+        editor.dataset.periodStart = next.period.periodStart;
+        editor.dataset.periodEnd = next.period.periodEnd;
+        editor.querySelector('[data-position-period-label]').textContent = next.period.periodStart
+            ? `${next.period.periodStart} — ${next.period.periodEnd}` : 'Período pendiente';
+        list.querySelectorAll('[data-position-assignment]').forEach(card => {
+            updateMetricAttributes(card, next);
+            const mode = card.querySelector('.custom-salary-mode')?.value || 'hourly';
+            const hourly = toStoredHourly(Number(card.querySelector('.custom-salary-input')?.value) || 0, mode, regularHours);
+            card.querySelector('.employee-position-assignment__metrics').innerHTML = renderPositionMetrics(next, card.dataset.positionAssignment, hourly, next.settings || state.settings);
+        });
+    };
+    const status = editor.querySelector('[data-position-metrics-status]');
+    const notice = editor.querySelector('[data-position-metrics-notice]');
+    const load = async () => {
+        const token = ++generation;
+        if (!isCurrent(token)) return;
+        editor.setAttribute('aria-busy', 'true');
+        notice.hidden = true; status.textContent = 'Cargando…';
+        publish({ ...snapshot, metricsAvailable: false, payrollAvailable: false });
+        try {
+            if (isProjectsEnabled()) await refreshActivePayrollSettings({ render: false });
+            if (!isCurrent(token)) return;
+            const before = currentSnapshot();
+            if (before.metricsAvailable === false) throw new Error('No se pudo cargar el período de esta obra.');
+            publish({ ...before, metricsAvailable: false, payrollAvailable: false });
+            if (employee?.id && typeof ensureAttendanceRange === 'function') {
+                await ensureAttendanceRange(before.period.periodStart, before.period.periodEnd);
+            }
+            if (!isCurrent(token)) return;
+            const next = currentSnapshot();
+            if (next.metricsAvailable === false) throw new Error('El período no está disponible.');
+            if (next.period.periodStart !== before.period.periodStart || next.period.periodEnd !== before.period.periodEnd) {
+                throw new Error('Cambió el período. Vuelve a cargar las cifras.');
+            }
+            publish(next);
+            status.textContent = 'Período actual';
+        } catch (error) {
+            if (!isCurrent(token)) return;
+            status.textContent = 'No disponible'; notice.hidden = false;
+            editor.querySelector('[data-position-metrics-message]').textContent = error.message || 'No se pudieron cargar las asistencias del período.';
+        } finally {
+            if (token === generation && root.isConnected && !root.closest('[data-modal-closing]')) {
+                editor.setAttribute('aria-busy', 'false');
+                if (scopeIdentity() !== capturedScope) {
+                    status.textContent = 'No disponible'; notice.hidden = false;
+                    editor.querySelector('[data-position-metrics-message]').textContent = 'Cambió la obra o la sesión. Abre de nuevo el empleado.';
+                }
+            }
+        }
+    };
+    const controller = { ready: Promise.resolve(), reload: load };
+    editor.querySelector('[data-retry-position-metrics]').addEventListener('click', () => { controller.ready = load(); });
+    if (typeof ensureAttendanceRange === 'function' || isProjectsEnabled()) controller.ready = load();
+    return controller;
 }

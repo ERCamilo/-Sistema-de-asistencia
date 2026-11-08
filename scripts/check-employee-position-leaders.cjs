@@ -18,6 +18,8 @@ import {ProjectPayrollUIRuntime} from '/js/modules/features/payroll/ProjectPayro
 import {capturePayrollProjectContext} from '/js/modules/features/payroll/PayrollProjectContext.js';
 import {captureAttendancePositionAssignments} from '/js/modules/features/employees/EmployeePositionAssignments.js';
 import {setProjectsEnabled} from '/js/modules/config/FeatureFlags.js';
+import {setActivePayrollConfig} from '/js/modules/features/payroll/ActivePayrollSettings.js';
+import * as configStore from '/js/modules/features/payroll/ProjectPayrollConfigStore.js';
 import {replaceEntityScope} from '/js/modules/features/projects/EntityProjectScope.js';
 const employees=[{id:'juan',key:'juan',projectId:'P',number:'113',name:'Juan Pérez',active:true,hireDate:'2026-01-01',positions:['p1','p2'],loans:[],bonuses:[],deductions:[]},{id:'rosa',projectId:'P',number:'024',name:'Rosa Díaz',active:true,positions:['p3'],loans:[],bonuses:[],deductions:[]}];
 const positions=[{id:'p1',projectId:'P',name:'Albañil',leaderId:'L1',hourlyRate:112.5,active:true,workingDays:[0,1,2,3,4,5,6]},{id:'p2',projectId:'P',name:'Electricista',leaderId:'L2',hourlyRate:112.5,active:true,workingDays:[0,1,2,3,4,5,6]},{id:'p3',projectId:'P',name:'Ayudante',leaderId:'L2',hourlyRate:62.5,active:true,workingDays:[0,1,2,3,4,5,6]}];
@@ -33,6 +35,15 @@ window.showPayroll=async()=>{
  const runtime=new ProjectPayrollUIRuntime({state,configStore:{getConfig:async()=>config},projectContext:{subscribe:()=>()=>{}},captureContext:s=>capturePayrollProjectContext(s)});
  window.PayrollUI=UI;window.paint=()=>document.getElementById('screen').innerHTML=UI.PayrollTab();UI.init({state,services:{payroll:{},payrollRuntime:runtime},render:paint,saveToLocalStorage:()=>{}});
  await UI.refreshScopedPayrollPreview({periodStart:'2026-11-09',periodEnd:'2026-11-09'});UI.setPayrollGuideStep('review');UI.setLeaderFilter('L2');paint();
+};
+window.showMetricsEditor=async()=>{
+ document.getElementById('screen').hidden=true;document.getElementById('editor').hidden=false;
+ await configStore.putConfig(config);setActivePayrollConfig(config,{render:false});
+ stateManager.batchSetState(raw=>{raw.attendance={};});
+ EmployeesUI.init({state,render:()=>{},saveToLocalStorage:()=>{},services:{ensureAttendanceRange:(start,end)=>new Promise(resolve=>{
+  window.metricsPeriod={start,end};window.completeMetrics=()=>{stateManager.batchSetState(raw=>{const record={employeeId:'juan',projectId:'P',date:'2026-11-09',present:true,selectedPosition:'p2',hoursWorked:8,overtimeHours:0};raw.attendance={'juan-2026-11-09':captureAttendancePositionAssignments(record,state)};});resolve();};
+ })}});
+ EmployeeModal.open('juan',{inlineHost:document.getElementById('editor')});
 };window.ready=true;
 </script></body></html>`;
 const server = http.createServer((req,res) => {
@@ -75,8 +86,19 @@ const server = http.createServer((req,res) => {
   const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);assert.equal(overflow,false);
   await page.addScriptTag({path:path.join(ROOT,'node_modules/axe-core/axe.min.js')});
   const violations=await page.evaluate(async()=>(await axe.run('.payroll-leader-adjustment',{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})));
-  assert.deepEqual(violations,[]);assert.deepEqual(errors,[]);
-  console.log('PASS '+width+'px: defaults/override/payer, real editor save, help, leader salary −400/500, independent detail/checkbox and WCAG A/AA');
+  assert.deepEqual(violations,[]);
+  await page.evaluate(()=>window.showMetricsEditor());await page.waitForFunction(()=>typeof window.completeMetrics==='function');
+  assert.deepEqual(await page.evaluate(()=>window.metricsPeriod),{start:'2026-11-01',end:'2026-11-15'});
+  assert.equal(await page.$eval(secondary+' [data-position-days]',e=>e.textContent),'—');
+  await page.$eval(secondary+' .custom-salary-input',e=>{window.metricsInput=e;e.value='123';e.dispatchEvent(new Event('input',{bubbles:true}));e.focus();});
+  await page.evaluate(()=>window.completeMetrics());await page.waitForFunction(()=>document.querySelector('[data-employee-position-editor]').getAttribute('aria-busy')==='false');
+  assert.equal(await page.$eval(secondary+' [data-position-days]',e=>e.textContent),'1');
+  assert.equal(await page.$eval(secondary+' [data-position-total-hours]',e=>e.textContent),'8h');
+  assert.equal(await page.$eval(secondary+' .custom-salary-input',e=>e===window.metricsInput&&e.value==='123'),true);
+  await page.$eval(secondary,e=>e.scrollIntoView({block:'center'}));
+  await page.screenshot({path:path.join(output,'metricas-'+width+'.png')});
+  assert.deepEqual(errors,[]);
+  console.log('PASS '+width+'px: defaults/override/payer, real editor save, help, leader salary −400/500, independent detail/checkbox, scoped metrics hydration preserving edits and WCAG A/AA');
   await context.close();
  }
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

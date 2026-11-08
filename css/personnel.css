@@ -2684,3 +2684,6 @@
 .payroll-leader-adjustment summary > span { flex: 1; min-width: 0; }
 .payroll-leader-adjustment summary > strong, .payroll-leader-adjustment summary > svg { flex-shrink: 0; white-space: nowrap; }
 .payroll-leader-adjustment details[open] > summary > svg { transform: rotate(180deg); }
+.employee-position-editor__metrics-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #465164; border-radius: 10px; background: #182231; color: #b4c0cf; font-size: .72rem; line-height: 1.5; }
+.employee-position-editor__metrics-notice[hidden] { display: none; }
+.employee-position-editor__metrics-notice button { min-height: 44px; padding: 8px 10px; border: 1px solid #455268; border-radius: 8px; background: #101720; color: #e5ebf2; cursor: pointer; }

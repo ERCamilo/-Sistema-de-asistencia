@@ -9,7 +9,8 @@
         "Cada puesto propone su líder y permite cambiarlo solo para ese empleado.",
         "Las posiciones de préstamo distinguen el equipo del líder que paga el salario completo.",
         "La nómina separa el descuento opcional del líder de los salarios, préstamos y ajustes personales.",
-        "Las asistencias conservan sus condiciones y los reportes muestran el reparto sin duplicar pagos."
+        "Las asistencias conservan sus condiciones y los reportes muestran el reparto sin duplicar pagos.",
+        "Los días y horas de cada puesto se cargan desde el período de la obra, con estado de carga y reintento."
       ]
     },
     {

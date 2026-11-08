@@ -203,7 +203,11 @@ export class EmployeeModal {
             toggleBtn.querySelector('span:nth-child(2)').textContent = `${showOptionalFields ? 'Ocultar' : 'Mostrar'} campos opcionales`;
         });
 
-        attachEmployeePositionEditor({ root: body, state, employee: emp, regularHours });
+        attachEmployeePositionEditor({ root: body, state, employee: emp, regularHours,
+            readState: getState,
+            ensureAttendanceRange: typeof context?.services?.ensureAttendanceRange === 'function'
+                ? (start, end) => context.services.ensureAttendanceRange(start, end) : undefined
+        });
 
         // Input de número (remediar el estilo si el usuario escribe)
         const numInput = body.querySelector('#empNumber');

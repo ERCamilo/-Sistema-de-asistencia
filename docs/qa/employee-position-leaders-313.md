@@ -38,3 +38,14 @@ Casos financieros cubiertos: $900 pagados una vez; $500 − $900 = −$400; grup
 3. **Agente SA:** resolver observaciones y verificar los checks del PR antes de integrar. No usar la vista previa para registrar pagos reales durante esta validación.
 
 El historial de cierres es la referencia de pagos confirmados; el reporte de personal presenta la proyección actual del rango seleccionado con la elegibilidad habitual de nómina. La función no registra regalos externos, fracciona el salario entre pagadores ni liquida/arrastra automáticamente saldos negativos de líderes.
+
+
+## Cifras del período en la tarjeta del puesto
+
+Corrección de la revisión del MVP: con obras habilitadas el editor devolvía un mapa vacío para evitar la API de nómina legacy y renderizaba esos valores ausentes como 0 días / 0h. También dependía exclusivamente de la asistencia que ya estuviera en memoria.
+
+Ahora usa la configuración cargada de la obra activa, el contexto canónico limitado al empleado/período y la API de cálculo con contexto. Al abrir el formulario solicita las asistencias de todo ese rango mediante el cargador existente. Los días cuentan fechas distintas por puesto y las horas incluyen las extras; las horas fraccionadas conservan dos decimales de presentación. No cambia fórmulas ni registra operaciones.
+
+Durante la carga, la tarjeta muestra «—». Si falla, informa que las cifras no están disponibles y ofrece Reintentar. Al terminar solo actualiza el bloque de estadísticas: conserva nodos, foco, tarifas y líderes editados. Cambiar de obra/sesión, cerrar el formulario o cambiar de período durante la consulta impide publicar datos tardíos como si fueran actuales.
+
+Regresión automatizada: obra activa frente a configuración global distinta, exclusión de otra obra/rango, multiposición, extras, fechas únicas, cero real tras cargar, falta de configuración, error/reintento y preservación de borradores. La prueba Chromium también abre el editor real con obras activas, hidrata el período pendiente y verifica 1 día / 8h sin borrar una tarifa escrita durante la espera.
