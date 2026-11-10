@@ -33,7 +33,7 @@ testRunner.addSuite("EmployeeRemovePosition — detección e interposición del 
     "al guardar una edición se detectan las posiciones removidas CON historial"() {
         const idx = MODAL_SRC.indexOf('static save(');
         testRunner.assert(idx !== -1, 'debe existir static save');
-        const block = MODAL_SRC.slice(idx, idx + 12000);
+        const block = MODAL_SRC.slice(idx, idx + 16000); // ventana ampliada: save() creció con la pregunta de cambio de líder
         testRunner.assert(/!selectedPositions\.includes\(/.test(block),
             'removidas = posiciones previas que ya no están en las seleccionadas');
         testRunner.assert(/collectPositionDays\(/.test(block),
@@ -80,7 +80,7 @@ testRunner.addSuite("EmployeeRemovePosition — ejecución de la reasignación",
 
     "la reasignación corre dentro de batchSetState y reconstruye el índice"() {
         const idx = MODAL_SRC.indexOf('static save(');
-        const block = MODAL_SRC.slice(idx, idx + 12000);
+        const block = MODAL_SRC.slice(idx, idx + 16000); // ventana ampliada: save() creció con la pregunta de cambio de líder
         testRunner.assert(
             /batchSetState\(\s*\(\)\s*=>\s*\{[\s\S]{0,500}?reassignPositionDays\([\s\S]{0,400}?buildAttendanceIndex\(\)/.test(block),
             'mutación de asistencia dentro de batchSetState + rebuild del índice (mismo contrato que el purge)'
@@ -89,7 +89,7 @@ testRunner.addSuite("EmployeeRemovePosition — ejecución de la reasignación",
 
     "las fechas tocadas suben por el canal daily en el MISMO guardado del announce"() {
         const idx = MODAL_SRC.indexOf('static save(');
-        const block = MODAL_SRC.slice(idx, idx + 12000);
+        const block = MODAL_SRC.slice(idx, idx + 16000); // ventana ampliada: save() creció con la pregunta de cambio de líder
         testRunner.assert(
             /dateKeys[\s\S]{0,200}?immediate\s*[:=]\s*true/.test(block),
             'el guardado lleva dateKeys + immediate:true — un daily por fecha, un solo mirror'

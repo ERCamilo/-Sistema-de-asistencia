@@ -11,6 +11,9 @@ import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject } from '../../features/projects/ProjectContext.js';
 import { resolveRestDayFactor } from '../../features/payroll/PayrollFactors.js';
 import { notifyPayRateChange, payRateChanged } from '../../features/payroll/PayRateChangeNotice.js';
+import { askLeaderChangeStart, leaderChangeDateRange } from '../../features/employees/LeaderChangeDateDialog.js';
+import { countLeaderChangeDays, planPositionLeaderChange } from '../../features/employees/LeaderChangeFromDate.js';
+import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
 
 // Texto de ayuda según el modo de carga del salario.
 const salaryHintFor = (mode, hours) => mode === 'daily'
@@ -417,7 +420,7 @@ export class PositionModal {
         }
     }
 
-    static save(modalInstance, existingPos) {
+    static save(modalInstance, existingPos, { leaderChangeFrom } = {}) {
         const el = modalInstance.element;
         // F1.4: alcance activo para el sello de nacimiento.
         const scope = peekEntityScope();
@@ -469,10 +472,30 @@ export class PositionModal {
             return;
         }
 
+        // Cambio de líder del puesto con días ya registrados en el período
+        // abierto: se pregunta desde cuándo vale antes de tocar nada.
+        const current = existingPos ? state.positions.find(p => p.id === existingPos.id) : null;
+        const leaderChanged = Boolean(current) && String(current.leaderId || '') !== String(leaderId || '');
+        const { periodStart } = leaderChangeDateRange(state);
+        if (leaderChanged && leaderChangeFrom === undefined) {
+            const days = countLeaderChangeDays(state, { positionIds: [current.id], periodStart });
+            if (days > 0) {
+                if (modalInstance._leaderChangeQuestionOpen) return;
+                modalInstance._leaderChangeQuestionOpen = true;
+                askLeaderChangeStart(state, { subject: `El puesto «${name}»`, days }).then(fromDate => {
+                    modalInstance._leaderChangeQuestionOpen = false;
+                    if (fromDate && el.isConnected) PositionModal.save(modalInstance, existingPos, { leaderChangeFrom: fromDate });
+                });
+                return;
+            }
+        }
+        const positionBefore = leaderChanged ? JSON.parse(JSON.stringify(current)) : null;
+
         // El toast lo emite SaveOutcomeNotifier con el resultado REAL del
         // guardado (verde local+nube / amarillo solo-local / rojo).
         let announce = null;
         let payChanged = false;
+        let touchedDates = [];
         if (existingPos) {
             const posToEdit = state.positions.find(p => p.id === existingPos.id);
             if (posToEdit) {
@@ -501,6 +524,17 @@ export class PositionModal {
                 posToEdit._isDirty = true;
 
                 announce = `Posición "${name}" actualizada`;
+
+                if (positionBefore && leaderChangeFrom) {
+                    const plan = planPositionLeaderChange(state, { positionBefore, fromDate: leaderChangeFrom, periodStart });
+                    if (plan.dateKeys.length > 0) {
+                        stateManager.batchSetState(() => {
+                            Object.assign(state.attendance, plan.records);
+                            buildAttendanceIndex();
+                        });
+                        touchedDates = plan.dateKeys;
+                    }
+                }
             }
         } else {
             state.positions.push({
@@ -523,7 +557,9 @@ export class PositionModal {
             announce = `Posición "${name}" creada`;
         }
 
-        context.saveToLocalStorage(announce ? { announce } : undefined);
+        // Las asistencias reescritas suben por el canal diario en el mismo guardado.
+        const saveOptions = { ...(announce ? { announce } : {}), ...(touchedDates.length ? { dateKeys: touchedDates, immediate: true } : {}) };
+        context.saveToLocalStorage(Object.keys(saveOptions).length ? saveOptions : undefined);
         context.render();
         modalInstance.close();
         if (payChanged) notifyPayRateChange(state, { subject: `Puesto «${name}»` });

@@ -12,7 +12,8 @@
         "Los saldos completos entre líderes se identifican al consultar un reporte parcial.",
         "Un cambio de tarifa o de factor se aplica a todo el período abierto, igual para todos los empleados, y un aviso indica desde qué fecha rige.",
         "El día libre se paga con el factor del líder; el del puesto solo se usa si el líder no define el suyo.",
-        "El reporte de días valora feriados, días libres y jornadas repartidas entre dos puestos igual que la nómina."
+        "El reporte de días valora feriados, días libres y jornadas repartidas entre dos puestos igual que la nómina.",
+        "Al cambiar el líder de un puesto o de un empleado se elige si vale para todo el período abierto o desde una fecha; los días anteriores quedan con el líder anterior."
       ]
     },
     {

@@ -122,3 +122,17 @@ export function assignmentConfigurationChanged(first = {}, second = {}) {
     return JSON.stringify(Object.keys(first).sort().map(key => [key, configuration(first[key])]))
         !== JSON.stringify(Object.keys(second).sort().map(key => [key, configuration(second[key])]));
 }
+
+/** Jobs the employee already had whose team, loan mark or payer would really change. */
+export function changedAssignmentPositions(employee, requested = {}, positions = []) {
+    const held = new Set((employee?.positions || []).map(String));
+    const payer = value => value.isLoanPosition ? value.payerLeaderId : value.workLeaderId;
+    return Object.keys(requested || {}).filter(positionId => {
+        if (!held.has(String(positionId))) return false;
+        const position = positions.find(item => id(item.id) === id(positionId));
+        if (!position) return false;
+        const before = getEmployeePositionAssignment(employee, position);
+        const after = configuration(requested[positionId]);
+        return before.workLeaderId !== after.workLeaderId || before.isLoanPosition !== after.isLoanPosition || payer(before) !== payer(after);
+    });
+}

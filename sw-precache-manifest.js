@@ -93,6 +93,8 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/employees/EmployeesList.js",
     "./js/modules/features/employees/EmployeesUI.js",
     "./js/modules/features/employees/Leader.js",
+    "./js/modules/features/employees/LeaderChangeDateDialog.js",
+    "./js/modules/features/employees/LeaderChangeFromDate.js",
     "./js/modules/features/employees/LeadersList.js",
     "./js/modules/features/employees/Position.js",
     "./js/modules/features/employees/PositionVisuals.js",
