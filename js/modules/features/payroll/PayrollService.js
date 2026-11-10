@@ -1,3 +1,4 @@
+import { resolveEmployeePositionTerms } from '../employees/EmployeePositionAssignments.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { calculateScopedAdjustments } from './PayrollAdjustments.js';
 import { buildPayrollAdjustmentInstallmentPreview } from './PayrollAdjustmentInstallmentSettlement.js';
@@ -5,6 +6,13 @@ import { resolveRestDayFactor } from './PayrollFactors.js';
 import { capturePayrollProjectContext } from './PayrollProjectContext.js';
 import * as ProjectPayrollConfigStore from './ProjectPayrollConfigStore.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+
+function assignmentPayrollMetadata(breakdown, employee, positions) {
+    if (!breakdown.some(part => part.assignmentSchemaVersion === 1)) return {};
+    const owner = breakdown.find(part => String(part.positionId) === String(employee.positions?.[0])) || breakdown[0];
+    return { personalAdjustmentPayerId: owner?.assignmentSchemaVersion === 1 ? owner.payerLeaderId
+        : positions.find(position => String(position.id) === String(owner?.positionId))?.leaderId || null };
+}
 
 const WEEKS_PER_MONTH = 52 / 12; // 4.333333333333333
 
@@ -72,38 +80,48 @@ function calculateEmployeePayrollScopedInternal(ctx, config, empId, startDateKey
             positionsWorked = [{ positionId: posId, hours: att.hoursWorked || 0, overtimeHours: att.overtimeHours || 0 }];
         }
         positionsWorked.forEach(pw => {
-            if (!positionData[pw.positionId]) {
-                positionData[pw.positionId] = { days: 0, regularHours: 0, overtimeHours: 0, holidayHours: 0, restDayHours: 0 };
+                const position = ctx.positions.find(item => String(item.id) === String(pw.positionId));
+                const hasAssignment = emp.positionAssignments?.[pw.positionId] || att.positionAssignments?.[pw.positionId];
+                const terms = hasAssignment && (position || att.positionAssignments?.[pw.positionId])
+                    ? resolveEmployeePositionTerms(emp, position || { id: pw.positionId }, { ...att, date: att.date || dateKey }, { settings: config, leaders: ctx.leaders || [] }) : null;
+                const bucket = terms ? JSON.stringify([pw.positionId, terms]) : pw.positionId;
+
+            if (!positionData[bucket]) {
+                positionData[bucket] = { positionId: pw.positionId, terms, days: 0, regularHours: 0, overtimeHours: 0, holidayHours: 0, restDayHours: 0 };
             }
-            positionData[pw.positionId].days++;
-            const isHoliday = att.isHoliday || (config.holidays || []).includes(dateKey);
+            positionData[bucket].days++;
+            const isHoliday = terms?.dayKind ? terms.dayKind === 'holiday' : att.isHoliday || (config.holidays || []).includes(dateKey);
             const posObj = ctx.positions.find(p => String(p.id) === String(pw.positionId));
-            const workingDays = emp.customWorkingDays?.[pw.positionId] || posObj?.workingDays || [1, 2, 3, 4, 5];
-            const isRestDay = !workingDays.includes(new Date(d).getDay());
-            if (isHoliday) positionData[pw.positionId].holidayHours += pw.hours;
-            else if (isRestDay) positionData[pw.positionId].restDayHours += pw.hours;
-            else positionData[pw.positionId].regularHours += pw.hours;
-            positionData[pw.positionId].overtimeHours += pw.overtimeHours;
+            const workingDays = terms?.workingDays || emp.customWorkingDays?.[pw.positionId] || posObj?.workingDays || [1, 2, 3, 4, 5];
+            const isRestDay = terms?.dayKind ? terms.dayKind === 'rest' : !workingDays.includes(new Date(d).getDay());
+            if (isHoliday) positionData[bucket].holidayHours += pw.hours;
+            else if (isRestDay) positionData[bucket].restDayHours += pw.hours;
+            else positionData[bucket].regularHours += pw.hours;
+            positionData[bucket].overtimeHours += pw.overtimeHours;
         });
     }
 
     const breakdown = [];
     let totalBruto = 0;
-    Object.keys(positionData).forEach(posId => {
-        const pos = ctx.positions.find(p => String(p.id) === String(posId));
+    Object.keys(positionData).forEach(bucket => {
+        const data = positionData[bucket];
+        const posId = data.positionId || bucket;
+        const terms = data.terms;
+        const pos = ctx.positions.find(p => String(p.id) === String(posId)) || (terms ? { id: posId, name: terms.positionName, color: terms.positionColor } : null);
         if (!pos) return;
-        const data = positionData[posId];
+
         let hourlyRate = pos.hourlyRate || 0;
         if (emp.positionSalaries && emp.positionSalaries[posId]) hourlyRate = emp.positionSalaries[posId];
         if (!hourlyRate && pos.salaryConfig?.amount) {
             hourlyRate = pos.salaryConfig.amount / 30 / (config.regularHoursPerDay || 8);
         }
-        const overtimeFactor = config.overtimeFactor ?? 1;
-        const holidayFactor = config.holidayFactor ?? 2;
+        if (terms) hourlyRate = terms.hourlyRate;
+        const overtimeFactor = terms?.overtimeFactor ?? config.overtimeFactor ?? 1;
+        const holidayFactor = terms?.holidayFactor ?? config.holidayFactor ?? 2;
         const leaders = Array.isArray(ctx.leaders) ? ctx.leaders : [];
         const leader = pos.leaderId ? leaders.find(l => String(l.id) === String(pos.leaderId)) : null;
         const effectiveSettings = { ...ctx.settings, regularHoursPerDay: config.regularHoursPerDay, overtimeFactor: config.overtimeFactor, holidayFactor: config.holidayFactor, holidays: config.holidays };
-        const restDayFactor = resolveRestDayFactor(pos, leader, effectiveSettings);
+        const restDayFactor = terms?.restDayFactor ?? resolveRestDayFactor(pos, leader, effectiveSettings);
         const overtimeRate = hourlyRate * overtimeFactor;
         const holidayRate = hourlyRate * holidayFactor;
         const restDayRate = hourlyRate * restDayFactor;
@@ -115,7 +133,10 @@ function calculateEmployeePayrollScopedInternal(ctx, config, empId, startDateKey
         const workDaysCount = (pos.workingDays && pos.workingDays.length > 0) ? pos.workingDays.length : 6;
         const monthlyEquivalent = hourlyRate * (config.regularHoursPerDay || 8) * (workDaysCount * WEEKS_PER_MONTH);
         breakdown.push({
-            positionId: posId, positionName: pos.name, positionColor: pos.color,
+            ...(terms ? { assignmentSchemaVersion: 1, workLeaderId: terms.workLeaderId, payerLeaderId: terms.payerLeaderId,
+                workLeaderName: terms.workLeaderName, payerLeaderName: terms.payerLeaderName,
+                isLoanPosition: terms.isLoanPosition } : {}),
+            positionId: posId, positionName: terms?.positionName ?? pos.name, positionColor: terms?.positionColor ?? pos.color,
             hourlyRate, monthlyEquivalent, days: data.days,
             regularHours: data.regularHours, overtimeHours: data.overtimeHours,
             holidayHours: data.holidayHours, restDayHours: data.restDayHours || 0,
@@ -149,6 +170,7 @@ function calculateEmployeePayrollScopedInternal(ctx, config, empId, startDateKey
     const totalBrutoConBonos = totalBruto + totalBonuses;
     const neto = totalBrutoConBonos - totalDeductions - totalAdvances;
     return {
+        ...assignmentPayrollMetadata(breakdown, emp, ctx.positions),
         brutoOriginal: totalBruto, bruto: totalBrutoConBonos, deductions: totalDeductions, deductionBreakdown,
         bonuses: totalBonuses, bonusBreakdown, advances: totalAdvances, advanceBreakdown,
         neto, breakdown, _scoped: true, _projectId: ctx.projectId
@@ -222,7 +244,7 @@ export class PayrollService {
 
         if (employee.salaryConfig.type === 'standard') {
             const posId = employee.salaryConfig.positionId || employee.positions?.[0];
-            const pos = this.state.positions.find(p => p.id === posId);
+            const pos = this.state.positions.find(p => p.id === posId) || (terms ? { id: posId, name: terms.positionName, color: terms.positionColor } : null);
             if (pos?.salaryConfig) {
                 return pos.salaryConfig;
             }
@@ -361,8 +383,15 @@ export class PayrollService {
 
             // Acumular por posición
             positionsWorked.forEach(pw => {
-                if (!positionData[pw.positionId]) {
-                    positionData[pw.positionId] = {
+                const position = this.state.positions.find(item => String(item.id) === String(pw.positionId));
+                const hasAssignment = emp.positionAssignments?.[pw.positionId] || att.positionAssignments?.[pw.positionId];
+                const terms = hasAssignment && (position || att.positionAssignments?.[pw.positionId])
+                    ? resolveEmployeePositionTerms(emp, position || { id: pw.positionId }, { ...att, date: att.date || dateKey }, { settings: this.state.settings, leaders: this.state.leaders || [] }) : null;
+                const bucket = terms ? JSON.stringify([pw.positionId, terms]) : pw.positionId;
+
+                if (!positionData[bucket]) {
+                    positionData[bucket] = {
+                        positionId: pw.positionId, terms,
                         days: 0,
                         regularHours: 0,
                         overtimeHours: 0,
@@ -371,22 +400,22 @@ export class PayrollService {
                     };
                 }
 
-                positionData[pw.positionId].days++;
+                positionData[bucket].days++;
 
-                const isHoliday = att.isHoliday || (this.state.settings.holidays || []).includes(dateKey);
+                const isHoliday = terms?.dayKind ? terms.dayKind === 'holiday' : att.isHoliday || (this.state.settings.holidays || []).includes(dateKey);
                 const posObj = this.state.positions.find(p => p.id === pw.positionId);
-                const workingDays = emp.customWorkingDays?.[pw.positionId] || posObj?.workingDays || [1, 2, 3, 4, 5];
-                const isRestDay = !workingDays.includes(new Date(d).getDay());
+                const workingDays = terms?.workingDays || emp.customWorkingDays?.[pw.positionId] || posObj?.workingDays || [1, 2, 3, 4, 5];
+                const isRestDay = terms?.dayKind ? terms.dayKind === 'rest' : !workingDays.includes(new Date(d).getDay());
 
                 if (isHoliday) {
-                    positionData[pw.positionId].holidayHours += pw.hours;
+                    positionData[bucket].holidayHours += pw.hours;
                 } else if (isRestDay) {
-                    positionData[pw.positionId].restDayHours += pw.hours;
+                    positionData[bucket].restDayHours += pw.hours;
                 } else {
-                    positionData[pw.positionId].regularHours += pw.hours;
+                    positionData[bucket].regularHours += pw.hours;
                 }
 
-                positionData[pw.positionId].overtimeHours += pw.overtimeHours;
+                positionData[bucket].overtimeHours += pw.overtimeHours;
             });
         }
 
@@ -394,11 +423,13 @@ export class PayrollService {
         const breakdown = [];
         let totalBruto = 0;
 
-        Object.keys(positionData).forEach(posId => {
-            const pos = this.state.positions.find(p => p.id === posId);
+        Object.keys(positionData).forEach(bucket => {
+            const data = positionData[bucket];
+            const posId = data.positionId || bucket;
+            const terms = data.terms;
+            const pos = this.state.positions.find(p => p.id === posId) || (terms ? { id: posId, name: terms.positionName, color: terms.positionColor } : null);
             if (!pos) return;
 
-            const data = positionData[posId];
 
             // 💡 NUEVO SISTEMA SIMPLE: Solo tarifa por hora
             // 1. Obtener hourlyRate base
@@ -417,11 +448,12 @@ export class PayrollService {
             }
 
             // 4. Calcular tarifas con factores globales y jerárquicos
-            const overtimeFactor = this.state.settings.overtimeFactor || 1;
-            const holidayFactor = this.state.settings.holidayFactor || 2;
+            if (terms) hourlyRate = terms.hourlyRate;
+            const overtimeFactor = terms?.overtimeFactor ?? (this.state.settings.overtimeFactor || 1);
+            const holidayFactor = terms?.holidayFactor ?? (this.state.settings.holidayFactor || 2);
             const leaders = Array.isArray(this.state?.leaders) ? this.state.leaders : [];
             const leader = pos.leaderId ? leaders.find(l => l.id === pos.leaderId) : null;
-            const restDayFactor = resolveRestDayFactor(pos, leader, this.state?.settings);
+            const restDayFactor = terms?.restDayFactor ?? resolveRestDayFactor(pos, leader, this.state?.settings);
 
             const overtimeRate = hourlyRate * overtimeFactor;
             const holidayRate = hourlyRate * holidayFactor;
@@ -439,9 +471,12 @@ export class PayrollService {
             const monthlyEquivalent = hourlyRate * this.state.settings.regularHoursPerDay * (workDaysCount * WEEKS_PER_MONTH);
 
             breakdown.push({
+            ...(terms ? { assignmentSchemaVersion: 1, workLeaderId: terms.workLeaderId, payerLeaderId: terms.payerLeaderId,
+                workLeaderName: terms.workLeaderName, payerLeaderName: terms.payerLeaderName,
+                isLoanPosition: terms.isLoanPosition } : {}),
                 positionId: posId,
-                positionName: pos.name,
-                positionColor: pos.color,
+                positionName: terms?.positionName ?? pos.name,
+                positionColor: terms?.positionColor ?? pos.color,
                 hourlyRate: hourlyRate,
                 monthlyEquivalent: monthlyEquivalent,  // Para display
                 days: data.days,
@@ -533,6 +568,7 @@ export class PayrollService {
         const neto = totalBrutoConBonos - totalDeductions - totalAdvances;
 
         return {
+            ...assignmentPayrollMetadata(breakdown, emp, this.state.positions),
             brutoOriginal: totalBruto, // Salario base por posiciones
             bruto: totalBrutoConBonos, // Salario base + bonificaciones
             deductions: totalDeductions,
@@ -555,7 +591,7 @@ export class PayrollService {
         const regularHoursPerDay = this.state.settings?.regularHoursPerDay || 8;
 
         (employee.positions || []).forEach(posId => {
-            const pos = this.state.positions.find(p => p.id === posId);
+            const pos = this.state.positions.find(p => p.id === posId) || (terms ? { id: posId, name: terms.positionName, color: terms.positionColor } : null);
             if (!pos) return;
 
             // Obtener sueldo (personalizado o estándar)

@@ -153,8 +153,8 @@ function sameCharge(expected, actual) {
 export function buildPayrollPreviewFingerprint(options = {}) {
     const { periodStart, periodEnd, rows } = options;
     const snapshot = Object.prototype.hasOwnProperty.call(options, 'projectId')
-        ? buildPayrollClosureSnapshot({ projectId: options.projectId, periodStart, periodEnd, rows })
-        : buildPayrollClosureSnapshot({ periodStart, periodEnd, rows });
+        ? buildPayrollClosureSnapshot({ projectId: options.projectId, periodStart, periodEnd, rows, leaderAdjustments: options.leaderAdjustments })
+        : buildPayrollClosureSnapshot({ periodStart, periodEnd, rows, leaderAdjustments: options.leaderAdjustments });
     return JSON.stringify(snapshot);
 }
 

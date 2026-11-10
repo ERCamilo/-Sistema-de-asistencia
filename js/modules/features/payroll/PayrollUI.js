@@ -1,3 +1,4 @@
+import { buildPayrollLeaderAdjustments, renderPayrollLeaderAdjustments, rememberPayrollLeaderAdjustmentExpansion } from './PayrollLeaderAdjustments.js';
 import icons from '../../ui/IconSystem.js';
 import { stateManager } from '../../core/AppState.js';
 import { Modal } from '../../components/Modal.js';
@@ -328,6 +329,7 @@ const _ACTION_MAP = {
     ),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
+    'toggle-leader-adjustment': (_value, target) => togglePayrollLeaderAdjustment(target),
     'export-payroll-pdf': () => window.PayrollUI?.exportPayrollPDF?.(),
     'send-to-splitx': () => window.PayrollUI?.sendToSplitX?.(),
     'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode),
@@ -335,6 +337,14 @@ const _ACTION_MAP = {
 };
 
 function _handlePayrollClick(e) {
+    const summary = e.target.closest('[data-payroll-leader-details]');
+    if (summary) {
+        e.preventDefault();
+        const details = summary.closest('details');
+        details.open = !details.open;
+        rememberPayrollLeaderAdjustmentExpansion(details);
+        return;
+    }
     const target = e.target.closest('[data-payroll-action]');
     if (!target) return;
     const action = target.dataset.payrollAction;
@@ -496,6 +506,7 @@ export function init(ctx) {
         document.addEventListener('input', _handlePayrollAdjustmentInput);
         document.addEventListener('input', _handlePayrollLoanPercentageInput);
         document.addEventListener('change', _handlePayrollLoanPercentageInput);
+        document.addEventListener('toggle', event => rememberPayrollLeaderAdjustmentExpansion(event.target), true);
         document.addEventListener('change', _handlePayrollAdjustmentInput);
         _payrollDelegationAttached = true;
     }
@@ -730,6 +741,13 @@ function getScopedPayrollLeaders(view, state = getState()) {
         .map(position => position?.leaderId)
         .filter(id => id != null && id !== '')
         .map(String));
+    for (const employee of state?.employees || []) {
+        if (scope && !entityInScope(employee, scope)) continue;
+        for (const assignment of Object.values(employee.positionAssignments || {})) {
+            if (assignment.workLeaderId) leaderIds.add(String(assignment.workLeaderId));
+            if (assignment.isLoanPosition && assignment.payerLeaderId) leaderIds.add(String(assignment.payerLeaderId));
+        }
+    }
     return (state?.leaders || [])
         .filter(leader => leader && leader.active !== false && leaderIds.has(String(leader.id)))
         .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'es'));
@@ -768,6 +786,33 @@ function payrollReviewEmployeeSelection(view, state = getState()) {
         projectId: view?.projectId, period: view?.period,
         employees: getScopedProjectEmployees(view?.projectId, state)
     });
+}
+
+function payrollLeaderAdjustmentView(view = null, state = getState(), { all = false } = {}) {
+    const scoped = Boolean(view?.enabled);
+    const periodStart = scoped ? view.period?.periodStart : state.exportConfig.periodStart;
+    const periodEnd = scoped ? view.period?.periodEnd : state.exportConfig.periodEnd;
+    const rows = scoped ? getScopedReviewRows(view, state, { byLeader: false }) : generateExportData({ byLeader: false });
+    const groups = buildPayrollLeaderAdjustments(rows, {
+        ownerId: globalThis.currentUser?.uid || 'local', projectId: scoped ? view.projectId : 'legacy', periodStart, periodEnd,
+        positions: state.positions || [], employees: scoped ? getScopedProjectEmployees(view.projectId, state) : state.employees,
+        selections: state.exportConfig.payrollLeaderAdjustments || {}
+    });
+    const leaderId = scoped ? getScopedLeaderFilter(view, state) : String(state.exportConfig.leaderFilter || 'all');
+    return all || leaderId === 'all' ? groups : groups.filter(group => group.leaderId === leaderId);
+}
+
+export function togglePayrollLeaderAdjustment(target) {
+    rememberPayrollLeaderAdjustmentExpansion(target.closest('.payroll-leader-adjustment')?.querySelector('details'));
+    const state = getState(), view = getScopedPayrollView();
+    if (view?.enabled && payrollReviewEmployeeSelection(view, state).enabled) return;
+    const group = payrollLeaderAdjustmentView(view, state)[Number(target.dataset.payrollLeaderAdjustment)];
+    if (!group) return;
+    stateManager.setState({ exportConfig: { ...state.exportConfig,
+        payrollLeaderAdjustments: { ...(state.exportConfig.payrollLeaderAdjustments || {}), [group.key]: target.checked },
+        payrollPaidConfirmation: null
+    } });
+    context.saveToLocalStorage?.(); context.render();
 }
 
 /**
@@ -914,6 +959,7 @@ function ScopedPayrollTab(view) {
     const rows = getScopedReviewRows(view, state);
     const sourceRows = getScopedReviewRows(view, state, { withInclusion: false });
     const allRowsCount = getScopedReviewRows(view, state, { byLeader: false }).length;
+    const leaderAdjustments = payrollLeaderAdjustmentView(view, state);
     const leaders = getScopedPayrollLeaders(view, state);
     const leaderFilter = getScopedLeaderFilter(view, state);
     const activeLeader = leaders.find(leader => String(leader.id) === leaderFilter) || null;
@@ -1154,6 +1200,8 @@ function ScopedPayrollTab(view) {
                                     ? `Ningún empleado de ${activeLeader.name || 'este líder'} tiene asistencia en el período.`
                                     : 'No hay registros de asistencia para esta obra en el período seleccionado.'
                             })}
+
+                            ${renderPayrollLeaderAdjustments(leaderAdjustments, { partial: reviewEmployeeSelection.enabled })}
 
                             ${guideStep === 'review' && activeRegistration ? renderPayrollRegistrationActions({
                                 registration: activeRegistration.registration,
@@ -1405,6 +1453,7 @@ function PayrollGeneratorTab() {
     const isStepCollapsed = (id) => (state.exportConfig.collapsedSteps || []).includes(id);
 
     const exportData = generateExportData();
+    const leaderAdjustments = payrollLeaderAdjustmentView(null, state);
     latestPayrollPreviewRows = exportData;
     const getReviewNet = (row) => Math.round((((Number(row?.monto) || 0) + Number.EPSILON) * 100)) / 100;
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
@@ -1420,7 +1469,8 @@ function PayrollGeneratorTab() {
     const previewFingerprint = buildPayrollPreviewFingerprint({
         periodStart: state.exportConfig.periodStart,
         periodEnd: state.exportConfig.periodEnd,
-        rows: exportData
+        rows: exportData,
+        leaderAdjustments
     });
     const closureCache = requestPayrollPeriodClosures(
         state.exportConfig.periodStart,
@@ -1858,6 +1908,8 @@ function PayrollGeneratorTab() {
                     </table>
                 </div>
 
+                ${renderPayrollLeaderAdjustments(leaderAdjustments)}
+
                 ${activeRegistration ? renderPayrollRegistrationActions({
                     registration: activeRegistration.registration,
                     gate: payrollClosureGate,
@@ -2044,7 +2096,7 @@ function renderAdjustmentSummaryDetails(summary, kind) {
     `;
 }
 
-function generateExportData() {
+function generateExportData({ byLeader = true } = {}) {
     // Cálculo legacy: con obras activas lanzaría LegacyPayrollUnavailableError.
     // Las filas de la obra salen de getScopedReviewRows().
     if (isProjectsEnabled()) return [];
@@ -2056,7 +2108,7 @@ function generateExportData() {
     );
     if (!periodStart || !periodEnd) return [];
 
-    const filteredEmployees = getLeaderFilteredEmployees(state);
+    const filteredEmployees = getPayrollEmployeesForPeriod({ ...state, exportConfig: { ...state.exportConfig, leaderFilter: 'all' } }, periodStart, periodEnd);
 
     const baseRows = filteredEmployees.map(emp => {
         // PayrollService resuelve el alcance contra el desglose real del período.
@@ -2091,6 +2143,7 @@ function generateExportData() {
             _bonusDetails: payroll.bonusBreakdown || [],
             _deductionDetails: payroll.deductionBreakdown || [],
             _positionBreakdown: payroll.breakdown || [],
+            ...(payroll.personalAdjustmentPayerId !== undefined ? { _personalAdjustmentPayerId: payroll.personalAdjustmentPayerId } : {}),
             _employeeId: emp.id,
             _employeeName: emp.name,
             _employeePosition: organization.positionName,
@@ -2121,14 +2174,10 @@ function generateExportData() {
             || (emp._deductionDetails || []).length > 0
         )
         .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
-    // Periodo ya pagado: los préstamos son los abonos ya anotados, no un cobro nuevo.
-    return registration
-        ? applyRegistrationLoans(
-            rows,
-            collectRegistrationPayments(state.employees, periodStart, periodEnd),
-            registration.loanMode
-        )
-        : rows;
+    const effective = registration ? applyRegistrationLoans(rows,
+        collectRegistrationPayments(state.employees, periodStart, periodEnd), registration.loanMode) : rows;
+    return byLeader ? filterPayrollRowsByLeader(effective, { leaderId: state.exportConfig.leaderFilter,
+        positions: state.positions, employees: state.employees, hoursScope: state.exportConfig.leaderHoursScope }) : effective;
 }
 
 function adjustmentKindLabel(kind) {
@@ -3770,7 +3819,8 @@ export function downloadExportJSON() {
 export async function exportPayrollPDF() {
     const previewRows = getEffectiveExportRows();
     if (!previewRows) return;
-    if (previewRows.length === 0) {
+    const leaderAdjustments = payrollLeaderAdjustmentView(getScopedPayrollView());
+    if (previewRows.length === 0 && leaderAdjustments.length === 0) {
         if (window.showNotification) {
             window.showNotification('❌ No hay datos para exportar', 'error');
         }
@@ -3988,6 +4038,15 @@ export async function exportPayrollPDF() {
             }
         });
 
+        if (leaderAdjustments.length) {
+            doc.autoTable({ startY: (doc.lastAutoTable?.finalY || yPosition) + 8,
+                head: scopedView?.enabled && payrollReviewEmployeeSelection(scopedView, state).enabled
+                    ? [['Líder (período completo)', 'Subtotal completo', 'Ajuste del período', 'Saldo completo']]
+                    : [['Líder', 'Subtotal empleados', 'Ajuste personal', 'Saldo del líder']],
+                body: leaderAdjustments.map(group => [group.leaderName, formatCurrency(group.subtotal),
+                    `${group.enabled ? '−' : ''}${formatCurrency(group.enabled ? group.amount : 0)}`, formatCurrency(group.balance)]),
+                theme: 'grid', styles: { fontSize: 8, cellPadding: 3 }, margin: { left: 14, right: 14 } });
+        }
         const filename = `nomina_${getDateKey(periodStart || new Date())}_al_${getDateKey(periodEnd || new Date())}.pdf`;
         doc.save(filename);
 
@@ -4402,7 +4461,8 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
     const state = getState();
     const scopedView = payrollRuntime?.getCurrentView?.();
     const isScoped = Boolean(isProjectsEnabled() && scopedView?.enabled && scopedView.status === 'ready' && scopedView.projectId);
-    const rows = isScoped ? getScopedReviewRows(scopedView, state, { byLeader: false }) : generateExportData();
+    const rows = isScoped ? getScopedReviewRows(scopedView, state, { byLeader: false }) : generateExportData({ byLeader: false });
+    const leaderAdjustments = payrollLeaderAdjustmentView(scopedView, state, { all: true });
     const periodStart = isScoped
         ? (scopedView.period?.periodStart || state.exportConfig.periodStart)
         : state.exportConfig.periodStart;
@@ -4412,8 +4472,8 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
     const projectId = isScoped ? scopedView.projectId : null;
 
     const fingerprint = isScoped
-        ? buildPayrollPreviewFingerprint({ projectId, periodStart, periodEnd, rows })
-        : buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
+        ? buildPayrollPreviewFingerprint({ projectId, periodStart, periodEnd, rows, leaderAdjustments })
+        : buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows, leaderAdjustments });
     const cache = activeClosures === null
         ? requestPayrollPeriodClosures(
             periodStart,
@@ -4434,13 +4494,13 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
     const blocker = payrollPreviewBlocker(scopedView);
     if (blocker) gate = { ...gate, enabled: false, reason: scopedView?.previewStale ? 'preview-stale' : 'invalid-loan-amount' };
     // La tabla muestra solo un líder, pero el cierre guarda la obra completa.
-    if (isScoped && getScopedLeaderFilter(scopedView, state) !== 'all') {
+    if (isScoped && getScopedLeaderFilter(scopedView, state) !== 'all' || !isScoped && leaderAdjustments.length && state.exportConfig.leaderFilter && state.exportConfig.leaderFilter !== 'all') {
         gate = { ...gate, enabled: false, reason: 'leader-filtered' };
     }
     if (isScoped && payrollReviewEmployeeSelection(scopedView, state).enabled) {
         gate = { ...gate, enabled: false, reason: 'employee-filtered' };
     }
-    return { state, rows, fingerprint, activeClosures: cache.items, gate, isScoped, projectId, periodStart, periodEnd };
+    return { state, rows, leaderAdjustments, fingerprint, activeClosures: cache.items, gate, isScoped, projectId, periodStart, periodEnd };
 }
 
 async function loadCurrentPayrollClosureState({ ignoreInProgress = false, startingProjectId = null } = {}) {
@@ -4964,6 +5024,7 @@ export async function openPayrollClosure() {
         const draft = buildPayrollClosureDraft({
             employees: current.state.employees,
             rows: current.rows,
+            leaderAdjustments: current.leaderAdjustments,
             periodStart: current.periodStart,
             periodEnd: current.periodEnd,
             periodSource: current.state.exportConfig.periodSource,
@@ -4994,6 +5055,7 @@ export async function openPayrollClosure() {
         const finalized = buildPayrollClosureDraft({
             employees: employeeCopies,
             rows: latest.rows,
+            leaderAdjustments: latest.leaderAdjustments,
             periodStart: latest.periodStart,
             periodEnd: latest.periodEnd,
             periodSource: latest.state.exportConfig.periodSource,

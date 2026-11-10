@@ -1,3 +1,4 @@
+import { captureAttendancePositionAssignments } from '../employees/EmployeePositionAssignments.js';
 import { state, stateManager, invalidateEmployeeStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { stampAttendanceWrite } from './AttendanceRecordWriter.js';
@@ -157,7 +158,7 @@ export async function applyMiniAttendancePlan(plan, {
         // behind AppState's recursive Proxy: proxying positionHours[0] would
         // violate the ECMAScript invariant for non-configurable properties.
         // Cross the boundary with a fully mutable copy before stamping/storing.
-        record: runtime.stampAttendanceWrite(mutableClone(write.record), now)
+        record: runtime.stampAttendanceWrite(captureAttendancePositionAssignments(mutableClone(write.record), runtime.state, now), now)
     }));
     const touchedEmployees = [...new Set(stampedWrites.map(write => write.employeeId))];
 

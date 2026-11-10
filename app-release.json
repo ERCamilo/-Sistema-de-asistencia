@@ -1,14 +1,27 @@
 {
-  "version": "1.7.129",
+  "version": "1.7.130",
   "changelog": [
     {
-      "version": "1.7.129",
-      "date": "2026-11-07",
-      "title": "Multiobra muestra resultados y diagnósticos claros",
+      "version": "1.7.130",
+      "date": "2026-11-09",
+      "title": "Multiobra: resultados y pendientes con acciones",
       "items": [
-        "Tras aplicar una reparación de datos, el asistente muestra un resultado persistente con las incidencias restantes y permite continuar o salir.",
-        "Los fallos de asignación conservan el motivo del conflicto y no se confunden con una operación completada.",
-        "El diagnóstico distingue registros históricos, revisión de sincronización, casos reparables y errores de lectura; el informe .log mantiene la privacidad."
+        "Cada reparación muestra un resultado persistente y diferencia lo completado, los pendientes y los errores.",
+        "Los pendientes incluyen causa, prioridad, recomendación y acceso al paso correspondiente; posponer muestra advertencias y archivar es reversible.",
+        "Los problemas críticos o con fallos de lectura no ofrecen archivado directo; el diagnóstico .log clasifica los casos sin divulgar información privada."
+      ]
+    },
+    {
+      "version": "1.7.129",
+      "date": "2026-11-08",
+      "title": "Líder y pagador por empleado",
+      "items": [
+        "Cada puesto propone su líder y permite cambiarlo solo para ese empleado.",
+        "Equipo y pagador comparten una fila compacta, con ayuda y controles táctiles.",
+        "Las posiciones de préstamo distinguen el equipo del líder que paga el salario completo.",
+        "La nómina separa el descuento opcional del líder de los salarios, préstamos y ajustes personales.",
+        "Las asistencias conservan sus condiciones y los reportes muestran el reparto sin duplicar pagos.",
+        "Los días y horas de cada puesto se cargan desde el período de la obra, con estado de carga y reintento."
       ]
     },
     {

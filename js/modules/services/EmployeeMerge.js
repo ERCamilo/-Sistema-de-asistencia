@@ -394,6 +394,15 @@ export function mergeEmployees(server, local) {
         );
     }
 
+    // Assignment terms share position freshness. Older clients without this
+    // field cannot erase the accepted employee-specific leaders/history.
+    if (server.positionAssignments || local.positionAssignments) {
+        const source = strictWinner?.positionAssignments ? strictWinner
+            : !server.positionAssignments ? local : !local.positionAssignments ? server
+                : strictWinner || (winnerSide === 'server' ? server : local);
+        out.positionAssignments = { ...(source.positionAssignments || {}) };
+    }
+
     // Propagar la frescura fina de puestos (el mayor), para que futuros merges
     // sigan distinguiendo "quién tocó los puestos más tarde".
     const sPosRaw = typeof server.positionsUpdatedAt === 'number' ? server.positionsUpdatedAt : -Infinity;

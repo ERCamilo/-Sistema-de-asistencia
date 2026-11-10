@@ -274,4 +274,29 @@ describe('Employee Report Excel Export', () => {
         expect(posSheet.autoFilter).toBeDefined();
         expect(posSheet.autoFilter.from.row).toBe(2);
     });
+    test('pays borrowed work once in the payer sheet and puts a separate signed leader adjustment outside days', async () => {
+        state.employeeReportStartDate = '2026-11-09'; state.employeeReportEndDate = '2026-11-09';
+        state.leaders = [{ id: 'L1', name: 'Luis' }, { id: 'L2', name: 'Marcos' }];
+        state.positions = [
+            { id: 'p1', name: 'Albañil', leaderId: 'L1', hourlyRate: 112.5, active: true, workingDays: [0,1,2,3,4,5,6] },
+            { id: 'p2', name: 'Electricista', leaderId: 'L2', hourlyRate: 112.5, active: true, workingDays: [0,1,2,3,4,5,6] },
+            { id: 'p3', name: 'Ayudante', leaderId: 'L2', hourlyRate: 62.5, active: true, workingDays: [0,1,2,3,4,5,6] }
+        ];
+        state.employees = [{ id: 'juan', name: 'Juan Pérez', number: '113', active: true, positions: ['p1','p2'],
+            positionAssignments: { p2: { workLeaderId: 'L2', payerLeaderId: 'L1', isLoanPosition: true } } },
+            { id: 'rosa', name: 'Rosa Díaz', number: '024', active: true, positions: ['p3'] }];
+        state.attendance = Object.fromEntries([['juan','p2'],['rosa','p3']].map(([employeeId,selectedPosition]) => [
+            `${employeeId}-2026-11-09`, { employeeId, date:'2026-11-09', present:true, selectedPosition, hoursWorked:8, overtimeHours:0 }
+        ]));
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const payer = addedWorksheets.find(sheet => sheet.name === 'Líder - Luis');
+        const team = addedWorksheets.find(sheet => sheet.name === 'Líder - Marcos');
+        expect(payer.rows.find(row => row.values.name === 'Juan Pérez').values).toMatchObject({ gross:900, net:900, totalExported:1 });
+        expect(team.rows.find(row => row.values.name === 'Rosa Díaz').values).toMatchObject({ gross:500, net:500 });
+        const group = team.rows.find(row => row.values.name === 'Personal pagado por otros líderes').values;
+        expect(group).toMatchObject({ leaderAdjustment:-900, leaderBalance:-400 });
+        expect(group.totalExported).toBeUndefined();
+        expect(team.rows.filter(row => row.values.name === 'Juan Pérez')).toHaveLength(0);
+    });
+
 });
