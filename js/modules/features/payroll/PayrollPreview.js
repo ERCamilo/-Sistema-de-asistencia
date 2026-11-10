@@ -167,13 +167,15 @@ export function limitPayrollRowToBreakdown(row, kept, { includeFixed = true, pos
 /**
  * Filtro por líder de la vista previa. Un empleado entra si trabajó en el
  * período en una posición de ese líder (desglose por posición de su fila) o si
- * alguna de sus posiciones actuales es de ese líder. 'all' o un líder que no
- * existe en la obra devuelve todas las filas.
+ * alguna de sus posiciones actuales es de ese líder. 'all' devuelve todas
+ * las filas. Con equipo/pagador configurados, solo entra lo que paga el líder.
  *
  * hoursScope:
- *   - 'all' (por defecto): el empleado entra con las horas de todos sus puestos.
- *   - 'leader': solo con las horas y días de los puestos de ese líder; quien no
- *     trabajó en ninguno de ellos en el período queda fuera.
+ *   - 'all' (por defecto): todos sus puestos; con pagador configurado, solo
+ *     los tramos a cargo del líder elegido.
+ *   - 'leader': solo con las horas y días del equipo de ese líder; con pagador
+ *     configurado también deben estar a su cargo. Se usa el equipo histórico
+ *     del tramo, no el líder actual del catálogo.
  */
 export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positions = [], employees = [], hoursScope = LEADER_HOURS_SCOPES.ALL } = {}) {
     const leader = String(leaderId || 'all');
@@ -191,31 +193,32 @@ export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positio
     };
     const configured = row => (row._positionBreakdown || []).some(part => part.assignmentSchemaVersion === 1)
         || Object.keys(employeesById.get(String(row._employeeId ?? row.id))?.positionAssignments || {}).length > 0;
+    const onlyTeamHours = normalizeLeaderHoursScope(hoursScope) === LEADER_HOURS_SCOPES.LEADER;
+    const effectiveTeam = part => part.assignmentSchemaVersion === 1 ? part.workLeaderId
+        : positions.find(position => String(position.id) === String(part.positionId))?.leaderId;
     const effectivePayer = part => part.assignmentSchemaVersion === 1 ? part.payerLeaderId
         : positions.find(position => String(position.id) === String(part.positionId))?.leaderId;
-    const modernRows = rows.filter(configured).map(row => {
+    return rows.map(row => {
+        if (!configured(row)) {
+            if (onlyTeamHours) {
+                return (row._positionBreakdown || []).length
+                    ? limitPayrollRowToPositions(row, leaderPositions)
+                    : currentPositions(row).some(id => leaderPositions.has(id)) ? row : null;
+            }
+            const worked = (row._positionBreakdown || []).map(item => String(item?.positionId));
+            return [...worked, ...currentPositions(row)].some(id => leaderPositions.has(id)) ? row : null;
+        }
         const employee = employeesById.get(String(row._employeeId ?? row.id));
         const parts = row._positionBreakdown || [];
         if (!parts.length) return currentPositions(row).some(positionId => {
             const position = positions.find(item => String(item.id) === positionId);
             const assignment = getEmployeePositionAssignment(employee, position);
-            return String(assignment.isLoanPosition ? assignment.payerLeaderId : assignment.workLeaderId) === leader;
+            return String(assignment.isLoanPosition ? assignment.payerLeaderId : assignment.workLeaderId) === leader
+                && (!onlyTeamHours || String(assignment.workLeaderId) === leader);
         }) ? row : null;
-        const owned = parts.filter(part => String(effectivePayer(part)) === leader);
+        const owned = parts.filter(part => String(effectivePayer(part)) === leader
+            && (!onlyTeamHours || String(effectiveTeam(part)) === leader));
         const primary = parts.find(part => String(part.positionId) === String(employee?.positions?.[0])) || parts[0];
         return limitPayrollRowToBreakdown(row, owned, { includeFixed: String(row._personalAdjustmentPayerId !== undefined ? row._personalAdjustmentPayerId : effectivePayer(primary)) === leader, positions });
     }).filter(Boolean);
-    const legacyRows = rows.filter(row => !configured(row));
-    if (normalizeLeaderHoursScope(hoursScope) === LEADER_HOURS_SCOPES.LEADER) {
-        return [...modernRows, ...legacyRows
-            .map(row => ((row._positionBreakdown || []).length
-                // Sin horas en el período: va con el líder de su puesto asignado.
-                ? limitPayrollRowToPositions(row, leaderPositions)
-                : (currentPositions(row).some(id => leaderPositions.has(id)) ? row : null)))
-            .filter(Boolean)];
-    }
-    return [...modernRows, ...legacyRows.filter(row => {
-        const worked = (row._positionBreakdown || []).map(item => String(item?.positionId));
-        return [...worked, ...currentPositions(row)].some(id => leaderPositions.has(id));
-    })];
 }

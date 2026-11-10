@@ -1,6 +1,17 @@
 {
-  "version": "1.7.129",
+  "version": "1.7.130",
   "changelog": [
+    {
+      "version": "1.7.130",
+      "date": "2026-11-10",
+      "title": "Filtros de nómina por equipo y pagador",
+      "items": [
+        "Los filtros de puestos respetan el equipo y el pagador guardados en cada tramo de trabajo.",
+        "Los líderes anteriores del período siguen disponibles aunque cambie la asignación del empleado.",
+        "La selección de empleados, los totales y las exportaciones conservan el mismo filtro sin duplicar salarios.",
+        "Los saldos completos entre líderes se identifican al consultar un reporte parcial."
+      ]
+    },
     {
       "version": "1.7.129",
       "date": "2026-11-08",
