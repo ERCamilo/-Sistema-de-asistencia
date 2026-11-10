@@ -10,6 +10,7 @@ import { resolvePositionIcon } from '../../features/employees/PositionVisuals.js
 import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject } from '../../features/projects/ProjectContext.js';
 import { resolveRestDayFactor } from '../../features/payroll/PayrollFactors.js';
+import { notifyPayRateChange, payRateChanged } from '../../features/payroll/PayRateChangeNotice.js';
 
 // Texto de ayuda según el modo de carga del salario.
 const salaryHintFor = (mode, hours) => mode === 'daily'
@@ -471,9 +472,14 @@ export class PositionModal {
         // El toast lo emite SaveOutcomeNotifier con el resultado REAL del
         // guardado (verde local+nube / amarillo solo-local / rojo).
         let announce = null;
+        let payChanged = false;
         if (existingPos) {
             const posToEdit = state.positions.find(p => p.id === existingPos.id);
             if (posToEdit) {
+                // El pago nuevo alcanza los días ya registrados del período abierto: se avisa.
+                payChanged = payRateChanged(posToEdit.hourlyRate, rate)
+                    || payRateChanged(posToEdit.restDayFactor, restDayFactor)
+                    || [...(posToEdit.workingDays || [])].sort().join() !== [...workingDays].sort().join();
                 // El id permanece estable; renombrar solo cambia el nombre y los
                 // campos. No hay que migrar referencias porque el id no cambia.
                 posToEdit.name = name;
@@ -520,5 +526,6 @@ export class PositionModal {
         context.saveToLocalStorage(announce ? { announce } : undefined);
         context.render();
         modalInstance.close();
+        if (payChanged) notifyPayRateChange(state, { subject: `Puesto «${name}»` });
     }
 }

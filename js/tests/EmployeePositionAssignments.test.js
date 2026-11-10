@@ -81,11 +81,11 @@ test('same leader does not create a self-adjustment',()=>{
     expect(groups(state)).toEqual([]);expect(rows(state)[0].monto).toBe(900);
 });
 
-test('captured work survives changing employee, leader, catalogue rate and settings',()=>{
+test('captured team and payer survive later edits, while the open period follows the current rate',()=>{
     const state=fixture();configure(state);const record=attend(state,'juan','p2');
     configure(state,{workLeaderId:'L1',payerLeaderId:'L2',isLoanPosition:false},NOW+3000);
     state.positions[1].hourlyRate=500;state.positions[1].leaderId='L1';state.settings.overtimeFactor=9;
-    expect(rows(state)[0]._positionBreakdown[0]).toMatchObject({hourlyRate:112.5,workLeaderId:'L2',payerLeaderId:'L1',subtotal:900});
+    expect(rows(state)[0]._positionBreakdown[0]).toMatchObject({hourlyRate:500,workLeaderId:'L2',payerLeaderId:'L1',subtotal:4000});
     expect(captureAttendancePositionAssignments({...record,notes:'Editada'},state,NOW+5000).positionAssignments).toEqual(record.positionAssignments);
 });
 
@@ -222,4 +222,69 @@ test('an individual leader does not change the rest-day factor of work that carr
     const gross = id => calculateEmployeePayrollWithContext(ctx, config, id, sunday, sunday, [], [], [], []).brutoOriginal;
     expect(gross('plain')).toBe(8 * 62.5 * 2);
     expect(gross('own')).toBe(gross('plain'));
+});
+
+// Decisión del usuario (2026-11-10): quién trabajó para quién queda como se
+// registró; lo que vale ese trabajo sigue la configuración vigente en todo el
+// período abierto, igual para empleados con o sin líder individual.
+describe('open-period pay follows the current configuration for everyone', () => {
+    const DAY = '2026-11-09', SUNDAY = '2026-11-15';
+    function pair() {
+        const state = fixture();
+        state.employees = [{ id: 'plain', number: '1', name: 'Pedro', positions: ['p3'] },
+            { id: 'own', number: '2', name: 'Juan', positions: ['p3'] }];
+        state.employees[1].positionAssignments = prepareEmployeePositionAssignments(
+            state.employees[1], { p3: { workLeaderId: 'L1' } }, state, NOW);
+        return state;
+    }
+    const both = (state, date, extra) => { attend(state, 'plain', 'p3', date, extra); attend(state, 'own', 'p3', date, extra); };
+    const legacy = (state, id, date) => new PayrollService(state).calculateEmployeePayroll(id, date, date, [], [], []);
+    const scoped = (state, id, date) => calculateEmployeePayrollWithContext(
+        { ...state, projectId: 'obra', getAttendance: (emp, day) => state.attendance[`${emp}-${day}`] },
+        { projectId: 'obra', regularHoursPerDay: state.settings.regularHoursPerDay, overtimeFactor: state.settings.overtimeFactor,
+            holidayFactor: state.settings.holidayFactor, holidays: state.settings.holidays }, id, date, date, [], [], [], []);
+
+    test.each([['legacy', legacy], ['scoped', scoped]])('a catalogue raise reaches days already recorded (%s)', (_name, pay) => {
+        const state = pair(); both(state, DAY);
+        expect(state.attendance[`own-${DAY}`].positionAssignments.p3.hourlyRate).toBe(62.5);
+        state.positions[2].hourlyRate = 93.75;
+        expect(pay(state, 'plain', DAY).brutoOriginal).toBe(750);
+        expect(pay(state, 'own', DAY).brutoOriginal).toBe(750);
+        expect(pay(state, 'own', DAY).breakdown[0]).toMatchObject({ hourlyRate: 93.75, workLeaderId: 'L1', payerLeaderId: 'L1' });
+    });
+
+    test.each([['legacy', legacy], ['scoped', scoped]])('a personal rate change reaches days already recorded (%s)', (_name, pay) => {
+        const state = pair(); both(state, DAY);
+        const juan = state.employees[1];
+        juan.positionAssignments = prepareEmployeePositionAssignments(juan, { p3: { workLeaderId: 'L1' } }, state, NOW + 5000, { p3: 100 });
+        juan.positionSalaries = { p3: 100 };
+        expect(pay(state, 'own', DAY).breakdown).toHaveLength(1);
+        expect(pay(state, 'own', DAY).brutoOriginal).toBe(800);
+    });
+
+    test.each([['legacy', legacy], ['scoped', scoped]])('overtime factor, calendar holidays and working days stay live (%s)', (_name, pay) => {
+        const state = pair(); both(state, DAY, { overtimeHours: 2 });
+        state.settings.overtimeFactor = 2;
+        expect(pay(state, 'own', DAY).brutoOriginal).toBe(pay(state, 'plain', DAY).brutoOriginal);
+        expect(pay(state, 'own', DAY).breakdown[0].overtimeAmount).toBe(2 * 62.5 * 2);
+        state.settings.holidays = [DAY];
+        expect(pay(state, 'plain', DAY).breakdown[0].holidayAmount).toBe(8 * 62.5 * 2);
+        expect(pay(state, 'own', DAY).breakdown[0].holidayAmount).toBe(8 * 62.5 * 2);
+    });
+
+    test.each([['legacy', legacy], ['scoped', scoped]])('a rest day pays what the leader of that work pays (%s)', (_name, pay) => {
+        const state = pair();
+        state.leaders = [{ id: 'L1', name: 'Luis', restDayFactor: 3 }, { id: 'L2', name: 'Marcos', restDayFactor: 2 }];
+        both(state, SUNDAY);
+        expect(pay(state, 'plain', SUNDAY).brutoOriginal).toBe(8 * 62.5 * 2); // catalogue leader L2
+        expect(pay(state, 'own', SUNDAY).brutoOriginal).toBe(8 * 62.5 * 3);   // individual leader L1
+        state.leaders[0].restDayFactor = 4;                                    // the leader changes what he pays
+        expect(pay(state, 'own', SUNDAY).brutoOriginal).toBe(8 * 62.5 * 4);
+    });
+});
+
+test('salary estimates tolerate a job that is missing from the catalogue', () => {
+    const service = new PayrollService({ ...fixture(), positions: [] });
+    expect(service.calculateMonthlyEstimate({ id: 'e', positions: ['gone'] }).total).toBe(0);
+    expect(() => service.getSalaryConfig({ id: 'e', positions: ['gone'], salaryConfig: { type: 'standard' } })).not.toThrow();
 });

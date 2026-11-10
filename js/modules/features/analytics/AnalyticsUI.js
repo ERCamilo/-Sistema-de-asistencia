@@ -1093,7 +1093,7 @@ function calculateEmployeeReportData() {
         startDate,
         endDate,
         regularHours: getActivePayrollSettings(state).regularHoursPerDay,
-        holidayFactor: state.settings.holidayFactor,
+        holidayFactor: getActivePayrollSettings(state).holidayFactor,
         leaders: state.leaders,
         settings: state.settings,
         restDayFactor: state.settings.restDayFactor

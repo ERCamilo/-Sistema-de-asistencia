@@ -159,6 +159,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/p2p/P2PRosterUI.js",
     "./js/modules/features/p2p/P2PSuccessFeedback.js",
     "./js/modules/features/payroll/ActivePayrollSettings.js",
+    "./js/modules/features/payroll/PayRateChangeNotice.js",
     "./js/modules/features/payroll/PayrollAdjustmentCancellation.js",
     "./js/modules/features/payroll/PayrollAdjustmentDesktop.js",
     "./js/modules/features/payroll/PayrollAdjustmentEmployeePicker.js",

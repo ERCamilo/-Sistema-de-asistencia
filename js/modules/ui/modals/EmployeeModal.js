@@ -10,6 +10,7 @@ import { swapEmployeeNumbers } from '../../services/PersistenceService.js';
 import { mergeDuplicateEmployees, purgeMergedEmployeesFromLocalStore } from '../../features/employees/EmployeeDuplicateService.js';
 import { EmployeeEditorDraft, readEmployeeForm } from '../../features/employees/EmployeeEditorDraft.js';
 import { eventBus } from '../../core/Events.js';
+import { notifyPayRateChange, payRateChanged } from '../../features/payroll/PayRateChangeNotice.js';
 import { collectPositionDays, reassignPositionDays } from '../../services/AttendancePositionAudit.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
@@ -300,6 +301,7 @@ export class EmployeeModal {
         // que TODOS los caminos de guardado (normal, intercambio, fusión) las
         // apliquen exactamente una vez, dentro de applyFields.
         let _reassignDecisions = [];
+        let _payChanged = false;
         const _reassignTouchedDates = [];
 
         // Aplica los campos del formulario al empleado (existente o nuevo) con
@@ -317,6 +319,9 @@ export class EmployeeModal {
                     empToEdit.positions, selectedPositions,
                     empToEdit.positionSalaries, positionSalaries
                 ) || assignmentConfigurationChanged(empToEdit.positionAssignments, positionAssignments);
+                // Una tarifa personal nueva alcanza los días ya registrados del período abierto: se avisa.
+                _payChanged = selectedPositions.some(positionId =>
+                    payRateChanged(empToEdit.positionSalaries?.[positionId], positionSalaries?.[positionId]));
                 empToEdit.number = numberToUse;
                 empToEdit.name = name;
                 empToEdit.positions = selectedPositions;
@@ -383,6 +388,7 @@ export class EmployeeModal {
             context.saveToLocalStorage(Object.keys(opts).length > 0 ? opts : undefined);
             context.render();
             modalInstance.close();
+            if (_payChanged) notifyPayRateChange(state, { subject: `Tarifa personal de ${name}` });
         };
 
         const continueSave = () => {

@@ -105,15 +105,19 @@ export function buildEmployeeReportData({
                         dayValue = (record.hoursWorked || 0) / regularHours;
                     }
 
+                    // Quién trabajó para quién queda como se registró; el valor del día
+                    // sigue la configuración vigente, igual que la nómina del período abierto.
                     const hasTerms = emp.positionAssignments?.[position.id] || record.positionAssignments?.[position.id];
                     const terms = hasTerms ? resolveEmployeePositionTerms(emp, position, { ...record, date: record.date || dateKey }, { settings: { ...settings, holidayFactor, regularHoursPerDay: regularHours }, leaders: allLeaders }) : null;
-                    const isHoliday = terms?.dayKind ? terms.dayKind === 'holiday' : day.isHoliday || record.isHoliday;
-                    const isRestDay = terms?.dayKind ? terms.dayKind === 'rest' : !(terms?.workingDays || workingDays).includes(day.date.getDay());
+                    const isHoliday = day.isHoliday || record.isHoliday;
+                    const isRestDay = !workingDays.includes(day.date.getDay());
 
                     if (isHoliday) {
-                        dayValue *= (terms?.holidayFactor ?? holidayFactor ?? 1);
+                        dayValue *= (holidayFactor ?? 1);
                     } else if (isRestDay) {
-                        dayValue *= (terms?.restDayFactor ?? resolvedFactor ?? 1);
+                        const dayLeader = terms?.workLeaderId
+                            ? allLeaders.find(l => String(l.id) === String(terms.workLeaderId)) || null : null;
+                        dayValue *= ((terms ? resolveRestDayFactor(position, dayLeader, effectiveSettings) : resolvedFactor) ?? 1);
                     }
 
                     if (!isNaN(dayValue)) { dayValues[dateKey] = dayValue; total += dayValue; }
