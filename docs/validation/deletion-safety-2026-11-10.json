@@ -1,0 +1,263 @@
+{
+  "generatedAt": "2026-11-10T15:33:23.358Z",
+  "sourceHead": "628283671eb96b1347d9a1655bf01059f77790a6",
+  "sourceHashes": {
+    "js/app.js": "368c307c6de72344cfd93b87aee6c539272c6fcc7b42c8ef0be140ce57933155",
+    "js/modules/services/EmployeesIncomingMerge.js": "d2881ea2e45907daae7e1b6cb8e006e52c2759005f3f3af7ddd1b3b649bf8635",
+    "js/modules/services/CatalogIncomingMerge.js": "88fed8b5a0c9ef91cbb0193af15fdd2041bb660c18f421ab019e93fc402fb062",
+    "js/modules/services/EmployeeMerge.js": "33bc591daaa82cd4e26029557b2ef3df03efa110a6c0dfe3179322591f75ed27",
+    "js/modules/services/NestedTombstones.js": "326928281457ea8652c0b4aff6625fff7da635d1f1557e5adb5300fe9cf43f52",
+    "js/modules/features/attendance/AttendanceMerge.js": "a821f78e5d0c28b1a7a90d4b7393472fb8d3cb1b5ee421de7d5d85902e8e0932",
+    "js/modules/features/pettycash/PettyCashStore.js": "65f4fd53fb09ea332c366f5a774d84ff19436431125c3a8bf84bd6310da647c2",
+    "js/modules/features/attendance/AttendanceRecordWriter.js": "cd874068734b3e73e66e1a138e740867a2dbbbe65068b57dadbe89a0e7159bc1",
+    "js/modules/services/IndexedDBService.js": "c6fdd334469a9dcdecf1b95d696134d42100882537dce6e3ac122c70080587c8",
+    "js/modules/services/PersistenceService.js": "4d139fafa79fbf1b9d517202a559806e9dac5d01f890f1c270c1ba829aecfb14",
+    "js/modules/services/IncomingChangeDetector.js": "5c7294bd3153e4e7e62686ed350659f417052fea8547d0adb94f1124f54a8ab7",
+    "js/modules/services/SyncPauseService.js": "b10caa109a512f2921dacf4848bd06553be70b43ca36914a220c0f444fdcf7b9",
+    "js/modules/services/EmployeeRepository.js": "a6a47d4f29bcc3da257a0bb452983d68acf61527a7369964f2c82131b0cfc366",
+    "js/modules/services/PositionRepository.js": "274dd83f0f86a0f79afbfd4a0b99ee446780d30bbda21f23914ba3f6356115dc",
+    "js/modules/services/LeaderRepository.js": "066cada3d607dd2babbd7e3e4d4fdb8c270e30d29c60b90c7a8a3d9cb4a611c5",
+    "js/modules/services/PettyCashRepository.js": "328a8648385409e4287dcfdbf573310785c1a840fd1416532d70bb90cff887e9"
+  },
+  "testHashes": {
+    "audit-tests/deletion-safety/cash-durable.audit.test.js": "45a0e3fba547ab906039ac169a76c35ca6737c716dd83ec2c0d900b31207a3c4",
+    "audit-tests/deletion-safety/incoming-review.audit.test.js": "7dddcaec750647adaa937ca46a044a5e309ec457923aec4899585645f70ad629",
+    "audit-tests/deletion-safety/integrity.audit.test.js": "a3e577047cae75196e90c90c70bbbea62599ddb31f4e2f4ce6260ba6b3b33cc4",
+    "audit-tests/deletion-safety/retention.audit.test.js": "38a92eebb9c9d8c2dc5268ea8d591095f963f6a6cb5bbc21b7223fb86d6d93cd",
+    "audit-tests/deletion-safety/writes.audit.test.js": "5084a03e288f78508111f5b7e9135abc3221b6fe27eade6166313ea0b8271260"
+  },
+  "seed": "0x5a202611",
+  "total": 45,
+  "passed": 11,
+  "failed": 34,
+  "pending": 0,
+  "infrastructureErrors": 0,
+  "verdict": "POLICY_GAPS_DETECTED",
+  "checks": [
+    {
+      "name": "[AUSENCIA] personal no pierde registros ante una respuesta vacía, aun después de conocerlos en la nube",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] personal no pierde registros ante una respuesta parcial, aun después de conocerlos en la nube",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] personal no pierde registros ante una respuesta caché, aun después de conocerlos en la nube",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] personal secuencia determinista de 256 subconjuntos/repeticiones mantiene todos los IDs sin marcas de borrado",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] personal la misma cantidad de registros con IDs diferentes tampoco acredita un borrado",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] puestos no pierde registros ante una respuesta vacía, aun después de conocerlos en la nube",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] puestos no pierde registros ante una respuesta parcial, aun después de conocerlos en la nube",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] puestos no pierde registros ante una respuesta caché, aun después de conocerlos en la nube",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] puestos secuencia determinista de 256 subconjuntos/repeticiones mantiene todos los IDs sin marcas de borrado",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] puestos la misma cantidad de registros con IDs diferentes tampoco acredita un borrado",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] líderes no pierde registros ante una respuesta vacía, aun después de conocerlos en la nube",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] líderes no pierde registros ante una respuesta parcial, aun después de conocerlos en la nube",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] líderes no pierde registros ante una respuesta caché, aun después de conocerlos en la nube",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] líderes secuencia determinista de 256 subconjuntos/repeticiones mantiene todos los IDs sin marcas de borrado",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[AUSENCIA] líderes la misma cantidad de registros con IDs diferentes tampoco acredita un borrado",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[PRÉSTAMOS] 256 respuestas parciales y repetidas conservan préstamos, pagos y cuotas",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[ASISTENCIAS] 256 respuestas vacías/parciales y fuera de orden conservan todos los días",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[PRÉSTAMOS] comparar cantidades no basta: IDs distintos con la misma cantidad conservan ambas deudas",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[ASISTENCIAS] una desmarcación remota sin deletedAt no elimina una asistencia existente",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[MARCA] una marca explícita de asistencia sobrevive a un replay más viejo",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[MARCA] un préstamo con registro explícito de eliminación no reaparece con una copia vieja",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[RETENCIÓN] más de 300 borrados no olvidan la evidencia del primer préstamo eliminado",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[REPLAY] personal eliminado no reaparece cuando llega después un snapshot viejo de caché",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[DETECTOR] faltar en una lista no se presenta al usuario como eliminación confirmada",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/retention.audit.test.js"
+    },
+    {
+      "name": "[REVISIÓN] una eliminación explícita de personal espera confirmación antes de cambiar la lista",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/incoming-review.audit.test.js"
+    },
+    {
+      "name": "[REVISIÓN] eliminar un préstamo desde otro equipo no cambia la deuda antes de confirmar",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/incoming-review.audit.test.js"
+    },
+    {
+      "name": "[REVISIÓN] una asistencia eliminada remotamente espera confirmación antes de dejar de contar",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/incoming-review.audit.test.js"
+    },
+    {
+      "name": "[PAUSA] elegir conservar y pausar impide aplicar la eliminación al llegar otro snapshot",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/incoming-review.audit.test.js"
+    },
+    {
+      "name": "[INTEGRIDAD] una referencia aislada a un puesto faltante no se elimina sin evidencia de borrado",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/integrity.audit.test.js"
+    },
+    {
+      "name": "[INTEGRIDAD] reparar un catálogo incompleto no retira horas del puesto ausente",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/integrity.audit.test.js"
+    },
+    {
+      "name": "[CAJA-IDB] un snapshot vacío no borra cargos confirmados del almacenamiento durable",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/cash-durable.audit.test.js"
+    },
+    {
+      "name": "[CAJA-IDB] una consulta por período no implica eliminar lo que no devolvió",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/cash-durable.audit.test.js"
+    },
+    {
+      "name": "[CAJA-IDB] una escritura pendiente conserva el cargo durante una descarga parcial",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/cash-durable.audit.test.js"
+    },
+    {
+      "name": "[CAJA-IDB] descargar otro período no borra el historial fuera de su alcance",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/cash-durable.audit.test.js"
+    },
+    {
+      "name": "[BORRADO-IO] personal conserva un registro de eliminación, en lugar de retirar el documento físico",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[BORRADO-IO] puestos conserva un registro de eliminación, en lugar de retirar el documento físico",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[BORRADO-IO] líderes conserva un registro de eliminación, en lugar de retirar el documento físico",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[BORRADO-IO] caja chica conserva un registro de eliminación, en lugar de retirar el documento físico",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[BORRADO-IO] la ruta soft-delete de personal conserva una marca durable y rechaza una edición posterior",
+      "status": "passed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[RECUPERACIÓN] volver a subir puestos antiguos no sobreescribe datos remotos más nuevos",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[RECUPERACIÓN] volver a subir líderes antiguos no sobreescribe datos remotos más nuevos",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[FIRESTORE] personal solicita eventos de metadata para observar la confirmación del servidor",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[FIRESTORE] puestos solicita eventos de metadata para observar la confirmación del servidor",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[FIRESTORE] líderes solicita eventos de metadata para observar la confirmación del servidor",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    },
+    {
+      "name": "[FIRESTORE] caja chica conserva la procedencia de caché para decidir si una descarga está confirmada",
+      "status": "failed",
+      "file": "audit-tests/deletion-safety/writes.audit.test.js"
+    }
+  ]
+}

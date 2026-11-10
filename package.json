@@ -31,6 +31,7 @@
     "test:payroll-controls": "node scripts/check-payroll-controls.cjs",
     "test:employee-position-leaders": "node scripts/check-employee-position-leaders.cjs",
     "test:app-updates": "node scripts/check-app-updates.cjs",
-    "test:release": "node scripts/release-manifest.cjs --check --release"
+    "test:release": "node scripts/release-manifest.cjs --check --release",
+    "test:deletion-safety": "node scripts/audit-deletion-safety.cjs"
   }
 }

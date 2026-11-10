@@ -50,13 +50,14 @@ export const EmployeesLiveSync = {
         }
 
         try {
-            _unsubscribe = subscribe((employees) => {
+            _unsubscribe = subscribe((employees, snapshotInfo) => {
                 // Activar guard para que la siguiente escritura no rebote.
                 try {
                     if (typeof window !== 'undefined') {
                         window._isApplyingRemoteData = true;
                     }
-                    onApply(employees);
+                    if (snapshotInfo) onApply(employees, snapshotInfo);
+                    else onApply(employees);
                 } catch (e) {
                     console.error('❌ EmployeesLiveSync.onApply error:', e);
                 } finally {

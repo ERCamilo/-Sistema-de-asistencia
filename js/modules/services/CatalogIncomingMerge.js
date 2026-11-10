@@ -30,7 +30,7 @@ export function createCatalogIncomingMerge() {
     // no-op silencioso (misma razón que EmployeesIncomingMerge).
     let _lastKnownIncomingById = new Map();
 
-    function mergeIncoming(localList, incomingList) {
+    function mergeIncoming(localList, incomingList, { authoritative = true, preserveIds = new Set() } = {}) {
         const local = Array.isArray(localList) ? localList : [];
         const incoming = Array.isArray(incomingList) ? incomingList : [];
 
@@ -55,6 +55,12 @@ export function createCatalogIncomingMerge() {
 
         localById.forEach((localRecord, id) => {
             if (incomingById.has(id)) return; // ya resuelto arriba
+            // A cached/read-back mirror is not proof of deletion. References
+            // still in use must not be destroyed by an incomplete catalogue.
+            if (!authoritative || preserveIds.has(id)) {
+                result.push(localRecord);
+                return;
+            }
 
             const lastKnownUpdatedAt = _lastKnownIncomingById.get(id);
             if (!Number.isFinite(lastKnownUpdatedAt)) {
@@ -72,12 +78,19 @@ export function createCatalogIncomingMerge() {
             // si no: borrado remoto confirmado — no se agrega.
         });
 
-        // Nueva línea de base: SIEMPRE el snapshot entrante actual completo.
+        // Solo el servidor confirmado puede avanzar la línea de base.
         const nextBaseline = new Map();
         incomingById.forEach((rec, id) => {
             nextBaseline.set(id, Number.isFinite(rec?.updatedAt) ? rec.updatedAt : 0);
         });
-        _lastKnownIncomingById = nextBaseline;
+        if (authoritative) {
+            for (const id of preserveIds) {
+                if (!nextBaseline.has(id) && _lastKnownIncomingById.has(id)) {
+                    nextBaseline.set(id, _lastKnownIncomingById.get(id));
+                }
+            }
+            _lastKnownIncomingById = nextBaseline;
+        }
 
         return result;
     }

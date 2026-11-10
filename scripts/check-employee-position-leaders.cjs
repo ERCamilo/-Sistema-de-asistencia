@@ -27,6 +27,7 @@ const config={projectId:'P',updatedAt:1,schemaVersion:1,regularHoursPerDay:8,ove
 setProjectsEnabled(false);replaceEntityScope({enabled:false});
 stateManager.setState({employees,positions,leaders:[{id:'L1',projectId:'P',name:'Luis',active:true},{id:'L2',projectId:'P',name:'Marcos',active:true}],attendance:{},settings:{...state.settings,...config},exportConfig:{leaderFilter:'all',deductions:[],bonuses:[],rememberedGlobalsHydrated:true},payrollViewMode:'generator'},{silent:true});
 window.alerts=[];window.showAlert=message=>alerts.push(message);window.showNotification=()=>{};window.alert=message=>alerts.push(message);window.currentUser={uid:'fixture'};
+Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.exported=JSON.parse(value);}}});
 EmployeesUI.init({state,render:()=>{},saveToLocalStorage:()=>{window.saved=true},services:{}});
 EmployeeModal.open('juan',{inlineHost:document.getElementById('editor')});window.auditState=state;
 window.showPayroll=async()=>{
@@ -35,6 +36,10 @@ window.showPayroll=async()=>{
  const runtime=new ProjectPayrollUIRuntime({state,configStore:{getConfig:async()=>config},projectContext:{subscribe:()=>()=>{}},captureContext:s=>capturePayrollProjectContext(s)});
  window.PayrollUI=UI;window.paint=()=>document.getElementById('screen').innerHTML=UI.PayrollTab();UI.init({state,services:{payroll:{},payrollRuntime:runtime},render:paint,saveToLocalStorage:()=>{}});
  await UI.refreshScopedPayrollPreview({periodStart:'2026-11-09',periodEnd:'2026-11-09'});UI.setPayrollGuideStep('review');UI.setLeaderFilter('L2');paint();
+};
+window.prepareFilterScenario=async()=>{
+ stateManager.batchSetState(raw=>{const record={employeeId:'juan',projectId:'P',date:'2026-11-10',present:true,selectedPosition:'p1',hoursWorked:8,overtimeHours:0};raw.attendance['juan-2026-11-10']=captureAttendancePositionAssignments(record,state);});
+ await UI.refreshScopedPayrollPreview({periodStart:'2026-11-09',periodEnd:'2026-11-10'});UI.setLeaderFilter('L1');UI.setLeaderHoursScope('all');paint();
 };
 window.showMetricsEditor=async()=>{
  document.getElementById('screen').hidden=true;document.getElementById('editor').hidden=false;
@@ -60,6 +65,11 @@ const server = http.createServer((req,res) => {
  const origin='http://127.0.0.1:'+server.address().port;
  for(const width of [320,390,1280]){
   const context=await browser.createBrowserContext(),page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
+  // Assignment edits must precede this fixture's work dates, independently of the real day.
+  await page.evaluateOnNewDocument(()=>{
+   const NativeDate=Date,now=new NativeDate('2026-11-09T08:00:00-04:00').getTime();
+   globalThis.Date=class extends NativeDate { constructor(...args){super(...(args.length?args:[now]));} static now(){return now;} };
+  });
   await page.setViewport({width,height:1000});await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
   await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith(origin)||r.url().startsWith('data:')||r.url().startsWith('blob:')?r.continue():r.abort());
   await page.goto(origin+'/fixture');await page.waitForFunction(()=>window.ready);
@@ -97,6 +107,27 @@ const server = http.createServer((req,res) => {
   await page.addScriptTag({path:path.join(ROOT,'node_modules/axe-core/axe.min.js')});
   const violations=await page.evaluate(async()=>(await axe.run('.payroll-leader-adjustment',{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})));
   assert.deepEqual(violations,[]);
+  await page.evaluate(()=>window.prepareFilterScenario());
+  const exportNow=()=>page.evaluate(()=>{PayrollUI.copyExportJSON();return window.exported;});
+  assert.equal((await exportNow())[0].monto,1800);
+  await page.click('[data-payroll-action="set-payroll-leader-hours-scope"][data-value="leader"]');
+  assert.equal((await exportNow())[0].monto,900);
+  assert.match(await page.$eval('.payroll-review-table__amount.is-net',e=>e.textContent),/900/);
+  assert.match(await page.$eval('.payroll-review-table__scope-note',e=>e.textContent),/Electricista 8h/);
+  await page.screenshot({path:path.join(output,'filtros-'+width+'.png')});
+  await page.click('[data-payroll-action="set-payroll-leader-hours-scope"][data-value="all"]');
+  assert.equal((await exportNow())[0].monto,1800);
+  await page.click('[data-payroll-action="toggle-payroll-review-employee-filter"]');
+  await page.waitForSelector('[data-adjustment-picker-employee="juan"]');
+  await page.click('[data-adjustment-picker-employee="juan"]');
+  await page.click('[data-modal-overlay] [data-button-index="1"]');
+  await page.waitForFunction(()=>!document.querySelector('[data-adjustment-picker-employee="juan"]'));
+  await page.select('#payroll-scoped-leader-filter','L2');
+  assert.deepEqual(await exportNow(),[]);
+  assert.equal(await page.$eval('[data-payroll-leader-adjustment]',e=>e.disabled),true);
+  await page.click('[data-payroll-action="toggle-payroll-review-employee-filter"]');
+  await page.select('#payroll-scoped-leader-filter','all');
+  assert.equal((await exportNow()).reduce((sum,row)=>sum+row.monto,0),2300);
   await page.evaluate(()=>window.showMetricsEditor());await page.waitForFunction(()=>typeof window.completeMetrics==='function');
   assert.deepEqual(await page.evaluate(()=>window.metricsPeriod),{start:'2026-11-01',end:'2026-11-15'});
   assert.equal(await page.$eval(secondary+' [data-position-days]',e=>e.textContent),'—');
@@ -108,7 +139,7 @@ const server = http.createServer((req,res) => {
   await page.$eval(secondary,e=>e.scrollIntoView({block:'center'}));
   await page.screenshot({path:path.join(output,'metricas-'+width+'.png')});
   assert.deepEqual(errors,[]);
-  console.log('PASS '+width+'px: defaults/override/payer, real editor save, help, leader salary −400/500, independent detail/checkbox, scoped metrics hydration preserving edits and WCAG A/AA');
+  console.log('PASS '+width+'px: defaults/override/payer, real editor save, help, leader salary −400/500, independent detail/checkbox, leader/hours/employee filters and JSON totals, scoped metrics hydration preserving edits and WCAG A/AA');
   await context.close();
  }
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

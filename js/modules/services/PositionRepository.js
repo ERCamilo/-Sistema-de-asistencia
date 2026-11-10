@@ -146,7 +146,12 @@ export const PositionRepository = {
                         if (data) list.push(data);
                     });
                 }
-                try { onChange(list); } catch (e) { console.error('subscribe callback error:', e); }
+                try {
+                    if (snap?.metadata) onChange(list, {
+                        authoritative: snap.metadata.fromCache === false && snap.metadata.hasPendingWrites !== true
+                    });
+                    else onChange(list);
+                } catch (e) { console.error('subscribe callback error:', e); }
             });
         } catch (e) {
             console.error('❌ PositionRepository.subscribe error:', e);

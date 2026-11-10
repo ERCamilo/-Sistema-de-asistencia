@@ -1,0 +1,37 @@
+name: Deletion safety policy
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deletion-safety-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Deletion safety policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Strict gate: known policy gaps must remain red until fixed.
+      - name: Audit record retention and explicit deletion
+        env:
+          DELETION_AUDIT_OUTPUT: ${{ runner.temp }}/deletion-safety
+        run: npm run test:deletion-safety
+      - name: Upload evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deletion-safety-${{ github.sha }}
+          path: ${{ runner.temp }}/deletion-safety/
+          if-no-files-found: warn
+          retention-days: 14
