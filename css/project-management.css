@@ -1501,3 +1501,20 @@
   .r07-outcome-actions { flex-direction: column; }
   .r07-outcome-actions button { width: 100%; }
 }
+
+/* Result receipts need readable full-width actions on narrow viewports.
+   Override the legacy wizard's three-equal-column mobile footer. */
+@media (max-width: 600px) {
+  .r07-wizard[data-r07-result] .r07-recon-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .r07-wizard[data-r07-result] .r07-recon-footer button {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    height: auto !important;
+    min-height: 44px !important;
+  }
+}
