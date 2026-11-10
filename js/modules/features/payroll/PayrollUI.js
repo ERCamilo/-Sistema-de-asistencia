@@ -732,7 +732,7 @@ function registrationStepDetail(view) {
     return `${view.summary.count} ${view.summary.count === 1 ? 'abono anotado' : 'abonos anotados'}`;
 }
 
-/** Líderes con posiciones en la obra de la nómina (para el filtro). */
+/** Líderes de la obra y del trabajo histórico del período (para el filtro). */
 function getScopedPayrollLeaders(view, state = getState()) {
     const activePid = view?.projectId ? String(view.projectId).trim() : null;
     const scope = activePid ? { ...captureEntityProjectScope(), enabled: true, projectId: activePid } : null;
@@ -748,8 +748,25 @@ function getScopedPayrollLeaders(view, state = getState()) {
             if (assignment.isLoanPosition && assignment.payerLeaderId) leaderIds.add(String(assignment.payerLeaderId));
         }
     }
-    return (state?.leaders || [])
-        .filter(leader => leader && leader.active !== false && leaderIds.has(String(leader.id)))
+    const periodLeaders = new Map();
+    if (view?.status === 'ready' && !view.previewStale) {
+        for (const row of view.previewRows || []) {
+            for (const part of row._positionBreakdown || []) {
+                if (part.assignmentSchemaVersion !== 1) continue;
+                for (const [id, name] of [[part.workLeaderId, part.workLeaderName], [part.payerLeaderId, part.payerLeaderName]]) {
+                    if (id == null || id === '') continue;
+                    leaderIds.add(String(id));
+                    periodLeaders.set(String(id), { id: String(id), name: name || 'Líder del período', active: false });
+                }
+            }
+        }
+    }
+    const available = new Map(periodLeaders);
+    for (const leader of state?.leaders || []) {
+        if (!leader || scope && !entityInScope(leader, scope) || !leaderIds.has(String(leader.id))) continue;
+        if (leader.active !== false || periodLeaders.has(String(leader.id))) available.set(String(leader.id), leader);
+    }
+    return [...available.values()]
         .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'es'));
 }
 
@@ -1160,14 +1177,14 @@ function ScopedPayrollTab(view) {
                                                 data-payroll-action="set-payroll-leader-hours-scope"
                                                 data-value="${LEADER_HOURS_SCOPES.ALL}"
                                                 aria-pressed="${leaderHoursScope === LEADER_HOURS_SCOPES.ALL}"
-                                                title="Cada empleado del líder entra con las horas y días de todos sus puestos">
+                                                title="Incluye todos los puestos a cargo del líder. En posiciones configuradas se respeta el pagador del período.">
                                             Todos sus puestos
                                         </button>
                                         <button type="button"
                                                 data-payroll-action="set-payroll-leader-hours-scope"
                                                 data-value="${LEADER_HOURS_SCOPES.LEADER}"
                                                 aria-pressed="${leaderHoursScope === LEADER_HOURS_SCOPES.LEADER}"
-                                                title="Solo las horas y días en puestos de ${escapeHTML(activeLeader.name || 'este líder')}; quien no trabajó en ellos queda fuera">
+                                                title="Solo trabajo del equipo de ${escapeHTML(activeLeader.name || 'este líder')} a su cargo; usa el líder guardado en cada tramo, sin trasladar pagos de otro líder.">
                                             Solo puestos de ${escapeHTML(activeLeader.name || 'este líder')}
                                         </button>
                                     </div>
@@ -1201,7 +1218,10 @@ function ScopedPayrollTab(view) {
                                     : 'No hay registros de asistencia para esta obra en el período seleccionado.'
                             })}
 
-                            ${renderPayrollLeaderAdjustments(leaderAdjustments, { partial: reviewEmployeeSelection.enabled })}
+                            ${renderPayrollLeaderAdjustments(leaderAdjustments, {
+                                partial: reviewEmployeeSelection.enabled,
+                                hoursFiltered: Boolean(activeLeader) && leaderHoursScope === LEADER_HOURS_SCOPES.LEADER
+                            })}
 
                             ${guideStep === 'review' && activeRegistration ? renderPayrollRegistrationActions({
                                 registration: activeRegistration.registration,
@@ -1908,7 +1928,9 @@ function PayrollGeneratorTab() {
                     </table>
                 </div>
 
-                ${renderPayrollLeaderAdjustments(leaderAdjustments)}
+                ${renderPayrollLeaderAdjustments(leaderAdjustments, {
+                    hoursFiltered: leaderFilter !== 'all' && normalizeLeaderHoursScope(state.exportConfig.leaderHoursScope) === LEADER_HOURS_SCOPES.LEADER
+                })}
 
                 ${activeRegistration ? renderPayrollRegistrationActions({
                     registration: activeRegistration.registration,
@@ -4040,7 +4062,8 @@ export async function exportPayrollPDF() {
 
         if (leaderAdjustments.length) {
             doc.autoTable({ startY: (doc.lastAutoTable?.finalY || yPosition) + 8,
-                head: scopedView?.enabled && payrollReviewEmployeeSelection(scopedView, state).enabled
+                head: (scopedView?.enabled && payrollReviewEmployeeSelection(scopedView, state).enabled)
+                    || normalizeLeaderHoursScope(state.exportConfig.leaderHoursScope) === LEADER_HOURS_SCOPES.LEADER
                     ? [['Líder (período completo)', 'Subtotal completo', 'Ajuste del período', 'Saldo completo']]
                     : [['Líder', 'Subtotal empleados', 'Ajuste personal', 'Saldo del líder']],
                 body: leaderAdjustments.map(group => [group.leaderName, formatCurrency(group.subtotal),

@@ -15,6 +15,7 @@ import { filterPayrollRowsByLeader, limitPayrollRowToPositions } from 'actual/fe
 import { formatCurrency } from 'actual/utils/Formatters.js';
 import { loadWeeklyPositionHandler } from './helpers/weeklyPositionHandler.js';
 import { WeekRow } from 'actual/ui/AttendanceUI.js';
+import { captureAttendancePositionAssignments } from 'actual/features/employees/EmployeePositionAssignments.js';
 
 const P = 'PRJ-LEADER-HOURS';
 
@@ -117,6 +118,136 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
 
     const exported = async () => { PayrollUI.copyExportJSON(); await Promise.resolve(); return clipboard.at(-1); };
     const net = rows => rows.reduce((sum, row) => sum + Number(row.monto ?? row.amount ?? row.neto ?? 0), 0);
+    async function exportedPdf() {
+        const previous = window.jspdf;
+        const doc = {
+            internal: { pageSize: { getWidth: () => 210, getHeight: () => 297 }, getNumberOfPages: () => 1 },
+            setFillColor: jest.fn(), rect: jest.fn(), setFontSize: jest.fn(), setFont: jest.fn(),
+            setTextColor: jest.fn(), text: jest.fn(), autoTable: jest.fn(), lastAutoTable: { finalY: 60 }, save: jest.fn()
+        };
+        try {
+            window.jspdf = { jsPDF: jest.fn(() => doc) };
+            window.jspdf.jsPDF.API = { autoTable: jest.fn() };
+            await PayrollUI.exportPayrollPDF();
+            expect(doc.save).toHaveBeenCalled();
+            return doc;
+        } finally { window.jspdf = previous; }
+    }
+
+    async function configureLoan() {
+        stateManager.batchSetState(raw => {
+            raw.employees[0].positionAssignments = {
+                'POS-1': { workLeaderId: 'L1', isLoanPosition: false },
+                'POS-2': { workLeaderId: 'L2', isLoanPosition: true, payerLeaderId: 'L1' }
+            };
+            for (const [key, record] of Object.entries(raw.attendance)) {
+                raw.attendance[key] = captureAttendancePositionAssignments(record, raw);
+            }
+        });
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+    }
+
+    test('leader filtering uses the individual team without moving coworkers or following the catalogue', async () => {
+        stateManager.batchSetState(raw => {
+            raw.leaders.push({ id: 'L3', name: 'Líder individual', projectId: P, active: true });
+            raw.employees[0].positionAssignments = {
+                'POS-1': { workLeaderId: 'L3', isLoanPosition: false },
+                'POS-2': { workLeaderId: 'L3', isLoanPosition: false }
+            };
+            for (const [key, record] of Object.entries(raw.attendance)) {
+                raw.attendance[key] = captureAttendancePositionAssignments(record, raw);
+            }
+        });
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        PayrollUI.setPayrollGuideStep('review');
+        PayrollUI.setLeaderFilter('L3');
+        const host = document.createElement('div');host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.querySelector('#payroll-scoped-leader-filter').value).toBe('L3');
+        expect((await exported()).map(employee => employee.sourceEmployeeId)).toEqual(['E1']);
+        expect(net(await exported())).toBe(1600);
+        PayrollUI.setLeaderFilter('L1');
+        expect(await exported()).toEqual([]);
+        PayrollUI.setLeaderFilter('L2');
+        expect((await exported()).map(employee => employee.sourceEmployeeId)).toEqual(['E2']);
+        expect(net(await exported())).toBe(800);
+        PayrollUI.setLeaderFilter('all');
+        expect(net(await exported())).toBe(2400);
+    });
+
+    test('configured loan positions obey both hours modes in the table and export without moving the payer', async () => {
+        await configureLoan();
+        const source = JSON.stringify(runtime.getCurrentView().previewRows);
+        PayrollUI.setPayrollGuideStep('review');
+        PayrollUI.setLeaderFilter('L1');
+        const all = await exported();
+        expect(all[0]).toMatchObject({ sourceEmployeeId: 'E1', bruto: 1600, monto: 1600, workDays: { total: 2 } });
+        PayrollUI.setLeaderHoursScope('leader');
+        const onlyTeam = await exported();
+        expect(onlyTeam[0]).toMatchObject({ sourceEmployeeId: 'E1', bruto: 800, monto: 800, workDays: { total: 1 } });
+        expect(onlyTeam[0].positions.map(position => position.id)).toEqual(['POS-1']);
+        const host = document.createElement('div');host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.querySelectorAll('.payroll-review-table__row')).toHaveLength(1);
+        expect(host.querySelector('.payroll-review-table__amount.is-net').textContent).toContain('$800.00');
+        expect(host.querySelector('.payroll-review-table__scope-note').textContent).toContain('Sin Plomero 8h');
+        expect(host.querySelector('[data-payroll-action="open-payroll-closure"]').disabled).toBe(true);
+        const pdf = await exportedPdf();
+        const payrollTable = pdf.autoTable.mock.calls.find(call => call[0].head[0].includes('Colaborador'))[0];
+        expect(payrollTable.body).toHaveLength(1);
+        expect(payrollTable.body[0]).toContain('Ana Uno');
+        expect(payrollTable.body[0]).toContain('$800.00');
+        PayrollUI.setLeaderFilter('L2');
+        expect((await exported()).map(employee => employee.sourceEmployeeId)).toEqual(['E2']);
+        const receiver = document.createElement('div');receiver.innerHTML = PayrollUI.PayrollTab();
+        expect(receiver.querySelector('.payroll-leader-adjustment').textContent).toContain('Ana Uno');
+        const receiverPdf = await exportedPdf();
+        expect(receiverPdf.autoTable.mock.calls.some(call => call[0].head[0].includes('Líder (período completo)'))).toBe(true);
+        expect(JSON.stringify(runtime.getCurrentView().previewRows)).toBe(source);
+        PayrollUI.setLeaderFilter('all');
+        expect(net(await exported())).toBe(2400);
+    });
+
+    test('employee selection combines with assigned payer and hours filters without losing the selected IDs', async () => {
+        await configureLoan();
+        const choosing = PayrollUI.openPayrollReviewEmployees();
+        document.querySelector('[data-adjustment-picker-employee="E1"]').click();
+        document.querySelector('[data-modal-overlay] [data-button-index="1"]').click();
+        expect(await choosing).toBe(true);
+        PayrollUI.setLeaderFilter('L1');
+        expect(net(await exported())).toBe(1600);
+        PayrollUI.setLeaderHoursScope('leader');
+        const only = await exported();
+        expect(only[0].exportContext.totals).toMatchObject({ employeeCount: 1, gross: 800, net: 800 });
+        PayrollUI.setLeaderFilter('L2');
+        expect(await exported()).toEqual([]);
+        expect(appState.exportConfig.payrollReviewEmployees.ids).toEqual(['E1']);
+        PayrollUI.setLeaderFilter('all');
+        expect(net(await exported())).toBe(1600);
+        await PayrollUI.togglePayrollReviewEmployeeFilter(false);
+        expect(net(await exported())).toBe(2400);
+    });
+
+    test.each(['active', 'archived', 'deleted'])('a historical payer remains selectable after the assignment changes (%s)', async status => {
+        stateManager.batchSetState(raw => {
+            raw.leaders.push({ id: 'L3', name: 'Pagador anterior', active: true, projectId: P });
+            raw.employees[0].positionAssignments = {
+                'POS-2': { workLeaderId: 'L2', isLoanPosition: true, payerLeaderId: 'L3' }
+            };
+            const key = 'E1-2026-03-06';
+            raw.attendance[key] = captureAttendancePositionAssignments(raw.attendance[key], raw);
+            raw.employees[0].positionAssignments['POS-2'].payerLeaderId = 'L1';
+            if (status === 'deleted') raw.leaders = raw.leaders.filter(leader => leader.id !== 'L3');
+            else raw.leaders.find(leader => leader.id === 'L3').active = status === 'active';
+        });
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        PayrollUI.setPayrollGuideStep('review');
+        PayrollUI.setLeaderFilter('L3');
+        const host = document.createElement('div');host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.querySelector('#payroll-scoped-leader-filter').value).toBe('L3');
+        expect(host.textContent).toContain('Pagador anterior');
+        const output = await exported();
+        expect(output).toHaveLength(1);
+        expect(output[0]).toMatchObject({ sourceEmployeeId: 'E1', monto: 800, bruto: 800 });
+    });
 
     test('con el líder, "todos sus puestos" paga ambos días y "solo sus puestos" uno', async () => {
         PayrollUI.setLeaderFilter('L1');
