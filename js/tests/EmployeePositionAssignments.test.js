@@ -203,3 +203,23 @@ test('retained assignment history of a deleted catalogue job does not block unre
     employee.positions=['p1'];state.positions=state.positions.filter(position=>position.id!=='p2');
     expect(prepareEmployeePositionAssignments(employee,accepted,state,NOW+10000)).toEqual(accepted);
 });
+
+test('an individual leader does not change the rest-day factor of work that carries no captured terms', () => {
+    // The project payroll config has no restDayFactor; it lives in the general settings.
+    const config = { projectId: 'P', regularHoursPerDay: 8, overtimeFactor: 1.35, holidayFactor: 2, holidays: [] };
+    const sunday = '2026-11-15';
+    const state = fixture();
+    state.settings.restDayFactor = 2;
+    state.employees = [{ id: 'plain', number: '1', name: 'Sin líder propio', positions: ['p3'] },
+        { id: 'own', number: '2', name: 'Con líder propio', positions: ['p3'] }];
+    state.employees[1].positionAssignments = prepareEmployeePositionAssignments(
+        state.employees[1], { p3: { workLeaderId: 'L1' } }, state, NOW);
+    // Recorded after the assignment by a client that does not capture terms (older app, reader, import).
+    const later = new Date(`${sunday}T18:00:00`).getTime();
+    for (const id of ['plain', 'own']) state.attendance[`${id}-${sunday}`] = { employeeId: id, date: sunday, present: true,
+        selectedPosition: 'p3', hoursWorked: 8, overtimeHours: 0, createdAt: later, updatedAt: later };
+    const ctx = { ...state, projectId: 'P', getAttendance: (id, date) => state.attendance[`${id}-${date}`] };
+    const gross = id => calculateEmployeePayrollWithContext(ctx, config, id, sunday, sunday, [], [], [], []).brutoOriginal;
+    expect(gross('plain')).toBe(8 * 62.5 * 2);
+    expect(gross('own')).toBe(gross('plain'));
+});

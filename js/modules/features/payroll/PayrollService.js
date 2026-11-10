@@ -83,7 +83,9 @@ function calculateEmployeePayrollScopedInternal(ctx, config, empId, startDateKey
                 const position = ctx.positions.find(item => String(item.id) === String(pw.positionId));
                 const hasAssignment = emp.positionAssignments?.[pw.positionId] || att.positionAssignments?.[pw.positionId];
                 const terms = hasAssignment && (position || att.positionAssignments?.[pw.positionId])
-                    ? resolveEmployeePositionTerms(emp, position || { id: pw.positionId }, { ...att, date: att.date || dateKey }, { settings: config, leaders: ctx.leaders || [] }) : null;
+                    ? resolveEmployeePositionTerms(emp, position || { id: pw.positionId }, { ...att, date: att.date || dateKey },
+                        // The project config has no restDayFactor: it comes from the general settings.
+                        { settings: { ...ctx.settings, ...config }, leaders: ctx.leaders || [] }) : null;
                 const bucket = terms ? JSON.stringify([pw.positionId, terms]) : pw.positionId;
 
             if (!positionData[bucket]) {
