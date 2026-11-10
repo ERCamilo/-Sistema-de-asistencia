@@ -288,6 +288,7 @@ function armApplyingFlagWatchdog() {
 window.armApplyingFlagWatchdog = armApplyingFlagWatchdog;
 
 import { captureAttendancePositionAssignments } from './modules/features/employees/EmployeePositionAssignments.js';
+import { notifyPayRateChange, payRateChanged } from './modules/features/payroll/PayRateChangeNotice.js';
 function stampAttendanceWrite(record, now = Date.now()) {
     return stampBaseAttendanceWrite(captureAttendancePositionAssignments(record, {
         employees: state.employees, positions: state.positions, leaders: state.leaders, attendance: state.attendance,
@@ -6195,6 +6196,11 @@ window.saveSettings = function () {
     ]) {
         if (element) element.value = String(value);
     }
+    // Un factor nuevo alcanza los días ya registrados del período abierto: se avisa al guardar.
+    const payInForce = getActivePayrollSettings(state);
+    const payFactorsChanged = payRateChanged(payInForce.overtimeFactor, overtimeFactor)
+        || payRateChanged(payInForce.holidayFactor, holidayFactor)
+        || payRateChanged(state.settings.restDayFactor, restDayFactor);
     const scopedConfigSave = projectsEnabled
         ? payrollUIRuntime.updateConfig(config => ({
             ...config,
@@ -6247,6 +6253,7 @@ window.saveSettings = function () {
         return scopedConfigSave.then(() => {
             saveApplicationData({ announce: 'Configuración guardada' });
             render();
+            if (payFactorsChanged) notifyPayRateChange(state, { subject: 'Factores de pago' });
         }).catch(error => {
             logError(error, 'guardar configuración del proyecto');
             showSettingsFormError('No se pudieron guardar los ajustes del proyecto. Revisa los campos pendientes y vuelve a guardar.', document, settingsSaveScope);
@@ -6255,6 +6262,7 @@ window.saveSettings = function () {
     // Toast honesto: verde solo si de verdad se guardó (local + nube).
     saveApplicationData({ announce: 'Configuración guardada' });
     render();
+    if (payFactorsChanged) notifyPayRateChange(state, { subject: 'Factores de pago' });
 };
 
 // ============================================

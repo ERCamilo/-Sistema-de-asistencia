@@ -10,6 +10,10 @@ import { resolvePositionIcon } from '../../features/employees/PositionVisuals.js
 import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject } from '../../features/projects/ProjectContext.js';
 import { resolveRestDayFactor } from '../../features/payroll/PayrollFactors.js';
+import { notifyPayRateChange, payRateChanged } from '../../features/payroll/PayRateChangeNotice.js';
+import { askLeaderChangeStart, leaderChangeDateRange } from '../../features/employees/LeaderChangeDateDialog.js';
+import { countLeaderChangeDays, planPositionLeaderChange } from '../../features/employees/LeaderChangeFromDate.js';
+import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
 
 // Texto de ayuda según el modo de carga del salario.
 const salaryHintFor = (mode, hours) => mode === 'daily'
@@ -60,7 +64,7 @@ export class PositionModal {
             ? 'Este puesto pertenece a esta obra. Para proteger su historial, la obra no se cambia desde este formulario.'
             : 'El nuevo puesto se guardará en esta obra.';
         const inheritedPlaceholder = selectedLeader?.restDayFactor != null && Number(selectedLeader.restDayFactor) > 0
-            ? `Hereda de Líder (${selectedLeader.name}): ${selectedLeader.restDayFactor}x`
+            ? `Manda el líder (${selectedLeader.name}): ${selectedLeader.restDayFactor}x`
             : `Hereda Global: ${state.settings?.restDayFactor || 1.5}x`;
 
         const contentHTML = `
@@ -149,7 +153,7 @@ export class PositionModal {
                     <div class="form-group" style="margin-top: 14px; margin-bottom: 0;">
                         <label class="form-label" for="posRestDayFactor" style="display: flex; align-items: center; justify-content: space-between;">
                             <span>Factor Día No Laborable (Opcional)</span>
-                            <span style="font-size: 0.7rem; color: #64748b;">Override de este puesto</span>
+                            <span style="font-size: 0.7rem; color: #64748b;">Se usa si el líder no define el suyo</span>
                         </label>
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <input type="number" inputmode="decimal" id="posRestDayFactor" class="form-input"
@@ -304,7 +308,7 @@ export class PositionModal {
             const ldr = selectedLdrId ? state.leaders.find(l => l.id === selectedLdrId) : null;
             if (restDayInput) {
                 restDayInput.placeholder = ldr?.restDayFactor != null && Number(ldr.restDayFactor) > 0
-                    ? `Hereda de Líder (${ldr.name}): ${ldr.restDayFactor}x`
+                    ? `Manda el líder (${ldr.name}): ${ldr.restDayFactor}x`
                     : `Hereda Global: ${state.settings?.restDayFactor || 1.5}x`;
             }
         };
@@ -416,7 +420,7 @@ export class PositionModal {
         }
     }
 
-    static save(modalInstance, existingPos) {
+    static save(modalInstance, existingPos, { leaderChangeFrom } = {}) {
         const el = modalInstance.element;
         // F1.4: alcance activo para el sello de nacimiento.
         const scope = peekEntityScope();
@@ -468,12 +472,37 @@ export class PositionModal {
             return;
         }
 
+        // Cambio de líder del puesto con días ya registrados en el período
+        // abierto: se pregunta desde cuándo vale antes de tocar nada.
+        const current = existingPos ? state.positions.find(p => p.id === existingPos.id) : null;
+        const leaderChanged = Boolean(current) && String(current.leaderId || '') !== String(leaderId || '');
+        const { periodStart } = leaderChangeDateRange(state);
+        if (leaderChanged && leaderChangeFrom === undefined) {
+            const days = countLeaderChangeDays(state, { positionIds: [current.id], periodStart });
+            if (days > 0) {
+                if (modalInstance._leaderChangeQuestionOpen) return;
+                modalInstance._leaderChangeQuestionOpen = true;
+                askLeaderChangeStart(state, { subject: `El puesto «${name}»`, days }).then(fromDate => {
+                    modalInstance._leaderChangeQuestionOpen = false;
+                    if (fromDate && el.isConnected) PositionModal.save(modalInstance, existingPos, { leaderChangeFrom: fromDate });
+                });
+                return;
+            }
+        }
+        const positionBefore = leaderChanged ? JSON.parse(JSON.stringify(current)) : null;
+
         // El toast lo emite SaveOutcomeNotifier con el resultado REAL del
         // guardado (verde local+nube / amarillo solo-local / rojo).
         let announce = null;
+        let payChanged = false;
+        let touchedDates = [];
         if (existingPos) {
             const posToEdit = state.positions.find(p => p.id === existingPos.id);
             if (posToEdit) {
+                // El pago nuevo alcanza los días ya registrados del período abierto: se avisa.
+                payChanged = payRateChanged(posToEdit.hourlyRate, rate)
+                    || payRateChanged(posToEdit.restDayFactor, restDayFactor)
+                    || [...(posToEdit.workingDays || [])].sort().join() !== [...workingDays].sort().join();
                 // El id permanece estable; renombrar solo cambia el nombre y los
                 // campos. No hay que migrar referencias porque el id no cambia.
                 posToEdit.name = name;
@@ -495,6 +524,17 @@ export class PositionModal {
                 posToEdit._isDirty = true;
 
                 announce = `Posición "${name}" actualizada`;
+
+                if (positionBefore && leaderChangeFrom) {
+                    const plan = planPositionLeaderChange(state, { positionBefore, fromDate: leaderChangeFrom, periodStart });
+                    if (plan.dateKeys.length > 0) {
+                        stateManager.batchSetState(() => {
+                            Object.assign(state.attendance, plan.records);
+                            buildAttendanceIndex();
+                        });
+                        touchedDates = plan.dateKeys;
+                    }
+                }
             }
         } else {
             state.positions.push({
@@ -517,8 +557,11 @@ export class PositionModal {
             announce = `Posición "${name}" creada`;
         }
 
-        context.saveToLocalStorage(announce ? { announce } : undefined);
+        // Las asistencias reescritas suben por el canal diario en el mismo guardado.
+        const saveOptions = { ...(announce ? { announce } : {}), ...(touchedDates.length ? { dateKeys: touchedDates, immediate: true } : {}) };
+        context.saveToLocalStorage(Object.keys(saveOptions).length ? saveOptions : undefined);
         context.render();
         modalInstance.close();
+        if (payChanged) notifyPayRateChange(state, { subject: `Puesto «${name}»` });
     }
 }
