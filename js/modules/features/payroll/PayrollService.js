@@ -2,7 +2,7 @@ import { resolveEmployeePositionTerms } from '../employees/EmployeePositionAssig
 import { getDateKey } from '../../utils/DateUtils.js';
 import { calculateScopedAdjustments } from './PayrollAdjustments.js';
 import { buildPayrollAdjustmentInstallmentPreview } from './PayrollAdjustmentInstallmentSettlement.js';
-import { resolveRestDayFactor } from './PayrollFactors.js';
+import { resolveWorkRestDayFactor, workLeaderIsMissing } from './PayrollFactors.js';
 import { capturePayrollProjectContext } from './PayrollProjectContext.js';
 import * as ProjectPayrollConfigStore from './ProjectPayrollConfigStore.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
@@ -17,14 +17,17 @@ function assignmentPayrollMetadata(breakdown, employee, positions) {
 /**
  * Who worked for whom stays as it was recorded. What that work is worth follows
  * the current configuration during the whole open period, for every employee.
+ * When the job or the leader is no longer in the catalogue there is no current
+ * value, so the one recorded with that day is used and days recorded with
+ * different values are never merged.
  */
-const attributionBucket = (positionId, terms) => terms
-    ? JSON.stringify([String(positionId), terms.workLeaderId, terms.payerLeaderId, terms.isLoanPosition === true])
+const currentHourlyRate = (employee, position, positionId, regularHoursPerDay) =>
+    Number(employee?.positionSalaries?.[positionId]) || Number(position?.hourlyRate)
+    || Number(position?.salaryConfig?.amount || 0) / 30 / (Number(regularHoursPerDay) || 8) || 0;
+const attributionBucket = (positionId, terms, { hasCurrentRate, leaders }) => terms
+    ? JSON.stringify([String(positionId), terms.workLeaderId, terms.payerLeaderId, terms.isLoanPosition === true,
+        hasCurrentRate ? null : terms.hourlyRate, workLeaderIsMissing(terms, leaders) ? terms.restDayFactor : null])
     : positionId;
-const payingLeader = (leaders, position, terms) => {
-    const leaderId = terms ? terms.workLeaderId : position?.leaderId;
-    return leaderId ? leaders.find(leader => String(leader.id) === String(leaderId)) || null : null;
-};
 
 const WEEKS_PER_MONTH = 52 / 12; // 4.333333333333333
 
@@ -98,7 +101,8 @@ function calculateEmployeePayrollScopedInternal(ctx, config, empId, startDateKey
                     ? resolveEmployeePositionTerms(emp, position || { id: pw.positionId }, { ...att, date: att.date || dateKey },
                         // The project config has no restDayFactor: it comes from the general settings.
                         { settings: { ...ctx.settings, ...config }, leaders: ctx.leaders || [] }) : null;
-                const bucket = attributionBucket(pw.positionId, terms);
+                const bucket = attributionBucket(pw.positionId, terms, { leaders: ctx.leaders || [],
+                    hasCurrentRate: currentHourlyRate(emp, position, pw.positionId, config.regularHoursPerDay) > 0 });
 
             if (!positionData[bucket]) {
                 positionData[bucket] = { positionId: pw.positionId, terms, days: 0, regularHours: 0, overtimeHours: 0, holidayHours: 0, restDayHours: 0 };
@@ -133,9 +137,8 @@ function calculateEmployeePayrollScopedInternal(ctx, config, empId, startDateKey
         const overtimeFactor = config.overtimeFactor ?? 1;
         const holidayFactor = config.holidayFactor ?? 2;
         const leaders = Array.isArray(ctx.leaders) ? ctx.leaders : [];
-        const leader = payingLeader(leaders, pos, terms);
         const effectiveSettings = { ...ctx.settings, regularHoursPerDay: config.regularHoursPerDay, overtimeFactor: config.overtimeFactor, holidayFactor: config.holidayFactor, holidays: config.holidays };
-        const restDayFactor = resolveRestDayFactor(pos, leader, effectiveSettings);
+        const restDayFactor = resolveWorkRestDayFactor(pos, terms, leaders, effectiveSettings);
         const overtimeRate = hourlyRate * overtimeFactor;
         const holidayRate = hourlyRate * holidayFactor;
         const restDayRate = hourlyRate * restDayFactor;
@@ -401,7 +404,8 @@ export class PayrollService {
                 const hasAssignment = emp.positionAssignments?.[pw.positionId] || att.positionAssignments?.[pw.positionId];
                 const terms = hasAssignment && (position || att.positionAssignments?.[pw.positionId])
                     ? resolveEmployeePositionTerms(emp, position || { id: pw.positionId }, { ...att, date: att.date || dateKey }, { settings: this.state.settings, leaders: this.state.leaders || [] }) : null;
-                const bucket = attributionBucket(pw.positionId, terms);
+                const bucket = attributionBucket(pw.positionId, terms, { leaders: this.state.leaders || [],
+                    hasCurrentRate: currentHourlyRate(emp, position, pw.positionId, this.state.settings?.regularHoursPerDay) > 0 });
 
                 if (!positionData[bucket]) {
                     positionData[bucket] = {
@@ -466,8 +470,7 @@ export class PayrollService {
             const overtimeFactor = this.state.settings.overtimeFactor || 1;
             const holidayFactor = this.state.settings.holidayFactor || 2;
             const leaders = Array.isArray(this.state?.leaders) ? this.state.leaders : [];
-            const leader = payingLeader(leaders, pos, terms);
-            const restDayFactor = resolveRestDayFactor(pos, leader, this.state?.settings);
+            const restDayFactor = resolveWorkRestDayFactor(pos, terms, leaders, this.state?.settings);
 
             const overtimeRate = hourlyRate * overtimeFactor;
             const holidayRate = hourlyRate * holidayFactor;

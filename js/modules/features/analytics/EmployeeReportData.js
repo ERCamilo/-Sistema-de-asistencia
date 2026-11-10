@@ -24,7 +24,7 @@ import { resolveEmployeePositionTerms } from '../employees/EmployeePositionAssig
  */
 
 import { getDateKey, wasEmployeeActiveInRange } from '../../utils/DateUtils.js';
-import { resolveRestDayFactor } from '../payroll/PayrollFactors.js';
+import { resolveRestDayFactor, resolveWorkRestDayFactor } from '../payroll/PayrollFactors.js';
 
 /** ¿El registro (vivo y presente) referencia la posición? */
 function recordReferencesPosition(att, positionId) {
@@ -125,9 +125,7 @@ export function buildEmployeeReportData({
                     if (isHoliday) {
                         dayValue *= (holidayFactor ?? 1);
                     } else if (isRestDay) {
-                        const dayLeader = terms?.workLeaderId
-                            ? allLeaders.find(l => String(l.id) === String(terms.workLeaderId)) || null : null;
-                        dayValue *= ((terms ? resolveRestDayFactor(position, dayLeader, effectiveSettings) : resolvedFactor) ?? 1);
+                        dayValue *= ((terms ? resolveWorkRestDayFactor(position, terms, allLeaders, effectiveSettings) : resolvedFactor) ?? 1);
                     }
 
                     if (!isNaN(dayValue)) { dayValues[dateKey] = dayValue; total += dayValue; }

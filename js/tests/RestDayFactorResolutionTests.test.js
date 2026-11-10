@@ -223,6 +223,35 @@ describe('RestDayFactor Resolution & Payroll Integration', () => {
             expect(compactHtml).toContain('Día libre (1.75x)');
         });
 
+        // Revisión externa del PR #366: la tarjeta debe mostrar el mismo factor que paga la nómina.
+        test('a day worked before the employee changed leader shows the factor payroll pays for it', async () => {
+            const { state } = AppStateModule;
+            const { EmployeeRow, EmployeeRowCompact } = AttendanceUIModule;
+            const { prepareEmployeePositionAssignments, captureAttendancePositionAssignments } = await import('../modules/features/employees/EmployeePositionAssignments.js');
+            const { PayrollService } = await import('../modules/features/payroll/PayrollService.js');
+            const start = new Date('2026-08-17T08:00:00').getTime();
+            state.selectedDate = new Date('2026-08-23T12:00:00'); // Domingo
+            state.settings = { holidays: [], regularHoursPerDay: 8, restDayFactor: 1.5, overtimeFactor: 1, holidayFactor: 2 };
+            state.positions = [{ id: 'pos-1', name: 'Pintor', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5], leaderId: 'ldr-2' }];
+            state.leaders = [{ id: 'ldr-1', name: 'Luis', restDayFactor: 3 }, { id: 'ldr-2', name: 'Marcos', restDayFactor: 2 }];
+            const employee = { id: 'emp-card-2', number: '011', name: 'Juan', active: true, positions: ['pos-1'] };
+            const plain = () => JSON.parse(JSON.stringify({ positions: state.positions, leaders: state.leaders, settings: state.settings, employees: [employee], attendance: {} }));
+            employee.positionAssignments = prepareEmployeePositionAssignments(employee, { 'pos-1': { workLeaderId: 'ldr-1' } }, plain(), start);
+            const worked = new Date('2026-08-23T18:00:00').getTime();
+            const record = captureAttendancePositionAssignments({ employeeId: employee.id, date: '2026-08-23', present: true, hoursWorked: 8,
+                selectedPosition: 'pos-1', createdAt: worked, updatedAt: worked }, plain(), worked);
+            // Días después pasa al equipo de Marcos (2x).
+            employee.positionAssignments = prepareEmployeePositionAssignments(employee, { 'pos-1': { workLeaderId: 'ldr-2' } }, plain(), new Date('2026-08-26T08:00:00').getTime());
+            state.employees = [employee];
+            state.attendance = { 'emp-card-2-2026-08-23': record };
+
+            const paid = new PayrollService(plain.call(null) && { ...plain(), attendance: { 'emp-card-2-2026-08-23': record } })
+                .calculateEmployeePayroll(employee.id, '2026-08-23', '2026-08-23', [], [], []);
+            expect(paid.breakdown[0].restDayFactor).toBe(3);
+            expect(EmployeeRow(state.employees[0])).toContain('Día libre (3x)');
+            expect(EmployeeRowCompact(state.employees[0])).toContain('Día libre (3x)');
+        });
+
         test('does not render rest day pill on normal working day', () => {
             const { state } = AppStateModule;
             const { EmployeeRow } = AttendanceUIModule;

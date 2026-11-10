@@ -65,6 +65,13 @@ test('a rest day is valued with what the leader of that work pays, also after he
     expect(paidDays(state, SUNDAY)).toEqual({ plain: 2, own: 4 });
 });
 
+test('when the leader of that work is gone, report and payroll keep the factor recorded that day', () => {
+    const state = scenario(); attend(state, SUNDAY);
+    state.leaders = state.leaders.filter(leader => leader.id !== 'L1');
+    expect(paidDays(state, SUNDAY)).toEqual({ plain: 2, own: 3 });
+    expect(reportDays(state, SUNDAY)).toEqual({ plain: 2, own: 3 });
+});
+
 describe('a day split between two jobs is reported the way payroll pays it', () => {
     function split(record) {
         const state = scenario();

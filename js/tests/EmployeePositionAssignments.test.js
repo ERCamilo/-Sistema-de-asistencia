@@ -288,3 +288,54 @@ test('salary estimates tolerate a job that is missing from the catalogue', () =>
     expect(service.calculateMonthlyEstimate({ id: 'e', positions: ['gone'] }).total).toBe(0);
     expect(() => service.getSalaryConfig({ id: 'e', positions: ['gone'], salaryConfig: { type: 'standard' } })).not.toThrow();
 });
+
+// Revisión externa del PR #366 (2026-11-10): lo vigente manda mientras exista;
+// si el puesto o el líder ya no están en el catálogo, lo registrado ese día es
+// la única fuente y no puede sustituirse por otro día ni por el valor general.
+describe('recorded terms remain the source when the catalogue no longer has them', () => {
+    const MONDAY = '2026-11-09', TUESDAY = '2026-11-10', SUNDAY = '2026-11-15';
+    function own() {
+        const state = fixture();
+        state.positions[2].hourlyRate = 100;
+        state.leaders = [{ id: 'L1', name: 'Luis', restDayFactor: 3 }, { id: 'L2', name: 'Marcos' }];
+        state.employees = [{ id: 'own', number: '2', name: 'Juan', positions: ['p3'] }];
+        state.employees[0].positionAssignments = prepareEmployeePositionAssignments(state.employees[0], { p3: { workLeaderId: 'L1' } }, state, NOW);
+        return state;
+    }
+    const legacy = (state, start, end) => new PayrollService(state).calculateEmployeePayroll('own', start, end, [], [], []);
+    const scoped = (state, start, end) => calculateEmployeePayrollWithContext(
+        { ...state, projectId: 'obra', getAttendance: (emp, day) => state.attendance[`${emp}-${day}`] },
+        { projectId: 'obra', regularHoursPerDay: 8, overtimeFactor: 1.35, holidayFactor: 2, holidays: [] }, 'own', start, end, [], [], [], []);
+
+    test.each([['legacy', legacy], ['scoped', scoped]])('a missing job keeps each day at the rate recorded that day (%s)', (_name, pay) => {
+        const state = own();
+        attend(state, 'own', 'p3', MONDAY);
+        state.positions[2].hourlyRate = 200;
+        attend(state, 'own', 'p3', TUESDAY);
+        state.positions = state.positions.filter(position => position.id !== 'p3');
+        expect(pay(state, MONDAY, TUESDAY).brutoOriginal).toBe(8 * 100 + 8 * 200);
+    });
+
+    test.each([['legacy', legacy], ['scoped', scoped]])('a missing leader keeps the rest-day factor recorded that day (%s)', (_name, pay) => {
+        const state = own();
+        attend(state, 'own', 'p3', SUNDAY);
+        state.leaders = state.leaders.filter(leader => leader.id !== 'L1');
+        expect(pay(state, SUNDAY, SUNDAY).brutoOriginal).toBe(8 * 100 * 3);
+    });
+
+    test.each([['legacy', legacy], ['scoped', scoped]])('two rest days recorded with different factors do not share one when the leader is missing (%s)', (_name, pay) => {
+        const state = own();
+        attend(state, 'own', 'p3', SUNDAY);
+        state.leaders[0].restDayFactor = 2;
+        attend(state, 'own', 'p3', '2026-11-22');
+        state.leaders = state.leaders.filter(leader => leader.id !== 'L1');
+        expect(pay(state, SUNDAY, '2026-11-22').brutoOriginal).toBe(8 * 100 * 3 + 8 * 100 * 2);
+    });
+
+    test.each([['legacy', legacy], ['scoped', scoped]])('while job and leader exist, the current values still apply to the whole period (%s)', (_name, pay) => {
+        const state = own();
+        attend(state, 'own', 'p3', SUNDAY);
+        state.positions[2].hourlyRate = 200; state.leaders[0].restDayFactor = 2;
+        expect(pay(state, SUNDAY, SUNDAY).brutoOriginal).toBe(8 * 200 * 2);
+    });
+});
