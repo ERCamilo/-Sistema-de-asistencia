@@ -169,3 +169,14 @@ Estas fuentes describen protocolos y modelos de datos, no un modal obligatorio e
 3. **Agente de backend/Firebase:** reglas y transacciones; probar con dos clientes reales de emulador, roles/cuenta/obra, cliente viejo, concurrencia editar/eliminar, falla entre escrituras y replay antiguo. Verificar también el espejo Supabase.
 4. **Usuario:** revisar la maqueta de confirmación agrupada y validar con datos ficticios aceptar, pausar/cancelar y recuperar. No usar registros reales para ensayar borrados.
 5. **Administrador del repositorio:** hacer obligatorio el chequeo de política en `main`. Integrar y desplegar el cambio completo solo cuando pase, incluyendo pruebas de servidor y recuperación, con respaldo verificado.
+
+
+## Caso aclarado: horas anteriores a un cambio de líder
+
+El usuario confirmó que las horas ausentes bajo el líder 2 se registraron antes de cambiar el líder del puesto. `resolveEmployeePositionTerms` conserva las condiciones anteriores mediante snapshots/historia. Ese caso concreto corresponde a la protección temporal, aunque la auditoría sí encontró otros fallos reales de filtros y sincronización.
+
+Para trasladar trabajo anterior se recomienda una acción distinta: **Reasignar trabajo del período abierto**. La configuración futura y la corrección del trabajo existente deben distinguirse en la UI. Al guardar un líder, proponer Desde ahora y, cuando haya trabajo afectado, Revisar período abierto.
+
+La revisión lista empleado, fechas, horas, equipo y pagador antes/después, junto con el efecto en ambas nóminas usando las funciones actuales. La operación conserva los registros originales y una evidencia `reassign-work`, con versiones e idempotencia. No borra y recrea asistencias para simular un traslado, no duplica salarios y no modifica automáticamente pagos ni cierres confirmados. Un período cerrado requiere el flujo de corrección auditado.
+
+Pruebas adicionales de esa futura acción: solo trabajo del período seleccionado; repetir la misma reasignación no duplica horas/importe; una edición concurrente obliga a revisar; cambiar la configuración futura no reescribe el cierre; restaurar un backup antiguo no deshace silenciosamente la decisión. Esta función todavía no está implementada en el PR.
