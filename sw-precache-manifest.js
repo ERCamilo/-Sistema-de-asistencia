@@ -406,6 +406,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/services/PositionsLiveSync.js",
     "./js/modules/services/ProjectBackupManifest.js",
     "./js/modules/services/RecordKey.js",
+    "./js/modules/services/RemoteEntityMerge.js",
     "./js/modules/services/RestorePrepare.js",
     "./js/modules/services/SanitizeLoopBreaker.js",
     "./js/modules/services/SaveOutcomeNotifier.js",

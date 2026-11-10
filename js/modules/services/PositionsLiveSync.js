@@ -28,12 +28,13 @@ export const PositionsLiveSync = {
         }
 
         try {
-            _unsubscribe = subscribe((positions) => {
+            _unsubscribe = subscribe((positions, snapshotInfo) => {
                 try {
                     if (typeof window !== 'undefined') {
                         window._isApplyingRemoteData = true;
                     }
-                    onApply(positions);
+                    if (snapshotInfo) onApply(positions, snapshotInfo);
+                    else onApply(positions);
                 } catch (e) {
                     console.error('❌ PositionsLiveSync.onApply error:', e);
                 } finally {

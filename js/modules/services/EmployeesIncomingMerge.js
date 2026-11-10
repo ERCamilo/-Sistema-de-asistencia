@@ -21,17 +21,10 @@
  *     unionById en EmployeeMerge.js: perder datos en silencio cuesta más
  *     que una demora visible en propagar un borrado).
  *
- * La "línea de base" (última versión conocida del servidor por id) vive a
- * nivel de módulo, igual que el patrón ya usado en EmployeesLiveSync.js
- * (_unsubscribe). Ningún caller la resetea explícitamente hoy — es
- * seguro porque `EmployeesLiveSync.start()` es un singleton que nunca se
- * detiene con `.stop()` en ningún flujo de app.js (ni siquiera el logout,
- * que NO recarga la página): un cambio de cuenta en la misma pestaña deja
- * la suscripción VIEJA colgada en vez de re-suscribirse y contaminar esta
- * línea de base con ids de otra cuenta. ⚠️ Si algún día se agrega
- * `EmployeesLiveSync.stop()` al logout (el fix natural para ESE bug
- * preexistente y no relacionado a esta unidad), agregar también
- * `resetIncomingMergeBaseline()` en el mismo punto.
+ * La línea de base vive por sesión y se reinicia en app.js al cerrar sesión
+ * o cambiar de cuenta, junto con los listeners. Las lecturas del espejo y
+ * los snapshots de caché usan authoritative:false: fusionan registros sin
+ * interpretar ausencias como borrados ni modificar la línea de base.
  *
  * LÍMITE CONOCIDO: la línea de base solo vive en memoria y arranca vacía
  * en cada carga de página. Si el primer snapshot de la sesión encuentra
@@ -59,7 +52,7 @@ let _lastKnownIncomingById = new Map();
  *   listener de Firestore (EmployeeRepository.subscribe).
  * @returns {Array<object>} La lista fusionada a asignar a state.employees.
  */
-export function mergeIncomingEmployees(localEmployees, incomingEmployees) {
+export function mergeIncomingEmployees(localEmployees, incomingEmployees, { authoritative = true } = {}) {
     const local = Array.isArray(localEmployees) ? localEmployees : [];
     const incoming = Array.isArray(incomingEmployees) ? incomingEmployees : [];
 
@@ -78,6 +71,7 @@ export function mergeIncomingEmployees(localEmployees, incomingEmployees) {
 
     localById.forEach((localRecord, id) => {
         if (incomingById.has(id)) return; // ya resuelto arriba (fusionado)
+        if (!authoritative) { result.push(localRecord); return; }
 
         const lastKnownUpdatedAt = _lastKnownIncomingById.get(id);
         if (!Number.isFinite(lastKnownUpdatedAt)) {
@@ -98,13 +92,12 @@ export function mergeIncomingEmployees(localEmployees, incomingEmployees) {
         // si no: borrado remoto confirmado — se respeta (no se agrega).
     });
 
-    // Nueva línea de base: SIEMPRE refleja el snapshot entrante actual
-    // completo (no acumula ids que ya salieron de la nube).
+    // Solo una lista confirmada por el servidor actualiza la línea de base.
     const nextBaseline = new Map();
     incomingById.forEach((rec, id) => {
         nextBaseline.set(id, Number.isFinite(rec?.updatedAt) ? rec.updatedAt : 0);
     });
-    _lastKnownIncomingById = nextBaseline;
+    if (authoritative) _lastKnownIncomingById = nextBaseline;
 
     // 🪦 Tombstones de empleado: state.employees se mantiene SIEMPRE limpio
     // (sin tombstoneados), así ninguna vista/lógica tiene que filtrar deletedAt.

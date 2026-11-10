@@ -28,12 +28,13 @@ export const LeadersLiveSync = {
         }
 
         try {
-            _unsubscribe = subscribe((leaders) => {
+            _unsubscribe = subscribe((leaders, snapshotInfo) => {
                 try {
                     if (typeof window !== 'undefined') {
                         window._isApplyingRemoteData = true;
                     }
-                    onApply(leaders);
+                    if (snapshotInfo) onApply(leaders, snapshotInfo);
+                    else onApply(leaders);
                 } catch (e) {
                     console.error('❌ LeadersLiveSync.onApply error:', e);
                 } finally {

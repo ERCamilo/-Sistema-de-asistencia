@@ -117,11 +117,20 @@ testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
         );
     },
 
-    "subscribeToChanges usa loaderResult.employees en vez de remoteData.employees"() {
-        // Buscamos el bloque cerca de "newEmployees = dedup(loaderResult"
+    "subscribeToChanges fusiona las entidades del loader sin reemplazar el catálogo local"() {
         testRunner.assert(
-            /loaderResult\.employees/.test(appSource),
-            "state.employees debe poblarse con loaderResult.employees (no remoteData.employees directo)"
+            /mergeLoadedRemoteEntities\(state, loaderResult\)/.test(appSource)
+                && /newEmployees\s*=\s*dedup\(loadedEntities\.employees\)/.test(appSource),
+            "El resultado del loader debe fusionarse con el estado vigente antes de poblar empleados"
+        );
+        testRunner.assert(
+            /state\.positions\s*=\s*dedup\(loadedEntities\.positions\)/.test(appSource)
+                && /state\.leaders\s*=\s*dedup\(loadedEntities\.leaders\)/.test(appSource),
+            "Puestos y líderes deben usar la misma fusión protegida"
+        );
+        testRunner.assert(
+            !/state\.(positions|leaders)\s*=\s*dedup\(loaderResult\./.test(appSource),
+            "No reemplazar listas locales por una lectura parcial de la nube"
         );
     }
 

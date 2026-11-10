@@ -35,3 +35,18 @@ npm run build
 1. Usuario: revisar un empleado con dos puestos y un préstamo de personal; alternar líder y ambos modos de horas. Los puestos excluidos deben indicarse y coincidir en tabla y exportación.
 2. Usuario: combinar Solo empleados seleccionados y luego quitar ambos filtros. La nómina completa debe recuperarse.
 3. Agente SA: resolver observaciones y comprobar CI antes de integrar. No cambiar fórmulas ni registrar operaciones financieras durante esta validación.
+
+
+## Incidente de catálogo parcial durante la sincronización
+
+El registro aportado muestra que el estado arranca con 86 empleados, 27 puestos y 7 líderes y termina aplicando una lectura de 83, 5 y 4. La guardia de integridad evita retirar las referencias de empleados/asistencias, pero antes de ella el callback del documento general ya reemplazaba las listas locales con las del loader. Los listeners por registro llegaban demasiado tarde para conservar lo sobrescrito.
+
+La entrada del espejo ahora fusiona contra el estado vigente después de la lectura asíncrona, respetando los cambios individuales y sin interpretar ausencias como borrados. Los repositorios transmiten si el snapshot proviene del servidor confirmado o de caché/escrituras pendientes; los LiveSync conservan esa procedencia. Solo una confirmación del servidor actualiza las líneas de base. Un puesto que todavía está asignado o usado en asistencia, o un líder todavía referenciado por el catálogo o una asignación, queda protegido ante ausencias en el catálogo entrante. Los borrados confirmados de elementos sin referencias siguen funcionando. Las líneas de base se reinician al cerrar sesión o cambiar de cuenta.
+
+Regresión adicional: 86/27/7 frente a 83/5/4, fallos/listas vacías, versiones locales más nuevas, préstamos locales, escritura y recarga con IndexedDB real sobre fake-indexeddb, cadena repositorio → LiveSync, borrado confirmado sin referencias y conservación del líder 2 con un puesto cuyo catálogo indica líder 1 o ninguno. Se conserva el cálculo y la historia de las asistencias; no se reatribuyen horas pasadas automáticamente.
+
+Los contadores de guardado indican cuántos registros se escribieron, no prueban por sí solos que los restantes hayan sido borrados de IndexedDB. El guardado normal hace upsert. Esta corrección preserva lo disponible localmente; no inventa los registros que ya falten en todos los respaldos/dispositivos. La recuperación real debe comenzar por un respaldo local y la comprobación del catálogo durable del mismo origen y cuenta, antes de restaurar o sobrescribir la nube.
+
+## Servicio externo de fotos
+
+`POST https://n8n.erlin.do/webhook/app-images` devuelve 404 en el registro aportado. Es independiente del merge de empleados/puestos: la ruta de lectura de fotos conserva la copia local cuando falla. El responsable de n8n debe comprobar la ruta productiva, activación/proxy y conexión con la función `app-images`, sin exponer credenciales en el navegador. La prueba del visor local usa mocks y no certifica la disponibilidad de ese servicio.

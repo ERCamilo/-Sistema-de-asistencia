@@ -76,7 +76,8 @@ import { sanitizeExportConfig } from './modules/services/ExportConfigSanitizer.j
 import { buildProjectBackupManifest, diagnoseProjectBackup } from './modules/services/ProjectBackupManifest.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
-import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
+import { mergeIncomingEmployees, resetIncomingMergeBaseline } from './modules/services/EmployeesIncomingMerge.js';
+import { mergeLoadedRemoteEntities, referencedPositionIds, referencedLeaderIds } from './modules/services/RemoteEntityMerge.js';
 import { translateError } from './modules/services/ErrorTranslator.js';
 import { logError, getAllErrors, formatErrorLogAsText } from './modules/services/ErrorLog.js';
 import { recordSanitizeRound } from './modules/services/SanitizeLoopBreaker.js';
@@ -8160,7 +8161,7 @@ function _initOutgoingConflictGuard() {
                 });
             }
             // A0.5 G2–G5: aislamiento por uid — limpiar scope/colas/listeners al cambiar de cuenta o cerrar sesión
-            { const _prevUid=_lastAuthUid; const _nextUid=user?String(user.uid):null; const _isSwitch=!!(_prevUid&&_nextUid&&_prevUid!==_nextUid); const _isLogout=!!(_prevUid&&!_nextUid); if(_isSwitch||_isLogout){ try{PayrollClosureLiveSync.stop()}catch(_){} try{resetEntityScope()}catch(_){} try{await MainSyncStore.clearAll()}catch(_){} if(!_isCurrentAuthCallback())return; try{if(typeof _mirrorUnsub==='function')_mirrorUnsub()}catch(_){} try{if(typeof _settingsUnsub==='function')_settingsUnsub()}catch(_){} try{if(typeof window._attendanceUnsubscribe==='function')window._attendanceUnsubscribe()}catch(_){} try{if(typeof EmployeesLiveSync.stop==='function')EmployeesLiveSync.stop()}catch(_){} try{if(typeof PositionsLiveSync.stop==='function')PositionsLiveSync.stop()}catch(_){} try{if(typeof LeadersLiveSync.stop==='function')LeadersLiveSync.stop()}catch(_){} try{stopProjectCatalogLiveSync()}catch(_){} _mirrorUnsub=null;_settingsUnsub=null; if(typeof window._attendanceUnsubscribe!=='undefined')window._attendanceUnsubscribe=null; if(typeof window._currentSubRange!=='undefined')window._currentSubRange=null; if(_isSwitch){ try{localStorage.removeItem('asistencia_default_project_id')}catch(_){} try{localStorage.removeItem('asistencia_active_project_id')}catch(_){} try{localStorage.removeItem('migration.projectAdoption.v1')}catch(_){} } } _lastAuthUid=_nextUid; if(!user) try{PayrollClosureLiveSync.stop()}catch(_){} }
+            { const _prevUid=_lastAuthUid; const _nextUid=user?String(user.uid):null; const _isSwitch=!!(_prevUid&&_nextUid&&_prevUid!==_nextUid); const _isLogout=!!(_prevUid&&!_nextUid); if(_isSwitch||_isLogout){ try{PayrollClosureLiveSync.stop()}catch(_){} try{resetEntityScope()}catch(_){} try{await MainSyncStore.clearAll()}catch(_){} if(!_isCurrentAuthCallback())return; try{if(typeof _mirrorUnsub==='function')_mirrorUnsub()}catch(_){} try{if(typeof _settingsUnsub==='function')_settingsUnsub()}catch(_){} try{if(typeof window._attendanceUnsubscribe==='function')window._attendanceUnsubscribe()}catch(_){} try{if(typeof EmployeesLiveSync.stop==='function')EmployeesLiveSync.stop()}catch(_){} resetIncomingMergeBaseline(); mergeIncomingPositions.resetBaseline(); mergeIncomingLeaders.resetBaseline(); try{if(typeof PositionsLiveSync.stop==='function')PositionsLiveSync.stop()}catch(_){} try{if(typeof LeadersLiveSync.stop==='function')LeadersLiveSync.stop()}catch(_){} try{stopProjectCatalogLiveSync()}catch(_){} _mirrorUnsub=null;_settingsUnsub=null; if(typeof window._attendanceUnsubscribe!=='undefined')window._attendanceUnsubscribe=null; if(typeof window._currentSubRange!=='undefined')window._currentSubRange=null; if(_isSwitch){ try{localStorage.removeItem('asistencia_default_project_id')}catch(_){} try{localStorage.removeItem('asistencia_active_project_id')}catch(_){} try{localStorage.removeItem('migration.projectAdoption.v1')}catch(_){} } } _lastAuthUid=_nextUid; if(!user) try{PayrollClosureLiveSync.stop()}catch(_){} }
             state.syncStatus = user ? 'synced' : 'idle';
             render(); // Actualización inmediata de UI (Perfil/SyncStatus)
 
@@ -8428,7 +8429,8 @@ function _initOutgoingConflictGuard() {
                     }
 
                     // ⚡ FIX: Asegurar instancias correctas de clase
-                    let newEmployees = dedup(loaderResult.employees || state.employees);
+                    const loadedEntities = mergeLoadedRemoteEntities(state, loaderResult);
+                    let newEmployees = dedup(loadedEntities.employees);
                     if (typeof Employee !== 'undefined') {
                         newEmployees = newEmployees.map(e => e instanceof Employee ? e : new Employee(e));
                     }
@@ -8454,8 +8456,8 @@ function _initOutgoingConflictGuard() {
                     // (subcolección si schemaVersion>=3, arreglo legacy si no),
                     // resuelta por el loader. NO leer de remoteData directamente:
                     // a partir de v3 el parent doc ya no recibe estos arreglos.
-                    state.positions = dedup(loaderResult.positions || remoteData.positions || state.positions);
-                    state.leaders = dedup(loaderResult.leaders || remoteData.leaders || state.leaders);
+                    state.positions = dedup(loadedEntities.positions);
+                    state.leaders = dedup(loadedEntities.leaders);
 
                     // ⚡ FASE 2.1: si ya migramos al modelo per-doc, abrir el
                     // listener en tiempo real sobre la subcolección de empleados
@@ -8465,7 +8467,7 @@ function _initOutgoingConflictGuard() {
                     if (state.settings.schemaVersion >= 2) {
                         EmployeesLiveSync.start({
                             subscribe: (cb) => EmployeeRepository.subscribe(cb),
-                            onApply: (emps) => {
+                            onApply: (emps, snapshotInfo) => {
                                 if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync empleados ignorado.'); return; }
                                 // Fase 2 U2: fusión por-registro en vez de reemplazo mayorista —
                                 // un cambio remoto a OTRO empleado ya no pisa ediciones locales
@@ -8475,7 +8477,7 @@ function _initOutgoingConflictGuard() {
                                 // Copias ya fusionadas (lápida con mergedIntoId o registro
                                 // local): se unen a su empleado en vez de volver como nuevas.
                                 const { incoming, absorbed } = absorbIncomingMergeMarkers(emps || []);
-                                const merged = mergeIncomingEmployees(state.employees, incoming);
+                                const merged = mergeIncomingEmployees(state.employees, incoming, snapshotInfo);
                                 if (absorbed > 0) persistDuplicateResolution().catch(e => console.warn('⚠️ No se pudo guardar la fusión recibida:', e));
                                 state.employees = (typeof Employee !== 'undefined')
                                     ? merged.map(e => e instanceof Employee ? e : new Employee(e))
@@ -8499,14 +8501,16 @@ function _initOutgoingConflictGuard() {
                     if (state.settings.schemaVersion >= 3) {
                         PositionsLiveSync.start({
                             subscribe: (cb) => PositionRepository.subscribe(cb),
-                            onApply: (positions) => {
+                            onApply: (positions, snapshotInfo) => {
                                 if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync cargos ignorado.'); return; }
                                 // Incidente 2026-07-11: el reemplazo mayorista
                                 // (state.positions = lista de la nube) dejaba que
                                 // una nube envenenada/parcial pisara el catálogo
                                 // local sano. Fusión por registro con LWW + línea
                                 // de base (ver CatalogIncomingMerge.js).
-                                const merged = dedup(mergeIncomingPositions(state.positions, positions || []));
+                                const merged = dedup(mergeIncomingPositions(state.positions, positions || [], {
+                                    ...snapshotInfo, preserveIds: referencedPositionIds(state)
+                                }));
                                 state.positions = (typeof Position !== 'undefined')
                                     ? merged.map(p => p instanceof Position ? p : new Position(p))
                                     : merged;
@@ -8516,9 +8520,11 @@ function _initOutgoingConflictGuard() {
                         });
                         LeadersLiveSync.start({
                             subscribe: (cb) => LeaderRepository.subscribe(cb),
-                            onApply: (leaders) => {
+                            onApply: (leaders, snapshotInfo) => {
                                 if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync líderes ignorado.'); return; }
-                                const merged = dedup(mergeIncomingLeaders(state.leaders, leaders || []));
+                                const merged = dedup(mergeIncomingLeaders(state.leaders, leaders || [], {
+                                    ...snapshotInfo, preserveIds: referencedLeaderIds(state)
+                                }));
                                 state.leaders = (typeof Leader !== 'undefined')
                                     ? merged.map(l => l instanceof Leader ? l : new Leader(l))
                                     : merged;

@@ -9,7 +9,8 @@
         "Los filtros de puestos respetan el equipo y el pagador guardados en cada tramo de trabajo.",
         "Los líderes anteriores del período siguen disponibles aunque cambie la asignación del empleado.",
         "La selección de empleados, los totales y las exportaciones conservan el mismo filtro sin duplicar salarios.",
-        "Los saldos completos entre líderes se identifican al consultar un reporte parcial."
+        "Los saldos completos entre líderes se identifican al consultar un reporte parcial.",
+        "La sincronización conserva puestos, líderes y cambios locales ante respuestas parciales de la nube."
       ]
     },
     {
