@@ -29,6 +29,12 @@ import {
 import { resolveRestDayFactor } from '../features/payroll/PayrollFactors.js';
 import { EmployeeAvatar } from './components/EmployeeAvatar.js';
 
+/** El día libre se paga con el factor del líder del empleado en ese puesto (individual o del catálogo). */
+function restDayLeader(employee, position) {
+    const leaderId = effectivePositionLeaderId(employee, position);
+    return leaderId ? (state.leaders || []).find(leader => String(leader.id) === String(leaderId)) || null : null;
+}
+
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
 
@@ -979,7 +985,7 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel, periodMetrics
                 const pos = state.positions.find(p => p.id === ph.positionId);
                 const posWorkingDays = emp.customWorkingDays?.[ph.positionId] || pos?.workingDays || [1, 2, 3, 4, 5];
                 if (!posWorkingDays.includes(selectedDayOfWeek)) {
-                    const leader = pos?.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
+                    const leader = restDayLeader(emp, pos);
                     restDayFactors.push(resolveRestDayFactor(pos, leader, state.settings));
                 }
             }
@@ -989,7 +995,7 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel, periodMetrics
                 restDayPill = `<span class="attendance-status-pill is-rest-day" role="status" title="Asistencia en día de descanso">${icons.get('calendar', { size: 12 })}<span>Día libre (${factorLabel})</span></span>`;
             }
         } else if (isRestDay) {
-            const leader = activePos?.leaderId ? state.leaders.find(l => l.id === activePos.leaderId) : null;
+            const leader = restDayLeader(emp, activePos);
             const restDayFactor = resolveRestDayFactor(activePos, leader, state.settings);
             restDayPill = `<span class="attendance-status-pill is-rest-day" role="status" title="Asistencia en día de descanso (${restDayFactor}x)">${icons.get('calendar', { size: 12 })}<span>Día libre (${restDayFactor}x)</span></span>`;
         }
@@ -1034,7 +1040,7 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel, periodMetrics
         const isPhRestDay = !isHoliday && !posWorkingDays.includes(selectedDayOfWeek);
         let phFactorBadge = '';
         if (isPhRestDay) {
-            const leader = pos?.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
+            const leader = restDayLeader(emp, pos);
             const posFactor = resolveRestDayFactor(pos, leader, state.settings);
             phFactorBadge = `<span class="attendance-status-pill is-rest-day" style="font-size: 0.65rem; padding: 2px 6px; margin-left: 6px;" title="Día no laborable (${posFactor}x)">${icons.get('calendar', { size: 10 })}<span>Día libre (${posFactor}x)</span></span>`;
         }
@@ -1107,7 +1113,7 @@ export function EmployeeRowCompact(emp) {
 
     let restDayPill = '';
     if (isChecked && !isHoliday && isRestDay) {
-        const leader = activePos?.leaderId ? state.leaders.find(l => l.id === activePos.leaderId) : null;
+        const leader = restDayLeader(emp, activePos);
         const restDayFactor = resolveRestDayFactor(activePos, leader, state.settings);
         restDayPill = `<span class="attendance-status-pill is-rest-day" role="status" title="Asistencia en día de descanso (${restDayFactor}x)">${icons.get('calendar', { size: 12 })}<span>Día libre (${restDayFactor}x)</span></span>`;
     }

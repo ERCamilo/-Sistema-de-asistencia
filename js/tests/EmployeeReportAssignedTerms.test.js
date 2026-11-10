@@ -64,3 +64,46 @@ test('a rest day is valued with what the leader of that work pays, also after he
     expect(reportDays(state, SUNDAY)).toEqual({ plain: 2, own: 4 });
     expect(paidDays(state, SUNDAY)).toEqual({ plain: 2, own: 4 });
 });
+
+describe('a day split between two jobs is reported the way payroll pays it', () => {
+    function split(record) {
+        const state = scenario();
+        state.positions.push({ id: 'q', name: 'Albañil', active: true, leaderId: 'L2', hourlyRate: 62.5, workingDays: [1, 2, 3, 4, 5, 6] });
+        state.employees = [{ id: 'plain', number: '1', name: 'Pedro', active: true, positions: ['p', 'q'] }];
+        state.attendance = { [`plain-${HOLIDAY}`]: { employeeId: 'plain', date: HOLIDAY, present: true, selectedPosition: 'p', hoursWorked: 8, ...record } };
+        const report = buildEmployeeReportData({ employees: state.employees, positions: state.positions, attendance: state.attendance,
+            days: [{ date: parseDate(HOLIDAY), isHoliday: false }], startDate: HOLIDAY, endDate: HOLIDAY, regularHours: 8, holidayFactor: 2,
+            leaders: state.leaders, settings: state.settings });
+        const ctx = { ...state, projectId: 'obra', getAttendance: (id, day) => state.attendance[`${id}-${day}`] };
+        const payroll = calculateEmployeePayrollWithContext(ctx, { projectId: 'obra', regularHoursPerDay: 8, overtimeFactor: 1.35, holidayFactor: 2, holidays: [] },
+            'plain', HOLIDAY, HOLIDAY, [], [], [], []);
+        return {
+            reported: Object.fromEntries(report.positions.map(group => [group.position.id, group.employees[0]?.total || 0])),
+            paid: Object.fromEntries(payroll.breakdown.map(part => [part.positionId, part.regularHours / 8]))
+        };
+    }
+    const hours = [{ positionId: 'p', hours: 4 }, { positionId: 'q', hours: 4 }];
+
+    test('hours per job count even when the record lacks the multi-position mark', () => {
+        const { reported, paid } = split({ multiPosition: false, positionHours: hours });
+        expect(paid).toEqual({ p: 0.5, q: 0.5 });
+        expect(reported).toEqual(paid);
+    });
+
+    test('a marked multi-position day keeps working', () => {
+        const { reported, paid } = split({ multiPosition: true, positionHours: hours });
+        expect(reported).toEqual({ p: 0.5, q: 0.5 });
+        expect(reported).toEqual(paid);
+    });
+
+    test('a marked day with an empty hour list falls back to the selected job, like payroll', () => {
+        const { reported, paid } = split({ multiPosition: true, positionHours: [] });
+        expect(paid).toEqual({ p: 1 });
+        expect(reported.p).toBe(1);
+    });
+
+    test('job identifiers are compared as text, like payroll', () => {
+        const { reported } = split({ positionHours: [{ positionId: 'p', hours: 4 }, { positionId: 'q', hours: 4 }], selectedPosition: 'p' });
+        expect(reported.q).toBe(0.5);
+    });
+});

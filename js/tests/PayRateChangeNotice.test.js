@@ -1,5 +1,6 @@
 import { describePayRateChange, payRateChanged, notifyPayRateChange } from '../modules/features/payroll/PayRateChangeNotice.js';
 import { Modal } from '../modules/components/Modal.js';
+import { createSettingsSaveHarness } from './helpers/SettingsSaveHarness.js';
 
 const state = { settings: { payPeriod: { periodStart: '2026-11-01', periodLength: 15 } } };
 
@@ -32,4 +33,54 @@ test('the popup is shown once, with a single acknowledge button', async () => {
     expect(alert).toHaveBeenCalledTimes(1);
     expect(alert.mock.calls[0][0]).toMatchObject({ title: 'El cambio aplica a todo el período abierto', buttonText: 'Entendido' });
     alert.mockRestore();
+});
+
+describe('Settings announces factor changes that reach the open period', () => {
+    const field = (id, value) => `<input type="number" id="${id}" value="${value}">`;
+    afterEach(() => { document.body.innerHTML = ''; });
+
+    test.each(['overtimeFactor', 'holidayFactor', 'restDayFactor'])('a new %s shows the notice once, after saving', id => {
+        document.body.innerHTML = field(id, 3);
+        const h = createSettingsSaveHarness(); h.save();
+        expect(h.state.settings[id]).toBe(3);
+        expect(h.saveApplicationData).toHaveBeenCalledTimes(1);
+        expect(h.notifyPayRateChange).toHaveBeenCalledTimes(1);
+        expect(h.notifyPayRateChange.mock.calls[0][1]).toEqual({ subject: 'Factores de pago' });
+    });
+
+    test('saving other settings, or the same factors, stays silent', () => {
+        document.body.innerHTML = '<input id="companyName" value="Otra empresa">' + field('overtimeFactor', '1.50');
+        const h = createSettingsSaveHarness(); h.save();
+        expect(h.saveApplicationData).toHaveBeenCalledTimes(1);
+        expect(h.notifyPayRateChange).not.toHaveBeenCalled();
+    });
+
+    test('a rejected value neither saves nor announces', () => {
+        document.body.innerHTML = field('holidayFactor', 9);
+        const h = createSettingsSaveHarness(); h.save();
+        expect(h.notifyPayRateChange).not.toHaveBeenCalled();
+    });
+
+    const project = updateConfig => {
+        let config = { overtimeFactor: 1.5, holidayFactor: 2, regularHoursPerDay: 8, defaultDeductionPercentage: 2 };
+        const h = createSettingsSaveHarness({ isProjectsEnabled: () => true, getActivePayrollSettings: current => ({ ...current.settings, ...config }),
+            payrollUIRuntime: { getCurrentView: () => ({ config, projectId: 'A' }), updateConfig: jest.fn(updateConfig || (async mutate => { config = mutate(config); })) } });
+        return h;
+    };
+
+    test('with an active project the notice waits for the project config to be saved', async () => {
+        document.body.innerHTML = field('holidayFactor', 3);
+        const h = project(); const pending = h.save();
+        expect(h.notifyPayRateChange).not.toHaveBeenCalled();
+        await pending;
+        expect(h.notifyPayRateChange).toHaveBeenCalledTimes(1);
+    });
+
+    test('a failed project save does not announce a change that did not happen', async () => {
+        document.body.innerHTML = field('holidayFactor', 3);
+        const h = project(async () => { throw new Error('synthetic'); });
+        await h.save();
+        expect(h.saveApplicationData).not.toHaveBeenCalled();
+        expect(h.notifyPayRateChange).not.toHaveBeenCalled();
+    });
 });

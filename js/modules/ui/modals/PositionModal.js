@@ -61,7 +61,7 @@ export class PositionModal {
             ? 'Este puesto pertenece a esta obra. Para proteger su historial, la obra no se cambia desde este formulario.'
             : 'El nuevo puesto se guardará en esta obra.';
         const inheritedPlaceholder = selectedLeader?.restDayFactor != null && Number(selectedLeader.restDayFactor) > 0
-            ? `Hereda de Líder (${selectedLeader.name}): ${selectedLeader.restDayFactor}x`
+            ? `Manda el líder (${selectedLeader.name}): ${selectedLeader.restDayFactor}x`
             : `Hereda Global: ${state.settings?.restDayFactor || 1.5}x`;
 
         const contentHTML = `
@@ -150,7 +150,7 @@ export class PositionModal {
                     <div class="form-group" style="margin-top: 14px; margin-bottom: 0;">
                         <label class="form-label" for="posRestDayFactor" style="display: flex; align-items: center; justify-content: space-between;">
                             <span>Factor Día No Laborable (Opcional)</span>
-                            <span style="font-size: 0.7rem; color: #64748b;">Override de este puesto</span>
+                            <span style="font-size: 0.7rem; color: #64748b;">Se usa si el líder no define el suyo</span>
                         </label>
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <input type="number" inputmode="decimal" id="posRestDayFactor" class="form-input"
@@ -305,7 +305,7 @@ export class PositionModal {
             const ldr = selectedLdrId ? state.leaders.find(l => l.id === selectedLdrId) : null;
             if (restDayInput) {
                 restDayInput.placeholder = ldr?.restDayFactor != null && Number(ldr.restDayFactor) > 0
-                    ? `Hereda de Líder (${ldr.name}): ${ldr.restDayFactor}x`
+                    ? `Manda el líder (${ldr.name}): ${ldr.restDayFactor}x`
                     : `Hereda Global: ${state.settings?.restDayFactor || 1.5}x`;
             }
         };

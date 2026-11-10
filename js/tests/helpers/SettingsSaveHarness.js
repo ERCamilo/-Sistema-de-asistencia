@@ -3,6 +3,7 @@ import fs from 'fs';
 import { logError } from '../../modules/services/ErrorLog.js';
 import { clearSettingsFormErrors, showSettingsFieldError, showSettingsFormError } from '../../modules/ui/settings/SettingsFormFeedback.js';
 import path from 'path';
+import { payRateChanged } from '../../modules/features/payroll/PayRateChangeNotice.js';
 import * as drafts from '../../modules/ui/settings/SettingsDraftBar.js';
 import { reconcileSettingsDraftBeforeSave } from '../../modules/ui/SettingsUI.js';
 
@@ -23,6 +24,7 @@ export function createSettingsSaveHarness(overrides = {}) {
         guardSettingsDraftBeforeSave: drafts.guardSettingsDraftBeforeSave,
         reconcileSettingsDraftBeforeSave,
         clearSettingsFormErrors, showSettingsFieldError, showSettingsFormError, logError,
+        getActivePayrollSettings: current => current.settings, payRateChanged, notifyPayRateChange: jest.fn(),
         ...overrides
     };
     const save = new Function(...Object.keys(dependencies), `return (${expression});`)(...Object.values(dependencies));

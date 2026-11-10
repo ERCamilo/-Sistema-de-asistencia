@@ -3,13 +3,19 @@ import { PayrollService } from '../modules/features/payroll/PayrollService.js';
 import { buildEmployeeReportData } from '../modules/features/analytics/EmployeeReportData.js';
 
 describe('RestDayFactor Resolution & Payroll Integration', () => {
-    describe('resolveRestDayFactor hierarchy (Position > Leader > Global)', () => {
-        test('Position override wins over Leader and Global', () => {
+    describe('resolveRestDayFactor hierarchy (Leader > Position > Global)', () => {
+        // Decisión del usuario (2026-11-10): el día libre se paga con lo que paga el líder.
+        test('Leader wins over Position and Global', () => {
             const position = { restDayFactor: 2.0 };
             const leader = { restDayFactor: 1.75 };
             const settings = { restDayFactor: 1.5 };
 
-            expect(resolveRestDayFactor(position, leader, settings)).toBe(2.0);
+            expect(resolveRestDayFactor(position, leader, settings)).toBe(1.75);
+        });
+
+        test('Position applies only when the Leader defines none', () => {
+            expect(resolveRestDayFactor({ restDayFactor: 2.0 }, { restDayFactor: null }, { restDayFactor: 1.5 })).toBe(2.0);
+            expect(resolveRestDayFactor({ restDayFactor: 2.0 }, null, { restDayFactor: 1.5 })).toBe(2.0);
         });
 
         test('Leader override wins over Global when Position has no factor', () => {
@@ -51,7 +57,7 @@ describe('RestDayFactor Resolution & Payroll Integration', () => {
                         hourlyRate: 100,
                         workingDays: [1, 2, 3, 4, 5], // Lunes a Viernes (0=Dom, 6=Sáb son días libres)
                         leaderId: 'ldr-1',
-                        restDayFactor: 2.0 // Override a 2.0x
+                        restDayFactor: 2.0 // El puesto solo aplica si el líder no define el suyo
                     }
                 ],
                 leaders: [
@@ -88,11 +94,11 @@ describe('RestDayFactor Resolution & Payroll Integration', () => {
             const b = payroll.breakdown[0];
             expect(b.regularHours).toBe(8);
             expect(b.restDayHours).toBe(8);
-            expect(b.restDayFactor).toBe(2.0); // Override de posición
-            expect(b.restDayRate).toBe(200);   // 100 * 2.0
-            expect(b.restDayAmount).toBe(1600); // 8h * 200
+            expect(b.restDayFactor).toBe(1.75); // Manda el líder (Carlos)
+            expect(b.restDayRate).toBe(175);    // 100 * 1.75
+            expect(b.restDayAmount).toBe(1400); // 8h * 175
             expect(b.regularAmount).toBe(800);  // 8h * 100
-            expect(payroll.bruto).toBe(2400);   // 1600 + 800
+            expect(payroll.bruto).toBe(2200);   // 1400 + 800
         });
 
         test('holiday takes precedence over rest day', () => {
@@ -210,11 +216,11 @@ describe('RestDayFactor Resolution & Payroll Integration', () => {
 
             const fullHtml = EmployeeRow(state.employees[0]);
             expect(fullHtml).toContain('attendance-status-pill is-rest-day');
-            expect(fullHtml).toContain('Día libre (2x)');
+            expect(fullHtml).toContain('Día libre (1.75x)');
 
             const compactHtml = EmployeeRowCompact(state.employees[0]);
             expect(compactHtml).toContain('attendance-status-pill is-rest-day');
-            expect(compactHtml).toContain('Día libre (2x)');
+            expect(compactHtml).toContain('Día libre (1.75x)');
         });
 
         test('does not render rest day pill on normal working day', () => {

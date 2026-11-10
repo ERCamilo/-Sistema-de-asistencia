@@ -4,12 +4,15 @@
     {
       "version": "1.7.130",
       "date": "2026-11-10",
-      "title": "Filtros de nómina por equipo y pagador",
+      "title": "Nómina y reportes con el mismo pago para todos",
       "items": [
         "Los filtros de puestos respetan el equipo y el pagador guardados en cada tramo de trabajo.",
         "Los líderes anteriores del período siguen disponibles aunque cambie la asignación del empleado.",
         "La selección de empleados, los totales y las exportaciones conservan el mismo filtro sin duplicar salarios.",
-        "Los saldos completos entre líderes se identifican al consultar un reporte parcial."
+        "Los saldos completos entre líderes se identifican al consultar un reporte parcial.",
+        "Un cambio de tarifa o de factor se aplica a todo el período abierto, igual para todos los empleados, y un aviso indica desde qué fecha rige.",
+        "El día libre se paga con el factor del líder; el del puesto solo se usa si el líder no define el suyo.",
+        "El reporte de días valora feriados, días libres y jornadas repartidas entre dos puestos igual que la nómina."
       ]
     },
     {

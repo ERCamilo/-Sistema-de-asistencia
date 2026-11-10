@@ -29,10 +29,18 @@ import { resolveRestDayFactor } from '../payroll/PayrollFactors.js';
 /** ¿El registro (vivo y presente) referencia la posición? */
 function recordReferencesPosition(att, positionId) {
     if (!att || att.present !== true) return false;
-    if (att.multiPosition && Array.isArray(att.positionHours)) {
-        return att.positionHours.some(ph => ph && ph.positionId === positionId);
-    }
-    return att.selectedPosition === positionId;
+    const parts = splitHours(att);
+    if (parts) return parts.some(ph => ph && String(ph.positionId ?? att.selectedPosition) === String(positionId));
+    return att.selectedPosition != null && String(att.selectedPosition) === String(positionId);
+}
+
+/**
+ * Igual que la nómina: si el registro trae horas por puesto, mandan esas
+ * horas, tenga o no la marca multiPosition; si la lista está vacía, vale el
+ * puesto seleccionado.
+ */
+function splitHours(att) {
+    return Array.isArray(att?.positionHours) && att.positionHours.length > 0 ? att.positionHours : null;
 }
 
 /**
@@ -96,12 +104,14 @@ export function buildEmployeeReportData({
                 const record = att[`${emp.id}-${dateKey}`];
                 if (record && record.present) {
                     let dayValue = 0;
-                    if (record.multiPosition && record.positionHours) {
-                        const posHours = record.positionHours.find(ph => ph.positionId === position.id);
-                        if (posHours) dayValue = (posHours.hours || 0) / regularHours;
+                    const parts = splitHours(record);
+                    if (parts) {
+                        const fallback = record.selectedPosition || (emp.positions || [])[0];
+                        dayValue = parts.filter(ph => ph && String(ph.positionId || fallback) === String(position.id))
+                            .reduce((sum, ph) => sum + (Number(ph.hours) || 0), 0) / regularHours;
                     } else {
                         const selectedPos = record.selectedPosition || (emp.positions || [])[0];
-                        if (selectedPos !== position.id) return;
+                        if (String(selectedPos) !== String(position.id)) return;
                         dayValue = (record.hoursWorked || 0) / regularHours;
                     }
 
