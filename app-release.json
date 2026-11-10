@@ -1,6 +1,16 @@
 {
-  "version": "1.7.129",
+  "version": "1.7.130",
   "changelog": [
+    {
+      "version": "1.7.130",
+      "date": "2026-11-09",
+      "title": "Multiobra: resultados y pendientes con acciones",
+      "items": [
+        "Cada reparación muestra un resultado persistente y diferencia lo completado, los pendientes y los errores.",
+        "Los pendientes incluyen causa, prioridad, recomendación y acceso al paso correspondiente; posponer muestra advertencias y archivar es reversible.",
+        "Los problemas críticos o con fallos de lectura no ofrecen archivado directo; el diagnóstico .log clasifica los casos sin divulgar información privada."
+      ]
+    },
     {
       "version": "1.7.129",
       "date": "2026-11-08",
