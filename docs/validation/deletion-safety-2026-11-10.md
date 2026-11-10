@@ -1,6 +1,6 @@
 # Auditoría de conservación y borrado explícito
 
-Código auditado: `12230decd6db7bf00ee57dee6f50cb168a278fb7`. Semilla: `0x5a202611`.
+Código auditado: `628283671eb96b1347d9a1655bf01059f77790a6`. Semilla: `0x5a202611`.
 
 **45 pruebas: 11 aprobadas, 34 fallidas, 0 pendientes.**
 

@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-11-10T15:30:27.057Z",
-  "sourceHead": "12230decd6db7bf00ee57dee6f50cb168a278fb7",
+  "generatedAt": "2026-11-10T15:33:23.358Z",
+  "sourceHead": "628283671eb96b1347d9a1655bf01059f77790a6",
   "sourceHashes": {
     "js/app.js": "368c307c6de72344cfd93b87aee6c539272c6fcc7b42c8ef0be140ce57933155",
     "js/modules/services/EmployeesIncomingMerge.js": "d2881ea2e45907daae7e1b6cb8e006e52c2759005f3f3af7ddd1b3b649bf8635",
@@ -24,7 +24,7 @@
     "audit-tests/deletion-safety/incoming-review.audit.test.js": "7dddcaec750647adaa937ca46a044a5e309ec457923aec4899585645f70ad629",
     "audit-tests/deletion-safety/integrity.audit.test.js": "a3e577047cae75196e90c90c70bbbea62599ddb31f4e2f4ce6260ba6b3b33cc4",
     "audit-tests/deletion-safety/retention.audit.test.js": "38a92eebb9c9d8c2dc5268ea8d591095f963f6a6cb5bbc21b7223fb86d6d93cd",
-    "audit-tests/deletion-safety/writes.audit.test.js": "f6b8f99eb4afc4d5c2cacfd5433467437c54e47b257fcbe76c869e157234c05e"
+    "audit-tests/deletion-safety/writes.audit.test.js": "5084a03e288f78508111f5b7e9135abc3221b6fe27eade6166313ea0b8271260"
   },
   "seed": "0x5a202611",
   "total": 45,

@@ -4,9 +4,15 @@ import { PositionRepository } from '../../js/modules/services/PositionRepository
 import { LeaderRepository } from '../../js/modules/services/LeaderRepository.js';
 import { PettyCashRepository } from '../../js/modules/services/PettyCashRepository.js';
 
+let transactionRecords;
 beforeEach(() => {
     auth.currentUser = { uid: 'fictional-audit-user' };
     deleteDoc.mockClear();setDoc.mockClear();onSnapshot.mockClear();getDoc.mockReset().mockResolvedValue({ exists: () => false });
+    transactionRecords = [];
+    runTransaction.mockImplementation(async (_db, operation) => operation({
+        get: async () => ({ exists: () => false, data: () => null }),
+        set: (_ref, record) => transactionRecords.push(record)
+    }));
 });
 afterEach(() => { auth.currentUser = null; });
 
@@ -16,7 +22,9 @@ test.each([
 ])('[BORRADO-IO] %s conserva un registro de eliminación, en lugar de retirar el documento físico', async (_name, repository) => {
     await repository.deleteOne('fictional-record');
     expect(deleteDoc).not.toHaveBeenCalled();
-    expect(setDoc.mock.calls.some(call => Number.isFinite(call[1]?.deletedAt))).toBe(true);
+    const requestedRecords = [...setDoc.mock.calls.map(call => call[1]), ...transactionRecords];
+    expect(requestedRecords.some(record => Number.isFinite(record?.deletedAt)
+        || record?.action === 'delete' && Boolean(record.operationId))).toBe(true);
 });
 
 test('[BORRADO-IO] la ruta soft-delete de personal conserva una marca durable y rechaza una edición posterior', async () => {
