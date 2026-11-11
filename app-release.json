@@ -1,6 +1,16 @@
 {
-  "version": "1.7.130",
+  "version": "1.7.131",
   "changelog": [
+    {
+      "version": "1.7.131",
+      "date": "2026-11-11",
+      "title": "Líder visible en cada tramo de nómina",
+      "items": [
+        "El desglose de nómina muestra a qué equipo pertenece cada tramo y quién lo paga cuando es otro líder.",
+        "Los días de un mismo puesto y líder se muestran en una sola línea.",
+        "El editor del empleado avisa si hay días del período con un líder anterior y permite pasarlos al actual, para todo el período o desde una fecha."
+      ]
+    },
     {
       "version": "1.7.130",
       "date": "2026-11-10",

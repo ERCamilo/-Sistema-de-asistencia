@@ -1209,6 +1209,8 @@ function ScopedPayrollTab(view) {
                             ${renderPayrollReviewTable({
                                 rows,
                                 sourceRows,
+                                positions: state.positions || [],
+                                leaders: state.leaders || [],
                                 inclusion: previewInclusion,
                                 expanded: payrollReviewExpanded,
                                 emptyMessage: reviewEmployeeSelection.enabled

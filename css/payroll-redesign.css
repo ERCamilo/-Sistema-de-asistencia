@@ -7370,6 +7370,14 @@
 
 .payroll-breakdown-details__item > strong { color: #f1f5f9; }
 
+.payroll-breakdown-details__item > .payroll-breakdown-details__team {
+    display: block;
+    color: var(--text-dim, #a4b1c7);
+    font-size: 0.7rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
 .payroll-breakdown-details__item > div {
     display: flex;
     justify-content: space-between;

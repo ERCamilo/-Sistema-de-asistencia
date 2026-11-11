@@ -24,10 +24,14 @@ function assignmentPayrollMetadata(breakdown, employee, positions) {
 const currentHourlyRate = (employee, position, positionId, regularHoursPerDay) =>
     Number(employee?.positionSalaries?.[positionId]) || Number(position?.hourlyRate)
     || Number(position?.salaryConfig?.amount || 0) / 30 / (Number(regularHoursPerDay) || 8) || 0;
-const attributionBucket = (positionId, terms, { hasCurrentRate, leaders }) => terms
-    ? JSON.stringify([String(positionId), terms.workLeaderId, terms.payerLeaderId, terms.isLoanPosition === true,
+const key = value => value == null ? '' : String(value);
+// Work that follows the job's catalogue leader and work recorded for that same
+// leader are one team: they share a bucket, so payroll shows a single line.
+const attributionBucket = (positionId, terms, { hasCurrentRate, leaders, position }) => terms
+    ? JSON.stringify([key(positionId), key(terms.workLeaderId), key(terms.payerLeaderId), terms.isLoanPosition === true,
         hasCurrentRate ? null : terms.hourlyRate, workLeaderIsMissing(terms, leaders) ? terms.restDayFactor : null])
-    : positionId;
+    : position ? JSON.stringify([key(positionId), key(position.leaderId), key(position.leaderId), false, null, null])
+        : positionId;
 
 const WEEKS_PER_MONTH = 52 / 12; // 4.333333333333333
 
@@ -101,12 +105,13 @@ function calculateEmployeePayrollScopedInternal(ctx, config, empId, startDateKey
                     ? resolveEmployeePositionTerms(emp, position || { id: pw.positionId }, { ...att, date: att.date || dateKey },
                         // The project config has no restDayFactor: it comes from the general settings.
                         { settings: { ...ctx.settings, ...config }, leaders: ctx.leaders || [] }) : null;
-                const bucket = attributionBucket(pw.positionId, terms, { leaders: ctx.leaders || [],
+                const bucket = attributionBucket(pw.positionId, terms, { leaders: ctx.leaders || [], position,
                     hasCurrentRate: currentHourlyRate(emp, position, pw.positionId, config.regularHoursPerDay) > 0 });
 
             if (!positionData[bucket]) {
                 positionData[bucket] = { positionId: pw.positionId, terms, days: 0, regularHours: 0, overtimeHours: 0, holidayHours: 0, restDayHours: 0 };
             }
+            if (!positionData[bucket].terms && terms) positionData[bucket].terms = terms;
             positionData[bucket].days++;
             const isHoliday = att.isHoliday || (config.holidays || []).includes(dateKey);
             const posObj = ctx.positions.find(p => String(p.id) === String(pw.positionId));
@@ -404,7 +409,7 @@ export class PayrollService {
                 const hasAssignment = emp.positionAssignments?.[pw.positionId] || att.positionAssignments?.[pw.positionId];
                 const terms = hasAssignment && (position || att.positionAssignments?.[pw.positionId])
                     ? resolveEmployeePositionTerms(emp, position || { id: pw.positionId }, { ...att, date: att.date || dateKey }, { settings: this.state.settings, leaders: this.state.leaders || [] }) : null;
-                const bucket = attributionBucket(pw.positionId, terms, { leaders: this.state.leaders || [],
+                const bucket = attributionBucket(pw.positionId, terms, { leaders: this.state.leaders || [], position,
                     hasCurrentRate: currentHourlyRate(emp, position, pw.positionId, this.state.settings?.regularHoursPerDay) > 0 });
 
                 if (!positionData[bucket]) {
@@ -418,6 +423,7 @@ export class PayrollService {
                     };
                 }
 
+                if (!positionData[bucket].terms && terms) positionData[bucket].terms = terms;
                 positionData[bucket].days++;
 
                 const isHoliday = att.isHoliday || (this.state.settings.holidays || []).includes(dateKey);

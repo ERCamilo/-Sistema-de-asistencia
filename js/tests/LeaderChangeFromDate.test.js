@@ -1,6 +1,6 @@
 import { prepareEmployeePositionAssignments, captureAttendancePositionAssignments, changedAssignmentPositions } from '../modules/features/employees/EmployeePositionAssignments.js';
-import { planEmployeeLeaderChange, planPositionLeaderChange, leaderChangeEffectiveAt, countLeaderChangeDays } from '../modules/features/employees/LeaderChangeFromDate.js';
-import { calculateEmployeePayrollWithContext } from '../modules/features/payroll/PayrollService.js';
+import { planEmployeeLeaderChange, planPositionLeaderChange, leaderChangeEffectiveAt, countLeaderChangeDays, findDaysWithOtherLeader, planAlignLeaderFromDate } from '../modules/features/employees/LeaderChangeFromDate.js';
+import { PayrollService, calculateEmployeePayrollWithContext } from '../modules/features/payroll/PayrollService.js';
 import { filterPayrollRowsByLeader } from '../modules/features/payroll/PayrollPreview.js';
 import { getPayrollEmployeesForPeriodWithContext } from '../modules/features/payroll/PayrollPeriod.js';
 
@@ -159,4 +159,109 @@ test('only real leader or payer changes of jobs the employee already had are det
     expect(changedAssignmentPositions(pedro, { p: { workLeaderId: 'L1' } }, state.positions)).toEqual(['p']);
     expect(changedAssignmentPositions(pedro, { p: { workLeaderId: 'L2', isLoanPosition: true, payerLeaderId: 'L3' } }, state.positions)).toEqual(['p']);
     expect(changedAssignmentPositions(pedro, { q: { workLeaderId: 'L3' } }, state.positions)).toEqual([]);
+});
+
+// Captura del usuario (2026-11-11): un mismo puesto aparecía en dos líneas del
+// mismo líder, una con el líder guardado en el día y otra siguiendo al puesto.
+describe('payroll shows one line per job and team', () => {
+    function lines(state, employeeId = 'pedro') {
+        const ctx = { ...state, projectId: 'obra', getAttendance: (employee, date) => state.attendance[`${employee}-${date}`] };
+        const config = { projectId: 'obra', regularHoursPerDay: 8, overtimeFactor: 1.35, holidayFactor: 2, holidays: [] };
+        const scoped = calculateEmployeePayrollWithContext(ctx, config, employeeId, day(1), day(15), [], [], [], []);
+        const legacy = new PayrollService(state).calculateEmployeePayroll(employeeId, day(1), day(15), [], [], []);
+        const shape = payroll => payroll.breakdown.map(part => [part.positionName, part.regularHours, part.workLeaderName || '']);
+        expect(shape(legacy)).toEqual(shape(scoped));
+        expect(legacy.brutoOriginal).toBe(scoped.brutoOriginal);
+        return shape(scoped);
+    }
+    function threeChanges() {
+        const state = world(); for (const n of [2, 6, 9]) mark(state, 'pedro', n);
+        changeJobLeader(state, 'L1', day(9), at(10));   // días 2 y 6 quedan con Marcos
+        changeJobLeader(state, 'L2', day(6), at(11));   // vuelve a Marcos desde el 6; el 9... sigue al puesto
+        changeJobLeader(state, 'L1', day(3), at(12));   // Luis desde el 3: el 2 queda con Marcos
+        return state;
+    }
+
+    test('days that follow the job and days recorded for that same leader share a line', () => {
+        const state = threeChanges();
+        expect(lines(state)).toEqual([['Ayudante', 8, 'Marcos'], ['Ayudante', 16, 'Luis']]);
+        expect(daysByLeader(state)).toEqual({ Luis: { Pedro: 2 }, Marcos: { Pedro: 1 }, Ana: {} });
+    });
+
+    test('an employee who only follows the catalogue keeps a single line and its amount', () => {
+        const state = world(); for (const n of [2, 6, 9]) mark(state, 'pedro', n);
+        expect(lines(state)).toEqual([['Ayudante', 24, '']]);
+    });
+
+    test('a different payer or a loan still gets its own line', () => {
+        const state = world();
+        const juan = state.employees[1];
+        juan.positionAssignments = prepareEmployeePositionAssignments(juan, { p: { workLeaderId: 'L2' } }, state, at(1, 8));
+        mark(state, 'juan', 3);
+        juan.positionAssignments = prepareEmployeePositionAssignments(juan, { p: { workLeaderId: 'L2', isLoanPosition: true, payerLeaderId: 'L3' } }, state, at(5, 8));
+        mark(state, 'juan', 6);
+        expect(lines(state, 'juan')).toHaveLength(2);
+    });
+});
+
+// Captura del usuario (2026-11-11): días del período que quedaron con el líder
+// anterior y que no había forma de pasar al actual sin cambiar y devolver el líder.
+describe('days of the open period that stayed with another leader', () => {
+    const find = (state, employeeId) => findDaysWithOtherLeader(state, { employeeId, positionId: 'p', periodStart: PERIOD_START });
+    const align = (state, employeeId, fromDate, now = at(11)) =>
+        commit(state, planAlignLeaderFromDate(state, { employeeId, positionId: 'p', fromDate, now }));
+
+    test('an employee with an older "from now on" change: the earlier days are found and can be moved', () => {
+        const state = world();
+        const juan = state.employees[1];
+        juan.positionAssignments = prepareEmployeePositionAssignments(juan, { p: { workLeaderId: 'L2' } }, state, at(1, 8));
+        for (const n of [3, 4]) mark(state, 'juan', n);
+        juan.positionAssignments = prepareEmployeePositionAssignments(juan, { p: { workLeaderId: 'L1' } }, state, at(5, 8)); // como en 1.7.129
+        for (const n of [5, 6]) mark(state, 'juan', n);
+        expect(find(state, 'juan')).toEqual({ days: 2, leaderNames: ['Marcos'], firstDate: day(3), currentLeaderName: 'Luis' });
+        expect(daysByLeader(state)).toEqual({ Luis: { Juan: 2 }, Marcos: { Juan: 2 }, Ana: {} });
+
+        const plan = align(state, 'juan', PERIOD_START);
+        expect(plan.dateKeys.sort()).toEqual([day(3), day(4)]);
+        expect(daysByLeader(state)).toEqual({ Luis: { Juan: 4 }, Marcos: {}, Ana: {} });
+        expect(find(state, 'juan').days).toBe(0);
+        expect(planAlignLeaderFromDate(state, { employeeId: 'juan', positionId: 'p', fromDate: PERIOD_START }).dateKeys).toEqual([]);
+    });
+
+    test('moving from a chosen date leaves earlier days with the leader they had', () => {
+        const state = world();
+        const juan = state.employees[1];
+        juan.positionAssignments = prepareEmployeePositionAssignments(juan, { p: { workLeaderId: 'L2' } }, state, at(1, 8));
+        for (const n of [3, 4]) mark(state, 'juan', n);
+        juan.positionAssignments = prepareEmployeePositionAssignments(juan, { p: { workLeaderId: 'L1' } }, state, at(5, 8));
+        align(state, 'juan', day(4));
+        expect(daysByLeader(state)).toEqual({ Luis: { Juan: 1 }, Marcos: { Juan: 1 }, Ana: {} });
+        expect(find(state, 'juan')).toMatchObject({ days: 1, firstDate: day(3) });
+    });
+
+    test('days without recorded terms that resolve to an older leader are moved too', () => {
+        const state = world();
+        const juan = state.employees[1];
+        for (const n of [3, 4]) state.attendance[`juan-${day(n)}`] = { employeeId: 'juan', date: day(n), present: true, selectedPosition: 'p', hoursWorked: 8, createdAt: at(n), updatedAt: at(n) };
+        juan.positionAssignments = prepareEmployeePositionAssignments(juan, { p: { workLeaderId: 'L1' } }, state, at(5, 8));
+        expect(find(state, 'juan')).toMatchObject({ days: 2, leaderNames: ['Marcos'] });
+        align(state, 'juan', PERIOD_START);
+        expect(daysByLeader(state)).toEqual({ Luis: { Juan: 2 }, Marcos: {}, Ana: {} });
+    });
+
+    test('an employee who follows the job: days an earlier dated change had kept', () => {
+        const state = world(); for (const n of [3, 4, 5]) mark(state, 'pedro', n);
+        changeJobLeader(state, 'L1', day(5));
+        expect(find(state, 'pedro')).toEqual({ days: 2, leaderNames: ['Marcos'], firstDate: day(3), currentLeaderName: 'Luis' });
+        align(state, 'pedro', PERIOD_START);
+        expect(daysByLeader(state)).toEqual({ Luis: { Pedro: 3 }, Marcos: {}, Ana: {} });
+    });
+
+    test('nothing is reported when every day already belongs to the current leader, nor for other employees', () => {
+        const state = world(); for (const n of [3, 4]) { mark(state, 'pedro', n); mark(state, 'juan', n); }
+        expect(find(state, 'pedro').days).toBe(0);
+        const before = JSON.stringify(state.attendance);
+        expect(align(state, 'pedro', PERIOD_START).dateKeys).toEqual([]);
+        expect(JSON.stringify(state.attendance)).toBe(before);
+    });
 });
