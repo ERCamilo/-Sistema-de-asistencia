@@ -1,3 +1,5 @@
+import { normalizeLoanPay } from '../payroll/PayrollFactors.js';
+
 export class Position {
     constructor(data) {
         this.id = data.id || `POS${Date.now()}`;
@@ -26,6 +28,9 @@ export class Position {
         this.restDayFactor = (data.restDayFactor !== undefined && data.restDayFactor !== null && data.restDayFactor !== '')
             ? (Number.isFinite(parseFloat(data.restDayFactor)) ? parseFloat(data.restDayFactor) : null)
             : null;
+        // Pago avanzado de préstamos de personal: solo existe si se configuró.
+        // Una clave vacía explícita se conserva: así un ajuste borrado también se borra en la nube.
+        if (Object.prototype.hasOwnProperty.call(data, 'loanPay')) this.loanPay = normalizeLoanPay(data.loanPay);
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
         this.updatedAt = data.updatedAt || Date.now();
@@ -78,6 +83,7 @@ export class Position {
             statusHistory: this.statusHistory,
             updatedAt: this.updatedAt
         };
+        if (Object.prototype.hasOwnProperty.call(this, 'loanPay')) json.loanPay = this.loanPay;
         if (Object.prototype.hasOwnProperty.call(this, 'projectId')) {
             json.projectId = this.projectId;
         }

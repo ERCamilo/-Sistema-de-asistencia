@@ -26,7 +26,7 @@ import {
     formatAttendanceDayNumber,
     formatAttendanceDeficit
 } from '../features/attendance/AttendanceCardMetrics.js';
-import { resolveWorkRestDayFactor } from '../features/payroll/PayrollFactors.js';
+import { resolveWorkPayFactors } from '../features/payroll/PayrollFactors.js';
 import { EmployeeAvatar } from './components/EmployeeAvatar.js';
 
 /**
@@ -39,7 +39,7 @@ function workRestDayFactor(employee, position, record) {
         ? resolveEmployeePositionTerms(employee, position, { ...record, date: record?.date || getDateKey(state.selectedDate) },
             { settings: state.settings, leaders: state.leaders || [] })
         : null;
-    return resolveWorkRestDayFactor(position, terms, state.leaders || [], state.settings);
+    return resolveWorkPayFactors(position, terms, state.leaders || [], state.settings).restDayFactor;
 }
 
 // Componentes y utilerías locales

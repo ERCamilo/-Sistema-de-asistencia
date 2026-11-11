@@ -1,6 +1,17 @@
 {
-  "version": "1.7.131",
+  "version": "1.7.132",
   "changelog": [
+    {
+      "version": "1.7.132",
+      "date": "2026-11-11",
+      "title": "Pago avanzado de préstamos de personal",
+      "items": [
+        "El editor del puesto tiene una sección Avanzado para los préstamos de personal.",
+        "El día libre de un préstamo puede pagarse con el factor del líder del equipo, el del líder que paga o uno propio.",
+        "El feriado y las horas extra de un préstamo pueden usar el factor general o uno propio.",
+        "Estos ajustes solo valen para quien tiene el puesto como préstamo; nómina, reporte y tarjeta de asistencia usan la misma regla."
+      ]
+    },
     {
       "version": "1.7.131",
       "date": "2026-11-11",

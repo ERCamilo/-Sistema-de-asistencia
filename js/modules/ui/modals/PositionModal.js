@@ -14,6 +14,8 @@ import { notifyPayRateChange, payRateChanged } from '../../features/payroll/PayR
 import { askLeaderChangeStart, leaderChangeDateRange } from '../../features/employees/LeaderChangeDateDialog.js';
 import { countLeaderChangeDays, planPositionLeaderChange } from '../../features/employees/LeaderChangeFromDate.js';
 import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
+import { renderLoanPayAdvanced, attachLoanPayAdvanced, readLoanPayAdvanced } from '../../features/employees/PositionLoanPayEditor.js';
+import { normalizeLoanPay } from '../../features/payroll/PayrollFactors.js';
 
 // Texto de ayuda según el modo de carga del salario.
 const salaryHintFor = (mode, hours) => mode === 'daily'
@@ -165,6 +167,8 @@ export class PositionModal {
                     </div>
                 </div>
                 
+                ${renderLoanPayAdvanced(pos, { settings: getActivePayrollSettings(state) })}
+
                 <div class="form-group">
                     <label class="form-label" for="posLeader" style="display: flex; align-items: center; gap: 8px;">
                         👑 Líder/Encargado (Opcional)
@@ -300,6 +304,7 @@ export class PositionModal {
             });
         });
 
+        attachLoanPayAdvanced(modal.element);
         const restDayInput = modal.element.querySelector('#posRestDayFactor');
         const leaderSelect = modal.element.querySelector('#posLeader');
 
@@ -445,6 +450,12 @@ export class PositionModal {
             window.showAlert('El monto del pago debe ser un número válido >= 0', 'error');
             return;
         }
+        const loanPayDraft = readLoanPayAdvanced(el);
+        if (loanPayDraft.error) {
+            window.showAlert(loanPayDraft.error, 'error');
+            return;
+        }
+        const loanPay = loanPayDraft.value;
 
         const state = getState();
         // Se guarda SIEMPRE por hora; si el modo es 'día', se convierte dividiendo por horas/día.
@@ -502,7 +513,8 @@ export class PositionModal {
                 // El pago nuevo alcanza los días ya registrados del período abierto: se avisa.
                 payChanged = payRateChanged(posToEdit.hourlyRate, rate)
                     || payRateChanged(posToEdit.restDayFactor, restDayFactor)
-                    || [...(posToEdit.workingDays || [])].sort().join() !== [...workingDays].sort().join();
+                    || [...(posToEdit.workingDays || [])].sort().join() !== [...workingDays].sort().join()
+                    || JSON.stringify(normalizeLoanPay(posToEdit.loanPay)) !== JSON.stringify(loanPay);
                 // El id permanece estable; renombrar solo cambia el nombre y los
                 // campos. No hay que migrar referencias porque el id no cambia.
                 posToEdit.name = name;
@@ -517,6 +529,8 @@ export class PositionModal {
                     delete posToEdit.crossProjectLeaderId;
                 }
                 posToEdit.restDayFactor = restDayFactor;
+                // Vacío explícito cuando se borra un ajuste guardado: también se borra en la nube.
+                if (loanPay || Object.prototype.hasOwnProperty.call(posToEdit, 'loanPay')) posToEdit.loanPay = loanPay;
                 posToEdit.color = color;
                 posToEdit.icon = icon;
                 posToEdit.workingDays = workingDays;
@@ -545,6 +559,7 @@ export class PositionModal {
                 workingDays: workingDays,
                 leaderId: leaderId || null,
                 restDayFactor: restDayFactor,
+                ...(loanPay ? { loanPay } : {}),
                 color: color,
                 icon: icon,
                 active: true,

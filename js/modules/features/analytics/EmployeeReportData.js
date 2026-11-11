@@ -24,7 +24,7 @@ import { resolveEmployeePositionTerms } from '../employees/EmployeePositionAssig
  */
 
 import { getDateKey, wasEmployeeActiveInRange } from '../../utils/DateUtils.js';
-import { resolveRestDayFactor, resolveWorkRestDayFactor } from '../payroll/PayrollFactors.js';
+import { resolveRestDayFactor, resolveWorkPayFactors } from '../payroll/PayrollFactors.js';
 
 /** ¿El registro (vivo y presente) referencia la posición? */
 function recordReferencesPosition(att, positionId) {
@@ -122,10 +122,13 @@ export function buildEmployeeReportData({
                     const isHoliday = day.isHoliday || record.isHoliday;
                     const isRestDay = !workingDays.includes(day.date.getDay());
 
+                    // Misma regla que la nómina, incluido el pago avanzado de préstamos.
+                    const factors = terms ? resolveWorkPayFactors(position, terms, allLeaders, effectiveSettings, { holidayFactor })
+                        : { holidayFactor, restDayFactor: resolvedFactor };
                     if (isHoliday) {
-                        dayValue *= (holidayFactor ?? 1);
+                        dayValue *= (factors.holidayFactor ?? 1);
                     } else if (isRestDay) {
-                        dayValue *= ((terms ? resolveWorkRestDayFactor(position, terms, allLeaders, effectiveSettings) : resolvedFactor) ?? 1);
+                        dayValue *= (factors.restDayFactor ?? 1);
                     }
 
                     if (!isNaN(dayValue)) { dayValues[dateKey] = dayValue; total += dayValue; }

@@ -2,7 +2,7 @@ import { resolveEmployeePositionTerms } from '../employees/EmployeePositionAssig
 import { getDateKey } from '../../utils/DateUtils.js';
 import { calculateScopedAdjustments } from './PayrollAdjustments.js';
 import { buildPayrollAdjustmentInstallmentPreview } from './PayrollAdjustmentInstallmentSettlement.js';
-import { resolveWorkRestDayFactor, workLeaderIsMissing } from './PayrollFactors.js';
+import { resolveWorkPayFactors, workLeaderIsMissing } from './PayrollFactors.js';
 import { capturePayrollProjectContext } from './PayrollProjectContext.js';
 import * as ProjectPayrollConfigStore from './ProjectPayrollConfigStore.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
@@ -139,11 +139,10 @@ function calculateEmployeePayrollScopedInternal(ctx, config, empId, startDateKey
             hourlyRate = pos.salaryConfig.amount / 30 / (config.regularHoursPerDay || 8);
         }
         if (!hourlyRate && terms) hourlyRate = terms.hourlyRate || 0; // puesto ya ausente del catálogo
-        const overtimeFactor = config.overtimeFactor ?? 1;
-        const holidayFactor = config.holidayFactor ?? 2;
         const leaders = Array.isArray(ctx.leaders) ? ctx.leaders : [];
         const effectiveSettings = { ...ctx.settings, regularHoursPerDay: config.regularHoursPerDay, overtimeFactor: config.overtimeFactor, holidayFactor: config.holidayFactor, holidays: config.holidays };
-        const restDayFactor = resolveWorkRestDayFactor(pos, terms, leaders, effectiveSettings);
+        const { restDayFactor, overtimeFactor, holidayFactor } = resolveWorkPayFactors(pos, terms, leaders, effectiveSettings,
+            { overtimeFactor: config.overtimeFactor ?? 1, holidayFactor: config.holidayFactor ?? 2 });
         const overtimeRate = hourlyRate * overtimeFactor;
         const holidayRate = hourlyRate * holidayFactor;
         const restDayRate = hourlyRate * restDayFactor;
@@ -473,10 +472,9 @@ export class PayrollService {
 
             // 4. Calcular tarifas con factores globales y jerárquicos
             if (!hourlyRate && terms) hourlyRate = terms.hourlyRate || 0; // puesto ya ausente del catálogo
-            const overtimeFactor = this.state.settings.overtimeFactor || 1;
-            const holidayFactor = this.state.settings.holidayFactor || 2;
             const leaders = Array.isArray(this.state?.leaders) ? this.state.leaders : [];
-            const restDayFactor = resolveWorkRestDayFactor(pos, terms, leaders, this.state?.settings);
+            const { restDayFactor, overtimeFactor, holidayFactor } = resolveWorkPayFactors(pos, terms, leaders, this.state?.settings,
+                { overtimeFactor: this.state.settings.overtimeFactor || 1, holidayFactor: this.state.settings.holidayFactor || 2 });
 
             const overtimeRate = hourlyRate * overtimeFactor;
             const holidayRate = hourlyRate * holidayFactor;

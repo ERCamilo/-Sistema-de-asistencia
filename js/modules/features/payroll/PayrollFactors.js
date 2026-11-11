@@ -53,3 +53,51 @@ export function resolveWorkRestDayFactor(position, terms, leaders, settings) {
     if (workLeaderIsMissing(terms, leaders) && Number.isFinite(recorded) && recorded > 0) return recorded;
     return resolveRestDayFactor(position, findWorkLeader(position, terms, leaders), settings);
 }
+
+/**
+ * Pago avanzado de un préstamo de personal (editor del puesto → «Avanzado»).
+ *
+ * Solo vale para el trabajo de quien tiene ese puesto como préstamo; los demás
+ * siguen la regla normal. Por concepto se elige de quién se toma o un factor
+ * propio:
+ *   - día libre: líder del equipo (por defecto), líder que paga, o propio;
+ *   - feriado y horas extra: el general de la obra (por defecto) o propio.
+ * Un valor por defecto no se guarda: sin ajustes, `loanPay` no existe.
+ */
+export const LOAN_PAY_SOURCES = Object.freeze({ TEAM: 'team', PAYER: 'payer', GENERAL: 'general', CUSTOM: 'custom' });
+const LOAN_PAY_ALLOWED = Object.freeze({ restDay: ['payer', 'custom'], holiday: ['custom'], overtime: ['custom'] });
+
+export function normalizeLoanPay(value) {
+    const result = {};
+    for (const [concept, sources] of Object.entries(LOAN_PAY_ALLOWED)) {
+        const source = value?.[concept]?.source;
+        if (!sources.includes(source)) continue;
+        if (source !== LOAN_PAY_SOURCES.CUSTOM) { result[concept] = { source }; continue; }
+        const raw = value[concept].factor;
+        const factor = raw === '' || raw == null ? NaN : Number(raw);
+        if (Number.isFinite(factor) && factor >= 1 && factor <= 5) result[concept] = { source, factor };
+    }
+    return Object.keys(result).length ? result : null;
+}
+
+/**
+ * Los tres factores de un trabajo, con una sola regla para nómina, reporte y
+ * tarjeta de asistencia. `base` trae horas extra y feriado ya resueltos para
+ * quien llama (obra o ajustes generales).
+ */
+export function resolveWorkPayFactors(position, terms, leaders, settings, base = {}) {
+    const factors = {
+        restDayFactor: resolveWorkRestDayFactor(position, terms, leaders, settings),
+        holidayFactor: base.holidayFactor,
+        overtimeFactor: base.overtimeFactor
+    };
+    const loanPay = terms?.isLoanPosition === true ? normalizeLoanPay(position?.loanPay) : null;
+    if (!loanPay) return factors;
+    if (loanPay.restDay?.source === LOAN_PAY_SOURCES.PAYER) {
+        const payer = (leaders || []).find(leader => sameId(leader.id, terms.payerLeaderId)) || null;
+        factors.restDayFactor = resolveRestDayFactor(position, payer, settings);
+    } else if (loanPay.restDay) factors.restDayFactor = loanPay.restDay.factor;
+    if (loanPay.holiday) factors.holidayFactor = loanPay.holiday.factor;
+    if (loanPay.overtime) factors.overtimeFactor = loanPay.overtime.factor;
+    return factors;
+}
