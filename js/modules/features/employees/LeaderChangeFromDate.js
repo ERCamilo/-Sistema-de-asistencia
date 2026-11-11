@@ -47,9 +47,11 @@ function* workedDays(state, { periodStart, employeeId = null }) {
     }
 }
 
-function teamSnapshot(employee, position, record, date, state, previous) {
+function teamSnapshot(employee, position, record, date, state, previous, { today = false } = {}) {
     // Never resolve through the stale snapshot, nor as work recorded before the change.
-    const terms = resolveEmployeePositionTerms(employee, position, { date, createdAt: Number.MAX_SAFE_INTEGER }, state);
+    // `today`: the team the employee has now, whatever the date of the work.
+    const terms = resolveEmployeePositionTerms(employee, position,
+        { date: today ? '9999-12-31' : date, createdAt: Number.MAX_SAFE_INTEGER }, state);
     const weekday = new Date(`${date}T12:00:00`).getDay();
     const dayKind = previous?.dayKind || (record.isHoliday || (state.settings?.holidays || []).includes(date) ? 'holiday'
         : (terms.workingDays || []).includes(weekday) ? 'regular' : 'rest');
@@ -121,6 +123,55 @@ export function planEmployeeLeaderChange(state, { employeeId, positionIds = [], 
             next = withSnapshot(next || { ...record, date }, positionId, snapshot, now);
         }
         if (next) records[key] = next;
+    }
+    return result(records);
+}
+
+/** Team a day is attributed to today, exactly as payroll resolves it. */
+function attributedTeam(employee, position, record, date, state) {
+    const positionId = position.id;
+    if (!employee.positionAssignments?.[positionId] && record.positionAssignments?.[positionId]?.schemaVersion !== 1) {
+        const leaderId = position.leaderId ?? null;
+        return { workLeaderId: leaderId, payerLeaderId: leaderId, isLoanPosition: false };
+    }
+    return resolveEmployeePositionTerms(employee, position, { ...record, date }, state);
+}
+
+function* daysWithOtherLeader(state, { employeeId, positionId, periodStart }) {
+    const position = (state.positions || []).find(item => text(item.id) === text(positionId));
+    if (!position) return;
+    for (const { key, record, date, employee } of workedDays(state, { periodStart, employeeId })) {
+        if (!worksPosition(record, employee, positionId)) continue;
+        const kept = record.positionAssignments?.[positionId];
+        const target = teamSnapshot(employee, position, record, date, state, kept, { today: true });
+        const current = attributedTeam(employee, position, record, date, state);
+        if (!sameTeam(current, target)) yield { key, record, date, current, target };
+    }
+}
+
+/**
+ * Days of the open period whose recorded team is not the one the employee has
+ * today for that job (an older change that only applied "from now on").
+ */
+export function findDaysWithOtherLeader(state, { employeeId, positionId, periodStart }) {
+    const leaderName = leaderId => (state.leaders || []).find(leader => text(leader.id) === text(leaderId))?.name || '';
+    const names = new Set();
+    let days = 0, firstDate = '', currentLeaderName = '';
+    for (const { date, current, target } of daysWithOtherLeader(state, { employeeId, positionId, periodStart })) {
+        days++;
+        if (!firstDate || date < firstDate) firstDate = date;
+        names.add(leaderName(current.workLeaderId) || current.workLeaderName || 'Sin líder');
+        currentLeaderName = leaderName(target.workLeaderId) || 'Sin líder';
+    }
+    return { days, leaderNames: [...names].sort(), firstDate, currentLeaderName };
+}
+
+/** Moves those days, from `fromDate` on, to the team the employee has today. */
+export function planAlignLeaderFromDate(state, { employeeId, positionId, fromDate, now = Date.now() }) {
+    const records = {};
+    if (!fromDate) return result(records);
+    for (const { key, record, date, target } of daysWithOtherLeader(state, { employeeId, positionId, periodStart: fromDate })) {
+        records[key] = withSnapshot({ ...record, date }, positionId, target, now);
     }
     return result(records);
 }

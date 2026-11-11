@@ -32,7 +32,7 @@ const SVG = path => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none"
 const ICON_PERIOD = SVG('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>');
 const ICON_DATE = SVG('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/>');
 
-function content({ subject, days, periodStart, today }) {
+function content({ subject, days, periodStart, today, intro }) {
     const card = (value, icon, title, detail, extra = '') => `
         <label data-leader-change-card="${value}" style="${CARD}">
             <input type="radio" name="leaderChangeScope" value="${value}" ${value === 'period' ? 'checked' : ''}
@@ -45,9 +45,9 @@ function content({ subject, days, periodStart, today }) {
             </span>
         </label>`;
     return `
-        <p style="color:var(--text-dim);line-height:1.6;margin:0 0 14px;">${escapeHTML(subject)} tiene
+        <p style="color:var(--text-dim);line-height:1.6;margin:0 0 14px;">${intro ? escapeHTML(intro) : `${escapeHTML(subject)} tiene
             <strong style="color:var(--text);">${days} ${days === 1 ? 'día registrado' : 'días registrados'}</strong>
-            en el período abierto. ¿Desde cuándo vale el nuevo líder?</p>
+            en el período abierto. ¿Desde cuándo vale el nuevo líder?`}</p>
         <div role="radiogroup" aria-label="Desde cuándo vale el cambio de líder" style="display:grid;gap:10px;">
             ${card('period', ICON_PERIOD, 'Todo el período abierto',
                 `Desde el ${displayDate(periodStart)}. Los días ya registrados pasan al nuevo líder.`)}
@@ -74,19 +74,19 @@ function paintSelection(root) {
 /**
  * @returns {Promise<string|null>} the date key the change starts on, or null if cancelled.
  */
-export function askLeaderChangeStart(state, { subject, days, today = new Date() } = {}) {
+export function askLeaderChangeStart(state, { subject, days, intro = '', title = 'Cambio de líder', applyText = 'Aplicar cambio', today = new Date() } = {}) {
     const range = leaderChangeDateRange(state, today);
     return new Promise(resolve => {
         let settled = false;
         const finish = value => { if (!settled) { settled = true; resolve(value); } };
         const modal = new Modal({
-            title: 'Cambio de líder',
-            content: content({ subject, days, ...range }),
+            title,
+            content: content({ subject, days, intro, ...range }),
             size: 'small',
             onClose: () => finish(null),
             buttons: [
                 { text: 'Cancelar', class: 'btn-secondary', onClick() { this.close(); finish(null); } },
-                { text: 'Aplicar cambio', class: 'btn-primary', onClick() {
+                { text: applyText, class: 'btn-primary', onClick() {
                     const root = modal.element;
                     const custom = root.querySelector('input[name="leaderChangeScope"][value="date"]').checked;
                     const fromDate = custom ? normalizeLeaderChangeDate(root.querySelector('#leaderChangeFrom').value, range) : range.periodStart;
