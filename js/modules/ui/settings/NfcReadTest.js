@@ -1,9 +1,9 @@
 // Device-only compatibility probe. No employee, persistence, webhook or tag writes.
-const cardIcon = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9v6m3-6v6m4-5a3 3 0 0 1 0 4m3-7a7 7 0 0 1 0 10"/></svg>';
+import { nfcIcon } from '../../features/nfc/NfcIcon.js';
 const closeIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>';
 
 export function SettingsNfcReadTestCard(settings = '') {
-    return `<section class="stg-card nfc-test-entry" aria-labelledby="nfc-read-test-title"><h3 id="nfc-read-test-title">Tarjetas NFC</h3>${settings}<p>Comprueba si este teléfono puede leer el UID de tus tarjetas.</p><button type="button" class="btn btn-primary" data-settings-action="test-nfc-read">${cardIcon} Probar lectura NFC</button><small>Solo lectura: no asocia empleados ni envía información.</small></section>`;
+    return `<section class="stg-card nfc-test-entry" aria-labelledby="nfc-read-test-title"><h3 id="nfc-read-test-title">Tarjetas NFC</h3>${settings}<p>Comprueba si este teléfono puede leer el UID de tus tarjetas.</p><button type="button" class="btn btn-primary" data-settings-action="test-nfc-read">${nfcIcon} Probar lectura NFC</button><small>Solo lectura: no asocia empleados ni envía información.</small></section>`;
 }
 
 export function nfcTestSupport(env = globalThis) {
@@ -41,7 +41,7 @@ export class NfcReadTest {
         this.dialog.className = 'nfc-test-dialog';
         this.dialog.setAttribute('role', 'dialog');
         this.dialog.setAttribute('aria-labelledby', 'nfc-test-dialog-title');
-        this.dialog.innerHTML = `<header>${cardIcon}<h2 id="nfc-test-dialog-title" tabindex="-1">Probar NFC</h2><button type="button" data-nfc-test="close" aria-label="Cerrar">${closeIcon}</button></header><div class="nfc-test-body"><p>Activa NFC, desbloquea el teléfono y acerca una tarjeta.</p><p data-nfc-test="support"></p><div class="nfc-test-result"><span>UID para comparar con el ESP32</span><output data-nfc-test="uid">Sin leer</output></div><p data-nfc-test="status" role="status" aria-live="polite"></p><p data-nfc-test="error" role="alert" hidden></p><details><summary>Detalles de la prueba</summary><pre data-nfc-test="details"></pre></details><small>Web NFC lee tarjetas NDEF compatibles. Que el teléfono tenga NFC no garantiza que pueda leer esta tarjeta desde la web.</small></div><footer><button type="button" data-nfc-test="copy" disabled>Copiar resultado</button><button type="button" data-nfc-test="start" class="nfc-test-primary">Leer tarjeta</button><button type="button" data-nfc-test="stop" hidden>Detener lectura</button></footer>`;
+        this.dialog.innerHTML = `<header>${nfcIcon}<h2 id="nfc-test-dialog-title" tabindex="-1">Probar NFC</h2><button type="button" data-nfc-test="close" aria-label="Cerrar">${closeIcon}</button></header><div class="nfc-test-body"><p>Activa NFC, desbloquea el teléfono y acerca una tarjeta.</p><p data-nfc-test="support"></p><div class="nfc-test-result"><span>UID para comparar con el ESP32</span><output data-nfc-test="uid">Sin leer</output></div><p data-nfc-test="status" role="status" aria-live="polite"></p><p data-nfc-test="error" role="alert" hidden></p><details><summary>Detalles de la prueba</summary><pre data-nfc-test="details"></pre></details><small>Web NFC lee tarjetas NDEF compatibles. Que el teléfono tenga NFC no garantiza que pueda leer esta tarjeta desde la web.</small></div><footer><button type="button" data-nfc-test="copy" disabled>Copiar resultado</button><button type="button" data-nfc-test="start" class="nfc-test-primary">Leer tarjeta</button><button type="button" data-nfc-test="stop" hidden>Detener lectura</button></footer>`;
         const enrollment = this.doc.createElement('section');
         enrollment.dataset.nfcTest = 'enrollment'; enrollment.hidden = true;
         this.dialog.querySelector('.nfc-test-body').prepend(enrollment);

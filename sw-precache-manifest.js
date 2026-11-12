@@ -138,6 +138,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/loans/LoansService.js",
     "./js/modules/features/loans/index.js",
     "./js/modules/features/nfc/NfcCore.js",
+    "./js/modules/features/nfc/NfcIcon.js",
     "./js/modules/features/nfc/NfcIntegration.js",
     "./js/modules/features/nfc/NfcPreferences.js",
     "./js/modules/features/nfc/NfcViews.js",

@@ -1,6 +1,16 @@
 {
-  "version": "1.7.132",
+  "version": "1.7.133",
   "changelog": [
+    {
+      "version": "1.7.133",
+      "date": "2026-11-12",
+      "title": "Confirmaciones NFC más claras",
+      "items": [
+        "El lector muestra cuatro estados visuales persistentes con iconos: tarjeta disponible, asociación confirmada, tarjeta del mismo empleado y tarjeta ocupada por otro.",
+        "El éxito solo aparece tras confirmación válida del servidor; el editor preserva el borrador y no duplica solicitudes.",
+        "Se unifica el icono NFC regular en Ajustes, editor y lector; los mensajes y botones son accesibles en móvil y escritorio."
+      ]
+    },
     {
       "version": "1.7.132",
       "date": "2026-11-12",

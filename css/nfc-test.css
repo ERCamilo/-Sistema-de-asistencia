@@ -59,3 +59,23 @@
 .nfc-test-dialog[data-nfc-mode="enrollment"][data-nfc-available="true"] [data-nfc-test="support"],
 .nfc-test-dialog[data-nfc-mode="enrollment"][data-nfc-has-card="true"] [data-nfc-test="status"],
 .nfc-test-dialog[data-nfc-mode="enrollment"][data-nfc-has-card="true"] .nfc-test-body > small { display: none; }
+
+/* Issue #328: persistent, accessible NFC association feedback. */
+.nfc-feedback { box-sizing:border-box; width:100%; display:flex; align-items:flex-start; gap:12px; min-width:0; padding:14px; margin:14px 0; border:1px solid; border-radius:14px; line-height:1.45; }
+.nfc-feedback > div { min-width:0; overflow-wrap:anywhere; }
+.nfc-feedback strong { display:block; font-size:15px; font-weight:750; }
+.nfc-feedback p { margin:4px 0 0; font-size:14px; }
+.nfc-feedback small { display:block; margin-top:7px; font-size:12px; }
+.nfc-test-body .nfc-feedback small { color:inherit; } /* Retain contrast over semantic warning/success backgrounds. */
+.nfc-feedback-icon { flex:0 0 32px; display:grid; place-items:center; width:32px; height:32px; border-radius:50%; }
+.nfc-feedback--success { background:color-mix(in srgb, var(--good, #10b981) 22%, var(--nfc-panel)); border-color:var(--good, #10b981); color:var(--nfc-text); }
+.nfc-feedback--success .nfc-feedback-icon { background:var(--good, #10b981); color:#092c20; }
+.nfc-feedback--notice, .nfc-feedback--warning { background:color-mix(in srgb, var(--warn, #f59e0b) 22%, var(--nfc-panel)); border-color:var(--warn, #f59e0b); color:var(--nfc-text); }
+.nfc-feedback--notice .nfc-feedback-icon, .nfc-feedback--warning .nfc-feedback-icon { background:var(--warn, #f59e0b); color:#352302; }
+.nfc-feedback--available { background:var(--nfc-surface); border-color:var(--nfc-border); color:var(--nfc-text); }
+.nfc-feedback--available .nfc-feedback-icon { background:var(--nfc-panel); }
+@media (max-width:390px) { .nfc-feedback { padding:12px; gap:10px; } .nfc-feedback strong { font-size:14px; } }
+
+/* Shared regular NFC icon: fixed-size, decorative and independent of icon fonts. */
+.nfc-symbol { display:inline-block; width:24px; height:24px; flex:0 0 24px; vertical-align:middle; }
+.employee-nfc-entry .nfc-symbol { width:22px; height:22px; flex-basis:22px; }
