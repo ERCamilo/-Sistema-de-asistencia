@@ -117,7 +117,28 @@ function excludedPositionsNote(row) {
     return `<small class="payroll-review-table__scope-note" title="No se incluyen en esta nómina">Sin ${escapeHTML(text)}</small>`;
 }
 
-function breakdownCell(row) {
+/**
+ * Equipo al que pertenece un tramo del desglose. Un mismo puesto puede salir en
+ * varias líneas cuando sus días tienen líderes distintos; sin esta etiqueta no
+ * se entiende por qué una línea queda fuera al filtrar por líder.
+ */
+export function payrollPartTeamLabel(part, { positions = [], leaders = [] } = {}) {
+    const same = (a, b) => a != null && b != null && String(a) === String(b);
+    const name = (leaderId, recorded) => (leaders || []).find(leader => same(leader.id, leaderId))?.name || recorded || '';
+    if (part?.assignmentSchemaVersion !== 1) {
+        const position = (positions || []).find(item => same(item.id, part?.positionId));
+        const leader = name(position?.leaderId, '');
+        return leader ? `Equipo de ${leader}` : 'Sin líder';
+    }
+    if (part.workLeaderId == null || part.workLeaderId === '') return 'Sin líder';
+    const team = name(part.workLeaderId, part.workLeaderName);
+    if (!team) return 'Líder no disponible';
+    const payer = !same(part.payerLeaderId, part.workLeaderId) && part.payerLeaderId != null && part.payerLeaderId !== ''
+        ? name(part.payerLeaderId, part.payerLeaderName) : '';
+    return payer ? `Equipo de ${team} · paga ${payer}` : `Equipo de ${team}`;
+}
+
+function breakdownCell(row, catalogue) {
     const breakdown = row._positionBreakdown || [];
     if (breakdown.length === 0) return '<td><span class="payroll-review-table__muted">Sin desglose</span></td>';
     return `
@@ -128,6 +149,7 @@ function breakdownCell(row) {
                     ${breakdown.map(item => `
                         <div class="payroll-breakdown-details__item">
                             <strong>${escapeHTML(item.positionName || 'Puesto')}</strong>
+                            <small class="payroll-breakdown-details__team">${escapeHTML(payrollPartTeamLabel(item, catalogue))}</small>
                             <div><span>Tarifa: ${formatCurrency(item.hourlyRate)}/h</span><span>Reg: ${item.regularHours}h (${formatCurrency(item.regularAmount)})</span></div>
                             ${amountOf(item.overtimeHours) > 0 ? `<div class="is-overtime"><span>Extra (x${item.overtimeRate / (item.hourlyRate || 1)}): ${item.overtimeHours}h</span><span>${formatCurrency(item.overtimeAmount)}</span></div>` : ''}
                             ${(amountOf(item.holidayHours) + amountOf(item.restDayHours)) > 0 ? `<div class="is-holiday"><span>Feriado/Descanso: ${amountOf(item.holidayHours) + amountOf(item.restDayHours)}h</span><span>${formatCurrency(amountOf(item.holidayAmount) + amountOf(item.restDayAmount))}</span></div>` : ''}
@@ -145,7 +167,7 @@ function breakdownCell(row) {
  * @param {object} args.inclusion  { bonuses, deductions, loans }
  * @param {Set<string>} args.expanded claves "empleado|categoría" desplegadas
  */
-export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion = {}, expanded = new Set(), emptyMessage = '' } = {}) {
+export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion = {}, expanded = new Set(), emptyMessage = '', positions = [], leaders = [] } = {}) {
     const sourceByKey = new Map(sourceRows.map(row => [reviewRowKey(row), row]));
     const include = {
         bonuses: inclusion.bonuses !== false,
@@ -200,7 +222,7 @@ export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion
                     category, row, source, included: include[category.kind], expanded: expandedKinds.has(category.kind)
                 })).join('')}
                 <td class="payroll-review-table__amount is-net ${negative ? 'is-invalid' : ''}">${formatCurrency(row.monto)}</td>
-                ${breakdownCell(row)}
+                ${breakdownCell(row, { positions, leaders })}
             </tr>
             ${expandedKinds.size ? detailRow({ row, source, categories, inclusion: include, expandedKinds, colspan }) : ''}`;
     }).join('');

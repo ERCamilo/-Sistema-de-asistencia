@@ -2524,6 +2524,10 @@ export function mergeEmployees(masterId, duplicateId) {
             master.positionSalaries = merged;
         }
 
+        if (duplicate.positionAssignments) master.positionAssignments = {
+            ...duplicate.positionAssignments, ...(master.positionAssignments || {})
+        };
+
         // 5. Completar campos del maestro si están vacíos
         ['phone', 'email', 'entryDate', 'salary', 'dailyRate'].forEach(field => {
             if (!master[field] && duplicate[field]) master[field] = duplicate[field];

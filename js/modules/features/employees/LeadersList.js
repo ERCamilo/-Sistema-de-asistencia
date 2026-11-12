@@ -1,3 +1,4 @@
+import { effectivePositionLeaderId } from './EmployeePositionAssignments.js';
 ﻿/**
  * 🔑 LeadersList — Card template + handlers for leaders.
  *
@@ -51,15 +52,16 @@ export function LeaderCard(ldr) {
     // Solo puestos y empleados de la obra activa.
     const scope = peekEntityScope();
     const scopedEmployees = state.employees.filter(employee => entityInScope(employee, scope));
-    const positionsLedList = state.positions.filter(p => p.leaderId === ldr.id && p.active && entityInScope(p, scope));
+    const positionsLedList = state.positions.filter(position => position.active && entityInScope(position, scope)
+        && (position.leaderId === ldr.id || scopedEmployees.some(employee => employee.active
+            && employee.positions?.includes(position.id) && String(effectivePositionLeaderId(employee, position)) === String(ldr.id))));
     const positionsLed = positionsLedList.length;
-    const leaderPositionIds = new Set(positionsLedList.map(position => position.id));
     const supervisedEmployees = scopedEmployees
-        .filter(employee => employee.active && (employee.positions || []).some(id => leaderPositionIds.has(id)));
+        .filter(employee => employee.active && (employee.positions || []).some(id => String(effectivePositionLeaderId(employee, state.positions.find(position => String(position.id) === String(id)))) === String(ldr.id)));
     const leaderId = escapeAttr(ldr.id);
     const positionsSections = positionsLedList.map(pos => {
         const emps = scopedEmployees
-            .filter(e => e.active && (e.positions || []).includes(pos.id))
+            .filter(e => e.active && (e.positions || []).includes(pos.id) && String(effectivePositionLeaderId(e, pos)) === String(ldr.id))
             .sort((a, b) => {
                 const aNum = parseInt(a.number, 10);
                 const bNum = parseInt(b.number, 10);

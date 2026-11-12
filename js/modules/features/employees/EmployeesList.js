@@ -1,3 +1,4 @@
+import { effectivePositionLeaderId } from './EmployeePositionAssignments.js';
 ﻿/**
  * 👤 EmployeesList — Card template + handlers for employees.
  *
@@ -80,8 +81,8 @@ function getEmployeeViewData(emp) {
         .map(positionId => state.positions.find(position => position.id === positionId))
         .filter(Boolean);
     const leaders = positions.map(position => {
-        if (!position.leaderId) return null;
-        return state.leaders.find(leader => leader.id === position.leaderId) || null;
+        const leaderId = effectivePositionLeaderId(emp, position);
+        return state.leaders.find(leader => String(leader.id) === String(leaderId)) || null;
     }).filter(Boolean);
     const earningsDisplay = getEmployeeEarningsDisplay(emp, positions);
     return { positions, leaders, earningsDisplay, primaryPosition: positions[0] || null };
