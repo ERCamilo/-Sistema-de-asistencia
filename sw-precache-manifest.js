@@ -62,6 +62,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/analytics/ChartService.js",
     "./js/modules/features/analytics/EmployeeAssignmentReport.js",
     "./js/modules/features/analytics/EmployeeReportData.js",
+    "./js/modules/features/analytics/EmployeeReportExcelLoans.js",
     "./js/modules/features/attendance/Attendance.js",
     "./js/modules/features/attendance/AttendanceBulkActions.js",
     "./js/modules/features/attendance/AttendanceCardMetrics.js",

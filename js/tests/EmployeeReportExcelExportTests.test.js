@@ -1,5 +1,6 @@
 import * as AnalyticsUI from '../modules/features/analytics/AnalyticsUI.js';
 import { stateManager } from '../modules/core/AppState.js';
+import { captureAttendancePositionAssignments } from '../modules/features/employees/EmployeePositionAssignments.js';
 
 describe('Employee Report Excel Export', () => {
     let state;
@@ -53,14 +54,20 @@ describe('Employee Report Excel Export', () => {
         }
 
         addRow(rowObj) {
+            const columns = this.columns;
             const rowInstance = {
                 values: rowObj,
                 hidden: false,
                 cells: [],
                 eachCell: function(fn) {
-                    this.cells.forEach((c, idx) => fn(c, idx + 1));
+                    columns.forEach((_column, idx) => fn(this.getCell(idx + 1), idx + 1));
                 },
-                getCell: () => ({ value: '', fill: {}, style: {} })
+                getCell: function(index) {
+                    if (!this.cells[index - 1]) this.cells[index - 1] = {
+                        value: this.values[columns[index - 1]?.key] ?? null, fill: {}, style: {}
+                    };
+                    return this.cells[index - 1];
+                }
             };
             this.rows.push(rowInstance);
             return rowInstance;
@@ -296,7 +303,185 @@ describe('Employee Report Excel Export', () => {
         const group = team.rows.find(row => row.values.name === 'Personal pagado por otros líderes').values;
         expect(group).toMatchObject({ leaderAdjustment:-900, leaderBalance:-400 });
         expect(group.totalExported).toBeUndefined();
-        expect(team.rows.filter(row => row.values.name === 'Juan Pérez')).toHaveLength(0);
+        const debit = team.rows.find(row => row.values.name === 'Juan Pérez');
+        expect(debit.values).toMatchObject({ '2026-11-09': -1, totalExported: -1 });
+        expect(debit.values.gross).toBeUndefined();
+        expect(debit.values.net).toBeUndefined();
+        expect(debit.getCell(4).note).toContain('Se le descuenta a Marcos');
+    });
+
+    function splitLoanScenario({ mode = 'inline', sunday = false, disabled = false } = {}) {
+        const date = sunday ? '2026-11-15' : '2026-11-09';
+        state.employeeReportStartDate = date; state.employeeReportEndDate = date;
+        state.settings = { companyName: 'Prueba', regularHoursPerDay: 8, overtimeFactor: 1.5, holidayFactor: 2, restDayFactor: 1.5, holidays: [] };
+        state.excelExportOptions = { loanPositionLayout: mode, padNumericalGaps: false, dualTotalColumns: true, useFormulas: true };
+        state.leaders = [{ id: 'L1', name: 'Luis' }, { id: 'L2', name: 'Marcos' }];
+        state.positions = [
+            { id: 'p1', name: 'Albañil', leaderId: 'L1', hourlyRate: 100, active: true, workingDays: [1, 2, 3, 4, 5, 6] },
+            { id: 'p2', name: 'Electricista', leaderId: 'L2', hourlyRate: 200, active: true, workingDays: [1, 2, 3, 4, 5, 6] }
+        ];
+        state.employees = [{ id: 'e', name: 'Juan', number: '00113', active: true, positions: ['p1', 'p2'],
+            positionAssignments: { p2: { workLeaderId: 'L2', payerLeaderId: 'L1', isLoanPosition: true } } }];
+        state.attendance = { [`e-${date}`]: { employeeId: 'e', date, present: true, selectedPosition: 'p1', hoursWorked: 8,
+            positionHours: [{ positionId: 'p1', hours: 4 }, { positionId: 'p2', hours: 4 }] } };
+        if (disabled) state.exportConfig = { payrollLeaderAdjustments: { [JSON.stringify(['local', 'legacy', date, date, 'L2'])]: false } };
+        return date;
+    }
+
+    test('inline folds borrowed days into the primary row, with a plain charge note and unchanged money', async () => {
+        const date = splitLoanScenario();
+        const before = JSON.stringify({ employees: state.employees, attendance: state.attendance });
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const payer = addedWorksheets.find(sheet => sheet.name === 'Líder - Luis');
+        const rows = payer.rows.filter(row => row.values.name === 'Juan');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].values).toMatchObject({ idx: '00113', position: 'Albañil', [date]: 1, totalExported: 1, gross: 1200, net: 1200 });
+        expect(rows[0].getCell(4).note).toBe('Electricista: 4 h\nAlbañil: 4 h\nSe le descuenta a Marcos');
+        expect(rows[0].getCell(4).note).not.toContain('Paga:');
+        expect(rows[0].getCell(4).fill.fgColor.argb).toBe('FFFFE69A');
+        const team = addedWorksheets.find(sheet => sheet.name === 'Líder - Marcos');
+        const debit = team.rows.find(row => row.values.name === 'Juan');
+        expect(debit.values).toMatchObject({ [date]: -0.5, totalExported: -0.5 });
+        expect(debit.values.totalCalculated.result).toBe(-0.5);
+        const adjustment = team.rows.find(row => row.values.name === 'Personal pagado por otros líderes');
+        expect(adjustment.values).toMatchObject({ leaderAdjustment: -800, leaderBalance: -800 });
+        expect(team.rows.filter(row => Number(row.values.leaderAdjustment) < 0)).toHaveLength(1);
+        expect(JSON.stringify({ employees: state.employees, attendance: state.attendance })).toBe(before);
+    });
+
+    test('separate mode preserves secondary rows and numeric fractions', async () => {
+        const date = splitLoanScenario({ mode: 'separate' });
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const rows = addedWorksheets.find(sheet => sheet.name === 'Líder - Luis').rows.filter(row => row.values.name === 'Juan');
+        expect(rows.map(row => row.values.idx)).toEqual(['00113', '00113b']);
+        expect(rows.map(row => row.values[date])).toEqual([0.5, 0.5]);
+        expect(rows.map(row => row.values.gross)).toEqual([400, 800]);
+        expect(rows.map(row => row.values.net)).toEqual([1200, null]);
+    });
+
+    test('Sunday formatting preserves yellow notes and the existing weighted day values', async () => {
+        const date = splitLoanScenario({ sunday: true });
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const payer = addedWorksheets.find(sheet => sheet.name === 'Líder - Luis').rows.find(row => row.values.name === 'Juan');
+        expect(payer.values[date]).toBe(1.5);
+        expect(payer.getCell(4).fill.fgColor.argb).toBe('FFFFE69A');
+        const debit = addedWorksheets.find(sheet => sheet.name === 'Líder - Marcos').rows.find(row => row.values.name === 'Juan');
+        expect(debit.values[date]).toBe(-0.75);
+    });
+
+    test('disabled leader adjustment has no applied negative days or second salary', async () => {
+        const date = splitLoanScenario({ disabled: true });
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const team = addedWorksheets.find(sheet => sheet.name === 'Líder - Marcos');
+        expect(team.rows.find(row => row.values.name === 'Personal pagado por otros líderes').values)
+            .toMatchObject({ position: 'Desactivado', leaderAdjustment: 0, leaderBalance: 0 });
+        const debit = team.rows.find(row => row.values.name === 'Juan');
+        expect(debit.values[date]).toBe(0);
+        expect(debit.getCell(4).note).toContain('Descuento desactivado');
+        expect(debit.values.net).toBeUndefined();
+    });
+
+    test('loan layout is the first configuration choice and changes without replacing the modal', () => {
+        document.body.innerHTML = AnalyticsUI.ExcelExportOptionsModal();
+        const field = document.querySelector('fieldset');
+        expect(field.querySelector('legend').textContent).toBe('Posiciones de préstamo');
+        const button = document.querySelector('[data-excel-loan-layout="inline"]');
+        button.focus();
+        AnalyticsUI.setLoanPositionLayout('inline');
+        expect(state.excelExportOptions.loanPositionLayout).toBe('inline');
+        expect(document.activeElement).toBe(button);
+        expect(button.getAttribute('aria-pressed')).toBe('true');
+        expect(document.querySelector('[data-excel-loan-layout="separate"]').getAttribute('aria-pressed')).toBe('false');
+    });
+
+    test('loan-only work creates a primary row and preserves the secondary rate', async () => {
+        const date = splitLoanScenario();
+        state.attendance[`e-${date}`].positionHours = [{ positionId: 'p2', hours: 8 }];
+        state.attendance[`e-${date}`].selectedPosition = 'p2';
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const rows = addedWorksheets.find(sheet => sheet.name === 'Líder - Luis').rows.filter(row => row.values.name === 'Juan');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].values).toMatchObject({ position: 'Albañil', [date]: 1, gross: 1600, net: 1600 });
+        expect(rows[0].getCell(4).note).toBe('Electricista: 8 h\nSe le descuenta a Marcos');
+    });
+
+    test('inline retains a secondary non-loan job instead of folding all positions', async () => {
+        const date = splitLoanScenario();
+        state.positions.push({ ...state.positions[0], id: 'p3', name: 'Pintor', hourlyRate: 50 });
+        state.employees[0].positions.push('p3');
+        state.attendance[`e-${date}`].positionHours = [{ positionId: 'p1', hours: 2 }, { positionId: 'p2', hours: 4 }, { positionId: 'p3', hours: 2 }];
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const rows = addedWorksheets.find(sheet => sheet.name === 'Líder - Luis').rows.filter(row => row.values.name === 'Juan');
+        expect(rows.map(row => row.values.position)).toEqual(['Albañil', 'Pintor']);
+        expect(rows.map(row => row.values[date])).toEqual([0.75, 0.25]);
+        expect(rows.map(row => row.values.gross)).toEqual([1000, 100]);
+        expect(rows.map(row => row.values.net)).toEqual([1100, null]);
+    });
+
+    test('zero placeholders on other dates do not leave an extra borrowed-position row', async () => {
+        const date = splitLoanScenario();
+        const tomorrow = '2026-11-10';
+        state.employeeReportEndDate = tomorrow;
+        state.attendance[`e-${date}`].positionHours = [{ positionId: 'p1', hours: 8 }];
+        state.attendance[`e-${tomorrow}`] = { employeeId: 'e', date: tomorrow, present: true, selectedPosition: 'p2', hoursWorked: 8 };
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const rows = addedWorksheets.find(sheet => sheet.name === 'Líder - Luis').rows.filter(row => row.values.name === 'Juan');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].values).toMatchObject({ position: 'Albañil', [date]: 1, [tomorrow]: 1, gross: 2400, net: 2400, totalExported: 2 });
+    });
+
+    test('same-named positions keep their own amounts by identifier', async () => {
+        splitLoanScenario({ mode: 'separate' });
+        state.positions[1].name = state.positions[0].name;
+        // Position-only sheets already require unique names; assert the leader projection independently.
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const rows = addedWorksheets.find(sheet => sheet.name === 'Líder - Luis').rows.filter(row => row.values.name === 'Juan');
+        expect(rows.map(row => row.values.gross)).toEqual([400, 800]);
+    });
+
+    test.each([true, false])('negative days use the selected total layout without changing formulas=%s', async useFormulas => {
+        const date = splitLoanScenario();
+        state.excelExportOptions = { ...state.excelExportOptions, useFormulas, dualTotalColumns: false };
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const rows = addedWorksheets.find(sheet => sheet.name === 'Líder - Marcos').rows;
+        const debit = rows.find(row => row.values.name === 'Juan');
+        expect(debit.values.totalExported).toBeUndefined();
+        expect(debit.values.days).toEqual(useFormulas ? { formula: `SUM(D${rows.indexOf(debit) + 1}:D${rows.indexOf(debit) + 1})`, result: -0.5 } : -0.5);
+        expect(debit.values[date]).toBe(-0.5);
+    });
+
+    test('historical payer and team changes split the same position between the right sheets and dates', async () => {
+        const date = splitLoanScenario();
+        const record = { ...state.attendance[`e-${date}`], selectedPosition: 'p2', positionHours: [{ positionId: 'p2', hours: 8 }] };
+        state.attendance[`e-${date}`] = captureAttendancePositionAssignments(record, state);
+        const tomorrow = '2026-11-10';
+        state.employeeReportEndDate = tomorrow;
+        state.leaders.push({ id: 'L3', name: 'Ana' });
+        state.employees[0].positionAssignments.p2 = { isLoanPosition: false, workLeaderId: 'L3', payerLeaderId: 'L3' };
+        state.attendance[`e-${tomorrow}`] = captureAttendancePositionAssignments({ ...record, date: tomorrow }, state);
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const luis = addedWorksheets.find(sheet => sheet.name === 'Líder - Luis').rows.find(row => row.values.name === 'Juan');
+        expect(luis.values).toMatchObject({ [date]: 1, [tomorrow]: 0, gross: 1600, net: 1600 });
+        const ana = addedWorksheets.find(sheet => sheet.name === 'Líder - Ana').rows.find(row => row.values.name === 'Juan');
+        expect(ana.values).toMatchObject({ [date]: null, [tomorrow]: 1, gross: 1600, net: 1600 });
+        const debit = addedWorksheets.find(sheet => sheet.name === 'Líder - Marcos').rows.find(row => row.values.name === 'Juan');
+        expect(debit.values).toMatchObject({ [date]: -1, [tomorrow]: null, totalExported: -1 });
+    });
+
+    test('own work and borrowed work remain distinct in the charged leader sheet', async () => {
+        const date = splitLoanScenario();
+        const tomorrow = '2026-11-10';
+        state.employeeReportEndDate = tomorrow;
+        state.positions.push({ ...state.positions[1], id: 'p3', name: 'Ayudante', hourlyRate: 50 });
+        state.employees[0].positions.push('p3');
+        state.attendance[`e-${tomorrow}`] = { employeeId: 'e', date: tomorrow, present: true, selectedPosition: 'p3', hoursWorked: 8 };
+        await AnalyticsUI.exportEmployeeReportExcel();
+        const rows = addedWorksheets.find(sheet => sheet.name === 'Líder - Marcos').rows;
+        const own = rows.find(row => row.values.position === 'Ayudante' && row.values.name === 'Juan');
+        expect(own.values).toMatchObject({ [date]: 0, [tomorrow]: 1, gross: 400, net: 400 });
+        const debit = rows.find(row => row.values.position === 'Descuento por préstamo de personal');
+        expect(debit.values).toMatchObject({ [date]: -0.5, [tomorrow]: null, totalExported: -0.5 });
+        expect(rows.find(row => row.values.name === 'Personal pagado por otros líderes').values).toMatchObject({ leaderAdjustment: -800, leaderBalance: -400 });
     });
 
 });

@@ -1,4 +1,5 @@
 import { buildEmployeeAssignmentReport } from './EmployeeAssignmentReport.js';
+import { buildLeaderExcelLoanPresentation, normalizeLoanPositionLayout } from './EmployeeReportExcelLoans.js';
 import { getEmployeePositionAssignment } from '../employees/EmployeePositionAssignments.js';
 import { renderPayrollLeaderAdjustments } from '../payroll/PayrollLeaderAdjustments.js';
 import { getActivePayrollSettings, getActiveDayHours } from '../payroll/ActivePayrollSettings.js';
@@ -20,6 +21,7 @@ const _ANALYTICS_ACTION_MAP = {
     'open-export-excel-modal': () => window.AnalyticsUI?.openExportExcelModal?.(),
     'close-export-excel-modal': () => window.AnalyticsUI?.closeExportExcelModal?.(),
     'toggle-export-option': (option) => window.AnalyticsUI?.toggleExportOption?.(option),
+    'set-loan-position-layout': (mode) => window.AnalyticsUI?.setLoanPositionLayout?.(mode),
     'confirm-export-excel': () => window.AnalyticsUI?.confirmExportExcel?.(),
     'export-employee-report-excel': () => window.AnalyticsUI?.openExportExcelModal?.(),
     'toggle-employee-report-start-picker': () => window.AnalyticsUI?.toggleEmployeeReportStartPicker?.(),
@@ -653,6 +655,7 @@ function EmployeeReportTab() {
 export function ExcelExportOptionsModal() {
     const state = getState();
     const opts = {
+        loanPositionLayout: 'separate',
         useFormulas: true,
         includeHiddenInactive: true,
         padNumericalGaps: true,
@@ -723,6 +726,18 @@ export function ExcelExportOptionsModal() {
 
                 <!-- Modal Body: Switches -->
                 <div style="padding: 20px 24px; max-height: 60vh; overflow-y: auto;">
+                    <fieldset style="border:0;padding:0;margin:0 0 18px;min-width:0;">
+                        <legend style="color:var(--text,#f4f6fa);font-weight:600;margin-bottom:10px;">Posiciones de préstamo</legend>
+                        <div role="group" aria-label="Presentación de posiciones de préstamo" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
+                            ${[['separate', 'Filas separadas', 'Una fila por puesto'], ['inline', 'En la fila principal', 'Días amarillos con notas']].map(([mode, title, detail]) => {
+                                const selected = normalizeLoanPositionLayout(opts.loanPositionLayout) === mode;
+                                return `<button type="button" data-analytics-action="set-loan-position-layout" data-excel-loan-layout="${mode}" data-value="${mode}" aria-pressed="${selected}"
+                                    style="min-height:76px;min-width:0;padding:12px;text-align:left;border-radius:12px;border:1px solid ${selected ? 'var(--accent,#06b6d4)' : 'var(--border,#334155)'};background:${selected ? 'var(--panel-2,#1b273d)' : 'transparent'};color:var(--text,#f4f6fa);cursor:pointer;">
+                                    <strong style="display:block;font-size:13px;">${title}</strong><span style="display:block;margin-top:5px;font-size:12px;color:var(--text-dim,#a4b1c7);">${detail}</span>
+                                </button>`;
+                            }).join('')}
+                        </div>
+                    </fieldset>
                     <p style="margin: 0 0 16px 0; color: #cbd5e1; font-size: 0.8125rem; line-height: 1.4;">
                         Activa o desactiva opciones de forma individual para probar compatibilidad con tu versión de Microsoft Excel:
                     </p>
@@ -1339,6 +1354,7 @@ export async function exportEmployeeReportExcel() {
         const startLabel = formatDateShort(state.employeeReportStartDate);
         const endLabel = formatDateShort(state.employeeReportEndDate);
         const opts = {
+            loanPositionLayout: 'separate',
             useFormulas: true,
             includeHiddenInactive: true,
             dualTotalColumns: true,
@@ -1362,6 +1378,18 @@ export async function exportEmployeeReportExcel() {
         };
 
         const dimmedFont = { color: { argb: 'FF94A3B8' }, italic: true };
+        const loanCells = new WeakMap();
+        const annotateLoanDays = (sheet, row, item, dateStartIndex) => {
+            const cells = loanCells.get(sheet) || [];
+            reportData.days.forEach((day, index) => {
+                const date = getDateKey(day.date);
+                if (!item.highlightedDates?.has(date)) return;
+                const cell = row.getCell(dateStartIndex + index);
+                cell.note = item.notes?.[date] || '';
+                cells.push(cell);
+            });
+            loanCells.set(sheet, cells);
+        };
 
         const getColumnLetter = (colIndex) => {
             let temp, letter = '';
@@ -1430,6 +1458,11 @@ export async function exportEmployeeReportExcel() {
                     from: { row: 2, column: 1 },
                     to: { row: 2, column: sheet.columnCount }
                 };
+            }
+            // Borrowed work stays yellow even on a Sunday; notes never replace numeric values.
+            for (const cell of loanCells.get(sheet) || []) {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE69A' } };
+                cell.font = { ...cell.font, color: { argb: 'FF171717' } };
             }
         };
 
@@ -1742,6 +1775,7 @@ export async function exportEmployeeReportExcel() {
                             });
                         }
                         employeeMap.get(emp.id).items.push({
+                            positionId: posData.position.id,
                             positionName: posData.position.name,
                             total: emp.total,
                             dayValues: emp.dayValues,
@@ -1768,6 +1802,7 @@ export async function exportEmployeeReportExcel() {
 
                         if (!employeeMap.has(emp.id)) {
                             const items = assignedPosList.map(pos => ({
+                                positionId: pos.id,
                                 positionName: pos.name,
                                 total: 0,
                                 dayValues: {},
@@ -1786,7 +1821,12 @@ export async function exportEmployeeReportExcel() {
 
                 if (employeeMap.size === 0 && !leaderAdjustment) return;
 
-                const sortedEmployees = Array.from(employeeMap.values())
+                const loanPresentation = buildLeaderExcelLoanPresentation({
+                    employees: Array.from(employeeMap.values()), report: reportData, state,
+                    settings: getActivePayrollSettings(state), leaderId: leader.id,
+                    payrollRows, leaderAdjustment, mode: opts.loanPositionLayout
+                });
+                const sortedEmployees = loanPresentation.employees
                     .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
 
                 const leaderDaysStartLetter = getColumnLetter(4);
@@ -1843,8 +1883,7 @@ export async function exportEmployeeReportExcel() {
                             name: emp.name,
                             position: item.positionName,
                             ...(reportData.assignmentPayroll ? {
-                                gross: (payrollRows.find(row => String(row._employeeId) === String(emp.id))?._positionBreakdown || [])
-                                    .filter(part => part.positionName === item.positionName).reduce((sum, part) => sum + Number(part.subtotal || 0), 0),
+                                gross: item.gross,
                                 net: j === 0 ? Number(payrollRows.find(row => String(row._employeeId) === String(emp.id))?.monto || 0) : null
                             } : {})
                         };
@@ -1871,6 +1910,7 @@ export async function exportEmployeeReportExcel() {
                         });
                         
                         const addedRow = sheet.addRow(row);
+                        annotateLoanDays(sheet, addedRow, item, 4);
 
                         const isInactive = emp.active === false || item.inactive === true;
                         const isZeroDays = !item.total || item.total === 0;
@@ -1892,9 +1932,24 @@ export async function exportEmployeeReportExcel() {
                     if (leaderAdjustment) {
                         sheet.addRow({ name: 'Personal pagado por otros líderes', position: leaderAdjustment.enabled ? 'Aplicado' : 'Desactivado',
                             leaderAdjustment: leaderAdjustment.enabled ? -leaderAdjustment.amount : 0, leaderBalance: leaderAdjustment.balance });
-                        for (const entry of leaderAdjustment.entries) sheet.addRow({
-                            name: `${entry.employeeName} · #${entry.employeeNumber}`, position: `${entry.positionName} · paga ${entry.payerLeaderName} · ${entry.regularHours || 0} h base · total $${entry.amount.toFixed(2)}`
-                        });
+                        sheet.addRow({ name: 'Días negativos: detalle del ajuste de líder, sin otro cobro.' });
+                        for (const entry of loanPresentation.debitRows) {
+                            const detail = { idx: entry.number, name: entry.name, position: entry.positionName };
+                            reportData.days.forEach(day => {
+                                const date = getDateKey(day.date);
+                                detail[date] = entry.dayValues[date] ?? null;
+                            });
+                            const rowNumber = sheet.rowCount + 1;
+                            const total = opts.useFormulas
+                                ? { formula: `SUM(${leaderDaysStartLetter}${rowNumber}:${leaderDaysEndLetter}${rowNumber})`, result: entry.total }
+                                : entry.total;
+                            if (opts.dualTotalColumns) {
+                                detail.totalExported = entry.total;
+                                detail.totalCalculated = total;
+                            } else detail.days = total;
+                            const detailRow = sheet.addRow(detail);
+                            annotateLoanDays(sheet, detailRow, entry, 4);
+                        }
                     } else sheet.addRow({ name: 'Saldo del líder', leaderBalance: net });
                 }
                 applyTableStyles(sheet, 4, reportData.days.length + 3);
@@ -2013,6 +2068,21 @@ export function closeExportExcelModal() {
         state.showExcelExportModal = false;
     });
     context.render();
+}
+
+export function setLoanPositionLayout(mode) {
+    if (!['separate', 'inline'].includes(mode)) return;
+    const state = getState();
+    stateManager.batchSetState(() => {
+        state.excelExportOptions = { ...(state.excelExportOptions || {}), loanPositionLayout: mode };
+    });
+    // Patch just the choice: keep the modal's scroll and keyboard focus in place.
+    for (const button of document.querySelectorAll('[data-excel-loan-layout]')) {
+        const selected = button.dataset.excelLoanLayout === mode;
+        button.setAttribute('aria-pressed', String(selected));
+        button.style.borderColor = selected ? 'var(--accent,#06b6d4)' : 'var(--border,#334155)';
+        button.style.background = selected ? 'var(--panel-2,#1b273d)' : 'transparent';
+    }
 }
 
 export function toggleExportOption(optKey) {

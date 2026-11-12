@@ -1,6 +1,16 @@
 {
-  "version": "1.7.131",
+  "version": "1.7.132",
   "changelog": [
+    {
+      "version": "1.7.132",
+      "date": "2026-11-12",
+      "title": "Posiciones de préstamo en Excel",
+      "items": [
+        "Elige primero al exportar si los puestos de préstamo van en filas separadas o en la fila principal del empleado.",
+        "Identifica el trabajo prestado con celdas amarillas y notas con los puestos, las horas y el líder al que se descuenta.",
+        "Consulta los días negativos por fecha en el apartado de descuentos del líder, conservando un solo ajuste monetario."
+      ]
+    },
     {
       "version": "1.7.131",
       "date": "2026-11-11",
