@@ -11,7 +11,7 @@ const names = fs.readFileSync(path.join(ROOT, 'js/modules/data/firebase.js'), 'u
     .match(/export\s*\{([\s\S]*?)\}/)[1].replace(/\/\/[^\n]*/g, '').split(',').map(name => name.trim()).filter(Boolean);
 const stub = names.map(name => name === 'auth' ? 'export const auth={currentUser:null};' : `export const ${name}=()=>{};`).join('\n');
 const fixture = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Controles de Nómina</title>${styles}
-<style>body{margin:0}main{max-width:1100px;margin:auto}</style></head><body><main id="screen"></main><script type="module">
+<style>body{margin:0}#screen{max-width:1100px;margin:auto}</style></head><body><main id="screen"></main><script type="module">
 import {state,stateManager} from '/js/modules/core/AppState.js';
 import * as UI from '/js/modules/features/payroll/PayrollUI.js';
 import {ProjectPayrollUIRuntime} from '/js/modules/features/payroll/ProjectPayrollUIRuntime.js';
@@ -140,6 +140,20 @@ const server = http.createServer((req, res) => {
             await page.click(employeeFilter);
             assert.equal((await page.$$('.payroll-review-table__row')).length, 80, 'clearing the checkbox restores all paid staff');
             await page.evaluate(() => window.step('loans'));
+            const checkLoanStatusColumns = async () => {
+                const geometry = await page.$$eval('.payroll-loan-group.has-status', groups => groups.map(group => {
+                    const name = group.querySelector('.payroll-loan-group__employee');
+                    const state = group.querySelector('summary > .payroll-loan-group__status');
+                    const n = name.getBoundingClientRect(), s = state.getBoundingClientRect();
+                    return { separate: !name.querySelector('.payroll-status'), visible: s.height > 0,
+                        rightOfName: s.left >= n.right + 4, belowName: s.top >= n.bottom + 4,
+                        fits: state.scrollWidth <= state.clientWidth + 1 };
+                }));
+                assert.ok(geometry.length > 0, 'fixture must exercise an employee warning');
+                assert.ok(geometry.every(row => row.separate && row.visible && row.fits
+                    && (width > 900 ? row.rightOfName : row.belowName)), `separate employee/status at ${width}: ${JSON.stringify(geometry)}`);
+            };
+            await checkLoanStatusColumns();
             const group = 'details[data-employee-id="e0"]';
             await page.$eval(group, el => { el.open = true; });
             await page.$eval(group + ' [data-mode="all"]', el => el.scrollIntoView({block:'center'}));
@@ -148,6 +162,7 @@ const server = http.createServer((req, res) => {
             assert.equal(await page.$eval(group + ' input[type="number"]', el => Number(el.value)), 687.5);
             assert.equal(await page.$eval(group + ' input[type="range"]', el => Number(el.value)), 100);
             assert.ok(await page.$(group + ' .payroll-status--error svg'));
+            await checkLoanStatusColumns();
             assert.equal(await page.$eval(group, el => getComputedStyle(el).outlineStyle), 'none');
             await page.click(group + ' [data-mode="interest"]');
             assert.equal(await page.$eval(group + ' input[type="number"]', el => Number(el.value)), 62.5);
@@ -191,6 +206,7 @@ const server = http.createServer((req, res) => {
                 assert.ok(summary.text.includes(`${zero} en cero tras cobro`));
                 assert.ok(summary.text.includes('2 con deuda pendiente'));
                 assert.ok(summary.icons >= 3, 'all summary warnings include an SVG, including zero salary');
+                await checkLoanStatusColumns();
             }
             const layout = await page.$$eval('.payroll-loans-toolbar button', buttons => ({
                 fit: buttons.every(button => {

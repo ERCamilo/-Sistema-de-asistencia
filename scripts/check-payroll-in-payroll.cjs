@@ -9,7 +9,7 @@ const output = process.env.PAYROLL_FILTER_ARTIFACT_DIR || '/tmp/sa-payroll-in-pa
 const styles = [...fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="(css\/[^\"]+)"/g)].map(match => `<link rel="stylesheet" href="/${match[1]}">`).join('');
 const names = fs.readFileSync(path.join(ROOT, 'js/modules/data/firebase.js'), 'utf8').match(/export\s*\{([\s\S]*?)\}/)[1].replace(/\/\/[^\n]*/g, '').split(',').map(name => name.trim()).filter(Boolean);
 const firebase = names.map(name => name === 'auth' ? 'export const auth={currentUser:null};' : `export const ${name}=()=>{};`).join('\n');
-const fixture = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nómina por pagador</title>${styles}<style>body{margin:0}main{max-width:1100px;margin:auto}</style></head><body><main id="screen"></main><iframe hidden title="Destino simulado de SplitX"></iframe><script type="module">
+const fixture = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nómina por pagador</title>${styles}<style>body{margin:0}#screen{max-width:1100px;margin:auto}</style></head><body><main id="screen"></main><iframe hidden title="Destino simulado de SplitX"></iframe><script type="module">
 import {state,stateManager} from '/js/modules/core/AppState.js';
 import * as UI from '/js/modules/features/payroll/PayrollUI.js';
 import {ProjectPayrollUIRuntime} from '/js/modules/features/payroll/ProjectPayrollUIRuntime.js';
@@ -121,8 +121,114 @@ const server = http.createServer((req, res) => {
             await page.click('[data-payroll-action="reset-payroll-review-exclusions"]');
             assert.equal(await page.$eval('[data-id="juan"][type="checkbox"]', el => el.checked), true);
             assert.equal(await page.evaluate(() => JSON.stringify({ attendance: auditState.attendance, employees: auditState.employees })), before);
+            // Step 4 filters are presentation-only and must retain cash selections,
+            // draft inputs and the same DOM while typing, including on a phone.
+            await page.evaluate(async () => {
+                const numbers = { juan: '010', rosa: '002', pedro: '001' };
+                auditState.employees.forEach(employee => {
+                    employee.number = numbers[employee.id];
+                    employee.loans = [{ id: `loan-${employee.id}`, principal: 50, interestRate: 20, interestIncluded: false,
+                        status: 'active', payments: [], refinancings: [] }];
+                });
+                await PayrollUI.refreshScopedPayrollPreview({periodStart:'2026-11-09',periodEnd:'2026-11-09'});
+                PayrollUI.setLeaderFilter('all'); PayrollUI.setPayrollLoansSalaryBulk('available'); PayrollUI.setPayrollGuideStep('loans'); paint();
+            });
+            const visibleLoans = () => page.$$eval('.payroll-loan-group:not([hidden])', rows => rows.map(row => row.dataset.employeeId));
+            const clickLoanControl = async selector => {
+                // Keep the control above the mobile wizard's fixed footer, as
+                // a person scrolling the list would do before tapping it.
+                await page.$eval(selector, node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+                await page.click(selector);
+            };
+            assert.deepEqual(await visibleLoans(), ['pedro', 'rosa', 'juan'], await page.evaluate(() => JSON.stringify({
+                screen: document.getElementById('screen').textContent.slice(0, 1200), guide: auditState.exportConfig.payrollGuideStep,
+                loans: auditState.employees.map(employee => ({ id: employee.id, loans: employee.loans })), notifications
+            })));
+            const loanSelection = await page.evaluate(() => JSON.stringify(auditState.exportConfig.payrollLoanSelection));
+            const loanExport = await page.evaluate(() => getExport());
+            await page.select('[data-payroll-loan-filter="leader"]', 'L1');
+            assert.deepEqual(await visibleLoans(), ['pedro', 'juan']);
+            await page.select('[data-payroll-loan-filter="position"]', 'p2');
+            assert.deepEqual(await visibleLoans(), ['juan']);
+            await page.select('[data-payroll-loan-filter="leader"]', 'L2');
+            assert.deepEqual(await visibleLoans(), []);
+            assert.equal(await page.$eval('[data-payroll-loan-list-empty]', node => !node.hidden), true);
+            assert.deepEqual(await page.evaluate(() => getExport()), loanExport);
+            assert.equal(await page.evaluate(() => JSON.stringify(auditState.exportConfig.payrollLoanSelection)), loanSelection);
+            await clickLoanControl('[data-payroll-loan-filter-clear]');
+            await page.evaluate(() => { window.loanSearchNode = document.querySelector('[data-payroll-loan-filter="query"]'); });
+            await page.type('[data-payroll-loan-filter="query"]', 'Juan');
+            await page.screenshot({ path: path.join(output, `payroll-loan-search-${width}.png`), fullPage: true });
+            assert.deepEqual(await visibleLoans(), ['juan'], await page.$$eval('[data-payroll-loan-filter]', controls => JSON.stringify(controls.map(control => [control.dataset.payrollLoanFilter, control.value]))));
+            assert.equal(await page.evaluate(() => loanSearchNode === document.activeElement), true);
+            assert.equal(await page.$eval('[data-payroll-action="clear-payroll-loans"]', node => node.disabled), true);
+            // A loan selection intentionally changes through the existing action;
+            // its rerender must preserve the visual filters and other employees.
+            await clickLoanControl('[data-payroll-action="toggle-payroll-loan-employee"][data-id="juan"]');
+            assert.equal(await page.$eval('[data-payroll-loan-filter="query"]', node => node.value), 'Juan');
+            assert.deepEqual(await visibleLoans(), ['juan']);
+            assert.equal(await page.$eval('[data-payroll-loan-list-count]', node => node.textContent.includes('2 con cobros seleccionados fuera del filtro')), true);
+            await clickLoanControl('[data-payroll-loan-filter-clear]');
+            assert.deepEqual(await visibleLoans(), ['pedro', 'rosa', 'juan']);
+            if (width < 901) {
+                const footerBottom = () => page.$eval('.payroll-guide-navigation', node => node.getBoundingClientRect().bottom);
+                assert.equal(await page.$eval('.payroll-guide-navigation', node => getComputedStyle(node).position), 'fixed');
+                const anchoredBottom = await footerBottom();
+                assert.ok(Math.abs(anchoredBottom - 992) < 2, await page.$eval('.payroll-guide-navigation', node => JSON.stringify({
+                    bottom: node.getBoundingClientRect().bottom, cssBottom: getComputedStyle(node).bottom,
+                    navSpace: getComputedStyle(node).getPropertyValue('--payroll-mobile-nav-space'),
+                    viewportInset: getComputedStyle(node).getPropertyValue('--payroll-viewport-inset'), height: innerHeight,
+                    ancestors: [...(function* () { for (let element = node.parentElement; element; element = element.parentElement) yield element; })()]
+                        .map(element => [element.className, getComputedStyle(element).transform, getComputedStyle(element).contain])
+                })));
+                for (const top of [0, 200, 100000]) {
+                    await page.evaluate(y => scrollTo({ top: y, behavior: 'instant' }), top);
+                    assert.ok(Math.abs(await footerBottom() - anchoredBottom) < 2, 'footer must not move with payroll content');
+                }
+                // Exercise both navigation variants, not just a fixture without
+                // the application's central button and secondary section bar.
+                await page.evaluate(() => {
+                    window.fixtureBodyClasses = document.body.className;
+                    document.body.classList.add('has-sidebar');
+                    const nav = document.createElement('nav'); nav.className = 'bottom-nav bnav'; nav.id = 'fixture-bottom-nav';
+                    nav.innerHTML = '<div class="bnav-sub"><button class="bnav-sub-item">Finanzas</button></div>';
+                    document.body.append(nav);
+                });
+                assert.equal(await page.evaluate(() => document.querySelector('.payroll-guide-navigation').getBoundingClientRect().bottom
+                    <= document.querySelector('.bnav-sub').getBoundingClientRect().top - 4), true);
+                await page.evaluate(() => document.body.classList.add('bnav-sub-tucked'));
+                assert.equal(await page.evaluate(() => document.querySelector('.payroll-guide-navigation').getBoundingClientRect().bottom
+                    <= document.querySelector('.bottom-nav').getBoundingClientRect().top - 20), true);
+                // Simulate a keyboard that shrinks only visualViewport. This
+                // tests layout adaptation, not a physical phone's OS keyboard.
+                await page.evaluate(() => {
+                    window.fixtureVisualViewport = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+                    Object.defineProperty(window, 'visualViewport', { configurable: true, value: { height: 600, offsetTop: 0, scale: 1 } });
+                    dispatchEvent(new Event('resize'));
+                });
+                await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--payroll-viewport-inset') === '400px');
+                assert.ok(Math.abs(await footerBottom() - 592) < 2, 'footer must sit above the visual keyboard');
+                await page.evaluate(() => {
+                    Object.defineProperty(window, 'visualViewport', fixtureVisualViewport);
+                    document.getElementById('fixture-bottom-nav').remove(); document.body.className = fixtureBodyClasses;
+                    dispatchEvent(new Event('resize'));
+                });
+                await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--payroll-viewport-inset') === '0px');
+                await page.$eval('.payroll-loan-group:last-of-type', node => node.scrollIntoView({ block: 'end', behavior: 'instant' }));
+                assert.equal(await page.evaluate(() => document.querySelector('.payroll-loan-group:last-of-type').getBoundingClientRect().bottom
+                    < document.querySelector('.payroll-guide-navigation').getBoundingClientRect().top), true, 'the final employee must remain scrollable above the footer');
+            } else {
+                assert.notEqual(await page.$eval('.payroll-guide-navigation', node => getComputedStyle(node).position), 'fixed');
+            }
+            if (width === 390) {
+                const violations = await page.evaluate(async () => (await axe.run('.payroll-loan-list-filters', { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations
+                    .map(violation => ({ id: violation.id, nodes: violation.nodes.map(node => node.target) })));
+                assert.deepEqual(violations, []);
+            }
+            assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+            await page.screenshot({ path: path.join(output, `payroll-loan-filters-${width}.png`), fullPage: true });
             assert.deepEqual(errors, []); await context.close();
-            console.log(`PASS ${width}px: payer filter, fractions, extra hours, exclusions/restore, period/leader isolation and SplitX payload parity`);
+            console.log(`PASS ${width}px: payer filter, days, exclusions, SplitX parity, step 4 ordering/filters and viewport-anchored mobile footer`);
         }
     } finally { await browser?.close(); server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

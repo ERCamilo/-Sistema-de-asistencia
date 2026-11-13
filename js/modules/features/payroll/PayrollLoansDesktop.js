@@ -3,6 +3,8 @@ import { escapeHTML } from '../../utils/Sanitize.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
 import { getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage } from './PayrollLoanSalary.js';
 import { renderPayrollStatus } from './PayrollStatus.js';
+import { buildPayrollLoanList, comparePayrollLoanEmployees, hasPayrollLoanListFilters, matchesPayrollLoanList,
+    renderPayrollLoanListFilters } from './PayrollLoanListFilters.js';
 import {
     getEligiblePayrollLoans,
     getPayrollLoanMode,
@@ -157,7 +159,7 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
     }
 
     return {
-        groups,
+        groups: groups.sort(comparePayrollLoanEmployees),
         summary: summarizePayrollLoans(employees, selection, periodEnd),
         invalidCount: groups.filter(group => group.invalid).length,
         negativeCount: groups.filter(group => group.warningState === 'negative').length,
@@ -302,7 +304,7 @@ function renderModePanel(group, draft = null, percentageDraft = null) {
         </div>`;
 }
 
-function renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageDrafts) {
+function renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageDrafts, listRow, filters) {
     const selectedAll = group.selectionState === 'all';
     const mixed = group.selectionState === 'mixed';
     const { firstName, lastName } = splitEmployeeName(group.employeeName);
@@ -317,8 +319,10 @@ function renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageD
         : group.warningState === 'missing' ? renderPayrollStatus('No está en la nómina')
         : group.warningState === 'zero' ? renderPayrollStatus(group.salaryAmounts.salaryAvailable > 0 ? 'Sin sueldo restante' : 'Sin sueldo disponible', 'attention') : '';
     return `
-        <details class="payroll-loan-group ${warningClass}"
+        <details class="payroll-loan-group ${warningClass} ${notice ? 'has-status' : ''}"
                  data-employee-id="${safe(group.employeeId)}"
+                 data-payroll-loan-list-row="${safe(JSON.stringify(listRow))}"
+                 ${matchesPayrollLoanList(listRow, filters) ? '' : 'hidden'}
                  aria-label="${safe(group.employeeName)}${warningLabel}"
                  ${isExpanded ? 'open' : ''}>
             <summary>
@@ -329,8 +333,10 @@ function renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageD
                             <span>${safe(firstName)}</span>
                             <span>${safe(lastName)}</span>
                         </strong>
-                        ${notice}
                     </span>
+                </span>
+                <span class="payroll-loan-group__status ${notice ? 'has-notice' : ''}" data-label="Estado">
+                    ${notice || '<span class="payroll-loan-group__status-empty">—</span>'}
                 </span>
                 <span class="payroll-loan-group__metrics">
                     <span class="payroll-loan-group__count" data-label="Cargos">${group.selectedChargeCount}/${group.eligibleChargeCount}</span>
@@ -376,14 +382,20 @@ export function renderPayrollLoansDesktop({
     customAmountDrafts = {},
     percentageDrafts = {},
     bulkEnabled = true,
-    periodEnd = null
+    periodEnd = null,
+    positions = [],
+    leaders = [],
+    filterKey = ''
 } = {}) {
     const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd);
     const expandedIds = new Set((expandedEmployeeIds || []).map(String));
     const summary = model.summary;
+    const list = buildPayrollLoanList(model.groups, { employees, payrollRows, positions, leaders, filterKey });
+    const filtered = hasPayrollLoanListFilters(list.filters);
+    const bulkState = enabled => `data-payroll-loan-list-bulk="${enabled ? 'enabled' : 'disabled'}" ${enabled && !filtered ? '' : 'disabled'}`;
 
     return `
-        <section class="payroll-loans-desktop">
+        <section class="payroll-loans-desktop" data-payroll-loan-list-key="${safe(filterKey)}">
             <header class="payroll-loans-desktop__header">
                 <div>
                     <span>Préstamos del período</span>
@@ -402,23 +414,25 @@ export function renderPayrollLoansDesktop({
             </div>
             <div class="payroll-loans-toolbar">
                 <button type="button" data-payroll-action="set-payroll-loans-salary-bulk" data-kind="recommended"
-                        ${bulkEnabled && model.groups.length ? '' : 'disabled'}>Recomendado: hasta 30 % a todos</button>
+                        ${bulkState(bulkEnabled && model.groups.length)}>Recomendado: hasta 30 % a todos</button>
                 <button type="button" class="is-secondary" data-payroll-action="set-payroll-loans-salary-bulk" data-kind="available"
-                        ${bulkEnabled && model.groups.length ? '' : 'disabled'}>Máximo disponible a todos</button>
-                <button type="button" class="is-secondary" data-payroll-action="add-payroll-loans">Aplicar próximos cargos</button>
+                        ${bulkState(bulkEnabled && model.groups.length)}>Máximo disponible a todos</button>
+                <button type="button" class="is-secondary" data-payroll-action="add-payroll-loans" ${bulkState(true)}>Aplicar próximos cargos</button>
                 <button type="button"
                         class="is-secondary"
                         data-payroll-action="clear-payroll-loans"
-                        ${summary.selectedCount === 0 ? 'disabled' : ''}>
+                        ${bulkState(summary.selectedCount > 0)}>
                     Limpiar selección
                 </button>
             </div>
             <p class="payroll-loans-toolbar-hint">${bulkEnabled
                 ? 'Los cobros a todos reemplazan los montos de la nómina y el líder actuales; incluyen las cuotas pendientes.'
                 : 'Activa Préstamos en la vista previa para usar los cobros a todos.'}</p>
+            ${renderPayrollLoanListFilters(list)}
+            <p class="payroll-loan-list-filters__hint" data-payroll-loan-list-bulk-hint ${filtered ? '' : 'hidden'}>Quita los filtros del listado para usar las acciones en grupo.</p>
             <div class="payroll-loans-table">
                 <div class="payroll-loans-table__columns" aria-hidden="true">
-                    <span>N.º</span><span>Empleado</span>
+                    <span>N.º</span><span>Empleado</span><span>Estado</span>
                     <span class="payroll-loans-table__metric-columns">
                         <span>Préstamos</span><span>Interés</span>
                         <span>A descontar</span><span>Neto a pagar</span>
@@ -426,8 +440,9 @@ export function renderPayrollLoansDesktop({
                     <span></span><span></span>
                 </div>
                 ${model.groups.length
-                    ? model.groups.map(group => renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageDrafts)).join('')
+                    ? model.groups.map((group, i) => renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageDrafts, list.rows[i], list.filters)).join('')
                     : '<p class="payroll-loans-table__empty">No hay préstamos activos para este período.</p>'}
+                <p class="payroll-loans-table__empty" data-payroll-loan-list-empty ${model.groups.length && !list.rows.some(row => matchesPayrollLoanList(row, list.filters)) ? '' : 'hidden'}>No hay empleados con estos filtros. Prueba otra búsqueda o quita los filtros.</p>
             </div>
         </section>
     `;
