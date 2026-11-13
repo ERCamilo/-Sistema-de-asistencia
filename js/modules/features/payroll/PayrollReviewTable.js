@@ -139,9 +139,13 @@ export function payrollPartTeamLabel(part, { positions = [], leaders = [] } = {}
     return payer ? `Equipo de ${team} · paga ${payer}` : `Equipo de ${team}`;
 }
 
-function breakdownCell(row, catalogue) {
+function breakdownCell(row, catalogue, hoursPerDay) {
     const breakdown = row._positionBreakdown || [];
     if (breakdown.length === 0) return '<td><span class="payroll-review-table__muted">Sin desglose</span></td>';
+    const days = hours => {
+        const value = payrollWorkedDays({ _regularHours: hours }, hoursPerDay);
+        return `${formatPayrollDays(value)} ${value === 1 ? 'día' : 'días'}`;
+    };
     return `
         <td>
             <details class="payroll-breakdown-details">
@@ -151,9 +155,10 @@ function breakdownCell(row, catalogue) {
                         <div class="payroll-breakdown-details__item">
                             <strong>${escapeHTML(item.positionName || 'Puesto')}</strong>
                             <small class="payroll-breakdown-details__team">${escapeHTML(payrollPartTeamLabel(item, catalogue))}</small>
-                            <div><span>Tarifa: ${formatCurrency(item.hourlyRate)}/h</span><span>Reg: ${item.regularHours}h (${formatCurrency(item.regularAmount)})</span></div>
-                            ${amountOf(item.overtimeHours) > 0 ? `<div class="is-overtime"><span>Extra (x${item.overtimeRate / (item.hourlyRate || 1)}): ${item.overtimeHours}h</span><span>${formatCurrency(item.overtimeAmount)}</span></div>` : ''}
-                            ${(amountOf(item.holidayHours) + amountOf(item.restDayHours)) > 0 ? `<div class="is-holiday"><span>Feriado/Descanso: ${amountOf(item.holidayHours) + amountOf(item.restDayHours)}h</span><span>${formatCurrency(amountOf(item.holidayAmount) + amountOf(item.restDayAmount))}</span></div>` : ''}
+                            <div><span>Tarifa: ${formatCurrency(amountOf(item.hourlyRate) * hoursPerDay)}/día</span><span>Ordinarios: ${days(item.regularHours)} (${formatCurrency(item.regularAmount)})</span></div>
+                            ${amountOf(item.overtimeHours) > 0 ? `<div class="is-overtime"><span>Extra (x${item.overtimeRate / (item.hourlyRate || 1)}): ${days(item.overtimeHours)} equiv.</span><span>${formatCurrency(item.overtimeAmount)}</span></div>` : ''}
+                            ${amountOf(item.holidayHours) > 0 ? `<div class="is-holiday"><span>Feriado: ${days(item.holidayHours)}</span><span>${formatCurrency(item.holidayAmount)}</span></div>` : ''}
+                            ${amountOf(item.restDayHours) > 0 ? `<div class="is-holiday"><span>Descanso: ${days(item.restDayHours)}</span><span>${formatCurrency(item.restDayAmount)}</span></div>` : ''}
                             <div class="is-subtotal">Subtotal: ${formatCurrency(item.subtotal)}</div>
                         </div>`).join('')}
                 </div>
@@ -229,7 +234,7 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
                     category, row, source, included: include[category.kind], expanded: expandedKinds.has(category.kind)
                 })).join('')}
                 <td class="payroll-review-table__amount is-net ${negative ? 'is-invalid' : ''}">${formatCurrency(row.monto)}</td>
-                ${breakdownCell(row, { positions, leaders })}
+                ${breakdownCell(row, { positions, leaders }, hoursPerDay)}
             </tr>
             ${expandedKinds.size ? detailRow({ row, source, categories, inclusion: include, expandedKinds, colspan }) : ''}`;
     }).join('');

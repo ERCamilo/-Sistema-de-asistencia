@@ -417,7 +417,7 @@ describe('PayrollScopedGeneratorFocal — Multi-project Generator Parity & Safet
             const host = document.createElement('div'); host.innerHTML = html;
             expect(host.querySelector('[data-payroll-worked-days]').textContent).toBe('1');
             expect(host.querySelector('.payroll-review-table__hours-split').textContent).toContain('2h extra');
-            expect(host.querySelector('.payroll-breakdown-details__body').textContent).toContain('Reg: 8h');
+            expect(host.querySelector('.payroll-breakdown-details__body').textContent).toContain('Ordinarios: 1 día');
             expect(html).toContain('$1,100.00');
             expect(html).toContain('payroll-breakdown-details');
             expect(html).toContain('data-payroll-action="toggle-payroll-paid"');
@@ -449,9 +449,9 @@ describe('PayrollScopedGeneratorFocal — Multi-project Generator Parity & Safet
 
             // Breakdown details
             expect(html).toContain('Albañil Obra A');
-            expect(html).toContain('Tarifa: $100.00/h');
-            expect(html).toContain('Reg: 8h ($800.00)');
-            expect(html).toContain('Extra (x1.5): 2h');
+            expect(html).toContain('Tarifa: $800.00/día');
+            expect(html).toContain('Ordinarios: 1 día ($800.00)');
+            expect(html).toContain('Extra (x1.5): 0.25 días equiv.');
             expect(html).toContain('$300.00');
         });
     });

@@ -71,6 +71,12 @@ const server = http.createServer((req, res) => {
             assert.equal(exported[0].monto, 1450); assert.equal(exported[0].workDays.worked, 1);
             assert.equal(exported[0].workDays.overtime, 0.25);
             assert.equal(await page.$eval('[data-payroll-total-days]', el => el.textContent), '2');
+            const detail = '.payroll-review-table__row:has([data-id="juan"]) .payroll-breakdown-details';
+            await page.$eval(detail, el => { el.open = true; });
+            assert.match(await page.$eval(detail, el => el.textContent), /Tarifa: \$800\.00\/día/);
+            assert.match(await page.$eval(detail, el => el.textContent), /Ordinarios: 0\.5 días/);
+            assert.match(await page.$eval(detail, el => el.textContent), /Extra \(x1\.5\): 0\.25 días equiv\./);
+            await page.$eval(detail, el => { el.open = false; });
             const before = await page.evaluate(() => JSON.stringify({ attendance: auditState.attendance, employees: auditState.employees }));
             await page.click('[data-payroll-action="toggle-payroll-review-employee"][data-id="juan"]');
             assert.equal(await page.$eval('[data-id="juan"][type="checkbox"]', el => el.checked), false);

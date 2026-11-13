@@ -12,6 +12,8 @@ Los totales de pantalla, PDF, JSON y envío a SplitX parten de las mismas filas 
 
 «Días» significa horas ordinarias + horas de feriado + horas de descanso, divididas por la jornada configurada de la obra. Por ejemplo, 4/8 = 0.5. Un feriado trabajado de 8 horas sigue siendo un día trabajado, aunque su tarifa se multiplique. Las horas extra se muestran aparte y siguen en el desglose; no aumentan los días trabajados.
 
+«Ver cálculo» también usa días: tarifa ordinaria por día, jornadas ordinarias y líneas separadas para feriados y descansos. Los extras se expresan como fracciones equivalentes de jornada, separados del trabajo ordinario. Los importes de cada categoría y el subtotal se toman del cálculo original, sin recalcularlos desde los días redondeados. Ejemplo con jornada de 8 horas: 32 horas a $112.50/h se presentan como tarifa $900/día, 4 días y $3,600; 104 horas como 13 días y $11,700; 24 horas de feriado como 3 días y el importe registrado $5,400. También hay prueba con jornada de 6 horas.
+
 SplitX conserva el contrato `sa-splitx-payroll/v1` y su array de empleados. Se añaden `workDays.worked` (mismo valor que la tabla) y `exportContext.payrollFilter` (líder, modo, indicador de reporte parcial y número de exclusiones). `workDays.total` conserva su significado previo, que incluye las horas extra convertidas a fracción de jornada; sus categorías y los importes no cambian. El receptor actual puede ignorar los campos adicionales. No se añaden empleados negativos ni ajustes entre líderes al dinero a repartir.
 
 ## Comprobaciones
