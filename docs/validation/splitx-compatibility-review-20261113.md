@@ -28,6 +28,8 @@ La corrección proyecta los campos monetarios compatibles a los centavos visible
 
 ## Siguientes pasos y responsables
 
+La corrección se publica como **1.7.135**: reutilizar 1.7.134 impedía el aviso automático a sesiones que ya tenían esa versión. Pasan las 30 comprobaciones de versión, manifiesto e importes y el recorrido de actualización en navegador, incluida la conservación de IndexedDB y medios locales. Tras actualizar hay que generar de nuevo cualquier JSON exportado con el formato anterior; los archivos ya descargados no se actualizan.
+
 1. **SA:** publicar la corrección de centavos del PR #370 y regenerar los JSON anteriores; no modificar las fórmulas de nómina.
 2. **SplitX:** conservar `worked`, contexto del filtro y referencias de cálculo; preferir `worked` para «Días trabajados» sin cambiar el significado de `total`. Conservar los originales monetarios si se requiere auditoría tras importar.
 3. **SplitX:** decidir y permitir el origen exacto de pruebas cuando corresponda; no abrir la lista a todos los dominios.

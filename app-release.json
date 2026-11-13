@@ -1,6 +1,16 @@
 {
-  "version": "1.7.134",
+  "version": "1.7.135",
   "changelog": [
+    {
+      "version": "1.7.135",
+      "date": "2026-11-13",
+      "title": "SplitX: importes compatibles",
+      "items": [
+        "Aplica la corrección de importes a centavos al copiar, descargar o enviar la nómina a SplitX.",
+        "Las sesiones de la versión de prueba anterior reciben el aviso de actualización. Después de actualizar, vuelve a generar el JSON para usar la corrección.",
+        "Se conservan los valores originales y se avisa si redondear cada pago produce una diferencia en el total para efectivo."
+      ]
+    },
     {
       "version": "1.7.134",
       "date": "2026-11-13",
