@@ -69,10 +69,10 @@ export function filterPayablePayrollPreviewRows(rows = []) {
     );
 }
 
-export const LEADER_HOURS_SCOPES = Object.freeze({ ALL: 'all', LEADER: 'leader' });
+export const LEADER_HOURS_SCOPES = Object.freeze({ PAYROLL: 'payroll', ALL: 'all', LEADER: 'leader' });
 
 export function normalizeLeaderHoursScope(value) {
-    return value === LEADER_HOURS_SCOPES.LEADER ? LEADER_HOURS_SCOPES.LEADER : LEADER_HOURS_SCOPES.ALL;
+    return Object.values(LEADER_HOURS_SCOPES).includes(value) ? value : LEADER_HOURS_SCOPES.PAYROLL;
 }
 
 function scaleDetails(details = [], ratio, includeFixed = true, attribution = null) {
@@ -171,13 +171,14 @@ export function limitPayrollRowToBreakdown(row, kept, { includeFixed = true, pos
  * las filas. Con equipo/pagador configurados, solo entra lo que paga el líder.
  *
  * hoursScope:
- *   - 'all' (por defecto): todos sus puestos; con pagador configurado, solo
+ *   - 'payroll' (por defecto): solo tramos a cargo del pagador, también en registros antiguos.
+ *   - 'all': todos sus puestos; con pagador configurado, solo
  *     los tramos a cargo del líder elegido.
  *   - 'leader': solo con las horas y días del equipo de ese líder; con pagador
  *     configurado también deben estar a su cargo. Se usa el equipo histórico
  *     del tramo, no el líder actual del catálogo.
  */
-export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positions = [], employees = [], hoursScope = LEADER_HOURS_SCOPES.ALL } = {}) {
+export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positions = [], employees = [], hoursScope = LEADER_HOURS_SCOPES.PAYROLL } = {}) {
     const leader = String(leaderId || 'all');
     if (leader === 'all') return rows;
     const leaderPositions = new Set((positions || [])
@@ -194,12 +195,13 @@ export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positio
     const configured = row => (row._positionBreakdown || []).some(part => part.assignmentSchemaVersion === 1)
         || Object.keys(employeesById.get(String(row._employeeId ?? row.id))?.positionAssignments || {}).length > 0;
     const onlyTeamHours = normalizeLeaderHoursScope(hoursScope) === LEADER_HOURS_SCOPES.LEADER;
+    const inPayroll = normalizeLeaderHoursScope(hoursScope) === LEADER_HOURS_SCOPES.PAYROLL;
     const effectiveTeam = part => part.assignmentSchemaVersion === 1 ? part.workLeaderId
         : positions.find(position => String(position.id) === String(part.positionId))?.leaderId;
     const effectivePayer = part => part.assignmentSchemaVersion === 1 ? part.payerLeaderId
         : positions.find(position => String(position.id) === String(part.positionId))?.leaderId;
     return rows.map(row => {
-        if (!configured(row)) {
+        if (!configured(row) && !inPayroll) {
             if (onlyTeamHours) {
                 return (row._positionBreakdown || []).length
                     ? limitPayrollRowToPositions(row, leaderPositions)
@@ -210,6 +212,13 @@ export function filterPayrollRowsByLeader(rows = [], { leaderId = 'all', positio
         }
         const employee = employeesById.get(String(row._employeeId ?? row.id));
         const parts = row._positionBreakdown || [];
+        if (!parts.length && inPayroll) {
+            const positionId = currentPositions(row)[0];
+            const assignment = getEmployeePositionAssignment(employee, positions.find(item => String(item.id) === positionId));
+            const payer = row._personalAdjustmentPayerId !== undefined ? row._personalAdjustmentPayerId
+                : assignment.isLoanPosition ? assignment.payerLeaderId : assignment.workLeaderId;
+            return String(payer) === leader ? row : null;
+        }
         if (!parts.length) return currentPositions(row).some(positionId => {
             const position = positions.find(item => String(item.id) === positionId);
             const assignment = getEmployeePositionAssignment(employee, position);

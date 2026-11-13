@@ -1,5 +1,6 @@
 import { toSplitXRows } from './PayrollLoans.js';
 import { getBalance, LOAN_STATUS, round2 } from '../loans/LoansService.js';
+import { payrollWorkedDays } from './PayrollWorkDays.js';
 
 const SCHEMA = 'sa-splitx-payroll/v1';
 const DAY_FIELDS = { regular: 'regularHours', overtime: 'overtimeHours', holiday: 'holidayHours', restDay: 'restDayHours' };
@@ -24,6 +25,7 @@ function equivalentDays(breakdown, hoursPerDay) {
     ]));
     return {
         unit: 'equivalent-day', ...days,
+        worked: payrollWorkedDays({ _positionBreakdown: breakdown }, hoursPerDay),
         total: fraction(breakdown.reduce((sum, item) => sum + Object.values(DAY_FIELDS).reduce((hours, field) => hours + numeric(item[field]), 0), 0) / hoursPerDay)
     };
 }
@@ -157,6 +159,11 @@ export function buildSplitXExport(rows, options) {
         companyName: text(options.companyName).trim(),
         payrollName: `Nómina período ${period.start.split('-').reverse().join('/')} - ${period.end.split('-').reverse().join('/')}`,
         currency: options.currency || 'DOP', hoursPerDay,
+        ...(options.payrollFilter ? { payrollFilter: {
+            leaderId: text(options.payrollFilter.leaderId || 'all'), mode: text(options.payrollFilter.mode),
+            partial: options.payrollFilter.partial === true,
+            excludedEmployeeCount: Math.max(0, Math.trunc(numeric(options.payrollFilter.excludedEmployeeCount)))
+        } } : {}),
         ...(options.projectId ? { projectId: text(options.projectId), projectName: text(options.projectName) } : {}),
         totals: {
             employeeCount: employees.length, gross: sum('bruto'), bonuses: sum('bonificaciones'),

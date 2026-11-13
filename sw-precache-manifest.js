@@ -212,6 +212,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/payroll/PayrollStatus.js",
     "./js/modules/features/payroll/PayrollSummary.js",
     "./js/modules/features/payroll/PayrollUI.js",
+    "./js/modules/features/payroll/PayrollWorkDays.js",
     "./js/modules/features/payroll/ProjectPayrollConfig.js",
     "./js/modules/features/payroll/ProjectPayrollConfigStore.js",
     "./js/modules/features/payroll/ProjectPayrollUIRuntime.js",

@@ -51,7 +51,7 @@ describe('Contrato enriquecido de exportación SplitX', () => {
 
     test('convierte cada categoría en jornadas equivalentes sin usar los factores del salario', () => {
         const result = buildSplitXExport([row()], options()).employees[0];
-        expect(result.workDays).toEqual({ unit: 'equivalent-day', regular: 0.5, overtime: 0.25, holiday: 1, restDay: 0.5, total: 2.25 });
+        expect(result.workDays).toEqual({ unit: 'equivalent-day', regular: 0.5, overtime: 0.25, holiday: 1, restDay: 0.5, total: 2.25, worked: 2 });
         expect(result.exportContext.hoursPerDay).toBe(8);
         expect(buildSplitXExport([row()], { ...options(), regularHoursPerDay: 4 }).employees[0].workDays.total).toBe(4.5);
         expect(result.workDays).not.toHaveProperty('hours');

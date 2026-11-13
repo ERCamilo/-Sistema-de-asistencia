@@ -1,6 +1,17 @@
 {
-  "version": "1.7.133",
+  "version": "1.7.134",
   "changelog": [
+    {
+      "version": "1.7.134",
+      "date": "2026-11-13",
+      "title": "Nómina por pagador y días trabajados",
+      "items": [
+        "Al elegir un líder, «En nómina» muestra por defecto los tramos que paga, incluidos puestos de otros equipos y registros antiguos.",
+        "El resumen muestra días equivalentes trabajados; las horas extra siguen disponibles por separado.",
+        "Desmarca empleados de un reporte sin desactivarlos ni modificar sus asistencias. Las exclusiones se separan por obra, período y líder.",
+        "La exportación a SplitX respeta el filtro y los empleados incluidos, conservando los descuentos entre líderes fuera de los pagos individuales."
+      ]
+    },
     {
       "version": "1.7.133",
       "date": "2026-11-12",

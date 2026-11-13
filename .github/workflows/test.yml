@@ -115,3 +115,8 @@ jobs:
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
         run: node scripts/check-project-actions.cjs
+
+      - name: Payroll payer filter, manual exclusions and SplitX in Chromium
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: npm run test:payroll-filter

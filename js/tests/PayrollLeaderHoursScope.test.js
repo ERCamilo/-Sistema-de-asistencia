@@ -196,6 +196,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         expect(payrollTable.body[0]).toContain('Ana Uno');
         expect(payrollTable.body[0]).toContain('$800.00');
         PayrollUI.setLeaderFilter('L2');
+        PayrollUI.setLeaderHoursScope('leader'); // explicitly retain the partial team view after switching leaders
         expect((await exported()).map(employee => employee.sourceEmployeeId)).toEqual(['E2']);
         const receiver = document.createElement('div');receiver.innerHTML = PayrollUI.PayrollTab();
         expect(receiver.querySelector('.payroll-leader-adjustment').textContent).toContain('Ana Uno');
@@ -251,12 +252,77 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
 
     test('con el líder, "todos sus puestos" paga ambos días y "solo sus puestos" uno', async () => {
         PayrollUI.setLeaderFilter('L1');
+        PayrollUI.setLeaderHoursScope('all');
         const all = await exported();
         expect(all).toHaveLength(1);
         PayrollUI.setLeaderHoursScope('leader');
         const onlyLeader = await exported();
         expect(onlyLeader).toHaveLength(1);
         expect(net(all) - net(onlyLeader)).toBeCloseTo(800); // el día de Plomero (8h × 100)
+    });
+
+    test('En nómina defaults on leader changes and SplitX matches the payable days and amounts', async () => {
+        PayrollUI.setPayrollGuideStep('review');
+        PayrollUI.setLeaderFilter('L1');
+        const one = await exported();
+        expect(one).toHaveLength(1);
+        expect(one[0]).toMatchObject({ monto: 800, bruto: 800, workDays: { worked: 1 },
+            exportContext: { payrollFilter: { leaderId: 'L1', mode: 'payroll', partial: false } } });
+        const host = document.createElement('div'); host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.querySelector('[data-value="payroll"]').getAttribute('aria-pressed')).toBe('true');
+        expect(host.querySelector('[data-payroll-worked-days]').textContent).toBe('1');
+        expect(host.querySelector('thead').textContent).toContain('DÍAS');
+        PayrollUI.setLeaderHoursScope('all');
+        expect(net(await exported())).toBe(1600);
+        PayrollUI.setLeaderFilter('L2');
+        expect(appState.exportConfig.leaderHoursScope).toBe('payroll');
+        expect(net(await exported())).toBe(1600);
+    });
+
+    test('excluding staff retains the unchecked row, changes SplitX, and does not alter attendance or the canonical preview', async () => {
+        await configureLoan();
+        PayrollUI.setPayrollGuideStep('review'); PayrollUI.setLeaderFilter('L1');
+        const before = JSON.stringify({ attendance: appState.attendance, employees: appState.employees, preview: runtime.getCurrentView().previewRows });
+        expect(PayrollUI.togglePayrollReviewEmployee('foreign', false)).toBe(false);
+        expect(PayrollUI.togglePayrollReviewEmployee('E1', false)).toBe(true);
+        expect(await exported()).toEqual([]);
+        const host = document.createElement('div'); host.innerHTML = PayrollUI.PayrollTab();
+        const checkbox = host.querySelector('[data-payroll-action="toggle-payroll-review-employee"][data-id="E1"]');
+        expect(checkbox.checked).toBe(false);
+        expect(host.querySelector('tfoot').textContent).toContain('0 empleados');
+        expect(host.querySelector('.payroll-review-exclusions-reset').textContent).toContain('1 excluido');
+        expect(host.querySelector('[data-payroll-action="open-payroll-closure"]').disabled).toBe(true);
+        PayrollUI.togglePayrollReviewEmployee('E1', true);
+        expect((await exported())[0]).toMatchObject({ monto: 1600, workDays: { worked: 2 } });
+        expect(JSON.stringify({ attendance: appState.attendance, employees: appState.employees, preview: runtime.getCurrentView().previewRows })).toBe(before);
+    });
+
+    test('manual exclusions remain independent by leader and reset only the current payroll', async () => {
+        PayrollUI.setLeaderFilter('L1'); PayrollUI.togglePayrollReviewEmployee('E1', false);
+        expect(await exported()).toEqual([]);
+        PayrollUI.setLeaderFilter('L2');
+        expect((await exported()).map(row => row.sourceEmployeeId)).toEqual(['E1', 'E2']);
+        PayrollUI.togglePayrollReviewEmployee('E2', false);
+        const output = await exported();
+        expect(output.map(row => row.sourceEmployeeId)).toEqual(['E1']);
+        expect(output[0].exportContext).toMatchObject({ totals: { employeeCount: 1, net: 800 },
+            payrollFilter: { partial: true, excludedEmployeeCount: 1 } });
+        PayrollUI.setLeaderFilter('L1'); expect(await exported()).toEqual([]);
+        PayrollUI.resetPayrollReviewExclusions(); expect(net(await exported())).toBe(800);
+        PayrollUI.setLeaderFilter('L2'); expect((await exported()).map(row => row.sourceEmployeeId)).toEqual(['E1']);
+        PayrollUI.setLeaderFilter('all'); expect(net(await exported())).toBe(2400);
+    });
+
+    test('excluding from the payment list does not turn a full leader settlement into a partial employee payment', async () => {
+        await configureLoan(); PayrollUI.setPayrollGuideStep('review'); PayrollUI.setLeaderFilter('L2');
+        PayrollUI.togglePayrollReviewEmployee('E2', false);
+        expect(await exported()).toEqual([]);
+        const host = document.createElement('div'); host.innerHTML = PayrollUI.PayrollTab();
+        const adjustment = host.querySelector('.payroll-leader-adjustment');
+        expect(adjustment.textContent).toContain('Resumen completo del líder');
+        expect(adjustment.textContent).toContain('Ana Uno');
+        expect(adjustment.querySelector('input').disabled).toBe(true);
+        expect(host.querySelector('tfoot .is-net').textContent).toBe('$0.00');
     });
 
     test('la vista muestra el selector y lo que quedó fuera', () => {
@@ -277,7 +343,9 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         PayrollUI.setLeaderFilter('L2');
         const rows = await exported();
         expect(rows).toHaveLength(2);
-        expect(net(rows)).toBeCloseTo(2400);
+        expect(net(rows)).toBeCloseTo(1600); // En nómina keeps only L2's payable work, also for legacy records.
+        PayrollUI.setLeaderHoursScope('all');
+        expect(net(await exported())).toBeCloseTo(2400);
         PayrollUI.setLeaderHoursScope('leader');
         expect(net(await exported())).toBeCloseTo(1600);
     });
@@ -324,7 +392,9 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         expect(runtime.getCurrentView().previewStale).toBe(false);
         PayrollUI.setLeaderFilter('L1');
         expect(await exported()).toHaveLength(1);
-        expect(net(await exported())).toBe(1600); // The paying leader sees the full two jobs.
+        expect(net(await exported())).toBe(800); // En nómina defaults to this leader's payable job.
+        PayrollUI.setLeaderHoursScope('all');
+        expect(net(await exported())).toBe(1600); // The explicit broad legacy view remains available.
         const previousPdf = window.jspdf;
         const doc = {
             internal: { pageSize: { getWidth: () => 210, getHeight: () => 297 }, getNumberOfPages: () => 1 },
@@ -368,7 +438,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         PayrollUI.setLeaderFilter('all');
         const host = document.createElement('div');
         host.innerHTML = PayrollUI.PayrollTab();
-        expect(host.textContent).toContain('Desmarca «Solo empleados seleccionados»');
+        expect(host.textContent).toContain('desmarca «Solo empleados seleccionados»');
         expect(host.querySelector('[data-payroll-action="open-payroll-closure"]').disabled).toBe(true);
         expect(host.querySelector('[data-payroll-action="toggle-payroll-paid"]').disabled).toBe(true);
         PayrollUI.togglePayrollPaidConfirmation(true);
@@ -499,7 +569,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
                 host.innerHTML = PayrollUI.PayrollTab();
                 const row = [...host.querySelectorAll('.payroll-review-table__row')]
                     .find(element => element.querySelector('.payroll-review-table__employee').textContent.includes('Juan'));
-                expect(row.querySelector('.payroll-review-table__amount').textContent.trim()).toBe(`${hours}h`);
+                expect(Number(row.querySelector('[data-payroll-worked-days]').textContent)).toBe(hours / 8);
                 expect(row.querySelectorAll('.payroll-review-table__amount')[1].textContent.trim()).toBe(formatCurrency(gross));
                 expect(row.querySelector('.payroll-review-table__amount.is-net').textContent.trim()).toBe(formatCurrency(gross));
                 expect(row.querySelectorAll('.payroll-breakdown-details__item')).toHaveLength(1);
