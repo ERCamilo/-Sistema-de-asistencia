@@ -135,6 +135,29 @@ describe('Payroll SplitX postMessage Integration', () => {
         }
     });
 
+    test('577.125 exports as 577.13 through clipboard, file and bridge while preserving its original value', () => {
+        calculatePayroll.mockReturnValue({ brutoOriginal: 577.125, bruto: 577.125, neto: 577.125, bonuses: 0, deductions: 0,
+            breakdown: [{ positionId: 'P1', positionName: 'Puesto', hourlyRate: 72.140625, regularHours: 8 }] });
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: jest.fn(() => Promise.resolve()) } });
+        const originalBlob = window.Blob, originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+        let file;
+        const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+        window.Blob = jest.fn(parts => { file = parts.join(''); return {}; });
+        URL.createObjectURL = jest.fn(() => 'blob:synthetic'); URL.revokeObjectURL = jest.fn();
+        try {
+            PayrollUI.copyExportJSON(); PayrollUI.downloadExportJSON(); PayrollUI.sendToSplitX();
+            window.dispatchEvent(new MessageEvent('message', { data: { type: 'SPLITX_READY' }, origin: 'https://splitx.erlin.do', source: mockWindow }));
+            const copied = JSON.parse(navigator.clipboard.writeText.mock.calls[0][0]);
+            const message = mockWindow.postMessage.mock.calls.find(call => call[0].type === 'SPLITX_IMPORT_PAYROLL')[0];
+            expect(JSON.parse(file)).toEqual(copied); expect(message.employees).toEqual(copied);
+            expect(copied[0]).toMatchObject({ monto: 577.13, bruto: 577.13, originalAmounts: { monto: 577.125, bruto: 577.125 } });
+            expect(message.totals.net).toBe(577.13);
+            expect(calculatePayroll.mock.results.at(-1).value.neto).toBe(577.125);
+        } finally {
+            window.Blob = originalBlob; URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; click.mockRestore();
+        }
+    });
+
     test('sendToSplitX opens splitx.erlin.do, sends initial SPLITX_PING and initiates listener', () => {
         const target = PayrollUI.sendToSplitX();
 

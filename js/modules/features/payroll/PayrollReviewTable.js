@@ -15,6 +15,7 @@ import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { renderPayrollStatus } from './PayrollStatus.js';
 import { payrollWorkedDays, formatPayrollDays } from './PayrollWorkDays.js';
+import { payrollExportMoney, payrollCashTotal } from './PayrollExportMoney.js';
 
 export const REVIEW_CATEGORIES = Object.freeze([
     { kind: 'bonuses', field: '_bonuses', details: '_bonusDetails', label: 'BONIF.', title: 'Bonificaciones', sign: '+', css: 'is-bonus' },
@@ -245,6 +246,8 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
         const text = `${category.sign}${formatCurrency(value)}`;
         return `<td class="payroll-review-table__amount ${category.css}${included ? '' : ' is-excluded'}">${included ? text : `<s>${text}</s>`}</td>`;
     }).join('');
+    const cashTotal = payrollCashTotal(rows);
+    const cashDifference = payrollExportMoney(cashTotal - payrollExportMoney(sum('monto')));
 
     return `
         <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina de la obra" tabindex="0">
@@ -275,5 +278,8 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
                     </tr>
                 </tfoot>
             </table>
-        </div>`;
+        </div>
+        ${cashDifference ? `<p class="payroll-review-table__scope-note" role="status" data-payroll-cash-rounding>
+            Total para SplitX: ${formatCurrency(cashTotal)} · diferencia de ${formatCurrency(cashDifference)} por redondear cada pago a centavos.
+        </p>` : ''}`;
 }

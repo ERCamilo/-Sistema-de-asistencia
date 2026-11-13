@@ -96,10 +96,15 @@ const server = http.createServer((req, res) => {
             fs.writeFileSync(path.join(output, 'splitx-filtered.json'), JSON.stringify(message, null, 2));
             if (process.env.SPLITX_REPO_ROOT) {
                 const { createSplitXBridge } = require(path.join(process.env.SPLITX_REPO_ROOT, 'js/SplitXBridge.js'));
+                const { createImporter } = require(path.join(process.env.SPLITX_REPO_ROOT, 'js/SplitXImport.js'));
+                const sheetFields = require(path.join(process.env.SPLITX_REPO_ROOT, 'js/SplitXSheetFields.js'));
+                const { normalizeImportedEmployee } = createImporter({ sheetFields, parseNumber: Number });
                 const state = { employees: [] }, replies = [];
-                const bridge = createSplitXBridge({ getState: () => state, setState: next => Object.assign(state, next), windowRef: null });
+                const bridge = createSplitXBridge({ getState: () => state, setState: next => Object.assign(state, next), normalizeEmployee: normalizeImportedEmployee, windowRef: null });
                 await bridge.handleMessage({ origin: 'https://asistencia.erlin.do', source: { postMessage: reply => replies.push(reply) }, data: message });
-                assert.deepEqual(state.employees, exported); assert.equal(replies.at(-1).type, 'SPLITX_IMPORT_SUCCESS');
+                assert.deepEqual(state.employees.map(employee => employee.sourceEmployeeId), exported.map(employee => employee.sourceEmployeeId));
+                assert.deepEqual(state.employees.map(employee => employee.amount), exported.map(employee => employee.monto));
+                assert.equal(replies.at(-1).type, 'SPLITX_IMPORT_SUCCESS');
             }
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
             await page.screenshot({ path: path.join(output, `payroll-${width}.png`), fullPage: true });

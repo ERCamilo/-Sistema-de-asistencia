@@ -1,16 +1,32 @@
 import { toSplitXRows } from './PayrollLoans.js';
 import { getBalance, LOAN_STATUS, round2 } from '../loans/LoansService.js';
 import { payrollWorkedDays } from './PayrollWorkDays.js';
+import { payrollExportMoney as cashAmount } from './PayrollExportMoney.js';
 
 const SCHEMA = 'sa-splitx-payroll/v1';
 const DAY_FIELDS = { regular: 'regularHours', overtime: 'overtimeHours', holiday: 'holidayHours', restDay: 'restDayHours' };
 const text = value => value == null ? '' : String(value);
 const fraction = value => Math.round(value * 1e6) / 1e6;
+const CASH_FIELDS = ['monto', 'bruto', 'bonificaciones', 'descuentos', 'prestamos', 'prestamoCapital', 'prestamoInteres', 'saldoPendiente'];
 
 function numeric(value) {
     const result = Number(value ?? 0);
     if (!Number.isFinite(result)) throw new Error('La exportación contiene un importe o una cantidad no válidos.');
     return result;
+}
+
+function cashRow(base) {
+    const originalAmounts = Object.fromEntries(CASH_FIELDS.map(field => [field, numeric(base[field])]));
+    const out = { ...base, ...Object.fromEntries(CASH_FIELDS.map(field => [field, cashAmount(base[field])])) };
+    out.loanDetails = Object.fromEntries(Object.entries(base.loanDetails || {}).map(([key, value]) => [key, cashAmount(value)]));
+    if (CASH_FIELDS.some(field => originalAmounts[field] !== out[field])) {
+        out.originalAmounts = originalAmounts;
+        const originalDifference = originalAmounts.monto - (originalAmounts.bruto + originalAmounts.bonificaciones - originalAmounts.descuentos - originalAmounts.prestamos);
+        if (Math.abs(originalDifference) < 1e-6) {
+            out.roundingDifference = cashAmount(out.monto - (out.bruto + out.bonificaciones - out.descuentos - out.prestamos));
+        }
+    }
+    return out;
 }
 
 function validDate(value) {
@@ -136,6 +152,11 @@ export function buildSplitXExport(rows, options) {
     }
     const hoursPerDay = numeric(options.regularHoursPerDay ?? 8);
     if (hoursPerDay <= 0) throw new Error('La jornada de trabajo debe ser mayor que cero para exportar días.');
+    // Validate before the compatibility mapper can coerce malformed amounts to zero.
+    for (const row of rows) {
+        for (const field of ['monto', '_brutoOriginal', '_bonuses', '_deductions', '_loans']) numeric(row[field]);
+        if (numeric(row.monto) < 0) throw new Error('No se puede exportar un pago negativo a SplitX.');
+    }
     const legacy = toSplitXRows(rows);
     const employees = legacy.map((base, index) => {
         const source = rows[index];
@@ -144,7 +165,7 @@ export function buildSplitXExport(rows, options) {
             holidayHours: source._holidayHours, restDayHours: source._restDayHours
         }];
         return {
-            ...base,
+            ...cashRow(base),
             sourceEmployeeId: text(source._employeeId), employeeNumber: text(source._number),
             employeeName: text(source._employeeName), workDays: equivalentDays(breakdown, hoursPerDay),
             ...organization(source, options, hoursPerDay),
@@ -153,12 +174,23 @@ export function buildSplitXExport(rows, options) {
             deductionDetails: adjustmentDetails(source._deductionDetails, -1, 'Descuento')
         };
     });
-    const sum = field => employees.reduce((total, employee) => total + numeric(employee[field]), 0);
+    const sum = field => cashAmount(employees.reduce((total, employee) => total + numeric(employee[field]), 0));
+    const affectedEmployees = employees.filter(employee => employee.originalAmounts).length;
     const context = {
         schema: SCHEMA, period: { start: period.start, end: period.end },
         companyName: text(options.companyName).trim(),
         payrollName: `Nómina período ${period.start.split('-').reverse().join('/')} - ${period.end.split('-').reverse().join('/')}`,
         currency: options.currency || 'DOP', hoursPerDay,
+        ...(affectedEmployees ? { monetaryPrecision: {
+            decimals: 2, policy: 'same-as-sa-display', affectedEmployees,
+            originalTotals: {
+                gross: legacy.reduce((total, employee) => total + employee.bruto, 0),
+                bonuses: legacy.reduce((total, employee) => total + employee.bonificaciones, 0),
+                deductions: legacy.reduce((total, employee) => total + employee.descuentos, 0),
+                loans: legacy.reduce((total, employee) => total + employee.prestamos, 0),
+                net: legacy.reduce((total, employee) => total + employee.monto, 0)
+            }
+        } } : {}),
         ...(options.payrollFilter ? { payrollFilter: {
             leaderId: text(options.payrollFilter.leaderId || 'all'), mode: text(options.payrollFilter.mode),
             partial: options.payrollFilter.partial === true,

@@ -190,6 +190,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/payroll/PayrollClosureSync.js",
     "./js/modules/features/payroll/PayrollClosureUI.js",
     "./js/modules/features/payroll/PayrollClosureWorkflow.js",
+    "./js/modules/features/payroll/PayrollExportMoney.js",
     "./js/modules/features/payroll/PayrollFactors.js",
     "./js/modules/features/payroll/PayrollHistoricalIdentity.js",
     "./js/modules/features/payroll/PayrollHistoryUI.js",

@@ -20,7 +20,7 @@ SplitX conserva el contrato `sa-splitx-payroll/v1` y su array de empleados. Se a
 
 ## Comprobaciones
 
-Resultado local: **723 suites / 7444 pruebas Jest pasan**. Pasan los controles existentes de nómina en cuatro anchuras y el nuevo recorrido a 320/390/1280 px, incluida la comprobación WCAG A/AA y el bridge local de SplitX. El build de producción y el control de escrituras a estado pasan sin deuda nueva.
+Resultado local: **724 suites / 7456 pruebas Jest pasan**. Pasan los controles existentes de nómina en cuatro anchuras y el nuevo recorrido a 320/390/1280 px, incluida la comprobación WCAG A/AA y el bridge local de SplitX. El build de producción y el control de escrituras a estado pasan sin deuda nueva.
 
 ```sh
 npm test -- --runInBand
@@ -33,6 +33,8 @@ npm run test:release
 
 `test:payroll-filter` usa la UI real, con empleados ficticios y Firebase sustituido. Bloquea las peticiones externas y comprueba 320/390/1280 px, casillas reales, foco, aislamiento por líder/período, restauración, salarios de puestos ajenos, horas extra, totales y paridad entre JSON copiado y `postMessage`. A 390 px ejecuta axe con WCAG A/AA. Sus capturas y un payload de ejemplo quedan en `/tmp/sa-payroll-in-payroll`.
 
-Opcionalmente, `SPLITX_REPO_ROOT=/ruta/a/SplitX npm run test:payroll-filter` también entrega el payload al módulo real `js/SplitXBridge.js` del checkout indicado, con sus validaciones de protocolo. La comprobación local se ejecutó con esta opción; el receptor aceptó el array y devolvió `SPLITX_IMPORT_SUCCESS`. Esto comprueba el bridge, no una transferencia a la web de producción ni su interfaz de distribución de efectivo.
+Opcionalmente, `SPLITX_REPO_ROOT=/ruta/a/SplitX npm run test:payroll-filter` también entrega el payload a `js/SplitXBridge.js` y al normalizador real `js/SplitXImport.js` del checkout actualizado indicado, con sus validaciones de protocolo y monetarias. La comprobación local se ejecutó con esta opción; el receptor aceptó el array y devolvió `SPLITX_IMPORT_SUCCESS`. Esto comprueba el bridge, no una transferencia a la web de producción ni su interfaz de distribución de efectivo.
 
 Para aceptación, comparar un líder pagador con un empleado prestado, excluirlo y restaurarlo; comprobar neto, días y empleados en la importación de SplitX. Repetir cambiando de líder y de período. Responsables: desarrollo mantiene las pruebas; el usuario valida el cuadre con sus datos antes de integrar/publicar.
+
+La revisión ampliada frente al main actual de SplitX, los ajustes a centavos y los requisitos pendientes en su receptor están en [splitx-compatibility-review-20261113.md](splitx-compatibility-review-20261113.md).
