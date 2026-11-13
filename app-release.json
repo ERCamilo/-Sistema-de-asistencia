@@ -1,6 +1,29 @@
 {
-  "version": "1.7.133",
+  "version": "1.7.135",
   "changelog": [
+    {
+      "version": "1.7.135",
+      "date": "2026-11-13",
+      "title": "SplitX: importes compatibles",
+      "items": [
+        "Aplica la corrección de importes a centavos al copiar, descargar o enviar la nómina a SplitX.",
+        "Las sesiones de la versión de prueba anterior reciben el aviso de actualización. Después de actualizar, vuelve a generar el JSON para usar la corrección.",
+        "Se conservan los valores originales y se avisa si redondear cada pago produce una diferencia en el total para efectivo."
+      ]
+    },
+    {
+      "version": "1.7.134",
+      "date": "2026-11-13",
+      "title": "Nómina por pagador y días trabajados",
+      "items": [
+        "Al elegir un líder, «En nómina» muestra por defecto los tramos que paga, incluidos puestos de otros equipos y registros antiguos.",
+        "El resumen y el detalle de cálculo muestran días y tarifas diarias; los extras se identifican por separado.",
+        "Los empleados pausados conservan en nómina el trabajo realizado durante el período; las asistencias eliminadas quedan fuera.",
+        "Desmarca empleados de un reporte sin desactivarlos ni modificar sus asistencias. Las exclusiones se separan por obra, período y líder.",
+        "La exportación a SplitX respeta el filtro y los empleados incluidos, conservando los descuentos entre líderes fuera de los pagos individuales.",
+        "Los importes para SplitX se expresan a centavos como se muestran por empleado en SA; el JSON conserva el cálculo original y se avisa si difiere el total por redondeo."
+      ]
+    },
     {
       "version": "1.7.133",
       "date": "2026-11-12",

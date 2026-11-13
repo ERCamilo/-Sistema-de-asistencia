@@ -51,7 +51,7 @@ describe('Contrato enriquecido de exportación SplitX', () => {
 
     test('convierte cada categoría en jornadas equivalentes sin usar los factores del salario', () => {
         const result = buildSplitXExport([row()], options()).employees[0];
-        expect(result.workDays).toEqual({ unit: 'equivalent-day', regular: 0.5, overtime: 0.25, holiday: 1, restDay: 0.5, total: 2.25 });
+        expect(result.workDays).toEqual({ unit: 'equivalent-day', regular: 0.5, overtime: 0.25, holiday: 1, restDay: 0.5, total: 2.25, worked: 2 });
         expect(result.exportContext.hoursPerDay).toBe(8);
         expect(buildSplitXExport([row()], { ...options(), regularHoursPerDay: 4 }).employees[0].workDays.total).toBe(4.5);
         expect(result.workDays).not.toHaveProperty('hours');
@@ -113,14 +113,16 @@ describe('Contrato enriquecido de exportación SplitX', () => {
         expect(result.context.totals.gross).toBe(4000);
     });
 
-    test('el arreglo manual conserva contexto y totales de exactamente sus filas sin perder precisión monetaria', () => {
+    test('el arreglo manual conserva valores originales y proyecta a centavos compatibles con SplitX', () => {
         const source = { ...row(), monto: 0.123456789 };
         const result = buildSplitXExport([source], options());
         const copied = JSON.parse(JSON.stringify(result.employees));
         expect(Array.isArray(copied)).toBe(true);
         expect(copied[0].exportContext).toEqual(result.context);
-        expect(copied[0].monto).toBe(0.123456789);
-        expect(result.context.totals.net).toBe(0.123456789);
+        expect(copied[0].monto).toBe(0.12);
+        expect(copied[0].originalAmounts.monto).toBe(0.123456789);
+        expect(result.context.totals.net).toBe(0.12);
+        expect(result.context.monetaryPrecision.originalTotals.net).toBe(0.123456789);
         expect(buildSplitXExport([], options()).context.totals.employeeCount).toBe(0);
     });
 

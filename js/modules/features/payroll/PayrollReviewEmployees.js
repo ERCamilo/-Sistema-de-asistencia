@@ -11,10 +11,22 @@ export function getPayrollReviewEmployeeSelection(config, { projectId, period, e
 }
 
 export function filterPayrollReviewEmployees(rows, selection) {
-    if (!selection.enabled) return rows;
+    const excluded = new Set(selection.excludedIds || []);
+    if (!selection.enabled && !excluded.size) return rows;
     const selected = new Set(selection.ids);
-    return rows.filter(row => selected.has(String(row._employeeId)));
+    return rows.filter(row => (!selection.enabled || selected.has(String(row._employeeId))) && !excluded.has(String(row._employeeId)));
 }
+
+export const payrollReviewExclusionKey = ({ projectId = 'legacy', period, leaderId = 'all' }) =>
+    JSON.stringify([projectId || 'legacy', period?.periodStart, period?.periodEnd, String(leaderId || 'all')]);
+
+export function getPayrollReviewExclusions(config, context) {
+    const ids = config?.[payrollReviewExclusionKey(context)];
+    const allowed = new Set((context.employees || []).map(employee => String(employee.id)));
+    return Array.isArray(ids) ? [...new Set(ids.filter(id => typeof id === 'string' || typeof id === 'number').map(String))].filter(id => allowed.has(id)) : [];
+}
+
+export const isPayrollReviewPartial = selection => selection.enabled || (selection.excludedIds || []).length > 0;
 
 export function renderPayrollReviewEmployeeFilter(selection) {
     return `<div class="payroll-review-employees">
@@ -22,6 +34,7 @@ export function renderPayrollReviewEmployeeFilter(selection) {
                       ${selection.enabled ? 'checked' : ''}>
             <span>Solo empleados seleccionados</span>
         </label>
+        ${(selection.excludedIds || []).length ? `<button type="button" data-payroll-action="reset-payroll-review-exclusions" class="payroll-review-exclusions-reset">${selection.excludedIds.length} ${selection.excludedIds.length === 1 ? 'excluido' : 'excluidos'} · Restablecer</button>` : ''}
         ${selection.enabled ? `<button type="button" data-payroll-action="open-payroll-review-employees"
             aria-label="Elegir empleados: ${selection.ids.length} seleccionados">
             Elegir empleados <span class="payroll-review-employees__count">${escapeHTML(String(selection.ids.length))}</span>

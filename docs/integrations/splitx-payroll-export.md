@@ -4,7 +4,15 @@ Contrato de datos `sa-splitx-payroll/v1`. Ver [ejemplo JSON completo con datos f
 
 ## Compatibilidad y lectura
 
-**Copiar JSON** y **Descargar .json** siguen produciendo un arreglo de empleados. Se conservan los campos originales y sus importes: `id`, `nombre`, `monto`, `bruto`, `bonificaciones`, `descuentos`, `prestamos`, `prestamoCapital`, `prestamoInteres`, `saldoPendiente`, `loanDetails`. Las cantidades monetarias mantienen la precisión del cálculo de SA; no recalcular ni redondear el neto al importar.
+**Copiar JSON** y **Descargar .json** siguen produciendo un arreglo de empleados. Se conservan los campos compatibles: `id`, `nombre`, `monto`, `bruto`, `bonificaciones`, `descuentos`, `prestamos`, `prestamoCapital`, `prestamoInteres`, `saldoPendiente`, `loanDetails`. Los importes a distribuir se expresan en centavos, con el mismo redondeo que usa SA al mostrar la moneda por empleado; el receptor no debe recalcular ni volver a descontar el neto. El cálculo y los registros de SA conservan su precisión original.
+
+### Precisión para efectivo
+
+SplitX rechaza importes con fracciones de centavo. Por eso `577.125` se exporta como el importe visible `577.13`, no como texto con separadores. La proyección se aplica solo al payload monetario compatible y al detalle monetario legacy de préstamos; no modifica salarios, asistencias, pagos ni deudas en SA.
+
+Cuando algún importe necesita esta proyección, el empleado incorpora `originalAmounts` con los valores monetarios originales. `exportContext.monetaryPrecision` identifica `decimals: 2`, `policy: "same-as-sa-display"`, `affectedEmployees` y `originalTotals`. Las tarifas aplicadas, los días, las bases de porcentaje y los detalles del cálculo conservan sus datos de origen. Si la ecuación original cuadra, `roundingDifference` explica cualquier diferencia entre el neto exportado y la suma de sus componentes proyectados: es informativa, nunca un cargo adicional.
+
+`totals` suma los importes a centavos efectivamente exportados por empleado. Puede diferir en un centavo del redondeo del agregado original; por ejemplo, dos pagos de `577.125` son `577.13` cada uno, total `1154.26`, mientras que el agregado original es `1154.25`. SA muestra un aviso en la revisión cuando existe esta diferencia. Los originales permanecen en `originalAmounts`/`originalTotals`; no se altera el cálculo salarial para hacer coincidir ambas sumas.
 
 El puente mantiene `SPLITX_IMPORT_PAYROLL`, su `version: "1.0"`, `transferId` y los aliases actuales (`employees`, `data`, `payroll`, `items`, `rows`). **Leer solo uno de esos aliases**, porque todos representan las mismas filas. `version` describe el protocolo de transporte; `schema` describe los datos nuevos.
 
@@ -58,11 +66,16 @@ El `id` numérico anterior y `nombre` con referencia se mantienen por compatibil
   "overtime": 0.25,
   "holiday": 0,
   "restDay": 0,
-  "total": 0.75
+    "total": 0.75,
+    "worked": 0.5
 }
 ```
 
 Este es el campo `workDays` de cada empleado. Cada categoría equivale al trabajo incluido dividido entre `hoursPerDay`; se redondea a seis decimales. **4 horas / jornada de 8 = 0.5 días**. No es un contador de fechas con asistencia. `total` incluye también las jornadas equivalentes de extras. Los factores de pago de extras, feriados o descanso no multiplican estos días. La suma de categorías redondeadas puede diferir del total en unas millonésimas.
+
+`worked` corresponde a los días trabajados del resumen actual de SA: ordinarios + feriados + descanso, sin las horas extra. Para mostrar «Días trabajados», SplitX debe conservar y preferir `worked`; `total` mantiene su significado anterior por compatibilidad. El campo también se incluye por puesto.
+
+`exportContext.payrollFilter` identifica `leaderId`, `mode` (`payroll`, `all`, `leader`), `partial` y `excludedEmployeeCount`. «En nómina» (`payroll`) contiene solo lo que paga ese líder, incluidos puestos prestados y empleados pausados con trabajo vigente. Los empleados excluidos manualmente no viajan; los ajustes entre líderes no se convierten en empleados negativos. El receptor debe conservar este contexto para identificar un listado parcial.
 
 `positions` desglosa ese trabajo por puesto: `{ id, name, leaderId, workDays }`. Dos puestos con media jornada cada uno suman una jornada, aunque se trabajaran el mismo día. Se priorizan los puestos del cálculo, no únicamente la asignación actual; si no hubo trabajo, se presentan los puestos asignados con días cero. `leaders` contiene `{ id, name, number }` sin duplicados, según la vinculación de esos puestos en el catálogo de SA al exportar. Un puesto retirado sin líder resoluble lleva `leaderId: null`. No constituye una instantánea histórica independiente del catálogo.
 

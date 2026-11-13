@@ -7962,7 +7962,7 @@
 }
 
 .payroll-review-hours-scope button {
-    min-height: 28px;
+    min-height: 44px;
     padding: 4px 10px;
     background: transparent;
     border: 0;
@@ -7972,6 +7972,14 @@
     font-weight: 700;
     cursor: pointer;
 }
+
+.payroll-review-employee-include { display: flex; align-items: center; gap: 6px; min-height: 44px; cursor: pointer; white-space: normal; }
+.payroll-review-employee-include input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; accent-color: var(--accent, #06b6d4); }
+.payroll-review-employee-include span { min-width: 0; overflow-wrap: anywhere; }
+.payroll-review-employee-excluded-label { display: block; color: var(--text-dim, #a4b1c7); font-size: 11px; }
+.payroll-review-table__row.is-payroll-excluded td { color: var(--text-dim, #a4b1c7); }
+.payroll-review-table__row.is-payroll-excluded .payroll-review-table__amount { text-decoration: line-through; }
+.payroll-review-exclusions-reset { min-height: 44px; }
 
 .payroll-review-hours-scope button[aria-pressed="true"] {
     background: #06b6d4;

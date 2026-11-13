@@ -86,7 +86,7 @@ function calculateEmployeePayrollScopedInternal(ctx, config, empId, startDateKey
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const dateKey = getDateKey(new Date(d));
         const att = ctx.getAttendance(empId, dateKey);
-        if (!att || !att.present) continue;
+        if (!att || !att.present || att.deletedAt != null) continue;
         let positionsWorked = [];
         if (att.positionHours && att.positionHours.length > 0) {
             positionsWorked = att.positionHours.map(ph => ({
@@ -381,7 +381,7 @@ export class PayrollService {
             const attKey = `${empId}-${dateKey}`;
             const att = this.state.attendance[attKey];
 
-            if (!att || !att.present) continue;
+            if (!att || !att.present || att.deletedAt != null) continue;
 
             // Determinar qué posición(es) trabajó ese día
             let positionsWorked = [];
