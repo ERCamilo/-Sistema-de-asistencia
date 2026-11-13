@@ -24,7 +24,11 @@ Atrás/Continuar usaba `position: sticky`, ligado al contenedor. En móvil pasa 
 
 Un listener compartido de `visualViewport` ajusta solo la barra de nómina cuando el teclado reduce el área visible sin reducir el layout. Agrupa eventos en un frame y no compensa el zoom por pellizco. Las pruebas verifican anclaje al desplazar, variantes de navegación, último empleado accesible y teclado simulado; la comprobación con un teclado físico de iOS/Android sigue correspondiendo a la prueba manual del usuario.
 
-Los resultados finales de ejecución se consignan en el PR. La versión es 1.7.136; no se han registrado préstamos ni pagos reales durante estas comprobaciones.
+Los resultados finales de ejecución se consignan en el PR. La versión es 1.7.137; no se han registrado préstamos ni pagos reales durante estas comprobaciones.
+
+## Estado separado del nombre
+
+Las advertencias de cada empleado (fuera de nómina, sueldo no disponible/restante y saldo insuficiente) se presentan en una columna Estado propia, entre Empleado y Préstamos. El nombre no contiene avisos. En móvil, el estado ocupa una fila independiente, con su etiqueta y SVG, antes de las métricas; los empleados sin avisos no añaden una fila vacía. En escritorio, una raya indica que no hay advertencia. No cambia la clasificación de estados ni los importes.
 
 ## Siguientes pasos
 

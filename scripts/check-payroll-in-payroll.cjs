@@ -9,7 +9,7 @@ const output = process.env.PAYROLL_FILTER_ARTIFACT_DIR || '/tmp/sa-payroll-in-pa
 const styles = [...fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="(css\/[^\"]+)"/g)].map(match => `<link rel="stylesheet" href="/${match[1]}">`).join('');
 const names = fs.readFileSync(path.join(ROOT, 'js/modules/data/firebase.js'), 'utf8').match(/export\s*\{([\s\S]*?)\}/)[1].replace(/\/\/[^\n]*/g, '').split(',').map(name => name.trim()).filter(Boolean);
 const firebase = names.map(name => name === 'auth' ? 'export const auth={currentUser:null};' : `export const ${name}=()=>{};`).join('\n');
-const fixture = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nómina por pagador</title>${styles}<style>body{margin:0}main{max-width:1100px;margin:auto}</style></head><body><main id="screen"></main><iframe hidden title="Destino simulado de SplitX"></iframe><script type="module">
+const fixture = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nómina por pagador</title>${styles}<style>body{margin:0}#screen{max-width:1100px;margin:auto}</style></head><body><main id="screen"></main><iframe hidden title="Destino simulado de SplitX"></iframe><script type="module">
 import {state,stateManager} from '/js/modules/core/AppState.js';
 import * as UI from '/js/modules/features/payroll/PayrollUI.js';
 import {ProjectPayrollUIRuntime} from '/js/modules/features/payroll/ProjectPayrollUIRuntime.js';

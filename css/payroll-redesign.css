@@ -567,7 +567,8 @@
     display: grid;
     grid-template-columns:
         42px
-        112px
+        minmax(112px, 1.1fr)
+        minmax(132px, 1.25fr)
         minmax(54px, 0.65fr)
         minmax(68px, 0.9fr)
         minmax(76px, 1fr)
@@ -576,7 +577,7 @@
         30px;
     gap: 5px;
     align-items: center;
-    min-width: 560px;
+    min-width: 780px;
 }
 
 .payroll-loans-table__columns {
@@ -609,7 +610,7 @@
 .payroll-loan-group {
     box-sizing: border-box;
     max-width: 100%;
-    min-width: 560px;
+    min-width: 780px;
     overflow: hidden;
     border-bottom: 1px solid #303b46;
 }
@@ -668,6 +669,23 @@
 .payroll-loan-group__employee {
     min-width: 0;
 }
+
+.payroll-loan-group__status {
+    min-width: 0;
+    text-align: left;
+}
+
+.payroll-loan-group__status .payroll-status {
+    font-size: 0.7rem;
+    line-height: 1.35;
+}
+
+.payroll-loan-group__status .payroll-status > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.payroll-loan-group__status-empty { color: #87939e; }
 
 .payroll-loan-group__number {
     color: #f59e0b;
@@ -5710,6 +5728,35 @@
         grid-row: 2;
         align-self: start;
         border-top: 1px solid #303b46;
+    }
+
+    .payroll-loan-group__status { display: none; }
+
+    .payroll-loan-group.has-status > summary {
+        grid-template-areas:
+            "number employee discount selection"
+            "status status status status"
+            "count interest net disclosure";
+        grid-template-rows: auto auto auto;
+    }
+
+    .payroll-loan-group.has-status > summary::after { grid-row: 3; }
+
+    .payroll-loan-group.has-status .payroll-loan-group__status {
+        grid-area: status;
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        background: #111a26;
+    }
+
+    .payroll-loan-group__status::before {
+        content: attr(data-label);
+        color: #a4b1c7;
+        font-size: 0.65rem;
+        line-height: 1.45;
     }
 
     .payroll-loan-group__number {

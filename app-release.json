@@ -1,6 +1,15 @@
 {
-  "version": "1.7.136",
+  "version": "1.7.137",
   "changelog": [
+    {
+      "version": "1.7.137",
+      "date": "2026-11-13",
+      "title": "Estados de préstamos separados",
+      "items": [
+        "El paso 4 de nómina muestra las advertencias en una columna Estado, separada del nombre del empleado.",
+        "En celular, cada advertencia tiene su propia fila; los empleados sin advertencias conservan la tarjeta compacta."
+      ]
+    },
     {
       "version": "1.7.136",
       "date": "2026-11-13",

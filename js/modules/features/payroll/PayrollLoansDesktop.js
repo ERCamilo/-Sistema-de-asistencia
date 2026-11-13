@@ -319,7 +319,7 @@ function renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageD
         : group.warningState === 'missing' ? renderPayrollStatus('No está en la nómina')
         : group.warningState === 'zero' ? renderPayrollStatus(group.salaryAmounts.salaryAvailable > 0 ? 'Sin sueldo restante' : 'Sin sueldo disponible', 'attention') : '';
     return `
-        <details class="payroll-loan-group ${warningClass}"
+        <details class="payroll-loan-group ${warningClass} ${notice ? 'has-status' : ''}"
                  data-employee-id="${safe(group.employeeId)}"
                  data-payroll-loan-list-row="${safe(JSON.stringify(listRow))}"
                  ${matchesPayrollLoanList(listRow, filters) ? '' : 'hidden'}
@@ -333,8 +333,10 @@ function renderEmployeeGroup(group, expandedIds, customAmountDrafts, percentageD
                             <span>${safe(firstName)}</span>
                             <span>${safe(lastName)}</span>
                         </strong>
-                        ${notice}
                     </span>
+                </span>
+                <span class="payroll-loan-group__status ${notice ? 'has-notice' : ''}" data-label="Estado">
+                    ${notice || '<span class="payroll-loan-group__status-empty">—</span>'}
                 </span>
                 <span class="payroll-loan-group__metrics">
                     <span class="payroll-loan-group__count" data-label="Cargos">${group.selectedChargeCount}/${group.eligibleChargeCount}</span>
@@ -430,7 +432,7 @@ export function renderPayrollLoansDesktop({
             <p class="payroll-loan-list-filters__hint" data-payroll-loan-list-bulk-hint ${filtered ? '' : 'hidden'}>Quita los filtros del listado para usar las acciones en grupo.</p>
             <div class="payroll-loans-table">
                 <div class="payroll-loans-table__columns" aria-hidden="true">
-                    <span>N.º</span><span>Empleado</span>
+                    <span>N.º</span><span>Empleado</span><span>Estado</span>
                     <span class="payroll-loans-table__metric-columns">
                         <span>Préstamos</span><span>Interés</span>
                         <span>A descontar</span><span>Neto a pagar</span>
