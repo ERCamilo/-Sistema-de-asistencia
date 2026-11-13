@@ -27,6 +27,8 @@ import {
 } from './PayrollLoans.js';
 import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
+import { handlePayrollLoanListFilter, resetPayrollLoanListFilters } from './PayrollLoanListFilters.js';
+import { installPayrollMobileNavigation } from './PayrollMobileNavigation.js';
 import { getPayrollReviewEmployeeSelection, filterPayrollReviewEmployees, renderPayrollReviewEmployeeFilter,
     getPayrollReviewExclusions, payrollReviewExclusionKey, isPayrollReviewPartial } from './PayrollReviewEmployees.js';
 import { payrollWorkedDays, formatPayrollDays } from './PayrollWorkDays.js';
@@ -341,6 +343,7 @@ const _ACTION_MAP = {
 };
 
 function _handlePayrollClick(e) {
+    if (handlePayrollLoanListFilter(e)) return;
     const summary = e.target.closest('[data-payroll-leader-details]');
     if (summary) {
         e.preventDefault();
@@ -462,6 +465,8 @@ function _handlePayrollAdjustmentInput(e) {
 let _payrollDelegationAttached = false;
 
 export function init(ctx) {
+    installPayrollMobileNavigation();
+    resetPayrollLoanListFilters();
     unsubscribeRuntimeInvalidation?.();
     payrollLoanAmountDrafts.clear();
     payrollLoanPercentageDrafts.clear();
@@ -510,6 +515,8 @@ export function init(ctx) {
         document.addEventListener('input', _handlePayrollAdjustmentInput);
         document.addEventListener('input', _handlePayrollLoanPercentageInput);
         document.addEventListener('change', _handlePayrollLoanPercentageInput);
+        document.addEventListener('input', handlePayrollLoanListFilter);
+        document.addEventListener('change', handlePayrollLoanListFilter);
         document.addEventListener('toggle', event => rememberPayrollLeaderAdjustmentExpansion(event.target), true);
         document.addEventListener('change', _handlePayrollAdjustmentInput);
         _payrollDelegationAttached = true;
@@ -1150,6 +1157,9 @@ function ScopedPayrollTab(view) {
                         ${guideStep === 'loans' && activeRegistration ? renderPayrollRegistrationLoans(activeRegistration) : ''}
                         ${guideStep === 'loans' && !activeRegistration ? renderPayrollLoansDesktop({
                             employees: scopedEmployees,
+                            positions: state.positions || [],
+                            leaders: state.leaders || [],
+                            filterKey: JSON.stringify([view.projectId, period.periodStart, period.periodEnd, leaderFilter]),
                             selection: exportConfig.payrollLoanSelection || [],
                             payrollRows: getScopedReviewRows(view, state, { withEmployeeSelection: false }),
                             expandedEmployeeIds: exportConfig.payrollLoanExpandedEmployees || [],
@@ -1842,6 +1852,9 @@ function PayrollGeneratorTab() {
 
                         ${activeRegistration ? renderPayrollRegistrationLoans(activeRegistration) : `${renderPayrollLoansDesktop({
                             employees: filteredPayrollEmployees,
+                            positions: state.positions || [],
+                            leaders: state.leaders || [],
+                            filterKey: JSON.stringify(['legacy', state.exportConfig.periodStart, state.exportConfig.periodEnd, state.exportConfig.leaderFilter || 'all']),
                             selection: state.exportConfig.payrollLoanSelection || [],
                             payrollRows: exportData,
                             expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || [],

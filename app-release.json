@@ -1,6 +1,17 @@
 {
-  "version": "1.7.135",
+  "version": "1.7.136",
   "changelog": [
+    {
+      "version": "1.7.136",
+      "date": "2026-11-13",
+      "title": "Préstamos de nómina ordenados",
+      "items": [
+        "El paso 4 de nómina ordena los empleados por número de ficha.",
+        "Busca por nombre o número y filtra el listado por líder que paga, posición y cobros seleccionados.",
+        "Los filtros conservan los cobros, los totales y las ediciones. Quita los filtros para usar acciones en grupo sin afectar empleados ocultos.",
+        "En celular, Atrás y Continuar quedan fijos sobre la navegación y se adaptan al teclado, sin ocultar el final del contenido."
+      ]
+    },
     {
       "version": "1.7.135",
       "date": "2026-11-13",

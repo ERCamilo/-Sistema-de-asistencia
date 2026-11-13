@@ -520,6 +520,48 @@
     background: #111920;
 }
 
+.payroll-loan-list-filters {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.5fr) repeat(3, minmax(120px, 1fr));
+    gap: 12px;
+    padding: 16px;
+    background: var(--panel-2, #1b273d);
+    border-radius: 12px;
+}
+.payroll-loan-list-filters label { display: grid; gap: 6px; min-width: 0; }
+.payroll-loan-list-filters label > span { color: var(--text-dim, #a4b1c7); font-size: 12px; font-weight: 600; }
+.payroll-loan-list-filters input,
+.payroll-loan-list-filters select,
+.payroll-loan-list-filters button {
+    box-sizing: border-box;
+    min-height: 44px;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border, #2a3a56);
+    border-radius: 8px;
+    background: var(--panel, #131d2e);
+    color: var(--text, #f4f6fa);
+    font: inherit;
+    font-size: 14px;
+}
+.payroll-loan-list-filters input::placeholder { color: var(--text-dim, #a4b1c7); }
+.payroll-loan-list-filters button { width: auto; background: var(--hover, #24334e); cursor: pointer; }
+.payroll-loan-list-filters :is(input, select, button):focus-visible { outline: 2px solid var(--accent, #06b6d4); outline-offset: 2px; }
+.payroll-loan-list-filters__footer { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.payroll-loan-list-filters__footer p { margin: 0; color: var(--text, #f4f6fa); font-size: 13px; }
+.payroll-loan-list-filters__hint { grid-column: 1 / -1; margin: 0; color: var(--text-dim, #a4b1c7); font-size: 12px; }
+.payroll-loans-desktop [hidden] { display: none !important; }
+@media (max-width: 900px) {
+    .payroll-loan-list-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 380px) {
+    .payroll-loan-list-filters { padding: 12px; gap: 10px; }
+    .payroll-loan-list-filters__search { grid-column: 1 / -1; }
+    .payroll-loan-list-filters__footer { align-items: flex-start; flex-direction: column; }
+}
+
 .payroll-loans-table__columns,
 .payroll-loan-group > summary {
     display: grid;
@@ -1786,7 +1828,7 @@
 
 .payroll-guide-navigation__back {
     border: 1px solid #394550;
-    background: transparent;
+    background: #24334e;
     color: #a8b2bb;
 }
 
@@ -6029,6 +6071,11 @@
     .payroll-guide-content {
         position: static;
         width: 100%;
+        padding-bottom: calc(96px + var(--payroll-viewport-inset, 0px));
+    }
+
+    .payroll-guide-content :is(input, select, textarea, button, .payroll-loan-group) {
+        scroll-margin-block-end: calc(96px + max(var(--payroll-mobile-nav-space, 0px), var(--payroll-viewport-inset, 0px)));
     }
 
     .payroll-guide-summary {
@@ -6156,15 +6203,30 @@
     }
 
     .payroll-guide-navigation {
-        position: sticky;
+        position: fixed;
         z-index: 20;
-        bottom: var(--bottom-nav-offset, 85px);
-        margin: 18px -12px -12px;
+        left: max(12px, env(safe-area-inset-left));
+        right: max(12px, env(safe-area-inset-right));
+        bottom: max(var(--payroll-mobile-nav-space, max(8px, env(safe-area-inset-bottom))), calc(var(--payroll-viewport-inset, 0px) + max(8px, env(safe-area-inset-bottom))));
+        margin: 0;
         padding: 10px 12px;
         border: 1px solid #303b46;
         border-radius: 9px;
         background: #151c22;
         box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.28);
+    }
+
+    body:has(.bottom-nav) .payroll-generator {
+        --payroll-mobile-nav-space: calc(var(--bottom-nav-offset, 85px) + env(safe-area-inset-bottom));
+    }
+    body:has(.bnav) .payroll-generator {
+        --payroll-mobile-nav-space: calc(110px + env(safe-area-inset-bottom));
+    }
+    body:has(.bnav-sub):not(.bnav-sub-tucked) .payroll-generator {
+        --payroll-mobile-nav-space: calc(158px + env(safe-area-inset-bottom));
+    }
+    body.bottom-nav-hidden .payroll-generator {
+        --payroll-mobile-nav-space: max(8px, env(safe-area-inset-bottom));
     }
 
     .payroll-guide-navigation button {
