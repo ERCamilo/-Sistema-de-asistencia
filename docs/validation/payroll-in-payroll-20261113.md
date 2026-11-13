@@ -4,6 +4,8 @@ Al cambiar el líder en la revisión de nómina, se selecciona **En nómina**. E
 
 Se conservan las vistas explícitas «Todos sus puestos» y «Solo puestos de…». La primera mantiene su alcance amplio anterior para registros antiguos; para preparar pagos por líder se usa «En nómina».
 
+Un empleado pausado también se incluye si tiene asistencia presente y vigente dentro del período, tanto en nómina por obra como en el modo anterior. Conserva su estado pausado y se respetan el pagador registrado y las exclusiones manuales. No se recuperan asistencias eliminadas, ausencias ni registros fuera del período. Los pausados sin trabajo mantienen la excepción existente de ajustes individuales seleccionados. Los dos motores de cálculo descartan además registros con `deletedAt`, aunque conserven `present: true`: una prueba con 4 horas válidas y 8 eliminadas reprodujo un bruto incorrecto de $1,200 y verifica ahora $400, sin alterar los registros originales.
+
 La casilla de cada empleado lo excluye únicamente del reporte/exportación actuales. Su fila queda visible y tachada, con «Excluido de esta nómina», y se puede reactivar individualmente o con «Restablecer». Las exclusiones tienen clave de obra, período y líder; no se borran fichas ni asistencias y no se cambia `employee.active`. La selección existente «Solo empleados seleccionados» continúa disponible y se combina con las exclusiones.
 
 Los totales de pantalla, PDF, JSON y envío a SplitX parten de las mismas filas incluidas. El ajuste de personal pagado por otros líderes conserva su resumen completo, se identifica como tal en una vista parcial y no se convierte en un pago individual. Una vista con exclusiones no permite confirmar ni cerrar la nómina completa.
@@ -18,7 +20,7 @@ SplitX conserva el contrato `sa-splitx-payroll/v1` y su array de empleados. Se a
 
 ## Comprobaciones
 
-Resultado local: **722 suites / 7433 pruebas Jest pasan**. Pasan los controles existentes de nómina en cuatro anchuras y el nuevo recorrido a 320/390/1280 px, incluida la comprobación WCAG A/AA y el bridge local de SplitX. El build de producción y el control de escrituras a estado pasan sin deuda nueva.
+Resultado local: **723 suites / 7444 pruebas Jest pasan**. Pasan los controles existentes de nómina en cuatro anchuras y el nuevo recorrido a 320/390/1280 px, incluida la comprobación WCAG A/AA y el bridge local de SplitX. El build de producción y el control de escrituras a estado pasan sin deuda nueva.
 
 ```sh
 npm test -- --runInBand

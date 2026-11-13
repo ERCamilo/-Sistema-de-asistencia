@@ -70,8 +70,8 @@ export function getPayrollEmployeesForPeriodWithContext(ctx, periodStart, period
             .map(position => position.id)
     );
     return (ctx.employees || []).filter(employee => {
-        if (employee.active === false && !adjustedInactiveIds.has(String(employee.id))) return false;
         const presentRecords = getPresentAttendanceInPeriodWithContext(ctx, employee, periodStart, periodEnd);
+        if (employee.active === false && !presentRecords.length && !adjustedInactiveIds.has(String(employee.id))) return false;
         if (leaderFilter === 'all') return true;
         const configured = matchesConfiguredPayer(employee, presentRecords, ctx.positions || [], leaderFilter);
         if (configured !== null) return configured;
@@ -167,13 +167,13 @@ export function getPayrollEmployeesForPeriod(state, periodStart, periodEnd) {
     );
 
     return (state?.employees || []).filter(employee => {
-        if (employee.active === false && !adjustedInactiveIds.has(String(employee.id))) return false;
         const presentRecords = getPresentAttendanceInPeriod(
             employee,
             periodStart,
             periodEnd,
             state?.attendance || {}
         );
+        if (employee.active === false && !presentRecords.length && !adjustedInactiveIds.has(String(employee.id))) return false;
         if (leaderFilter === 'all') return true;
         const configured = matchesConfiguredPayer(employee, presentRecords, state.positions || [], leaderFilter);
         if (configured !== null) return configured;

@@ -18,7 +18,7 @@ import {setProjectsEnabled} from '/js/modules/config/FeatureFlags.js';
 import {replaceEntityScope} from '/js/modules/features/projects/EntityProjectScope.js';
 const config={projectId:'P',updatedAt:1,schemaVersion:1,regularHoursPerDay:8,overtimeFactor:1.5,holidayFactor:2,holidays:[],payPeriod:{periodStart:'2026-11-01',periodLength:15,payDay:'2026-11-16'},payrollDefaults:{version:2,bonuses:[],deductions:[]}};
 stateManager.setState({settings:{...state.settings,...config},employees:[
- {id:'juan',number:'113',name:'Juan Ejemplo',projectId:'P',active:true,positions:['p1','p2'],positionAssignments:{p2:{isLoanPosition:true,workLeaderId:'L2',payerLeaderId:'L1'}},loans:[]},
+ {id:'juan',number:'113',name:'Juan Ejemplo',projectId:'P',active:false,positions:['p1','p2'],positionAssignments:{p2:{isLoanPosition:true,workLeaderId:'L2',payerLeaderId:'L1'}},loans:[]},
  {id:'rosa',number:'114',name:'Rosa Ejemplo',projectId:'P',active:true,positions:['p3'],loans:[]},
  {id:'pedro',number:'115',name:'Pedro Ejemplo',projectId:'P',active:true,positions:['p1'],loans:[]}],
  positions:[{id:'p1',name:'Albañil',projectId:'P',leaderId:'L1',hourlyRate:100,workingDays:[0,1,2,3,4,5,6]},
@@ -70,6 +70,7 @@ const server = http.createServer((req, res) => {
             assert.deepEqual(exported.map(row => row.sourceEmployeeId), ['juan', 'pedro']);
             assert.equal(exported[0].monto, 1450); assert.equal(exported[0].workDays.worked, 1);
             assert.equal(exported[0].workDays.overtime, 0.25);
+            assert.equal(await page.evaluate(() => auditState.employees.find(employee => employee.id === 'juan').active), false);
             assert.equal(await page.$eval('[data-payroll-total-days]', el => el.textContent), '2');
             const detail = '.payroll-review-table__row:has([data-id="juan"]) .payroll-breakdown-details';
             await page.$eval(detail, el => { el.open = true; });

@@ -279,6 +279,30 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         expect(net(await exported())).toBe(1600);
     });
 
+    test('paused staff with work in the period stay in payroll and SplitX under their payer', async () => {
+        await configureLoan();
+        stateManager.batchSetState(raw => {
+            raw.employees[0].active = false;
+            raw.employees.push({ id: 'paused-no-work', number: '099', name: 'Sin trabajo', projectId: P, active: false, positions: ['POS-1'] });
+        });
+        await PayrollUI.refreshScopedPayrollPreview({ periodStart: '2026-03-01', periodEnd: '2026-03-15' });
+        PayrollUI.setPayrollGuideStep('review'); PayrollUI.setLeaderFilter('L1');
+        const output = await exported();
+        expect(output.map(row => row.sourceEmployeeId)).toEqual(['E1']);
+        expect(output[0]).toMatchObject({ bruto: 1600, monto: 1600, workDays: { worked: 2 } });
+        const host = document.createElement('div'); host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.querySelector('[data-id="E1"][type="checkbox"]').checked).toBe(true);
+        expect(host.querySelector('tfoot .is-net').textContent).toBe('$1,600.00');
+        PayrollUI.togglePayrollReviewEmployee('E1', false); expect(await exported()).toEqual([]);
+        PayrollUI.togglePayrollReviewEmployee('E1', true); expect(net(await exported())).toBe(1600);
+        PayrollUI.setLeaderFilter('L2');
+        expect((await exported()).map(row => row.sourceEmployeeId)).toEqual(['E2']);
+        host.innerHTML = PayrollUI.PayrollTab();
+        expect(host.querySelector('.payroll-leader-adjustment').textContent).toContain('Ana Uno');
+        expect(appState.employees[0].active).toBe(false);
+        expect(appState.employees.find(employee => employee.id === 'paused-no-work').active).toBe(false);
+    });
+
     test('excluding staff retains the unchecked row, changes SplitX, and does not alter attendance or the canonical preview', async () => {
         await configureLoan();
         PayrollUI.setPayrollGuideStep('review'); PayrollUI.setLeaderFilter('L1');
