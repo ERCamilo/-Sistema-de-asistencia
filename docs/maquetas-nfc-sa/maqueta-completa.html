@@ -1,0 +1,2043 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqueta NFC en SA</title>
+<style>/* ============================================================
+   settings.css — Estilo visual unificado para Ajustes
+   Replica el vocabulario visual del SyncCenter modal.
+   ============================================================ */
+
+:root {
+    --stg-bg: #0f172a;
+    --stg-card-bg: #111827;
+    --stg-border: rgba(148, 163, 184, 0.15);
+    --stg-border-card: #243044;
+    --stg-text-primary: #f8fafc;
+    --stg-text-secondary: #94a3b8;
+    --stg-text-muted: #64748b;
+    --stg-accent: #06b6d4;
+    --stg-accent-glow: rgba(6, 182, 212, 0.15);
+    --stg-success: #10b981;
+    --stg-warning: #f59e0b;
+    --stg-danger: #ef4444;
+    --stg-radius: 14px;
+    --stg-radius-sm: 10px;
+}
+
+/* ─── Panel principal de seccion ─── */
+.stg-panel {
+    background: var(--stg-bg);
+    border: 1px solid var(--stg-border);
+    border-radius: var(--stg-radius);
+    padding: 18px;
+    margin-bottom: 16px;
+}
+
+.stg-panel.accent {
+    border-color: var(--stg-accent);
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.06);
+}
+
+.stg-panel.connected {
+    border-color: #4285F4;
+}
+
+.stg-access-address dl { display: grid; gap: 10px; margin: 0; }
+.stg-access-address dt { margin-bottom: 4px; color: var(--stg-text-secondary); font-size: 0.75rem; }
+.stg-access-address dd { margin: 0; min-width: 0; }
+.stg-access-address code {
+    display: block;
+    color: var(--stg-text-primary);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+/* ─── Header de seccion ─── */
+.stg-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.stg-header h3 {
+    margin: 0;
+    color: var(--stg-text-primary);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.stg-header p {
+    margin: 4px 0 0;
+    color: var(--stg-text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.35;
+}
+
+/* ─── Barra de estado (3 columnas) ─── */
+.stg-status-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.stg-status-cell {
+    background: var(--stg-card-bg);
+    border: 1px solid var(--stg-border-card);
+    border-radius: var(--stg-radius-sm);
+    padding: 10px;
+    min-width: 0;
+}
+
+.stg-status-cell .stg-label {
+    display: block;
+    color: var(--stg-text-muted);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    font-weight: 800;
+    margin-bottom: 4px;
+    letter-spacing: 0.03em;
+}
+
+.stg-status-cell .stg-value {
+    display: block;
+    color: var(--stg-text-primary);
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stg-status-cell .stg-value.success { color: var(--stg-success); }
+.stg-status-cell .stg-value.warning { color: var(--stg-warning); }
+.stg-status-cell .stg-value.danger  { color: var(--stg-danger); }
+.stg-status-cell .stg-value.accent  { color: var(--stg-accent); }
+
+.stg-diagnostic-detail {
+    font-size: 0.7rem;
+    color: var(--stg-text-muted);
+    margin-top: 5px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+[data-settings-sync-card] .stg-value {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.stg-diagnostic-refresh {
+    margin-top: 8px;
+    padding: 5px 8px;
+    border: 1px solid var(--stg-border-card);
+    border-radius: 6px;
+    background: var(--stg-card-bg);
+    color: var(--stg-text-primary);
+    font-size: 0.7rem;
+    cursor: pointer;
+}
+
+/* ─── Subcard interna ─── */
+.stg-card {
+    background: var(--stg-card-bg);
+    border: 1px solid var(--stg-border-card);
+    border-radius: var(--stg-radius-sm);
+    padding: 14px;
+}
+
+.stg-card-title {
+    color: var(--stg-text-secondary);
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 10px;
+}
+
+/* ─── Switch row (toggle on/off) ─── */
+.stg-switch-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    text-align: left;
+    background: var(--stg-card-bg);
+    border: 1px solid var(--stg-border-card);
+    border-radius: var(--stg-radius-sm);
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+    margin-bottom: 8px;
+}
+
+.stg-switch-row:last-child {
+    margin-bottom: 0;
+}
+
+.stg-switch-row:hover {
+    border-color: #334155;
+}
+
+.stg-switch-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
+}
+
+.stg-switch-copy strong {
+    color: var(--stg-text-primary);
+    font-size: 0.86rem;
+    font-weight: 700;
+}
+
+.stg-switch-copy small {
+    color: var(--stg-text-secondary);
+    font-size: 0.73rem;
+    line-height: 1.35;
+}
+
+/* El switch track */
+.stg-switch-track {
+    flex-shrink: 0;
+    width: 44px;
+    height: 24px;
+    background: #334155;
+    border-radius: 24px;
+    position: relative;
+    border: 1.5px solid #334155;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stg-switch-handle {
+    width: 18px;
+    height: 18px;
+    background: #94a3b8;
+    border-radius: 50%;
+    position: absolute;
+    top: 1.5px;
+    left: 2px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Estado activo */
+.stg-switch-row.is-active .stg-switch-track {
+    background: var(--stg-success);
+    border-color: var(--stg-success);
+}
+
+.stg-switch-row.is-active .stg-switch-handle {
+    left: 22px;
+    background: #ffffff;
+}
+
+/* Hidden real checkbox */
+.stg-switch-row input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+/* ─── Opciones dependientes de marca de agua ─── */
+.stg-watermark-config {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 0 0 8px 18px;
+    border-left: 3px solid var(--stg-accent);
+}
+
+.stg-choice-fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.stg-choice-fieldset legend {
+    margin-bottom: 8px;
+    color: var(--stg-text-secondary);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.stg-choice-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.stg-choice-option {
+    min-height: 40px;
+    display: grid;
+    place-items: center;
+    padding: 8px 10px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #1e293b;
+    color: #cbd5e1;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.stg-choice-option:hover {
+    border-color: #475569;
+    color: #f8fafc;
+}
+
+.stg-choice-option.is-selected {
+    border-color: var(--stg-accent);
+    background: var(--stg-accent);
+    color: #07131b;
+}
+
+.stg-choice-option span {
+    font-size: 0.76rem;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.stg-choice-option input[type="radio"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.stg-choice-option:focus-within {
+    outline: 2px solid #67e8f9;
+    outline-offset: 2px;
+}
+
+/* ─── Grid de acciones (2x2) ─── */
+.stg-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.stg-action {
+    border: 1px solid #334155;
+    background: var(--stg-card-bg);
+    color: #e2e8f0;
+    border-radius: var(--stg-radius-sm);
+    padding: 13px;
+    display: grid;
+    grid-template-columns: 38px 1fr;
+    gap: 11px;
+    align-items: center;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.stg-action:hover,
+.stg-action:focus-visible {
+    border-color: var(--stg-accent);
+    background: rgba(6, 182, 212, 0.08);
+    box-shadow: inset 0 0 0 1px var(--stg-accent-glow);
+    outline: none;
+}
+
+.stg-action-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: var(--stg-radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 182, 212, 0.12);
+    color: var(--stg-accent);
+    font-size: 1.15rem;
+    font-weight: 800;
+}
+
+.stg-action-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.stg-action-copy strong {
+    color: var(--stg-text-primary);
+    font-size: 0.88rem;
+}
+
+.stg-action-copy small {
+    color: var(--stg-text-secondary);
+    font-size: 0.74rem;
+    line-height: 1.35;
+}
+
+/* Variante secundaria (lista vertical) */
+.stg-actions-list {
+    display: grid;
+    gap: 10px;
+}
+
+.stg-action.secondary {
+    grid-template-columns: 34px 1fr;
+    padding: 11px 12px;
+}
+
+.stg-action.secondary .stg-action-icon {
+    width: 34px;
+    height: 34px;
+    color: var(--stg-text-secondary);
+    background: rgba(148, 163, 184, 0.1);
+}
+
+/* Variante de color para acciones de Firebase */
+.stg-action-icon.blue {
+    background: rgba(66, 133, 244, 0.12);
+    color: #4285F4;
+}
+
+.stg-action-icon.green {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--stg-success);
+}
+
+.stg-action-icon.cyan {
+    background: rgba(6, 182, 212, 0.12);
+    color: var(--stg-accent);
+}
+
+/* Accion que abarca 2 columnas */
+.stg-action.span-2 {
+    grid-column: span 2;
+}
+
+/* ─── Zona de peligro ─── */
+.stg-danger-zone {
+    padding: 14px;
+    background: rgba(239, 68, 68, 0.05);
+    border-radius: var(--stg-radius-sm);
+    border: 1px dashed rgba(239, 68, 68, 0.3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-top: 14px;
+}
+
+.stg-danger-zone-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+.stg-danger-zone-title {
+    color: var(--stg-danger);
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+}
+
+.stg-danger-zone-desc {
+    font-size: 0.75rem;
+    color: var(--stg-text-secondary);
+}
+
+/* ─── Divider ─── */
+.stg-divider {
+    border: none;
+    border-top: 1px solid var(--stg-border-card);
+    margin: 14px 0;
+}
+
+/* ─── Info callout (tip box) ─── */
+.stg-callout {
+    font-size: 0.75rem;
+    color: var(--stg-text-muted);
+    line-height: 1.6;
+    background: rgba(59, 130, 246, 0.08);
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 3px solid #3b82f6;
+}
+
+.stg-callout strong {
+    color: #93c5fd;
+}
+
+/* ─── Footer de version ─── */
+.stg-footer {
+    margin-top: 24px;
+    padding: 14px;
+    border-top: 1px solid var(--stg-border-card);
+    text-align: center;
+    color: var(--stg-text-muted);
+    font-size: 0.75rem;
+}
+
+.stg-footer strong {
+    color: var(--stg-text-secondary);
+}
+
+/* Voz (General): textos de apoyo como los demás paneles. */
+.stg-voice-note {
+    margin: 10px 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--stg-text-muted);
+}
+
+/* Versión: 7 toques activan el modo desarrollador (DeveloperMode.js). */
+.stg-version-tap {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+}
+
+/* ─── User card (connected account) ─── */
+.stg-user-card {
+    background: rgba(16, 185, 129, 0.08);
+    padding: 14px;
+    border-radius: var(--stg-radius-sm);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.stg-user-card img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #334155;
+    flex-shrink: 0;
+}
+
+.stg-user-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.stg-user-card-name {
+    color: var(--stg-text-primary);
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.stg-user-card-email {
+    color: var(--stg-text-secondary);
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ─── Progress bar mini ─── */
+.stg-progress {
+    background: #1e293b;
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 6px 0;
+}
+
+.stg-progress-bar {
+    height: 100%;
+    transition: width 0.3s;
+    border-radius: 2px;
+}
+
+/* ─── Snapshot entry ─── */
+.stg-snapshot {
+    background: var(--stg-card-bg);
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--stg-border-card);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.stg-snapshot-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* ─── Login CTA (Google) ─── */
+.stg-login-cta {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 14px;
+    background: white;
+    color: #374151;
+    font-weight: 600;
+    border: 1px solid #d1d5db;
+    border-radius: var(--stg-radius-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.stg-login-cta:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 640px) {
+    .stg-watermark-config {
+        grid-template-columns: 1fr;
+        margin-left: 0;
+    }
+
+    .stg-status-bar {
+        grid-template-columns: 1fr;
+    }
+
+    .stg-actions-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .stg-action.span-2 {
+        grid-column: span 1;
+    }
+
+    .stg-danger-zone {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+    }
+}
+
+/* Pending validated edits: leave room for mobile navigation and safe area. */
+#settings-draft-bar {
+    position: fixed;
+    left: 50%;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    width: max-content;
+    max-width: calc(100vw - 24px);
+    box-sizing: border-box;
+}
+#settings-draft-bar [data-settings-draft-message] {
+    flex: 1 1 180px;
+    min-width: 0;
+    color: #e2e8f0;
+    font-size: 0.85rem;
+}
+#settings-draft-bar button { flex: 0 0 auto; }
+@media (max-width: 1023px) {
+    body.has-sidebar:not(.bottom-nav-hidden) #settings-draft-bar {
+        bottom: calc(82px + env(safe-area-inset-bottom));
+    }
+    #settings-draft-bar { width: calc(100vw - 24px); }
+    #settings-draft-bar [data-settings-draft-message] { flex-basis: 100%; }
+}
+
+.stg-account-avatar {
+    width: 40px;
+    height: 40px;
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: #155e75;
+    color: #ecfeff;
+    font-weight: 700;
+    overflow: hidden;
+}
+.stg-account-avatar img { position: absolute; inset: 0; object-fit: cover; }
+.stg-switch-row:focus-within { outline: 2px solid #67e8f9; outline-offset: 2px; }
+.stg-choice-copy { display: grid; gap: 4px; }
+.stg-choice-copy small { font-weight: 400; line-height: 1.4; }
+.stg-calendar-grid > * { min-width: 0; }
+@media (max-width: 380px) {
+    .stg-calendar-grid > * { padding: 4px !important; }
+}
+
+/* Save modes describe intent; outcomes still come from confirmed persistence. */
+.settings-save-mode {
+    display: inline-block;
+    margin: 4px 0 4px 8px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: var(--panel-2);
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+.settings-save-guide {
+    margin: 0 0 16px;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+.settings-field-error {
+    margin: 8px 0;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--bad) 15%, var(--panel));
+    border-left: 3px solid var(--bad);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+/* Settings uses canonical tokens locally; other screens keep their own scope. */
+#settings-screen {
+    --stg-bg: var(--panel);
+    --stg-card-bg: var(--panel-2);
+    --stg-border-card: var(--border);
+    --stg-text-primary: var(--text);
+    --stg-text-secondary: var(--text-dim);
+    --stg-text-muted: var(--text-dim);
+    --stg-accent: var(--accent);
+    --stg-success: var(--good);
+    --stg-warning: var(--warn);
+    --stg-danger: var(--bad);
+    overflow-wrap: anywhere;
+}
+#settings-screen > .stg-header h3 { font-size: 1.5rem; }
+#settings-screen .stg-header { flex-wrap: wrap; }
+#settings-screen .stg-header > div { min-width: 0; flex: 1 1 12rem; }
+#settings-screen .stg-header h3 > span { min-width: 0; }
+#settings-screen button {
+    min-height: 44px;
+    max-width: 100%;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+}
+#settings-screen .form-input { min-width: 0 !important; max-width: 100%; box-sizing: border-box; }
+#settings-screen .btn-primary, #settings-draft-bar .btn-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+}
+#settings-screen .btn-danger, #settings-screen [data-settings-action="delete-cloud-data"],
+#settings-screen [data-settings-action="delete-snapshot"] {
+    background: var(--bad) !important;
+    color: var(--on-accent) !important;
+    border-color: var(--bad) !important;
+}
+#settings-screen [data-settings-action="logout-firebase"],
+#settings-screen [data-settings-action="restore-snapshot"] {
+    background: var(--panel-2) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+}
+#settings-draft-bar .btn:not(.btn-primary) { background: var(--panel-2); color: var(--text); }
+#settings-draft-bar button { min-height: 44px; max-width: 100%; white-space: normal; }
+#settings-screen .nav-tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+    gap: 8px;
+    overflow: visible;
+}
+#settings-screen .nav-tab { min-width: 0; padding: 10px; min-height: 44px; }
+#settings-screen .nav-tab .tab-text { display: inline; }
+#settings-screen .nav-tab.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.settings-tool-group { margin-top: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2); }
+.settings-tool-group > summary {
+    min-height: 44px;
+    padding: 14px 16px;
+    cursor: pointer;
+    color: var(--text);
+}
+.settings-tool-group > summary span { display: inline-grid; gap: 5px; }
+.settings-tool-group > summary small { color: var(--text-dim); font-size: 0.8rem; line-height: 1.5; }
+.settings-tool-content { padding: 0 14px 14px; }
+.settings-tool-content > .stg-card { margin-bottom: 14px; }
+.settings-calendar-scroll { overflow-x: auto; }
+.settings-calendar-scroll .stg-calendar-grid { min-width: 14rem; }
+@media (max-width: 600px) {
+    #settings-screen .nav-tabs { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); }
+    #settings-screen .nav-tab { justify-content: center; }
+    #settings-screen .stg-header > button { flex: 1 1 100%; }
+}
+
+#settings-screen button { min-width: 44px; }
+#settings-screen .stg-choice-option { min-height: 44px; }
+#settings-screen .settings-inline-action { flex-wrap: wrap; gap: 12px; }
+#settings-screen .settings-inline-action > span { flex: 1 1 12rem; min-width: 0; }
+#settings-screen .settings-inline-action > button { flex: 0 1 auto; min-width: min(100%, 12rem); }
+#settings-screen .stg-snapshot { flex-wrap: wrap; }
+#settings-screen .settings-calendar-modes {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 3.75rem), 1fr));
+}
+#settings-screen .form-input::placeholder { color: var(--text-dim); opacity: 1; }
+
+#settings-screen .btn-secondary {
+    background: var(--panel-2) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+}
+
+#settings-screen .form-label { flex-wrap: wrap; }
+#settings-screen .form-label .settings-save-mode { flex-shrink: 0; max-width: 100%; }
+#settings-screen [hidden] { display: none !important; }
+
+#settings-screen .stg-storage-summary .stg-value { font-size: 1.1rem; }
+#settings-screen .stg-storage-summary .btn { margin-top: 8px; font-size: 0.8rem; }
+#settings-screen [data-settings-storage-section] > [data-settings-storage-card] {
+    padding: 0 0 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+}
+
+#settings-screen .settings-device-status { margin: 0 0 16px; }
+#settings-screen .settings-device-status > summary { font-size: 0.9rem; }
+#settings-screen .settings-sync-summary.warning,
+#settings-screen .settings-sync-summary.danger { font-weight: 700; }
+
+.nfc-test-entry > p { color: var(--stg-text-secondary); line-height: 1.5; }
+.nfc-test-entry > small { display: block; margin-top: 10px; color: var(--stg-text-secondary); }
+.nfc-test-entry button { min-height: 44px; gap: 8px; white-space: normal; }
+.nfc-test-entry .btn-primary { background: var(--accent, #06b6d4); color: var(--on-accent, #081a24); }
+.nfc-test-dialog {
+    --nfc-panel: var(--panel, #131d2e);
+    --nfc-surface: var(--panel-2, #1b273d);
+    --nfc-text: var(--text, #f4f6fa);
+    --nfc-dim: var(--text-dim, #a4b1c7);
+    --nfc-border: var(--border, #2a3a56);
+    padding: 0; width: min(480px, calc(100vw - 24px)); max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px); margin: auto; border: 1px solid var(--nfc-border);
+    border-radius: 20px; color: var(--nfc-text); background: var(--nfc-panel); overflow: hidden;
+    box-shadow: 0 24px 60px -24px #000c; font-family: inherit;
+}
+.nfc-test-dialog[open] { display: flex; flex-direction: column; }
+.nfc-test-dialog::backdrop { background: #07101cbd; }
+.nfc-test-dialog > header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--nfc-border); }
+.nfc-test-dialog h2 { flex: 1; min-width: 0; margin: 0; font-size: 23px; }
+.nfc-test-dialog button { min-height: 44px; min-width: 44px; padding: 10px 14px; border: 0; border-radius: 12px; color: var(--nfc-text); background: var(--nfc-surface); font: inherit; font-weight: 600; cursor: pointer; }
+.nfc-test-dialog button:disabled { opacity: .5; cursor: default; }
+.nfc-test-dialog button:focus-visible { outline: 3px solid var(--accent, #06b6d4); outline-offset: 2px; }
+.nfc-test-dialog button.nfc-test-primary { background: var(--accent, #06b6d4); color: var(--on-accent, #081a24); }
+.nfc-test-dialog [hidden] { display: none !important; }
+.nfc-test-body { overflow-y: auto; min-height: 0; padding: 18px; overscroll-behavior: contain; }
+.nfc-test-body p { margin: 0 0 14px; line-height: 1.5; }
+.nfc-test-body > p:first-child, .nfc-test-body small { color: var(--nfc-dim); }
+.nfc-test-body small { display: block; margin-top: 16px; font-size: 12px; line-height: 1.5; }
+.nfc-test-result { display: grid; gap: 8px; padding: 16px; margin-bottom: 16px; border-radius: 12px; background: var(--nfc-surface); }
+.nfc-test-result span { color: var(--nfc-dim); font-size: 12px; }
+.nfc-test-result output { font-family: 'IBM Plex Mono', monospace; font-size: clamp(16px, 5vw, 23px); overflow-wrap: anywhere; user-select: text; }
+.nfc-test-dialog [role="alert"] { background: #57262c; color: #ffe3e5; padding: 12px; border-radius: 12px; }
+.nfc-test-dialog summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.nfc-test-dialog pre { padding: 12px; border-radius: 12px; background: var(--nfc-surface); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
+.nfc-test-dialog footer { flex-shrink: 0; display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 18px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--nfc-border); }
+.nfc-test-dialog footer button { flex: 1 1 130px; }
+.nfc-settings-fields { display: grid; gap: 10px; margin-bottom: 20px; }
+.nfc-settings-fields > label:not(.stg-switch-row), .nfc-settings-fields div > label { display: block; font-size: 13px; font-weight: 600; }
+.nfc-settings-fields select, .nfc-settings-fields input[type="url"] { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; border-radius: 10px; border: 1px solid var(--border, #2a3a56); padding: 10px; background: var(--panel-2, #1b273d); color: var(--text, #f4f6fa); font: inherit; }
+.nfc-settings-fields small { line-height: 1.5; color: var(--stg-text-secondary, #a4b1c7); }
+.nfc-settings-fields [hidden] { display: none !important; }
+.nfc-settings-fields [data-nfc-setting-action] { margin-top: 10px; padding: 10px 16px; min-height: 44px; border: 0; border-radius: 10px; font: inherit; color: var(--text, #f4f6fa); background: var(--panel-2, #1b273d); }
+.nfc-settings-fields [data-nfc-settings-status]:empty { display: none; }
+.nfc-endpoint { overflow-wrap: anywhere; word-break: break-word; }
+.employee-nfc-entry { display: grid; gap: 8px; margin: 16px 0; }
+.employee-nfc-entry[hidden] { display: none !important; }
+.employee-nfc-entry button { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; border: 0; border-radius: 12px; padding: 12px; background: var(--panel-2, #1b273d); color: var(--text, #f4f6fa); font: inherit; cursor: pointer; }
+.employee-nfc-entry button:disabled { opacity: .5; }
+.employee-nfc-entry small { font-size: 12px; color: var(--text-dim, #a4b1c7); }
+.nfc-person { display: grid; gap: 5px; margin-bottom: 10px; }
+.nfc-person strong { font-size: 18px; overflow-wrap: anywhere; }
+.nfc-person span { color: var(--nfc-dim); }
+.nfc-mode { display: inline-block; background: var(--nfc-surface); padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+.nfc-test-body [data-nfc-test="enrollment"] { margin-bottom: 18px; }
+.nfc-test-body [data-nfc-test="enrollment"] small { margin: 10px 0; }
+.nfc-enrollment-status { margin-top: 14px !important; }
+.nfc-enrollment-error { background: #57262c; color: #ffe3e5; border-radius: 12px; padding: 12px; }
+.nfc-test-dialog[data-nfc-mode="enrollment"] .nfc-test-body > p:first-of-type,
+.nfc-test-dialog[data-nfc-mode="enrollment"][data-nfc-available="true"] [data-nfc-test="support"],
+.nfc-test-dialog[data-nfc-mode="enrollment"][data-nfc-has-card="true"] [data-nfc-test="status"],
+.nfc-test-dialog[data-nfc-mode="enrollment"][data-nfc-has-card="true"] .nfc-test-body > small { display: none; }
+
+/* Voice settings: the approved standalone mockup, scoped to its own dialog. */
+.voice-settings-dialog{--bg:#0b1320;--panel:#131d2e;--panel-2:#1b273d;--hover:#24334e;--border:#2a3a50;--text:#f4f6fa;--dim:#afbdcf;--muted:#97a8bd;--accent:#22d3ee;--on-accent:#05232d;--good:#6ee7b7;--warn:#facc15;--bad:#fca5a5;--shadow:0 28px 100px #0009;font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--text);box-sizing:border-box}
+
+.voice-settings-dialog *{box-sizing:border-box}
+
+:where(.voice-settings-dialog) h2,:where(.voice-settings-dialog) h3,:where(.voice-settings-dialog) p{margin:0}
+
+.voice-settings-dialog h2{font-size:24px;line-height:1.2;letter-spacing:-.025em;overflow-wrap:anywhere}
+
+:where(.voice-settings-dialog) button,:where(.voice-settings-dialog) input{font:inherit}
+
+:where(.voice-settings-dialog) button{border:0;cursor:pointer;color:inherit;min-height:44px}
+
+.voice-settings-dialog button:disabled{cursor:default;opacity:.45}
+
+.voice-settings-dialog svg{width:22px;height:22px;flex:none}
+
+.voice-settings-dialog [hidden]{display:none!important}
+
+.voice-settings-dialog :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+.vs-icon-box{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;background:var(--panel-2);color:var(--dim);flex:none}
+
+.vs-copy{flex:1;min-width:0}
+.vs-copy strong{display:block;font-size:14px;font-weight:650}
+.vs-copy small{display:block;margin-top:4px;color:var(--dim);font-size:12px}
+
+.vs-arrow{color:var(--muted);width:18px;height:18px}
+
+.vs-quiet{background:transparent;color:var(--dim);padding:4px 8px;font-size:12px}
+
+.voice-settings-dialog{padding:0;margin:auto;width:min(480px,calc(100vw - 32px));max-width:none;max-height:calc(100dvh - 36px);border:1px solid var(--border);border-radius:22px;background:var(--panel);color:var(--text);box-shadow:var(--shadow);overflow:hidden}
+.voice-settings-dialog[open]{display:flex;flex-direction:column}
+.voice-settings-dialog::backdrop{background:#030812bf;backdrop-filter:blur(4px)}
+.vs-modal-header{display:flex;align-items:center;gap:12px;padding:21px 22px 18px;border-bottom:1px solid var(--border);flex:none}
+.vs-modal-header>.vs-icon-box{background:var(--accent);color:var(--on-accent)}
+.vs-modal-heading{flex:1;min-width:0}
+.vs-modal-heading small{display:block;margin-top:5px;font-size:12px}
+.vs-icon-button{width:44px;height:44px;min-width:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:12px;background:transparent;color:var(--dim)}
+.vs-icon-button:hover{background:var(--hover);color:var(--text)}
+.vs-back-button{margin-left:-10px}
+.vs-modal-body{padding:22px;overflow:auto;min-height:0;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.vs-modal-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;flex:none;padding:15px 22px 19px;border-top:1px solid var(--border)}
+.vs-footnote{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--dim);line-height:1.5}
+.vs-footnote svg{width:15px;height:15px}
+.vs-footer-actions{display:flex;gap:10px;width:100%}
+.vs-btn{display:inline-flex;justify-content:center;align-items:center;gap:8px;min-height:44px;padding:11px 15px;border-radius:11px;background:var(--panel-2);color:var(--text);font-size:13px;font-weight:700}
+.vs-btn:hover{background:var(--hover)}
+.vs-btn.vs-primary{background:var(--accent);color:var(--on-accent)}
+.vs-btn.vs-primary:hover{filter:brightness(1.08)}
+.vs-btn.vs-danger{background:var(--bad);color:#3b0a0a}
+.vs-btn.vs-wide{width:100%}
+.vs-footer-actions>.vs-btn{flex:1}
+.vs-status-inline{display:flex;align-items:center;gap:6px;color:var(--good);font-size:11px;font-weight:700}
+.vs-status-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.vs-intro-line{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-bottom:18px;font-size:13px;color:var(--dim)}
+.vs-intro-line strong{color:var(--text);font-weight:650}
+.vs-wave{display:flex;align-items:center;gap:3px;height:28px;color:var(--accent)}
+.vs-wave i{display:block;width:3px;border-radius:3px;background:currentColor;opacity:.9}
+.vs-nav-card{width:100%;display:flex;align-items:center;gap:13px;min-height:88px;padding:16px;background:var(--panel-2);border:1px solid var(--border);border-radius:15px;text-align:left;margin-bottom:10px}
+.vs-nav-card:last-child{margin-bottom:0}
+.vs-nav-card:hover{background:var(--hover);border-color:#527085}
+.vs-nav-card>.vs-icon-box{background:#24354d;color:var(--accent)}
+.vs-nav-card .vs-copy{flex:1;min-width:0}
+.vs-nav-card .vs-copy strong{font-size:15px}
+.vs-local-context{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--dim);font-size:11px;margin-top:17px}
+.vs-context-label{display:flex;align-items:center;gap:5px}
+.vs-context-label svg{width:14px;height:14px}
+.vs-mini-numbers{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)}
+
+.vs-section-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:750;color:var(--muted);margin:22px 0 9px}
+.vs-section-label:first-child{margin-top:0}
+.vs-control-group{border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.vs-setting-row{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:14px;min-height:73px;background:var(--panel-2)}
+.vs-setting-row+.vs-setting-row{border-top:1px solid var(--border)}
+.vs-setting-row strong{display:block;font-size:13px;font-weight:650}
+.vs-setting-row small{display:block;margin-top:4px;font-size:11px;line-height:1.4}
+.vs-toggle{position:relative;width:44px;height:26px;min-height:26px;flex:none}
+.vs-toggle:focus-within{outline:2px solid var(--accent);outline-offset:4px;border-radius:20px}
+.vs-choice-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.vs-choice{display:flex;align-items:center;justify-content:space-between;text-align:left;gap:10px;padding:13px 14px;border-radius:12px;border:1px solid var(--border);background:transparent;min-height:64px}
+.vs-choice[aria-pressed=true]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.vs-choice strong{font-size:13px}
+.vs-choice small{display:block;font-family:'IBM Plex Mono',monospace;margin-top:4px;font-size:11px}
+.vs-choice[aria-pressed=true] small{color:#173e4a}
+.vs-choice .vs-check{width:18px;height:18px;visibility:hidden}
+.vs-choice[aria-pressed=true] .vs-check{visibility:visible}
+.vs-help{color:var(--dim);font-size:11px;line-height:1.6;margin:10px 1px}
+.vs-segmented{display:flex;gap:5px;padding:4px;background:#0d1728;border-radius:12px}
+.vs-segment{flex:1;border-radius:9px;padding:9px 6px;background:transparent;color:var(--dim);font-size:11px;font-weight:650;white-space:nowrap}
+.vs-segment[aria-pressed=true]{background:var(--hover);color:var(--text)}
+.vs-link-row{display:flex;align-items:center;gap:9px;width:100%;padding:13px 1px;text-align:left;background:transparent;border-bottom:1px solid var(--border);font-size:12px}
+.vs-link-row>span:first-child{flex:1}
+.vs-link-row>small{color:var(--accent)}
+.voice-settings-dialog details{margin-top:19px}
+.voice-settings-dialog summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+.voice-settings-dialog details summary:before{content:'+';font-size:20px}
+.voice-settings-dialog details[open] summary:before{content:'−'}
+
+.vs-search{position:relative;margin-bottom:16px}
+.vs-search svg{position:absolute;left:13px;top:13px;color:var(--muted);width:18px;height:18px;pointer-events:none}
+.vs-search input{width:100%;padding:11px 12px 11px 40px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);color:var(--text);font-size:13px}
+.vs-search input::placeholder{color:var(--muted)}
+.vs-list-meta{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--dim);margin:0 1px 12px}
+.vs-person-row{display:flex;align-items:center;gap:11px;width:100%;padding:13px 12px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2);text-align:left;margin-bottom:9px;min-height:77px}
+.vs-person-row:hover{background:var(--hover)}
+.vs-avatar{width:41px;height:41px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--position-color);color:var(--position-ink,#07131e)}
+.vs-avatar svg{width:23px;height:23px}
+.vs-person-copy{min-width:0;flex:1}
+.vs-person-copy strong{display:block;font-size:14px;font-weight:700;overflow-wrap:anywhere}
+.vs-person-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:4px;color:var(--dim);font-size:11px}
+.vs-employee-number{font-family:'IBM Plex Mono',monospace}
+.vs-paused{padding:3px 7px;background:#64748b;color:#fff;font-size:10px;font-weight:750;border-radius:999px}
+.vs-alias-count{display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-size:13px;font-weight:700}
+.vs-alias-count small{font-size:10px;font-weight:400}
+.vs-employee-identity{display:flex;align-items:center;gap:11px;padding:14px;background:var(--panel-2);border-radius:14px;margin-bottom:20px}
+.vs-alias-row{display:flex;align-items:center;gap:7px;min-height:64px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);padding:7px 8px 7px 14px;margin:8px 0}
+.vs-alias-text{flex:1;min-width:0;overflow-wrap:anywhere;font-size:14px;font-weight:600}
+.vs-alias-row .vs-icon-button{width:40px;min-width:40px}
+.vs-alias-row .vs-icon-button svg{width:18px;height:18px}
+.vs-alias-row .vs-delete-button{color:#f4b9b9}
+.vs-shared{display:inline-flex;padding:3px 6px;border-radius:6px;background:var(--warn);color:#382500;font-size:9px;font-weight:750;margin-top:4px;vertical-align:middle}
+.vs-secondary-wide{display:flex;justify-content:center;gap:8px;align-items:center;width:100%;background:transparent;color:var(--accent);font-weight:650;font-size:12px;margin-top:15px}
+.vs-field-label{display:block;font-size:12px;font-weight:650;color:var(--dim);margin:4px 0 9px}
+.vs-text-field{width:100%;min-height:52px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);padding:12px 14px;font-size:18px;font-weight:650;color:var(--text)}
+.vs-flow-arrow{display:grid;place-items:center;color:var(--accent);padding:14px}
+.vs-flow-arrow svg{transform:rotate(90deg)}
+.vs-notice{padding:12px 13px;border-radius:12px;background:#3b3012;color:#fef3c7;font-size:12px;line-height:1.55}
+.vs-notice strong{display:block;margin-bottom:3px}
+.vs-empty{padding:24px 8px;text-align:center;color:var(--dim);font-size:13px;line-height:1.7}
+.vs-record-filters{display:flex;gap:6px;margin-bottom:14px}
+.vs-record-filters .vs-segment{background:var(--panel-2)}
+.vs-record-filters .vs-segment[aria-pressed=true]{background:var(--accent);color:var(--on-accent)}
+.vs-storage{border:1px solid var(--border);border-radius:14px;padding:15px;margin-bottom:17px;background:#101a2a}
+.vs-storage-line{display:flex;justify-content:space-between;font-size:12px;margin-bottom:10px}
+.vs-storage-line strong{font-family:'IBM Plex Mono',monospace;font-size:12px}
+.vs-storage-line small{font-size:11px}
+.vs-meter{height:5px;border-radius:9px;background:#2a3b52;overflow:hidden}
+.vs-meter span{display:block;min-width:0;height:100%;border-radius:9px;background:var(--accent)}
+.vs-record-row{border:1px solid var(--border);border-radius:14px;background:var(--panel-2);margin:9px 0;overflow:hidden}
+.vs-record-main{display:flex;gap:10px;align-items:center;padding:13px 12px;width:100%;text-align:left;background:transparent}
+.vs-record-main:hover:not(:disabled){background:var(--hover)}
+.vs-play-circle{display:grid;place-items:center;width:39px;height:39px;flex:none;background:#213c50;border-radius:50%;color:var(--accent)}
+.vs-play-circle svg{width:17px;height:17px}
+.vs-record-copy{flex:1;min-width:0}
+.vs-record-copy strong{display:block;font-size:13px;font-weight:650}
+.vs-record-copy small{display:block;margin-top:4px;font-size:10px;line-height:1.5}
+.vs-record-duration{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim)}
+.vs-record-bottom{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0 12px 11px 61px;font-size:10px;color:var(--dim)}
+.vs-expires{color:var(--warn)}
+.vs-draft-chip{background:var(--warn);color:#382500;border-radius:5px;font-size:9px;font-weight:750;padding:2px 6px}
+.vs-deleted-label{font-size:11px;color:var(--dim);padding:10px 12px}
+.vs-audio-summary{display:flex;justify-content:space-between;align-items:baseline;margin:15px 0 20px}
+.vs-audio-summary strong{font-size:24px;letter-spacing:-.02em}
+.vs-audio-summary small{font-size:11px}
+.vs-player{padding:22px 16px;background:#0d1727;border:1px solid var(--border);border-radius:16px}
+.vs-player-wave{height:62px;display:flex;justify-content:center;align-items:center;gap:4px;margin:0 0 20px;color:var(--accent)}
+.vs-player-wave i{width:4px;border-radius:3px;background:currentColor}
+.vs-player-controls{display:flex;align-items:center;gap:12px}
+.vs-player-toggle{display:grid;place-items:center;width:46px;height:46px;flex:none;border-radius:50%;background:var(--accent);color:var(--on-accent)}
+.voice-settings-dialog input[type=range]{min-height:24px;width:100%;accent-color:var(--accent)}
+.vs-time{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim);white-space:nowrap}
+.vs-audio-caption{font-size:12px;line-height:1.6;color:var(--dim);margin:15px 0}
+.vs-retention-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.vs-retention-grid .vs-choice{flex-direction:column;align-items:center;justify-content:center;min-height:72px;gap:4px}
+.vs-retention-grid strong{font-family:'IBM Plex Mono',monospace;font-size:20px}
+.vs-retention-grid small{margin:0;font-family:inherit}
+.vs-delete-symbol{display:grid;place-items:center;width:52px;height:52px;background:var(--bad);color:#3b0a0a;border-radius:15px;margin-bottom:20px}
+.vs-delete-symbol svg{width:26px;height:26px}
+.vs-confirm-title{font-size:20px;line-height:1.3;margin-bottom:10px;overflow-wrap:anywhere}
+.vs-confirm-copy{font-size:13px;line-height:1.7;color:var(--dim)}
+.vs-feedback{font-size:11px;color:var(--good);line-height:1.5;width:100%}
+.vs-feedback:empty{display:none}
+
+@media(max-width:640px){.voice-settings-dialog{width:calc(100vw - 16px);max-height:calc(100dvh - 16px);margin:auto 8px 8px}
+.vs-modal-header{padding:18px 16px 16px;gap:9px}
+.vs-modal-header h2{font-size:23px}
+.vs-modal-header>.vs-icon-box{width:38px;height:38px;border-radius:11px}
+.vs-modal-body{padding:18px 16px}
+.vs-modal-footer{padding:14px 16px max(17px,env(safe-area-inset-bottom))}
+.vs-nav-card{min-height:82px;padding:14px;gap:11px}
+.vs-nav-card .vs-copy strong{font-size:14px}
+.vs-copy small{font-size:11px}
+.vs-intro-line{font-size:12px}
+.vs-choice{padding:12px}
+.vs-person-row{padding:12px 10px}
+.vs-person-copy strong{font-size:13px}
+.vs-record-filters .vs-segment{font-size:10px}
+.vs-time{font-size:10px}
+}
+
+@media(max-width:360px){
+    .vs-modal-header>.vs-icon-box{display:none}
+    .vs-modal-header h2{font-size:20px;overflow-wrap:anywhere}
+    .vs-modal-heading small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+@media(prefers-reduced-motion:reduce){.voice-settings-dialog *,.voice-settings-dialog *::before,.voice-settings-dialog *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+
+.voice-settings-dialog .vs-btn.vs-primary{background:var(--accent);color:var(--on-accent)}
+
+.voice-settings-dialog .vs-btn.vs-danger{background:var(--bad);color:#3b0a0a}
+
+.voice-settings-dialog .vs-setting-row{text-align:left;width:100%;color:var(--text)}
+
+.vs-toggle{width:44px;height:26px;flex:none;background:#42536b;border-radius:20px;position:relative}
+
+.vs-toggle::after{content:'';position:absolute;left:4px;top:4px;width:18px;height:18px;border-radius:50%;background:#d3deea;transition:transform .16s}
+
+[aria-checked=true]>.vs-toggle{background:var(--accent)}
+[aria-checked=true]>.vs-toggle::after{background:var(--on-accent);transform:translateX(18px)}
+
+.voice-settings-dialog .vs-employee-identity,.voice-settings-dialog .voice-identity-card{margin-bottom:20px}
+
+.vs-person-row .voice-identity-card{flex:1;padding:0;background:transparent;margin:0;min-width:0}
+
+.vs-person-row .vs-alias-count{min-width:45px}
+
+.voice-settings-dialog .vs-player audio{display:none}
+
+.voice-settings-dialog .vs-wave{max-height:32px}
+
+.vs-notice.vs-error{color:#ffe0e0;background:#481c2a}
+
+.vs-loading{padding:22px 4px;color:var(--dim);font-size:13px}
+
+.vs-inline-error{padding:12px;background:#481c2a;border-radius:12px;color:#ffe0e0;font-size:12px;line-height:1.6;margin-bottom:12px}
+
+.vs-invalid[aria-invalid=true]{border-color:var(--bad)}
+
+.vs-setting-row[aria-checked=true] .vs-toggle{background:var(--accent)}
+
+.voice-settings-dialog .vs-storage-line strong{font-size:12px}
+
+.voice-settings-dialog .vs-empty{font-size:13px}
+
+.settings-voice-entry{display:flex;align-items:center;gap:13px;width:100%;padding:18px;border:1px solid var(--border);border-radius:16px;background:var(--panel);color:var(--text);text-align:left;min-height:80px;cursor:pointer;font:inherit}
+
+.settings-voice-entry:hover{background:var(--panel-2)}
+
+.settings-voice-entry .vs-icon-box{color:var(--accent);background:var(--panel-2)}
+
+.settings-voice-entry .vs-copy{flex:1}
+.settings-voice-entry .vs-copy small{color:var(--text-dim)}
+
+.settings-voice-entry:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+
+/* Pending voice submissions share the existing recording cards and modal shell. */
+.vs-record-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:480px){.vs-record-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.vs-pending-actions{padding:0 12px 12px;display:grid;gap:9px}
+.vs-pending-status{font-size:12px;font-weight:650;color:var(--accent)}
+.vs-pending-actions>div{display:flex;flex-wrap:wrap;gap:8px}
+.vs-pending-actions .vs-btn{flex:1;min-width:110px;min-height:44px}
+.vs-pending-actions details{font-size:12px;color:var(--text);overflow-wrap:anywhere}
+.vs-pending-actions details p{white-space:pre-wrap;margin:8px 0;line-height:1.5}
+.vs-pending-actions>small{font-size:11px;color:var(--dim)}
+
+/* NFC settings modal — CANDIDATE production stylesheet (css/nfc-settings.css).
+   Built ON TOP of css/voice-settings.css: the dialog keeps the .voice-settings-dialog
+   class so every .vs-* component (header, nav-card, control-group, choice, segmented,
+   stepper-less rows, footer, buttons) is reused untouched. Only `ns-*` is new.
+   Status fills follow the voice dialog convention (solid tone + dark ink) and design.md §5.4. */
+
+.nfc-settings-dialog{--tone-good-ink:#05281c;--tone-warn-ink:#382500;--tone-bad-ink:#3b0a0a;--tone-info-ink:var(--on-accent)}
+.nfc-settings-dialog [data-tone=good],.settings-nfc-entry [data-tone=good]{--tone:var(--good);--tone-ink:var(--tone-good-ink)}
+.nfc-settings-dialog [data-tone=warn],.settings-nfc-entry [data-tone=warn]{--tone:var(--warn);--tone-ink:var(--tone-warn-ink)}
+.nfc-settings-dialog [data-tone=bad],.settings-nfc-entry [data-tone=bad]{--tone:var(--bad);--tone-ink:var(--tone-bad-ink)}
+.nfc-settings-dialog [data-tone=info],.settings-nfc-entry [data-tone=info]{--tone:var(--accent);--tone-ink:var(--tone-info-ink)}
+.nfc-settings-dialog [data-tone=mute],.settings-nfc-entry [data-tone=mute]{--tone:#64748b;--tone-ink:#fff}
+
+/* ---- shell: single column on phones, rail + content on desktop ---- */
+.nfc-settings-dialog{width:min(480px,calc(100vw - 32px))}
+.ns-rail{display:none}
+.ns-main{display:flex;flex-direction:column;min-height:0;min-width:0;flex:1}
+.ns-banner-slot:empty{display:none}
+@media(min-width:900px){
+  .nfc-settings-dialog{width:min(980px,calc(100vw - 64px));height:min(760px,calc(100dvh - 48px))}
+  .nfc-settings-dialog[open]{flex-direction:row}
+  .ns-rail{display:flex;flex-direction:column;gap:6px;width:272px;flex:none;padding:18px 14px;border-right:1px solid var(--border);background:#0f1928;overflow:auto}
+  .ns-rail-title{display:flex;align-items:center;gap:10px;padding:2px 6px 12px;font-weight:700;font-size:15px}
+  .ns-rail-title .vs-icon-box{background:var(--accent);color:var(--on-accent);width:38px;height:38px}
+  .ns-rail-item{display:flex;align-items:center;gap:11px;width:100%;min-height:52px;padding:8px 10px;border-radius:12px;background:transparent;text-align:left;font-size:13px;font-weight:650}
+  .ns-rail-item:hover{background:var(--panel-2)}
+  .ns-rail-item[aria-current=true]{background:var(--panel-2);box-shadow:inset 3px 0 0 var(--accent)}
+  .ns-rail-item .vs-icon-box{width:34px;height:34px;border-radius:10px;background:#24354d;color:var(--accent)}
+  .ns-rail-item .ns-count{margin-left:auto}
+  .nfc-settings-dialog .vs-nav-grid{display:none}
+  .ns-main .vs-modal-body{padding:24px 28px}
+  .ns-main .vs-modal-footer{padding:15px 28px 19px}
+  .ns-two-col{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:22px;align-items:start}
+}
+
+/* ---- status banner (issue #328): tone + SVG + title + text; never colour only ---- */
+.ns-status{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:14px;border:1px solid color-mix(in oklab,var(--tone) 55%,var(--border));background:color-mix(in oklab,var(--tone) 13%,var(--panel-2));margin-bottom:14px}
+.ns-status-icon{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--tone);color:var(--tone-ink)}
+.ns-status-icon svg{width:19px;height:19px}
+.ns-status strong{display:block;font-size:14px;line-height:1.35}
+.ns-status p{font-size:12px;line-height:1.55;color:var(--dim);margin-top:3px;overflow-wrap:anywhere}
+.ns-status .vs-btn{margin-top:10px;min-height:40px}
+.ns-status.ns-compact{padding:10px 12px;margin-bottom:10px}
+.ns-spin{animation:ns-spin 1s linear infinite}
+@keyframes ns-spin{to{transform:rotate(360deg)}}
+
+/* ---- solid chips (design.md §5.4) ---- */
+.ns-chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:999px;background:var(--tone);color:var(--tone-ink);font-size:11px;font-weight:750;white-space:nowrap}
+.ns-chip svg{width:13px;height:13px}
+.ns-count{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--tone,var(--accent));color:var(--tone-ink,var(--on-accent));font-size:11px;font-weight:750;font-family:'IBM Plex Mono',monospace}
+.ns-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:5px;font-size:11px;color:var(--dim)}
+.ns-mono{font-family:'IBM Plex Mono',monospace}
+.ns-uid{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.02em;overflow-wrap:anywhere}
+.ns-ok-check{color:var(--good);width:20px;height:20px}
+
+/* ---- tiles / metrics ---- */
+.ns-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:16px}
+.ns-tile{padding:12px 13px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2);text-align:left;min-height:72px}
+.ns-tile b{display:block;font:700 26px/1 'IBM Plex Mono',monospace}
+.ns-tile small{display:block;margin-top:7px;font-size:11px;color:var(--dim)}
+.ns-tile[data-tone]{border-color:color-mix(in oklab,var(--tone) 60%,var(--border))}
+@media(min-width:900px){.ns-tiles{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+/* ---- day / reader / card rows (extends .vs-person-row) ---- */
+.ns-row{display:flex;align-items:center;gap:11px;width:100%;padding:12px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2);text-align:left;margin-bottom:9px;min-height:74px}
+button.ns-row:hover{background:var(--hover)}
+.ns-row-copy{flex:1;min-width:0}
+.ns-row-copy strong{display:block;font-size:14px;font-weight:700;overflow-wrap:anywhere}
+.ns-row-end{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none;font-family:'IBM Plex Mono',monospace;font-size:12px}
+.ns-row-end b{font-size:15px}
+.ns-icons{display:flex;gap:5px;align-items:center}
+.ns-ico{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:7px;background:var(--tone);color:var(--tone-ink)}
+.ns-ico svg{width:14px;height:14px}
+.ns-row[data-dim=true]{opacity:.62}
+.ns-avatar{width:41px;height:41px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--c,#2f6f9f);color:#07131e;font-weight:700;font-size:13px}
+.ns-group-label{display:flex;justify-content:space-between;align-items:center;margin:18px 1px 9px;font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:750;color:var(--muted)}
+
+/* ---- live mirror / summary card (design.md §5.7) ---- */
+.ns-mirror{border-left:3px solid var(--accent);background:var(--panel-2);border-radius:12px;padding:13px 14px;margin:14px 0}
+.ns-mirror dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;font-size:12px}
+.ns-mirror dt{color:var(--dim)}
+.ns-mirror dd{margin:0;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600}
+.ns-mirror .ns-big{font-size:26px;font-weight:700}
+.ns-mirror hr{grid-column:1/-1;border:0;border-top:1px solid var(--border);margin:2px 0;width:100%}
+
+/* ---- time fields & stepper (design.md §5.6) ---- */
+.ns-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ns-time{width:100%;min-height:52px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);padding:10px 12px;color:var(--text);font:650 20px 'IBM Plex Mono',monospace;color-scheme:dark}
+.ns-time:disabled{opacity:.5}
+.ns-text{width:100%;min-height:48px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);padding:11px 13px;color:var(--text);font-size:14px}
+textarea.ns-text{min-height:72px;resize:vertical;font-family:inherit}
+.ns-stepper{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2)}
+.ns-stepper .vs-icon-button{border:1px solid var(--border);border-radius:12px;flex:none}
+.ns-stepper-val{flex:1;text-align:center}
+.ns-stepper-val b{display:block;font:700 34px/1 'IBM Plex Mono',monospace}
+.ns-stepper-val small{display:block;margin-top:5px;font-size:11px;color:var(--dim)}
+.ns-presets{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+.ns-preset{height:36px;min-height:36px!important;padding:0 13px;border-radius:9px;border:1px solid var(--border)!important;background:transparent;font:650 12px 'IBM Plex Mono',monospace;color:var(--dim)}
+.ns-preset[aria-pressed=true]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)!important}
+.ns-quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.ns-quick .ns-preset{font-family:inherit;font-weight:600}
+
+/* ---- radio cards (design.md §5.5) ---- */
+.ns-radio{display:flex;align-items:center;gap:13px;width:100%;padding:14px 16px;border:1px solid var(--border);border-radius:14px;background:transparent;text-align:left;margin-bottom:9px;min-height:68px}
+.ns-radio:hover{background:var(--panel-2)}
+.ns-radio[aria-pressed=true]{background:var(--panel-2);border-color:var(--accent)}
+.ns-radio .vs-icon-box{border:1px solid var(--border)}
+.ns-radio[aria-pressed=true] .vs-icon-box{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.ns-radio .vs-copy strong{font-size:14px}
+
+/* ---- timeline (card history) ---- */
+.ns-timeline{list-style:none;margin:0;padding:0 0 0 4px}
+.ns-timeline li{position:relative;padding:0 0 18px 26px;font-size:12px;color:var(--dim);line-height:1.5}
+.ns-timeline li::before{content:'';position:absolute;left:5px;top:7px;bottom:-4px;width:2px;background:var(--border)}
+.ns-timeline li:last-child::before{display:none}
+.ns-timeline li::after{content:'';position:absolute;left:0;top:3px;width:12px;height:12px;border-radius:50%;background:var(--panel);border:2px solid var(--muted)}
+.ns-timeline li[data-now=true]::after{background:var(--accent);border-color:var(--accent)}
+.ns-timeline strong{display:block;color:var(--text);font-size:13px}
+
+/* ---- photos ---- */
+.ns-photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.ns-photo{position:relative;aspect-ratio:1;border-radius:12px;background:#0d1727;border:1px solid var(--border);display:grid;place-items:center;color:#4a5f7a;overflow:hidden}
+.ns-photo svg{width:46%;height:46%}
+.ns-photo figcaption{position:absolute;left:0;right:0;bottom:0;padding:4px 6px;background:#030812cc;color:var(--text);font:600 10px 'IBM Plex Mono',monospace}
+.ns-photo[data-state=missing]{border-style:dashed}
+.ns-photo[data-state=missing] span{position:absolute;top:50%;left:0;right:0;transform:translateY(-50%);text-align:center;font-size:10px;color:var(--dim);padding:0 6px}
+.ns-photo[aria-pressed=true]{outline:2px solid var(--accent);outline-offset:2px}
+.ns-photo-big{aspect-ratio:4/3;margin-bottom:12px}
+.ns-photo-big svg{width:30%;height:30%}
+
+/* ---- misc ---- */
+.ns-sheet{border:1px dashed var(--border);border-radius:14px;padding:14px;margin-top:14px;font-size:12px;color:var(--dim);line-height:1.6}
+.ns-sheet strong{color:var(--text)}
+.ns-open{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:750;padding:2px 7px;border-radius:6px;background:var(--warn);color:var(--tone-warn-ink);vertical-align:middle;margin-left:6px}
+.ns-lock{text-align:center;padding:26px 10px}
+.ns-lock .vs-icon-box{margin:0 auto 14px;width:52px;height:52px}
+.ns-lock p{font-size:13px;color:var(--dim);line-height:1.6;margin-bottom:14px}
+.ns-url{display:flex;gap:8px;margin-top:10px}
+.ns-url .ns-text{flex:1;min-width:0;font:13px 'IBM Plex Mono',monospace}
+.ns-reqid{font:11px 'IBM Plex Mono',monospace;color:var(--muted);margin-top:8px;overflow-wrap:anywhere}
+.ns-scan{display:grid;place-items:center;text-align:center;padding:22px 12px;border:1px dashed var(--accent);border-radius:16px;background:#0d1727;margin-bottom:14px}
+.ns-scan .vs-icon-box{width:64px;height:64px;border-radius:50%;background:var(--panel-2);color:var(--accent);margin-bottom:12px;animation:ns-pulse 1.8s ease-in-out infinite}
+.ns-scan .vs-icon-box svg{width:32px;height:32px}
+.ns-scan strong{font-size:14px}
+.ns-scan small{display:block;margin-top:5px;font-size:12px;color:var(--dim)}
+@keyframes ns-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+.ns-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ns-pair .ns-pair-col{border:1px solid var(--border);border-radius:12px;padding:11px;background:var(--panel-2);font-size:12px}
+.ns-pair .ns-pair-col h4{margin:0 0 6px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.ns-pair b{font:700 18px 'IBM Plex Mono',monospace;display:block}
+.vs-notice.ns-warn{background:#3b3012}
+@media(prefers-reduced-motion:reduce){.ns-spin,.ns-scan .vs-icon-box{animation:none!important}}
+@media(max-width:360px){.ns-fields{grid-template-columns:1fr}.ns-stepper-val b{font-size:28px}.ns-pair{grid-template-columns:1fr}}
+
+/* ---- Settings entry: same shell as .settings-voice-entry (css/voice-settings.css), plus a status chip ---- */
+.settings-nfc-entry{display:flex;align-items:center;gap:13px;width:100%;padding:18px;border:1px solid var(--border);border-radius:16px;background:var(--panel);color:var(--text);text-align:left;min-height:80px;cursor:pointer;font:inherit}
+.settings-nfc-entry:hover{background:var(--panel-2)}
+.settings-nfc-entry:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.settings-nfc-entry .vs-icon-box{color:var(--accent);background:var(--panel-2)}
+.settings-nfc-entry .vs-copy{flex:1;min-width:0}
+.settings-nfc-entry .vs-copy small{color:var(--text-dim)}
+.settings-nfc-entry .ns-entry-end{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+@media(max-width:360px){.settings-nfc-entry .ns-chip{max-width:96px;overflow:hidden;text-overflow:ellipsis}}
+
+/* Tone mapping also available on bare chips (bandeja, Settings entry) */
+.ns-chip[data-tone=good]{--tone:var(--good);--tone-ink:#05281c}
+.ns-chip[data-tone=warn]{--tone:var(--warn);--tone-ink:#382500}
+.ns-chip[data-tone=bad]{--tone:var(--bad);--tone-ink:#3b0a0a}
+.ns-chip[data-tone=info]{--tone:var(--accent);--tone-ink:var(--on-accent)}
+.ns-chip[data-tone=mute]{--tone:#64748b;--tone-ink:#fff}
+
+.nfc-settings-dialog h2:focus,.nfc-settings-dialog h2:focus-visible{outline:none}
+
+/* Mock-only chrome (NOT for production): fake SA pages around the real modal CSS. */
+:root{
+  --bg:oklch(0.185 0.012 245);--panel:oklch(0.228 0.013 245);--panel-2:oklch(0.268 0.014 245);--hover:oklch(0.310 0.015 245);--border:oklch(0.330 0.014 245);
+  --text:oklch(0.960 0.004 245);--text-dim:oklch(0.740 0.010 245);--text-faint:oklch(0.560 0.012 245);
+  --accent:oklch(0.760 0.110 205);--on-accent:oklch(0.160 0.020 240);--good:oklch(0.740 0.120 158);--warn:oklch(0.820 0.110 78);--bad:oklch(0.680 0.160 25);
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.5;min-height:100dvh}
+.mk-page{max-width:720px;margin:0 auto;padding:16px 16px 120px}
+.mk-top{display:flex;align-items:center;gap:10px;padding:6px 0 14px}
+.mk-top h1{font-size:22px;margin:0;letter-spacing:-.015em}
+.mk-top a{color:var(--accent);font-size:12px;text-decoration:none}
+.mk-note{font-size:12px;color:var(--text-dim);margin:0 0 14px}
+.mk-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:12px}
+.mk-tab{flex:none;padding:9px 14px;border-radius:10px;background:var(--panel);border:1px solid var(--border);color:var(--text-dim);font-size:12px;font-weight:600}
+.mk-tab[aria-current=true]{background:var(--panel-2);color:var(--text);border-color:var(--accent)}
+.mk-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:12px}
+.mk-card h3{margin:0 0 10px;font-size:15px}
+.mk-card p{margin:0 0 8px;color:var(--text-dim);font-size:13px}
+.mk-field{display:block;margin-bottom:12px}
+.mk-field span{display:block;font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:6px}
+.mk-field input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);padding:10px;font:inherit}
+.mk-btn{min-height:44px;padding:10px 16px;border:0;border-radius:11px;background:var(--panel-2);color:var(--text);font:650 13px inherit;cursor:pointer}
+.mk-btn.primary{background:var(--accent);color:var(--on-accent)}
+.mk-btn.wide{width:100%}
+.mk-small{font-size:12px;color:var(--text-dim)}
+/* modal overlay (stands in for <dialog>.showModal so the scenario pill stays usable) */
+.mk-overlay{position:fixed;inset:0;z-index:50;display:none;background:#030812bf;backdrop-filter:blur(4px);align-items:center;justify-content:center}
+.mk-overlay.open{display:flex}
+.mk-overlay>.voice-settings-dialog{display:flex;flex-direction:column;margin:0}
+@media(max-width:640px){.mk-overlay{align-items:flex-end}.mk-overlay>.voice-settings-dialog{margin:0 8px 8px;width:calc(100vw - 16px);max-height:calc(100dvh - 56px)}}
+/* scenario pill */
+.mk-scn{position:fixed;top:8px;right:8px;z-index:90;font-size:12px}
+.mk-scn-toggle{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--warn);background:#2b2410;color:var(--warn);font:700 11px inherit;cursor:pointer}
+.mk-scn-panel{display:none;position:absolute;right:0;top:42px;width:min(320px,calc(100vw - 16px));max-height:calc(100dvh - 64px);overflow:auto;padding:12px;border-radius:14px;background:#0d1727;border:1px solid var(--warn);box-shadow:0 20px 50px #000a}
+.mk-scn.open .mk-scn-panel{display:block}
+.mk-scn label{display:block;margin:0 0 10px;color:var(--text-dim)}
+.mk-scn label b{display:block;color:var(--text);font-size:11px;margin-bottom:4px;letter-spacing:.04em;text-transform:uppercase}
+.mk-scn select{width:100%;min-height:40px;border-radius:9px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);padding:6px 8px;font:inherit}
+.mk-scn h4{margin:0 0 8px;font-size:12px;color:var(--warn)}
+.mk-scn small{display:block;color:var(--text-faint);font-size:11px}
+/* hub */
+.mk-hub a.mk-link{display:flex;gap:12px;align-items:center;padding:14px;margin-bottom:9px;border:1px solid var(--border);border-radius:14px;background:var(--panel);color:var(--text);text-decoration:none}
+.mk-hub a.mk-link:hover{background:var(--panel-2)}
+.mk-hub a.mk-link b{display:block;font-size:14px}
+.mk-hub a.mk-link span{font-size:12px;color:var(--text-dim)}
+.mk-hub .mk-sec{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:750;color:var(--text-faint);margin:20px 2px 8px}
+.mk-inbox-item{display:flex;gap:12px;align-items:center;padding:13px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2);margin-bottom:9px}
+.mk-inbox-item[data-dim=true]{opacity:.6}
+
+/* icon sizing the real Settings page gets from its global svg rules */
+.vs-icon-box svg{width:22px;height:22px}.vs-arrow svg{width:18px;height:18px}
+
+.mk-nav{position:sticky;top:0;z-index:40;background:var(--bg);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:8px;overflow-x:auto;align-items:center}
+.mk-nav .mk-tab{cursor:pointer;white-space:nowrap}
+.mk-nav b{font-size:13px;margin-right:6px;white-space:nowrap}
+.mk-pg{display:none}.mk-pg.on{display:block}
+.mk-help{max-width:720px;margin:12px auto 0;padding:0 16px;font-size:12px;color:var(--text-dim)}
+</style></head><body>
+<nav class="mk-nav" aria-label="Pantallas de la maqueta"><b>Maqueta NFC</b>
+<button class="mk-tab" data-pg="ajustes" aria-current="true">1 · Ajustes</button><button class="mk-tab" data-pg="empleado">2 · Editor de empleado</button><button class="mk-tab" data-pg="bandeja">3 · Bandeja</button><button class="mk-tab" id="openfull">4 · Menú NFC completo</button></nav>
+<p class="mk-help">Datos ficticios, sin conexión. Toca la entrada «NFC» o «Asociar tarjeta» y navega. Usa <b>Escenario</b> (arriba a la derecha) para simular: sin red, Test sin escucha, tarjeta ocupada, versión antigua, sin sesión, respuesta perdida…</p>
+<section class="mk-pg on" id="pg-ajustes"><main class="mk-page">
+<div class="mk-tabs" role="tablist"><span class="mk-tab" aria-current="true">General</span><span class="mk-tab">Datos</span><span class="mk-tab">Calendario</span><span class="mk-tab">Pruebas</span></div>
+<p class="mk-note">Aproximación de Ajustes → General. Las dos entradas usan el CSS real: <code>.settings-voice-entry</code> y su gemela <code>.settings-nfc-entry</code>. El resto de la pantalla es solo marco.</p>
+<div class="mk-card"><h3>Estilo de iconos</h3><p>Se aplica a toda la aplicación.</p></div>
+<div style="display:grid;gap:12px;margin-bottom:12px">
+<button type="button" class="settings-voice-entry" data-settings-voice><span class="vs-icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></svg></span><span class="vs-copy"><strong>Voz</strong><small>Configuración, pronunciaciones y audios</small></span><span class="vs-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg></span></button>
+<button type="button" class="settings-nfc-entry" id="nfc-entry" data-open-nfc="home" data-settings-nfc></button></div>
+<div class="mk-card"><h3>Ayuda contextual</h3><p>Modo de visualización de ayuda.</p></div>
+<div class="mk-card"><h3>Pruebas (modo desarrollador)</h3><p>La tarjeta «Tarjetas NFC» actual (activar asociación, destino, probar lectura) <b>se muda al modal</b>: queda solo un acceso a «Conexión y prueba».</p><button class="mk-btn" data-open-nfc="conexion">Abrir Conexión y prueba</button></div></main></section>
+<section class="mk-pg" id="pg-empleado"><main class="mk-page">
+<p class="mk-note">Marco del editor de empleados. El bloque «Tarjeta NFC» usa <code>.employee-nfc-entry</code> (CSS real) y abre el <b>mismo</b> modal de asociación. Cambia de empleado para ver los dos estados.</p>
+<div class="mk-tabs"><button type="button" class="mk-tab" id="t104">Yokasta (sin tarjeta)</button><button type="button" class="mk-tab" id="t101">Juan Carlos (con tarjeta)</button></div>
+<div class="mk-card"><label class="mk-field"><span>Nombre</span><input id="nm" value="" readonly></label><label class="mk-field"><span>Número</span><input id="nu" value="" readonly></label><label class="mk-field"><span>Cargo</span><input id="ro" value="" readonly></label>
+<section class="employee-nfc-entry" id="entry" data-nfc-editor></section></div></main></section>
+<section class="mk-pg" id="pg-bandeja"><main class="mk-page">
+<p class="mk-note">Pantalla <b>ya existente</b> de SA (Pegar texto / Conectados). Aquí solo se muestra dónde aparece la fuente NFC: como un borrador más, <b>Nuevo</b>, sin escribir asistencia oficial.</p>
+<div class="vs-segmented" style="margin-bottom:12px"><button class="vs-segment" style="min-height:44px;border:0;color:var(--text-dim)">Pegar texto</button><button class="vs-segment" aria-pressed="true" style="min-height:44px;border:0;color:var(--text);background:var(--hover)">Conectados</button></div>
+<div class="vs-record-filters" style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:12px"><button class="vs-segment" aria-pressed="true" style="min-height:44px;border:0;background:var(--accent);color:var(--on-accent);border-radius:9px">Todos (3)</button><button class="vs-segment" style="min-height:44px;border:0;background:var(--panel-2);color:var(--text-dim);border-radius:9px">Nuevos (1)</button><button class="vs-segment" style="min-height:44px;border:0;background:var(--panel-2);color:var(--text-dim);border-radius:9px">No incorporados (1)</button><button class="vs-segment" style="min-height:44px;border:0;background:var(--panel-2);color:var(--text-dim);border-radius:9px">Incorporados (1)</button></div>
+<div class="mk-inbox-item" id="nfc-draft"><span class="vs-icon-box" style="color:var(--accent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9v6m3-6v6m4-5a3 3 0 0 1 0 4m3-7a7 7 0 0 1 0 10"/></svg></span><span class="vs-copy"><strong>NFC · Entrada principal</strong><small>Mar 3 nov · 4 empleados · 32 h normales, 1 h extra</small><small style="margin-top:4px">Fuente de revisión: no escribe asistencia oficial.</small></span><span class="ns-chip" data-tone="info">Nuevo</span></div>
+<div class="mk-inbox-item"><span class="vs-icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/></svg></span><span class="vs-copy"><strong>Mini · Torre Norte</strong><small>Mar 3 nov · 7 empleados</small></span><span class="ns-chip" data-tone="warn">No incorporado</span></div>
+<div class="mk-inbox-item" data-dim="true"><span class="vs-icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/></svg></span><span class="vs-copy"><strong>Mini · Torre Norte</strong><small>Lun 2 nov · 7 empleados</small></span><span style="color:var(--good)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Incorporado"><path d="m5 12 4 4 10-10"/></svg></span></div>
+<div class="ns-sheet" style="border:1px dashed var(--border);border-radius:14px;padding:14px;font-size:12px;color:var(--text-dim);line-height:1.6;margin-top:16px"><strong style="color:var(--text)">Al abrir el borrador NFC</strong> se usa la conciliación existente (comparar con Mini, editar horas por empleado, <i>Completar importación</i>). El estado «Nuevo → No incorporado → Incorporado» sigue las reglas de <code>design.md</code> §5.4. Los chips usan <code>.ns-chip</code> sobre el mismo mapeo de tonos.</div></main></section>
+<script>/* Fake data + pure helpers for the NFC menu mockups. No network, no secrets.
+   Field names follow the real contracts so the mock doubles as a data-shape check:
+   - card query/associate  -> docs/integrations/nfc-webhook.md (schemaVersion 1)
+   - day proposal          -> ESP32 repo backend/calculo-diario (calcularDia output)
+   - corrections/settings  -> ESP32 repo backend/correcciones + supabase `settings`/`devices`/`card_assignments`
+   Items flagged `//NEW` do not exist in any contract yet. */
+'use strict';
+window.NFCData = (() => {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const TODAY = '2026-11-04';
+  const DAY = '2026-11-03';
+
+  const EMP = [
+    { id: 'emp-101', number: '00101', name: 'Juan Carlos Peña Rodríguez', role: 'Albañil', color: '#5fa8d3' },
+    { id: 'emp-102', number: '00102', name: 'María Altagracia Santana', role: 'Almacén', color: '#d98cb3' },
+    { id: 'emp-103', number: '00103', name: 'Pedro Antonio Féliz', role: 'Plomero', color: '#9fd35f' },
+    { id: 'emp-104', number: '00104', name: 'Yokasta Mercedes Díaz', role: 'Administrativa', color: '#e0b25f' },
+    { id: 'emp-105', number: '00105', name: 'Rafael Ernesto Báez', role: 'Electricista', color: '#5fd3bd' },
+    { id: 'emp-106', number: '00106', name: 'Luisa Fernanda Ureña', role: 'Ayudante', color: '#b38cd9' },
+    { id: 'emp-107', number: '00107', name: 'Wilkin Manuel Tavárez', role: 'Maestro', color: '#d98c8c' },
+    { id: 'emp-108', number: '00108', name: 'Ramona Esther De la Cruz', role: 'Limpieza', color: '#8c9bd9' },
+    { id: 'emp-109', number: '00109', name: 'Domingo Rosario Vásquez', role: 'Ayudante', color: '#9ad9a6' },
+  ];
+  const emp = id => EMP.find(e => e.id === id);
+  const initials = n => n.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+
+  // One current card per employee (card_assignments where hasta IS NULL).
+  const ASSIGN = {
+    'emp-101': { uid: '04A1B2C3', since: '2026-09-12' },
+    'emp-102': { uid: '0400ABCDEF1234', since: '2026-09-12' },
+    'emp-103': { uid: '04D4E5F6', since: '2026-09-14' },
+    'emp-105': { uid: '04778899', since: '2026-09-20' },
+    'emp-106': { uid: '04AA55EE', since: '2026-10-02' },
+    'emp-107': { uid: '04123456', since: '2026-10-05' },
+    'emp-108': { uid: '04FEED01', since: '2026-10-30' },
+  };
+  // Freed cards (estado:'libre'): no blocked state, ever.
+  const FREE = [
+    { uid: '04C0FFEE', lastHolder: 'emp-108', until: '2026-10-29', reason: 'perdida', lastRead: '2026-11-03 07:41' },
+    { uid: '04B0B0B0', lastHolder: null, until: null, reason: null, lastRead: null },
+  ];
+  // Card history per employee (newest first).
+  const HISTORY = {
+    'emp-108': [
+      { uid: '04FEED01', from: '2026-10-30', to: null, reason: null, by: 'admin@obra' },
+      { uid: '04C0FFEE', from: '2026-09-12', to: '2026-10-29', reason: 'perdida', by: 'admin@obra' },
+    ],
+    'emp-101': [{ uid: '04A1B2C3', from: '2026-09-12', to: null, reason: null, by: 'admin@obra' }],
+    'emp-102': [{ uid: '0400ABCDEF1234', from: '2026-09-12', to: null, reason: null, by: 'admin@obra' }],
+    'emp-103': [{ uid: '04D4E5F6', from: '2026-09-14', to: null, reason: null, by: 'admin@obra' }],
+  };
+  const REASONS = { perdida: 'Perdida', reemplazo: 'Reemplazo', baja: 'Baja del empleado', error_registro: 'Error de registro', otro: 'Otro motivo' };
+
+  // Cards the phone can "touch" in the mockup (drives the association flow).
+  const TOUCH = {
+    free: { label: 'Tarjeta nueva y libre', uid: '04 5A 6B 7C', result: 'disponible' },
+    history: { label: 'Tarjeta libre con historial (era de Ramona)', uid: '04:C0:FF:EE', result: 'disponible', history: true },
+    same: { label: 'Ya es de este empleado', uid: '04A1B2C3', result: 'mismo_empleado' },
+    other: { label: 'Ocupada por otro empleado', uid: '04D4E5F6', result: 'otro_empleado' },
+  };
+
+  const DEVICES = [
+    { id: 'ESP32-ENTRADA', name: 'Entrada principal', project: 'Torre Norte', lastSeen: 'hace 2 min', stale: false, firmware: '1.3.0', hasEventId: true, key: 'active', keySince: '2026-09-10', queue: 0, clock: 'ok', tapsToday: 31 },
+    { id: 'ESP32-ALMACEN', name: 'Almacén', project: 'Torre Norte', lastSeen: 'hace 3 días', stale: true, firmware: '1.2.4', hasEventId: false, key: 'active', keySince: '2026-09-10', queue: 14, clock: 'drift', tapsToday: 0 },
+    { id: 'ESP32-PRUEBAS', name: 'Banco de pruebas', project: null, lastSeen: 'hace 12 días', stale: true, firmware: '1.1.0', hasEventId: false, key: 'revoked', keySince: '2026-08-01', revokedAt: '2026-10-22', queue: 0, clock: 'ok', tapsToday: 0 },
+  ];
+
+  // Day proposals for DAY (shape ~ calcularDia + review state). times are local HH:MM.
+  const DAYS = [
+    { id: 'd1', emp: 'emp-101', inT: '07:02', outT: '17:10', reads: 2, alerts: [], photos: ['ok', 'ok'], state: 'pendiente', mini: { normal: 8, extra: 1 } },
+    { id: 'd2', emp: 'emp-102', inT: '07:15', outT: '16:20', reads: 2, alerts: [], photos: ['ok', 'ok'], state: 'verificado', mini: { normal: 8, extra: 0 } },
+    { id: 'd3', emp: 'emp-103', inT: '07:30', outT: null, reads: 1, alerts: ['falta_salida'], photos: ['ok'], state: 'pendiente', mini: { normal: 8, extra: 0 } },
+    { id: 'd4', emp: 'emp-105', inT: '07:00', outT: null, reads: 2, alerts: ['falta_salida', 'doble_toque_fusionado'], photos: ['ok', 'ok'], state: 'pendiente', mini: null, doubleTap: ['07:00', '07:03'] },
+    { id: 'd5', emp: 'emp-106', inT: '07:10', outT: '11:20', reads: 2, alerts: ['jornada_corta'], photos: ['ok', 'ok'], state: 'pendiente', mini: { normal: 3, extra: 0 } },
+    { id: 'd6', emp: 'emp-107', inT: '06:58', outT: '17:00', reads: 2, alerts: ['foto_dudosa', 'sin_foto'], photos: ['ok', 'missing'], state: 'pendiente', mini: { normal: 8, extra: 1 } },
+    { id: 'd7', emp: 'emp-108', inT: null, outT: null, reads: 0, alerts: ['tarjeta_desconocida'], photos: [], state: 'pendiente', mini: { normal: 8, extra: 0 }, note: 'Lectura de 04C0FFEE (tarjeta liberada) a las 07:41' },
+  ];
+  const PENDING_DATE = [{ id: 'p1', uid: '04FEED01', emp: 'emp-108', device: 'ESP32-ALMACEN', raw: 'REL:+4812s', received: '2026-11-03 13:22' }];
+  const UNKNOWN = [
+    { id: 'u1', uid: '04C0FFEE', at: '2026-11-03 07:41', device: 'ESP32-ENTRADA', photo: 'ok', last: { emp: 'emp-108', until: '2026-10-29', reason: 'perdida' } },
+    { id: 'u2', uid: '04B0B0B0', at: '2026-11-03 12:05', device: 'ESP32-ENTRADA', photo: 'missing', last: null },
+    { id: 'u3', uid: '04C0FFEE', at: '2026-11-02 07:38', device: 'ESP32-ENTRADA', photo: 'ok', last: { emp: 'emp-108', until: '2026-10-29', reason: 'perdida' } },
+  ];
+
+  const ALERTS = {
+    falta_salida: { tone: 'warn', label: 'Falta salida', icon: 'warn' },
+    jornada_corta: { tone: 'warn', label: 'Jornada corta', icon: 'warn' },
+    jornada_larga: { tone: 'warn', label: 'Jornada larga', icon: 'warn' },
+    tarjeta_desconocida: { tone: 'bad', label: 'Tarjeta desconocida', icon: 'unknown' },
+    fecha_pendiente: { tone: 'warn', label: 'Fecha pendiente', icon: 'clock' },
+    doble_toque_fusionado: { tone: 'mute', label: 'Doble toque fusionado', icon: 'repeat' },
+    foto_dudosa: { tone: 'warn', label: 'Foto dudosa', icon: 'eye' },
+    sin_foto: { tone: 'mute', label: 'Sin foto', icon: 'eye' },
+  };
+
+  // Defaults mirror public.settings; `//NEW` keys do not exist in the schema yet.
+  const RULES_DEFAULT = {
+    umbral_doble_toque_min: 5, almuerzo_min: 60, almuerzo_desde_horas: 4, jornada_horas: 8,
+    retencion_fotos: 'hasta_confirmar',
+    redondeo: 'media',          // NEW — OPEN decision (owner has not decided)
+    extra_minimo_min: 30,       // NEW — OPEN decision
+  };
+
+  const toMin = hhmm => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+  const fmtH = h => (Math.round(h * 100) / 100).toString().replace('.', ',');
+  const fmtHM = min => `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
+  /** Pure mirror of the proposed conversion (calcularDia + redondeo). */
+  function calc(inT, outT, rules, lunchOverrideMin) {
+    if (!inT || !outT) return null;
+    const range = toMin(outT) - toMin(inT);
+    if (range <= 0) return { error: 'La salida debe ser posterior a la entrada.' };
+    const lunch = lunchOverrideMin != null ? lunchOverrideMin : (range > rules.almuerzo_desde_horas * 60 ? rules.almuerzo_min : 0);
+    const worked = Math.max(0, range - lunch) / 60;
+    let rounded = worked;
+    if (rules.redondeo === 'media') rounded = Math.round(worked * 2) / 2;
+    if (rules.redondeo === 'hora_abajo') rounded = Math.floor(worked);
+    const normal = Math.min(rounded, rules.jornada_horas);
+    let extra = Math.max(0, rounded - rules.jornada_horas);
+    if (extra * 60 < rules.extra_minimo_min) extra = 0;
+    return { range, lunch, worked, rounded, normal, extra };
+  }
+  const dayLabel = '3 nov';
+  return { esc, TODAY, DAY, EMP, emp, initials, ASSIGN, FREE, HISTORY, REASONS, TOUCH, DEVICES, DAYS, PENDING_DATE, UNKNOWN, ALERTS, RULES_DEFAULT, calc, fmtH, fmtHM, toMin, dayLabel };
+})();
+</script><script>/* NFC menu mockup engine. Mirrors VoiceSettingsUI's structure (view + stack + header/body/footer)
+   with fake data. Everything is static: no fetch, no storage, no timers beyond short UI delays. */
+'use strict';
+(() => {
+  const D = window.NFCData, esc = D.esc;
+  const P = {
+    back: 'm14 5-7 7 7 7', close: 'm6 6 12 12M18 6 6 18', chevron: 'm9 5 7 7-7 7', plus: 'M12 5v14M5 12h14',
+    card: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9v6m3-6v6m4-5a3 3 0 0 1 0 4m3-7a7 7 0 0 1 0 10"/>',
+    list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
+    chip: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4"/>',
+    sliders: '<path d="M4 6h10m4 0h2M4 12h4m4 0h8M4 18h12m4 0h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+    tray: 'M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6l2-8Z',
+    wifi: '<path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1"/>',
+    warn: 'M12 4 2.5 20h19L12 4Zm0 6v5m0 3h.01', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
+    checkc: '<circle cx="12" cy="12" r="9"/><path d="m8 12.5 3 3 5-6"/>', check: 'm5 12 4 4 10-10',
+    unknown: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7m0 3h.01"/>',
+    repeat: 'M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3',
+    eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    person: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/>', minus: 'M5 12h14', spinner: 'M12 3a9 9 0 1 0 9 9',
+    ext: 'M14 4h6v6m0-6-9 9M10 6H5v13h13v-5', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
+    search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>', key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9m-3 3 3 3"/>',
+    trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7', camera: '<path d="M8 5 10 3h4l2 2h4v15H4V5h4Z"/><circle cx="12" cy="12" r="4"/>',
+    edit: 'm15 4 5 5M3 21l5-1L21 7l-5-5L3 15v6Z',
+    refresh: 'M20 11a8 8 0 0 0-14-4L4 9m0-5v5h5M4 13a8 8 0 0 0 14 4l2-2m0 5v-5h-5', users: '<circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3m2-18a3 3 0 0 1 0 6m2 12v-4a5 5 0 0 0-2-4"/>',
+  };
+  const ic = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] && P[n][0] === '<' ? P[n] : `<path d="${P[n] || ''}"/>`}</svg>`;
+  const iconBtn = (act, icon, label, v = '') => `<button type="button" class="vs-icon-button" data-act="${act}" data-v="${esc(v)}" aria-label="${esc(label)}">${ic(icon)}</button>`;
+  const btn = (act, label, o = {}) => `<button type="button" class="vs-btn${o.primary ? ' vs-primary' : ''}${o.danger ? ' vs-danger' : ''}" data-act="${act}" data-v="${esc(o.v || '')}" ${o.disabled ? 'disabled' : ''}>${o.icon ? ic(o.icon) : ''}${esc(label)}</button>`;
+  const chip = (tone, label, icon) => `<span class="ns-chip" data-tone="${tone}">${icon ? ic(icon) : ''}${esc(label)}</span>`;
+  const status = (tone, icon, title, text, extra = '', cls = '') => `<div class="ns-status ${cls}" data-tone="${tone}" role="${tone === 'bad' ? 'alert' : 'status'}"><span class="ns-status-icon">${ic(icon)}</span><div><strong>${title}</strong>${text ? `<p>${text}</p>` : ''}${extra}</div></div>`;
+  const label = t => `<p class="vs-section-label">${t}</p>`;
+  const avatar = e => `<span class="ns-avatar" style="--c:${e.color}" aria-hidden="true">${esc(D.initials(e.name))}</span>`;
+  const uidFmt = u => u.replace(/(.{2})(?=.)/g, '$1 ');
+  const last4 = u => `••${u.slice(-4)}`;
+  const toggle = (act, on, title, hint) => `<button type="button" role="switch" aria-checked="${on}" data-act="${act}" class="vs-setting-row"><span><strong>${title}</strong>${hint ? `<small>${hint}</small>` : ''}</span><span class="vs-toggle"></span></button>`;
+  const seg = (act, items, cur) => `<div class="vs-segmented" role="group">${items.map(([v, l]) => `<button type="button" class="vs-segment" data-act="${act}" data-v="${v}" aria-pressed="${String(cur) === String(v)}">${l}</button>`).join('')}</div>`;
+  const rid = () => Math.random().toString(16).slice(2, 10);
+
+  // ---------------------------------------------------------------- state
+  const S = {
+    scn: { net: 'on', dest: 'test', listening: 'yes', app: 'new', session: 'in', next: 'free', assoc: 'on' },
+    prefs: { enabled: true, mode: 'test', customUrl: '' },
+    stack: [{ view: 'home' }], search: '', tFilter: 'todos', lFilter: 'todos',
+    rules: { ...D.RULES_DEFAULT }, draft: null, days: JSON.parse(JSON.stringify(D.DAYS)), unknown: JSON.parse(JSON.stringify(D.UNKNOWN)),
+    assign: JSON.parse(JSON.stringify(D.ASSIGN)), free: JSON.parse(JSON.stringify(D.FREE)), history: JSON.parse(JSON.stringify(D.HISTORY)),
+    devices: JSON.parse(JSON.stringify(D.DEVICES)), check: null, test: { phase: 'idle' }, A: null, edit: {}, resolve: {}, rel: {}, delivered: false, feedback: '', confirmRevoke: false, rulesNote: '',
+  };
+  const wide = () => matchMedia('(min-width:900px)').matches;
+  const cur = () => S.stack[S.stack.length - 1];
+  const SECTIONS = [
+    ['tarjetas', 'Tarjetas', 'Una por empleado, con historial', 'card', ['tarjetas', 'tarjeta', 'asociar', 'liberar']],
+    ['lecturas', 'Lecturas del lector', 'Propuestas del día y correcciones', 'list', ['lecturas', 'dia', 'resolver', 'fotos', 'pendientes']],
+    ['entrega', 'Entrega a la bandeja', 'Como una fuente más, para revisar', 'tray', ['entrega']],
+    ['lectores', 'Lectores', 'Estado y clave de cada ESP32', 'chip', ['lectores', 'lector']],
+    ['reglas', 'Reglas de cálculo', 'Doble toque, comida, jornada, fotos', 'sliders', ['reglas']],
+    ['conexion', 'Conexión y prueba', 'Destino, comprobación y lectura de prueba', 'wifi', ['conexion', 'prueba']],
+  ];
+  const sectionOf = v => (SECTIONS.find(s => s[4].includes(v)) || [])[0];
+  const NEEDS_SESSION = ['lecturas', 'dia', 'resolver', 'fotos', 'pendientes', 'entrega', 'lectores', 'lector', 'reglas'];
+  const go = (view, params = {}) => { S.stack.push({ view, ...params }); S.feedback = ''; render(true); };
+  const back = () => { if (S.stack.length > 1) { S.stack.pop(); S.feedback = ''; render(true); } else close(); };
+  const root = view => { S.stack = [{ view }]; S.feedback = ''; render(true); };
+  const destName = () => ({ test: 'Test', production: 'Producción', custom: 'Personalizado' })[S.prefs.mode];
+  const dayOf = id => S.days.find(d => d.id === id);
+  const stateTone = s => ({ pendiente: ['mute', 'Pendiente'], verificado: ['good', 'Verificado'], editado: ['info', 'Editado'], rechazado: ['bad', 'Rechazado'] })[s];
+
+  // ---------------------------------------------------------------- global banners
+  function banners(v) {
+    let h = '';
+    if (S.scn.app === 'old') h += status('warn', 'refresh', 'Tu versión de SA es anterior', 'Esta versión no entiende las lecturas ni las tarjetas con historial. Sigue disponible la lectura de prueba. Actualiza SA para usar el resto.', btn('update', 'Buscar actualización', { icon: 'refresh' }));
+    if (S.scn.net === 'off' && v !== 'prueba') h += status('warn', 'wifi', 'Sin conexión', 'Puedes ver la última copia. Asociar, guardar y entregar necesitan internet. Nada se pierde: no hay cola oculta.', '', 'ns-compact');
+    return h;
+  }
+  const locked = v => S.scn.app === 'old' && !['conexion', 'prueba', 'home'].includes(v);
+  const readOnly = () => S.scn.net === 'off' || S.scn.app === 'old';
+
+  // ---------------------------------------------------------------- views
+  const VIEWS = {};
+
+  VIEWS.home = () => {
+    const unresolved = S.unknown.filter(u => !u.done).length + D.PENDING_DATE.length;
+    const pend = S.days.filter(d => d.state === 'pendiente').length;
+    const pill = S.prefs.enabled ? chip('good', 'Asociación activa', 'checkc') : chip('mute', 'Asociación apagada', 'minus');
+    const counts = { lecturas: pend, tarjetas: S.free.length, lectores: S.devices.filter(d => d.stale || d.key === 'revoked').length };
+    return { title: 'NFC', sub: `Torre Norte · Destino ${destName()}`, icon: 'card', body: `<div class="vs-intro-line"><span>Tarjetas, lecturas y lectores</span>${pill}</div>
+      <div class="vs-nav-grid">${SECTIONS.map(s => `<button type="button" class="vs-nav-card" data-act="section" data-v="${s[0]}"><span class="vs-icon-box">${ic(s[3])}</span><span class="vs-copy"><strong>${s[1]}</strong><small>${s[2]}</small></span>${counts[s[0]] ? `<span class="ns-count" data-tone="${s[0] === 'lecturas' ? 'warn' : 'mute'}" aria-label="${counts[s[0]]} por atender">${counts[s[0]]}</span>` : ''}<span class="vs-arrow">${ic('chevron')}</span></button>`).join('')}</div>
+      <div class="vs-local-context"><span class="vs-context-label">${ic('lock')} Ajustes de conexión: solo este teléfono</span><span class="vs-mini-numbers">${unresolved} por resolver</span></div>`, footer: '' };
+  };
+
+  // ---- Conexión
+  VIEWS.conexion = () => {
+    const p = S.prefs, urlOk = /^https:\/\/[^\s/]+\.[^\s]+$/i.test(p.customUrl);
+    const host = { test: 'n8n.erlin.do/webhook-test/ee76…eeb4d', production: 'n8n.erlin.do/webhook/ee76…eeb4d', custom: p.customUrl ? p.customUrl.replace(/^https:\/\//, '') : 'Escribe y guarda una URL HTTPS' }[p.mode];
+    const radio = (v, icon, title, hint) => `<button type="button" class="ns-radio" data-act="mode" data-v="${v}" aria-pressed="${p.mode === v}"><span class="vs-icon-box">${ic(icon)}</span><span class="vs-copy"><strong>${title}</strong><small>${hint}</small></span></button>`;
+    let res = '';
+    const c = S.check;
+    if (c === 'busy') res = status('info', 'spinner', 'Comprobando…', 'Enviando un ping sin datos de empleados.', '', 'ns-compact');
+    else if (c === 'ok') res = status('good', 'checkc', `${destName()} respondió`, p.mode === 'test' ? 'El flujo de prueba recibió el ping. n8n vuelve a pedir «Listen for test event» para la siguiente llamada.' : 'El flujo respondió y acepta este origen (CORS correcto). No se guardó nada.', '', 'ns-compact');
+    else if (c === 'offline') res = status('bad', 'wifi', 'Sin conexión a internet', 'Este teléfono no tiene red. Revisa los datos móviles o el Wi-Fi y vuelve a comprobar.', '', 'ns-compact');
+    else if (c === 'unreachable') res = status('bad', 'warn', p.mode === 'test' ? 'No se pudo conectar con Test' : 'No se pudo conectar con el destino', p.mode === 'test' ? 'Lo más probable: el flujo de prueba no está escuchando. En n8n abre el flujo y pulsa «Listen for test event»; luego vuelve a comprobar.' : 'El flujo no responde o no permite este origen (CORS). Pide que revisen que esté publicado y que acepte este dominio.', `<details><summary>¿Por qué no se sabe la causa exacta?</summary><p>Cuando n8n no escucha en Test responde 404 <b>sin cabeceras CORS</b>. El navegador oculta esa respuesta y SA solo ve «error de red», igual que si no hubiera internet. Por eso la pantalla dice «lo más probable» y no un diagnóstico seguro.</p></details>`, 'ns-compact');
+    const pre = p.mode === 'test' ? status('warn', 'info', 'En Test, cada llamada gasta la escucha', 'Antes de comprobar o leer una tarjeta, abre el flujo en n8n y pulsa «Listen for test event». Si lo dejas en Test en producción, las lecturas no llegan a ningún lado.', '', 'ns-compact') : '';
+    const sess = S.scn.session === 'in' ? 'Conectado como admin@obra' : 'Sin sesión de SA';
+    return { title: 'Conexión y prueba', sub: 'Solo este teléfono', icon: 'wifi', body: `${label('Asociación de tarjetas')}<div class="vs-control-group">${toggle('assoc', p.enabled, 'Asociar tarjetas a empleados', 'Apagado por defecto. Muestra «Asociar tarjeta NFC» en el empleado.')}</div>
+      ${label('Destino de tarjetas')}${radio('test', 'wifi', 'Test <span class="ns-open" style="background:var(--panel-2);color:var(--dim)">Predeterminado</span>', 'Para pruebas. Necesita «Listen for test event».')}${radio('production', 'check', 'Producción', 'Flujo publicado y activo.')}${radio('custom', 'edit', 'Personalizado', 'Tu propia URL HTTPS.')}
+      ${p.mode === 'custom' ? `<label class="vs-field-label" for="ns-url">URL del webhook</label><div class="ns-url"><input id="ns-url" class="ns-text" data-in="url" inputmode="url" autocomplete="off" placeholder="https://…" value="${esc(p.customUrl)}" aria-invalid="${p.customUrl && !urlOk}">${btn('saveurl', 'Guardar URL', { disabled: !urlOk })}</div>${p.customUrl && !urlOk ? '<p class="vs-help" style="color:var(--bad)">Usa una URL HTTPS completa, sin usuario ni #fragmento.</p>' : ''}` : ''}
+      <p class="vs-help ns-mono" style="word-break:break-all">${esc(host)}</p>
+      ${label('Comprobar conexión')}${pre}<div data-region="check">${res}</div>${btn('check', c === 'ok' ? 'Comprobar de nuevo' : p.mode === 'test' ? 'Ya activé la escucha · Comprobar' : 'Comprobar conexión', { icon: 'wifi', primary: c !== 'ok', disabled: c === 'busy' }).replace('class="vs-btn', 'class="vs-btn vs-wide')}
+      <p class="vs-help">Envía un ping sin empleados ni tarjetas. No cambia nada en el servidor.</p>
+      ${label('Servidor de lecturas')}<div class="vs-control-group"><div class="vs-setting-row" style="cursor:default"><span><strong>${S.scn.session === 'in' ? 'Conectado' : 'Sin sesión'}</strong><small>${sess}. Las lecturas, lectores y reglas usan tu cuenta de SA.</small></span>${chip(S.scn.session === 'in' ? 'good' : 'warn', S.scn.session === 'in' ? 'Cuenta' : 'Inicia sesión', S.scn.session === 'in' ? 'check' : 'lock')}</div></div>
+      <button type="button" class="vs-link-row" data-act="go" data-v="prueba"><span>Lectura de prueba</span><small>No envía datos</small>${arrow()}</button>
+      <div class="vs-local-context"><span>SA 1.7.125 · contrato NFC v1</span></div>`, footer: '' };
+  };
+  const arrow = () => `<span class="vs-arrow">${ic('chevron')}</span>`;
+
+  // ---- Lectura de prueba (diagnostic; reuses nfc-test dialog semantics)
+  VIEWS.prueba = () => {
+    const t = S.test, unsupported = S.scn.app === 'old' && false;
+    const rows = `<div class="vs-control-group">${[['HTTPS', true], ['Web NFC disponible', true]].map(([k, v]) => `<div class="vs-setting-row" style="cursor:default;min-height:52px"><span><strong>${k}</strong></span>${chip(v ? 'good' : 'bad', v ? 'Sí' : 'No', v ? 'check' : 'close')}</div>`).join('')}</div>`;
+    let main;
+    if (t.phase === 'reading') main = `<div class="ns-scan" data-region="scan"><span class="vs-icon-box">${ic('card')}</span><strong>Acerca la tarjeta a la antena</strong><small>Se detiene sola tras 30 s sin lectura.</small></div>`;
+    else if (t.phase === 'done') main = status('good', 'checkc', 'UID leído', 'Compáralo con el que registró el ESP32. Ignora espacios y dos puntos.', `<p class="ns-uid" style="margin-top:8px;font-size:18px" data-test="uid">${uidFmt('04A1B2C3')}</p><p class="ns-reqid">Serial original: 04:a1:b2:c3 · Registros NDEF: ninguno</p>`);
+    else main = `<div class="ns-scan"><span class="vs-icon-box" style="animation:none">${ic('card')}</span><strong>Probar si este teléfono lee tus tarjetas</strong><small>No guarda nada y no llama a ningún webhook.</small></div>`;
+    return { title: 'Lectura de prueba', sub: 'Diagnóstico sin envío', icon: 'card', body: `${rows}<div style="height:14px"></div>${main}`, footer: foot('Sin enviar datos', t.phase === 'reading' ? btn('test-stop', 'Detener') : t.phase === 'done' ? btn('test-copy', 'Copiar resultado') + btn('test-start', 'Leer otra', { primary: true }) : btn('test-start', 'Leer tarjeta', { primary: true, icon: 'card' })) };
+  };
+  const foot = (hint, actions) => `${hint ? `<span class="vs-footnote">${hint}</span>` : ''}<div class="vs-footer-actions">${actions}</div>`;
+
+  // ---- Tarjetas
+  VIEWS.tarjetas = () => {
+    const q = S.search.trim().toLowerCase();
+    let list = D.EMP.filter(e => !q || (e.name + e.number).toLowerCase().includes(q));
+    if (S.tFilter === 'con') list = list.filter(e => S.assign[e.id]); if (S.tFilter === 'sin') list = list.filter(e => !S.assign[e.id]);
+    const withC = D.EMP.filter(e => S.assign[e.id]).length, noC = D.EMP.length - withC;
+    const empRows = S.tFilter === 'libres' ? '' : list.map(e => { const a = S.assign[e.id]; return `<button type="button" class="ns-row" data-act="emp" data-v="${e.id}">${avatar(e)}<span class="ns-row-copy"><strong>${esc(e.name)}</strong><span class="ns-meta"><span class="ns-mono">N.º ${e.number}</span><span>${esc(e.role)}</span></span></span>${a ? `<span class="ns-row-end">${chip('mute', last4(a.uid), 'card')}</span>` : `<span class="ns-row-end">${chip('warn', 'Sin tarjeta', 'minus')}</span>`}${arrow()}</button>`; }).join('') || '<p class="vs-empty">Ningún empleado coincide.</p>';
+    const freeRows = (S.tFilter === 'todos' || S.tFilter === 'libres') ? `<div class="ns-group-label"><span>Tarjetas libres</span><span>${S.free.length}</span></div>${S.free.map(f => { const h = f.lastHolder && D.emp(f.lastHolder); return `<div class="ns-row"><span class="vs-icon-box">${ic('card')}</span><span class="ns-row-copy"><strong class="ns-uid">${uidFmt(f.uid)}</strong><span class="ns-meta">${h ? `Antes: ${esc(h.name)} · ${D.REASONS[f.reason].toLowerCase()} el ${f.until.slice(8)} oct` : 'Nunca asociada'}${f.lastRead ? ` · última lectura ${f.lastRead.slice(5, 10).replace('-', '/')} ${f.lastRead.slice(11)}` : ''}</span></span>${chip('mute', 'Libre')}</div>`; }).join('')}` : '';
+    return { title: 'Tarjetas', sub: `${withC} con tarjeta · ${noC} sin tarjeta · ${S.free.length} libres`, icon: 'card', body: `<div class="vs-search">${ic('search')}<input type="search" data-in="search" autocomplete="off" placeholder="Nombre o número" aria-label="Buscar empleado" value="${esc(S.search)}"></div>
+      <div class="vs-record-filters" role="group">${[['todos', 'Todos'], ['con', 'Con tarjeta'], ['sin', 'Sin tarjeta'], ['libres', 'Libres']].map(([v, l]) => `<button type="button" class="vs-segment" data-act="tfilter" data-v="${v}" aria-pressed="${S.tFilter === v}">${l}</button>`).join('')}</div>
+      <div data-region="list">${empRows}${freeRows}</div>`, footer: '' };
+  };
+
+  VIEWS.tarjeta = ({ emp: id }) => {
+    const e = D.emp(id), a = S.assign[id], h = S.history[id] || [], off = readOnly();
+    const cardBlock = a ? `<div class="ns-row" style="min-height:0"><span class="vs-icon-box">${ic('card')}</span><span class="ns-row-copy"><span class="ns-meta" style="margin:0 0 3px">Tarjeta vigente</span><strong class="ns-uid">${uidFmt(a.uid)}</strong><span class="ns-meta">Desde ${a.since.slice(8)}/${a.since.slice(5, 7)}/${a.since.slice(0, 4)}</span></span>${chip('good', 'Activa', 'check')}</div>
+      <div style="display:grid;gap:8px;margin:12px 0 4px">${btn('assoc-replace', 'Cambiar por otra tarjeta', { icon: 'refresh', disabled: off, v: id }).replace('class="vs-btn', 'class="vs-btn vs-wide')}${btn('release', 'Marcar como perdida', { icon: 'warn', disabled: off, v: id }).replace('class="vs-btn', 'class="vs-btn vs-wide')}</div><p class="vs-help">Un empleado tiene una sola tarjeta. Si se pierde, queda libre (no se bloquea) y puedes asociar otra.</p>`
+      : `${status('warn', 'info', 'Sin tarjeta', 'Acerca una tarjeta para asociarla a este empleado. Se consulta primero si está disponible.', '', 'ns-compact')}${btn('assoc-new', 'Asociar tarjeta NFC', { primary: true, icon: 'card', disabled: off || !S.prefs.enabled, v: id }).replace('class="vs-btn', 'class="vs-btn vs-wide')}${!S.prefs.enabled ? '<p class="vs-help">La asociación está apagada. Actívala en Conexión y prueba.</p>' : ''}`;
+    const tl = h.length ? `<ul class="ns-timeline">${h.map((x, i) => `<li ${!x.to ? 'data-now="true"' : ''}><strong class="ns-uid">${uidFmt(x.uid)}</strong>${x.from.slice(8)}/${x.from.slice(5, 7)}${x.to ? ` → ${x.to.slice(8)}/${x.to.slice(5, 7)} · ${D.REASONS[x.reason]}` : ' → vigente'} · por ${esc(x.by)}</li>`).join('')}</ul>` : '<p class="vs-empty">Aún no tiene tarjetas.</p>';
+    return { title: 'Tarjeta del empleado', sub: e.name, icon: 'card', body: `<div class="vs-employee-identity">${avatar(e)}<span class="vs-copy"><strong>${esc(e.name)}</strong><small>N.º ${e.number} · ${esc(e.role)}</small></span></div>${cardBlock}${label('Historial de tarjetas')}${tl}`, footer: '' };
+  };
+
+  // ---- Asociar (read -> query -> confirm)
+  const newAssoc = (emp, mode) => ({ emp, mode, reason: 'perdida', phase: 'idle', touch: null, lookupId: null, regId: null, err: null, result: null, tries: 0 });
+  VIEWS.asociar = () => {
+    const A = S.A, e = D.emp(A.emp), old = S.assign[A.emp];
+    const person = `<div class="vs-employee-identity" style="margin-bottom:12px">${avatar(e)}<span class="vs-copy"><strong>${esc(e.name)}</strong><small>N.º ${e.number}</small></span>${chip(S.prefs.mode === 'test' ? 'warn' : 'info', destName())}</div>`;
+    let main = '', actions = '', hint = '';
+    const t = A.touch, ph = A.phase;
+    if (A.mode === 'replace' && (ph === 'idle' || ph === 'reading')) main += `${status('warn', 'info', 'Ya tiene la tarjeta ' + last4(old.uid), 'Al asociar la nueva, la anterior quedará libre. No se reasignan lecturas pasadas.', `<div style="margin-top:10px">${seg('reason', [['perdida', 'Perdida'], ['reemplazo', 'Reemplazo'], ['baja', 'Baja'], ['error_registro', 'Error']], A.reason)}</div>`, 'ns-compact')}`;
+    if (ph === 'idle') { main += `<div class="ns-scan"><span class="vs-icon-box">${ic('card')}</span><strong>Lee la tarjeta nueva</strong><small>Se consulta primero su disponibilidad. Nada se guarda todavía.</small></div>`; actions = btn('read', 'Leer tarjeta', { primary: true, icon: 'card', disabled: readOnly() }); hint = readOnly() ? 'Necesita internet' : ''; }
+    if (ph === 'reading') { main += `<div class="ns-scan"><span class="vs-icon-box">${ic('card')}</span><strong>Acerca la tarjeta a la antena</strong><small>Mantenla quieta. Se detiene a los 30 s.</small></div>`; actions = btn('stop', 'Detener'); }
+    if (ph === 'consulting') { main += status('info', 'spinner', 'Consultando la tarjeta…', `UID ${uidFmt(t.uid.replace(/[ :]/g, '').toUpperCase())}`, '', 'ns-compact').replace('<svg', '<svg class="ns-spin"'); actions = btn('x', 'Consultando…', { disabled: true }); }
+    const uid = t ? t.uid.replace(/[ :\-]/g, '').toUpperCase() : '';
+    const uidBox = t ? `<div class="vs-employee-identity" style="margin-bottom:12px"><span class="vs-icon-box">${ic('card')}</span><span class="vs-copy"><small>UID leído</small><strong class="ns-uid">${uidFmt(uid)}</strong></span></div>` : '';
+    if (ph === 'result') {
+      const r = A.result;
+      if (r === 'disponible') {
+        const hist = t.history ? `<div class="ns-sheet" style="margin:0 0 12px"><strong>Sugerencia, no cambia nada</strong><br>Hoy la usa: <b>nadie (libre)</b><br>La usó antes: <b>Ramona Esther De la Cruz</b> hasta el 29/10 (perdida).<br>Sus lecturas anteriores con esta tarjeta <b>no se reasignan</b>.</div>` : '';
+        const pair = A.mode === 'replace' ? `<div class="ns-pair" style="margin-bottom:12px"><div class="ns-pair-col"><h4>Quedará libre</h4><b>${last4(old.uid)}</b>${D.REASONS[A.reason]}</div><div class="ns-pair-col"><h4>Nueva</h4><b>${last4(uid)}</b>Para ${esc(e.name.split(' ')[0])}</div></div>` : '';
+        main += `${uidBox}${status('info', 'info', 'Tarjeta disponible', 'Todavía no está guardada. Revisa el empleado y el destino, y pulsa Guardar asociación.')}${hist}${pair}`;
+        actions = btn('read', 'Leer otra') + btn('register', 'Guardar asociación', { primary: true, icon: 'check' });
+      } else if (r === 'mismo_empleado') { main += `${uidBox}${status('warn', 'info', 'Esta tarjeta ya está asociada a este empleado', 'No es necesario volver a guardarla.')}`; actions = btn('close', 'Cerrar') + btn('read', 'Leer otra', { primary: true }); }
+      else if (r === 'otro_empleado') { main += `${uidBox}${status('warn', 'warn', 'Esta tarjeta ya está asociada a otro empleado', 'No se puede guardar esta asociación. Por privacidad no se muestra quién. Si es un error, libérala desde su dueño.')}`; actions = btn('close', 'Cerrar') + btn('read', 'Leer otra tarjeta', { primary: true }); }
+    }
+    if (ph === 'registering') { main += `${uidBox}${status('info', 'spinner', 'Registrando…', 'Si cierras ahora, el envío podría haberse guardado.', '', '').replace('<svg', '<svg class="ns-spin"')}`; actions = btn('x', 'Registrando…', { disabled: true }); }
+    if (ph === 'done') {
+      main += `${uidBox}${status('good', 'checkc', 'Tarjeta asociada correctamente', `${esc(e.name)} · N.º ${e.number}. El servidor confirmó el registro el 4 nov 2026, 09:41.`)}${A.mode === 'replace' ? status('mute', 'info', `La tarjeta ${last4(old.uid)} quedó libre`, 'Nadie la usa. Si alguien la pasa por un lector, aparecerá como «tarjeta desconocida».', '', 'ns-compact') : ''}`;
+      actions = btn('close', 'Listo', { primary: true });
+    }
+    if (ph === 'error') {
+      const lost = A.err === 'LOST';
+      main += `${uidBox}${status('bad', 'warn', lost ? 'No se pudo confirmar el registro' : A.err === 'CORS' ? 'No se pudo conectar con Test' : A.err === 'OFFLINE' ? 'Sin conexión a internet' : 'No se pudo completar', lost ? 'La respuesta se perdió. Puede haberse guardado: Reintentar usa la misma solicitud y no crea otra fila.' : A.err === 'CORS' ? 'Lo más probable: el flujo de prueba no escucha. En n8n pulsa «Listen for test event» y reintenta.' : A.err === 'OFFLINE' ? 'Conéctate y reintenta. La tarjeta leída se conserva en esta pantalla.' : 'Vuelve a intentarlo.', `<p class="ns-reqid">Solicitud ${A.regId || A.lookupId}${lost ? ' · se conserva al reintentar' : ''}</p>`)}`;
+      actions = btn('close', 'Cerrar') + btn('retry', lost ? 'Reintentar registro' : 'Volver a consultar', { primary: true, icon: 'refresh' });
+    }
+    return { title: A.mode === 'replace' ? 'Cambiar tarjeta' : 'Asociar tarjeta', sub: e.name, icon: 'card', body: `${person}<div data-region="flow">${main}</div>`, footer: foot(hint, actions) };
+  };
+
+  VIEWS.liberar = ({ emp: id }) => {
+    const e = D.emp(id), a = S.assign[id], R = S.rel;
+    if (R.done) return { title: 'Tarjeta liberada', sub: e.name, icon: 'card', body: `${status('good', 'checkc', 'Tarjeta liberada', `${last4(R.uid)} quedó libre. Nadie la usa y no está bloqueada. ${esc(e.name)} puede recibir otra tarjeta.`)}`, footer: foot('', btn('assoc-new', 'Asociar nueva tarjeta', { primary: true, icon: 'card', v: id })) };
+    return { title: 'Marcar como perdida', sub: e.name, icon: 'card', body: `<span class="vs-delete-symbol" style="background:var(--warn);color:#382500">${ic('warn')}</span><h3 class="vs-confirm-title">¿Liberar la tarjeta ${last4(a.uid)}?</h3><p class="vs-confirm-copy">Queda libre: sin dueño y sin bloqueo. Si alguien la usa, sus lecturas aparecerán como «tarjeta desconocida» para revisarlas. <b>Las lecturas pasadas no cambian.</b></p>${label('Motivo')}${seg('relreason', [['perdida', 'Perdida'], ['baja', 'Baja'], ['error_registro', 'Error'], ['otro', 'Otro']], R.reason || 'perdida')}<label class="vs-field-label" for="rn" style="margin-top:14px">Nota (opcional)</label><input id="rn" class="ns-text" data-in="relnote" placeholder="Ej. la perdió en el almacén">`, footer: foot('', btn('back', 'Cancelar') + btn('confirm-release', 'Liberar tarjeta', { danger: true, v: id })) };
+  };
+
+  // ---- Lecturas
+  const alertIcons = d => d.alerts.map(k => { const a = D.ALERTS[k]; return `<span class="ns-ico" data-tone="${a.tone}" title="${a.label}" role="img" aria-label="${a.label}">${ic(a.icon)}</span>`; }).join('');
+  const dayHours = d => { const c = D.calc(d.edited?.inT ?? d.inT, d.edited?.outT ?? d.outT, S.rules, d.edited?.lunch); return c && !c.error ? c : null; };
+  VIEWS.lecturas = () => {
+    const f = S.lFilter, all = S.days;
+    const list = all.filter(d => f === 'todos' || (f === 'revisar' && d.state === 'pendiente') || (f === 'alertas' && d.alerts.length) || (f === 'verificados' && ['verificado', 'editado'].includes(d.state)));
+    const ready = all.filter(d => ['verificado', 'editado'].includes(d.state)).length, unres = S.unknown.filter(u => !u.done).length + D.PENDING_DATE.length;
+    const rows = list.map(d => { const e = D.emp(d.emp), c = dayHours(d), st = stateTone(d.state);
+      const times = d.reads === 0 ? 'Sin lecturas propias' : `${d.inT || '—'} → ${d.outT || '—'}`;
+      return `<button type="button" class="ns-row" data-act="day" data-v="${d.id}" ${d.state === 'verificado' ? 'data-dim="true"' : ''}>${avatar(e)}<span class="ns-row-copy"><strong>${esc(e.name)}</strong><span class="ns-meta"><span class="ns-mono">${times}</span><span class="ns-icons">${alertIcons(d)}</span></span></span><span class="ns-row-end"><b>${c ? D.fmtH(c.rounded) + ' h' : '—'}</b>${chip(st[0], d.consult ? 'Consulta Mini' : st[1], d.state === 'verificado' ? 'check' : '')}</span>${arrow()}</button>`; }).join('') || '<p class="vs-empty">No hay días con este filtro.</p>';
+    const testBanner = S.prefs.mode === 'test' && S.scn.dest === 'test' ? status('warn', 'info', 'Destino en Test', 'Test solo afecta a las tarjetas que asocias desde este teléfono. Las lecturas del lector no pasan por este destino.', '', 'ns-compact') : '';
+    return { title: 'Lecturas', sub: `Mar ${D.dayLabel} · Torre Norte`, icon: 'list', body: `<div class="vs-record-filters" role="group" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">${[['2 nov', false], ['3 nov', true], ['Hoy', false]].map(([l, on]) => `<button type="button" class="vs-segment" aria-pressed="${on}" data-act="datechip" data-v="${l}">${l}</button>`).join('')}</div>
+      <div class="ns-tiles"><div class="ns-tile"><b>${all.length}</b><small>Propuestas del día</small></div><button type="button" class="ns-tile" data-tone="warn" data-act="lfilter" data-v="revisar"><b>${all.filter(d => d.state === 'pendiente').length}</b><small>Por revisar</small></button><button type="button" class="ns-tile" data-tone="${unres ? 'bad' : 'mute'}" data-act="go" data-v="pendientes"><b>${unres}</b><small>Sin dueño / sin hora</small></button><div class="ns-tile"><b>${ready}</b><small>Listos para entregar</small></div></div>
+      <div class="vs-record-filters" role="group">${[['todos', 'Todos'], ['revisar', 'Por revisar'], ['alertas', 'Alertas'], ['verificados', 'Verificados']].map(([v, l]) => `<button type="button" class="vs-segment" data-act="lfilter" data-v="${v}" aria-pressed="${f === v}">${l}</button>`).join('')}</div>${testBanner}
+      <div data-region="list">${rows}</div>
+      <button type="button" class="vs-link-row" data-act="admin"><span>Revisar el período completo, tabla y comparación con Mini</span><small>App de revisión</small>${ic('ext').replace('<svg', '<svg width="16" height="16"')}</button>`, footer: foot(ready ? `${ready} listos` : 'Verifica un día para poder entregarlo', btn('go', `Entregar ${ready}`, { primary: true, v: 'entrega', disabled: !ready || readOnly() })) };
+  };
+
+  VIEWS.dia = ({ id }) => {
+    const d = dayOf(id), e = D.emp(d.emp), ed = d.edited || {}, inT = ed.inT ?? d.inT ?? '', outT = ed.outT ?? d.outT ?? '';
+    const single = d.alerts.includes('falta_salida'), unk = d.alerts.includes('tarjeta_desconocida');
+    const c = D.calc(inT, outT, S.rules, ed.lunch), st = stateTone(d.state), off = readOnly();
+    const lunchSuggest = c && !c.error ? c.lunch : 0, lunchSel = ed.lunch != null ? ed.lunch : 'auto';
+    const alerts = d.alerts.map(k => {
+      const txt = { falta_salida: 'Solo se recibió una lectura. No se calcula nada solo: elige cómo resolverlo.', jornada_corta: `Menos de 4 h de jornada (umbral provisional).`, tarjeta_desconocida: d.note || 'Hay lecturas de una tarjeta sin dueño ese día.', doble_toque_fusionado: `Dos lecturas a menos de ${S.rules.umbral_doble_toque_min} min cuentan como una (${(d.doubleTap || []).join(' y ')}).`, foto_dudosa: 'Una foto necesita tu veredicto.', sin_foto: 'Una foto no llegó; el lector la envía después.' }[k] || '';
+      const a = D.ALERTS[k]; return status(a.tone, a.icon === 'unknown' ? 'unknown' : a.icon, a.label, txt, k === 'falta_salida' ? btn('go', 'Resolver este día', { v: 'resolver', primary: true }) : '', 'ns-compact'); }).join('');
+    const reads = d.reads ? `<div class="vs-control-group">${[d.inT && { t: d.doubleTap ? d.doubleTap[0] : d.inT, tag: 'Entrada' }, d.doubleTap && { t: d.doubleTap[1], tag: 'Fusionada' }, d.outT && { t: d.outT, tag: 'Salida' }].filter(Boolean).map(r => `<div class="vs-setting-row" style="min-height:52px;cursor:default"><span><strong class="ns-mono">${r.t}</strong><small>ESP32-ENTRADA</small></span>${chip(r.tag === 'Fusionada' ? 'mute' : 'info', r.tag)}</div>`).join('')}</div>` : '<p class="vs-empty">Sin lecturas propias este día.</p>';
+    const mirror = c && !c.error ? `<div class="ns-mirror" data-region="mirror"><dl><dt>Rango</dt><dd>${D.fmtHM(c.range)}</dd><dt>Comida</dt><dd>− ${c.lunch} min</dd><hr><dt>Trabajadas</dt><dd>${D.fmtH(c.worked)} h</dd><dt>Con redondeo <span class="ns-open">Propuesta</span></dt><dd class="ns-big">${D.fmtH(c.rounded)} h</dd><dt>Normales / extras</dt><dd>${D.fmtH(c.normal)} / ${D.fmtH(c.extra)}</dd></dl></div>` : `<div class="ns-mirror" data-region="mirror"><p class="vs-help" style="margin:0">${c && c.error ? `<span style="color:var(--bad)">${c.error}</span>` : 'Indica la hora que falta para calcular, o usa «Resolver este día».'}</p></div>`;
+    const mini = d.mini ? (() => { const n = c && !c.error ? c : null, same = n && n.normal === d.mini.normal && n.extra === d.mini.extra; return `<div class="ns-pair"><div class="ns-pair-col"><h4>NFC</h4><b>${n ? D.fmtH(n.normal) + ' + ' + D.fmtH(n.extra) : '—'}</b>normal + extra</div><div class="ns-pair-col"><h4>Mini</h4><b>${d.mini.normal} + ${d.mini.extra}</b>normal + extra</div></div><div style="margin-top:8px">${n ? chip(same ? 'good' : 'warn', same ? 'Coinciden' : 'Difieren', same ? 'check' : 'warn') : chip('mute', 'Sin cálculo NFC')} <span class="vs-help">Ninguna fuente borra a la otra: tú decides.</span></div>`; })() : `<p class="vs-help">Mini aún no reportó a este empleado. ${chip('mute', 'Solo NFC')}</p>`;
+    const photoTxt = d.photos.length ? `${d.photos.filter(p => p === 'ok').length} de ${d.photos.length} fotos` : 'Sin fotos';
+    const dirty = d.edited && Object.keys(d.edited).length, needNote = dirty && !(S.edit.note || '').trim();
+    const timeInputs = unk ? '' : `${label('Horas')}<div class="ns-fields"><div><label class="vs-field-label" for="ti">Entrada</label><input id="ti" class="ns-time" type="time" data-in="inT" value="${inT}" ${off ? 'disabled' : ''}></div><div><label class="vs-field-label" for="to">Salida</label><input id="to" class="ns-time" type="time" data-in="outT" value="${outT}" ${off ? 'disabled' : ''}></div></div>
+      <label class="vs-field-label" style="margin-top:12px">Comida descontada${lunchSuggest ? '' : ''} <span class="vs-help">Sugerida: ${lunchSuggest / 60} h</span></label>${seg('lunch', [['auto', 'Auto'], [0, '0'], [30, '0,5 h'], [60, '1 h'], [90, '1,5 h']], lunchSel)}${mirror}
+      <div data-region="note" style="${dirty ? '' : 'display:none'}"><label class="vs-field-label" for="nn">Nota obligatoria</label><textarea id="nn" class="ns-text" data-in="note" placeholder="¿Por qué cambias este día?">${esc(S.edit.note || '')}</textarea><div class="ns-quick">${['Olvidó marcar', 'Confirmado con el dueño del Mini', 'Lector sin hora'].map(q => `<button type="button" class="ns-preset" data-act="quicknote" data-v="${q}">${q}</button>`).join('')}</div></div>`;
+    const history = d.id === 'd2' ? `${label('Historial')}<ul class="ns-timeline"><li data-now="true"><strong>Verificado</strong>3 nov 18:02 · admin@obra</li><li><strong>Propuesta calculada</strong>3 nov 17:30 · 2 lecturas</li></ul>` : '';
+    let actions;
+    if (d.state === 'verificado') actions = btn('revert', 'Revertir verificación', { disabled: off });
+    else if (unk) actions = btn('go', 'Ver lecturas sin dueño', { v: 'pendientes', primary: true });
+    else if (single) actions = btn('go', 'Resolver este día', { v: 'resolver', primary: true });
+    else if (dirty) actions = btn('save-edit', 'Guardar edición', { primary: true, disabled: off || needNote || !c || !!c.error });
+    else actions = btn('verify', 'Verificar', { primary: true, icon: 'check', disabled: off || !c });
+    const hint = off ? 'Solo lectura' : dirty && needNote ? 'Escribe una nota para guardar' : '';
+    return { title: e.name.split(' ').slice(0, 2).join(' '), sub: `Mar ${D.dayLabel} · ${esc(e.role)}`, icon: 'list', body: `<div class="vs-employee-identity">${avatar(e)}<span class="vs-copy"><strong>${esc(e.name)}</strong><small>N.º ${e.number}</small></span>${chip(st[0], st[1])}</div>${alerts}${label('Lecturas')}${reads}${timeInputs}${label('Comparación con Mini')}${mini}<button type="button" class="vs-link-row" data-act="go" data-v="fotos" ${d.photos.length ? '' : 'disabled'}><span>Fotos de las lecturas</span><small>${photoTxt}</small>${arrow()}</button>${history}`, footer: foot(hint, (single || unk || d.state === 'verificado' ? '' : btn('pend', 'Dejar pendiente')) + actions) };
+  };
+
+  VIEWS.resolver = ({ id }) => {
+    const d = dayOf(id), R = S.resolve, e = D.emp(d.emp), opt = R.opt;
+    const o = (v, icon, t, h, extra) => `<button type="button" class="ns-radio" data-act="ropt" data-v="${v}" aria-pressed="${opt === v}" style="flex-wrap:wrap"><span class="vs-icon-box">${ic(icon)}</span><span class="vs-copy"><strong>${t}</strong><small>${h}</small></span></button>${opt === v ? `<div style="margin:-2px 0 12px 4px" data-region="sub">${extra}</div>` : ''}`;
+    const owners = ['Lic. Ramírez (Mini Torre Norte)', 'Ing. Cabrera (Mini Almacén)'];
+    const body = `${status('warn', 'warn', `Solo hay una lectura: ${d.inT}`, 'No sabemos si es entrada o salida. No se calcula nada hasta que elijas.', '', 'ns-compact')}
+      ${o('hora', 'clock', 'Indicar la hora que falta', 'Escribe la salida real.', `<div class="ns-fields"><div><label class="vs-field-label" for="rh">${R.kind === 'salida' ? 'Entrada' : 'Salida'}</label><input id="rh" class="ns-time" type="time" data-in="rhora" value="${R.hora || ''}"></div><div><label class="vs-field-label">La lectura es…</label>${seg('rkind', [['entrada', 'Entrada'], ['salida', 'Salida']], R.kind || 'entrada')}</div></div>`)}
+      ${o('estandar', 'checkc', 'Usar la jornada estándar de 8 h', 'Queda con 8 h normales; entrada y salida sin dato.', `<p class="vs-help">Se guardan ${S.rules.jornada_horas} h normales y 0 extras. <span class="ns-open">Pregunta abierta</span> ¿se exige igual la hora de entrada para auditar?</p>`)}
+      ${o('mini', 'users', 'Pedir confirmación al dueño de Mini', 'Verbal o con los datos de su Mini.', `<div class="ns-quick">${owners.map(w => `<button type="button" class="ns-preset" data-act="rowner" data-v="${w}" aria-pressed="${R.owner === w}">${w}</button>`).join('')}</div><div style="margin-top:8px">${seg('rchan', [['verbal', 'Verbal'], ['datos', 'Con datos de su Mini']], R.chan || 'verbal')}</div><p class="vs-help">El día queda marcado «Consulta Mini» hasta que responda.</p>`)}
+      ${o('pendiente', 'clock', 'Dejar pendiente', 'No cambia nada; se mostrará con recordatorio.', `<div class="ns-quick">${[['1', 'Mañana'], ['3', 'En 3 días'], ['0', 'Sin recordatorio']].map(([v, l]) => `<button type="button" class="ns-preset" data-act="rrem" data-v="${v}" aria-pressed="${(R.rem || '1') === v}">${l}</button>`).join('')}</div>`)}
+      <label class="vs-field-label" for="rn2" style="margin-top:6px">Nota obligatoria</label><textarea id="rn2" class="ns-text" data-in="rnote" placeholder="¿Qué decidiste y por qué?">${esc(R.note || '')}</textarea><div class="ns-quick">${['Olvidó marcar salida', 'Confirmado con el dueño del Mini'].map(q => `<button type="button" class="ns-preset" data-act="rquick" data-v="${q}">${q}</button>`).join('')}</div>`;
+    const ok = opt && (R.note || '').trim() && (opt !== 'hora' || R.hora) && (opt !== 'mini' || R.owner);
+    return { title: 'Resolver un dato', sub: `${e.name} · Mar ${D.dayLabel}`, icon: 'list', body, footer: foot(!opt ? 'Elige una opción' : !(R.note || '').trim() ? 'Escribe una nota para guardar' : opt === 'hora' && !R.hora ? 'Indica la hora' : opt === 'mini' && !R.owner ? 'Elige a quién preguntar' : '', btn('rsave', 'Guardar decisión', { primary: true, disabled: !ok || readOnly() })) };
+  };
+
+  VIEWS.fotos = ({ id }) => {
+    const d = dayOf(id), e = D.emp(d.emp), ret = S.rules.retencion_fotos, sel = S.photoSel ?? 0, p = d.photos[sel] || 'ok';
+    if (ret === 'no_guardar') return { title: 'Fotos', sub: e.name, icon: 'camera', body: status('mute', 'info', 'Las fotos no se guardan', 'Tu ajuste actual es «No guardar». Cambia la retención en Reglas de cálculo si necesitas verificar identidad con fotos.', btn('go', 'Abrir reglas', { v: 'reglas' })), footer: '' };
+    const person = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg>';
+    const retTxt = ret === 'hasta_confirmar' ? 'Se borran al verificar este día (no se recuperan al revertir).' : 'Vencen en 27 días.';
+    return { title: 'Fotos del día', sub: e.name, icon: 'camera', body: `<div class="ns-pair" style="margin-bottom:12px"><figure class="ns-photo" style="margin:0"><span class="ns-mono" style="position:absolute;top:6px;left:6px;font-size:10px;color:var(--dim)">Referencia</span>${person}<figcaption>Foto del empleado</figcaption></figure><figure class="ns-photo ns-photo-big" style="margin:0;aspect-ratio:auto" data-state="${p === 'ok' ? 'ok' : 'missing'}">${p === 'ok' ? person : ''}${p === 'ok' ? '' : '<span>La foto no llegó. El lector la envía después de la lectura.</span>'}<figcaption>${sel === 0 ? d.inT || '' : d.outT || ''} · ESP32-ENTRADA</figcaption></figure></div>
+      <div class="ns-photos">${d.photos.map((s, i) => `<button type="button" class="ns-photo" data-act="psel" data-v="${i}" aria-pressed="${sel === i}" data-state="${s}" aria-label="Foto ${i + 1}, ${s === 'ok' ? 'disponible' : 'no llegó'}" style="padding:0">${s === 'ok' ? person : '<span>No llegó</span>'}<figcaption>${i === 0 ? d.inT || '—' : d.outT || '—'}</figcaption></button>`).join('')}</div>
+      ${label('Tu veredicto')}${seg('verdict', [['coincide', 'Coincide'], ['dudosa', 'Dudosa'], ['no', 'No es la persona']], S.verdict || '')}<p class="vs-help">«No es la persona» no rechaza el día por sí solo: añade una nota o rechaza desde el día.</p>
+      ${status('mute', 'clock', 'Retención: ' + { hasta_confirmar: 'hasta confirmar', '30_dias': '30 días' }[ret], retTxt + ' Solo para verificar identidad; las fotos no marcan asistencia.', '', 'ns-compact')}`, footer: '' };
+  };
+
+  VIEWS.pendientes = () => {
+    const open = S.unknown.filter(u => !u.done);
+    const unk = open.map(u => { const l = u.last && D.emp(u.last.emp); const asg = u.pick; const t = asg && D.emp(asg);
+      return `<div class="ns-row" style="flex-wrap:wrap"><span class="vs-icon-box">${ic('unknown')}</span><span class="ns-row-copy"><strong class="ns-uid">${uidFmt(u.uid)}</strong><span class="ns-meta"><span class="ns-mono">${u.at.slice(5, 10).replace('-', '/')} ${u.at.slice(11)}</span><span>${u.device}</span>${u.photo === 'ok' ? chip('mute', 'Foto', 'eye') : chip('mute', 'Sin foto')}</span>${l ? `<span class="ns-meta">Sugerencia: la tuvo ${esc(l.name || D.emp(u.last.emp).name)} hasta el ${u.last.until.slice(8)}/10 (${D.REASONS[u.last.reason].toLowerCase()}). No se asigna sola.</span>` : '<span class="ns-meta">Tarjeta nunca asociada.</span>'}</span>
+      <div style="flex:1 0 100%;display:grid;gap:8px"><select class="ns-text" data-in="pick" data-v="${u.id}" aria-label="Asignar lectura a empleado"><option value="">Asignar esta lectura a…</option>${D.EMP.map(x => `<option value="${x.id}" ${asg === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>${t ? status(S.assign[t.id] ? 'warn' : 'info', S.assign[t.id] ? 'warn' : 'info', S.assign[t.id] ? `${esc(t.name.split(' ')[0])} ya tiene su propia tarjeta` : 'Simulación', S.assign[t.id] ? 'Revisa la foto: podría ser otra persona usando una tarjeta ajena.' : 'Esta lectura contaría como una lectura más en su día. La tarjeta no se asocia ni cambia.', '', 'ns-compact') : ''}<div style="display:flex;gap:8px">${btn('uassign', 'Asignar lectura', { v: u.id, primary: true, disabled: !asg || readOnly() })}${btn('uignore', 'Ignorar', { v: u.id })}</div></div></div>`; }).join('') || '<p class="vs-empty">No hay lecturas sin dueño.</p>';
+    const pd = D.PENDING_DATE.map(p => `<div class="ns-row"><span class="vs-icon-box">${ic('clock')}</span><span class="ns-row-copy"><strong>${esc(D.emp(p.emp).name)}</strong><span class="ns-meta"><span class="ns-uid">${uidFmt(p.uid)}</span><span>${p.device}</span><span>Llegó ${p.received.slice(5, 10).replace('-', '/')} ${p.received.slice(11)}</span></span><span class="ns-meta">Hora original: <span class="ns-mono">${p.raw}</span>. No se inventa la fecha.</span></span>${chip('warn', 'Sin hora fiable', 'clock')}</div>`).join('');
+    return { title: 'Lecturas por resolver', sub: 'Sin dueño y sin hora fiable', icon: 'list', body: `<div class="vs-notice" style="margin-bottom:14px"><strong>Se resuelve lectura por lectura</strong>La tarjeta no cambia: solo se cuenta esa lectura en el día del empleado elegido.</div><div class="ns-group-label" style="margin-top:0"><span>Tarjeta sin dueño</span><span>${open.length}</span></div>${unk}<div class="ns-group-label"><span>Fecha pendiente</span><span>${D.PENDING_DATE.length}</span></div>${pd}<p class="vs-help">Corregir la fecha manualmente es una <span class="ns-open">propuesta</span>: hoy solo se muestra.</p>`, footer: '' };
+  };
+
+  VIEWS.entrega = () => {
+    const ready = S.days.filter(d => ['verificado', 'editado'].includes(d.state));
+    const steps = [['Verificas el día', 'Solo verificado o editado puede salir.'], ['Se prepara un borrador', 'attendance-submission/v1 con fuente «NFC ESP32».'], ['Llega a la bandeja', 'En Conectados, como Nuevo. No hay escritura oficial.'], ['Lo incorporas tú', 'Con la conciliación de siempre.']];
+    const payload = `{\n  "schema": "attendance-submission/v1",\n  "workDate": "2026-11-03",\n  "saProjectId": "obra-torre-norte",\n  "scope": { "sourceId": "nfc-esp32", … },\n  "rows": [{ "saEmployeeId": "emp-102",\n    "normalHours": 8, "overtimeHours": 0,\n    "status": "present" }]\n}`;
+    return { title: 'Entrega a la bandeja', sub: `Mar ${D.dayLabel} · ${ready.length} listos`, icon: 'tray', body: `${S.delivered ? status('good', 'checkc', 'Borrador enviado a la bandeja', `${ready.length} empleados del ${D.dayLabel}. Aparece como «Nuevo» en Conectados. Nada oficial cambió.`, '<a class="vs-btn" style="margin-top:10px;text-decoration:none" href="bandeja.html">Abrir la bandeja</a>') : ''}
+      <ul class="ns-timeline">${steps.map((s, i) => `<li ${i === 0 ? 'data-now="true"' : ''}><strong>${s[0]}</strong>${s[1]}</li>`).join('')}</ul>${label('Listos para entregar')}${ready.map(d => { const e = D.emp(d.emp), c = dayHours(d); return `<div class="ns-row">${avatar(e)}<span class="ns-row-copy"><strong>${esc(e.name)}</strong><span class="ns-meta ns-mono">${c ? D.fmtH(c.normal) + ' normales · ' + D.fmtH(c.extra) + ' extras' : '—'}</span></span>${chip(stateTone(d.state)[0], stateTone(d.state)[1], 'check')}</div>`; }).join('') || '<p class="vs-empty">Aún no hay días verificados.</p>'}
+      <details><summary>Ver el borrador que se enviaría</summary><pre class="ns-sheet ns-mono" style="white-space:pre-wrap;font-size:11px">${esc(payload)}</pre></details>
+      <p class="vs-help"><span class="ns-open">Pendiente</span> Falta decidir el mapeo lector → obra (saProjectId) y el ownerUid del sobre.</p>`, footer: foot(S.delivered ? 'Enviado' : '', btn('deliver', S.delivered ? 'Enviado' : `Preparar borrador (${ready.length})`, { primary: true, icon: 'tray', disabled: !ready.length || S.delivered || readOnly() })) };
+  };
+
+  VIEWS.lectores = () => ({ title: 'Lectores', sub: `${S.devices.length} registrados · Torre Norte`, icon: 'chip', body: S.devices.map(v => { const rev = v.key === 'revoked'; return `<button type="button" class="ns-row" data-act="dev" data-v="${v.id}" ${rev ? 'data-dim="true"' : ''}><span class="vs-icon-box">${ic('chip')}</span><span class="ns-row-copy"><strong>${esc(v.name)}</strong><span class="ns-meta"><span class="ns-mono">${v.id}</span><span>${v.stale ? '' : ''}Visto ${v.lastSeen}</span></span><span class="ns-meta">${rev ? chip('bad', 'Clave revocada', 'lock') : chip('good', 'Clave activa', 'key')}${v.stale && !rev ? chip('warn', 'Sin señal', 'wifi') : ''}${!v.hasEventId ? chip('mute', 'Firmware sin eventId') : ''}</span></span>${arrow()}</button>`; }).join('') + `<p class="vs-help">Las claves nunca se muestran aquí. Se entregan al flashear el lector.</p>`, footer: '' });
+  VIEWS.lector = ({ id }) => {
+    const v = S.devices.find(x => x.id === id), rev = v.key === 'revoked';
+    const row = (k, val) => `<div class="vs-setting-row" style="min-height:52px;cursor:default"><span><strong>${k}</strong></span><span class="ns-mono" style="font-size:12px;text-align:right">${val}</span></div>`;
+    return { title: v.name, sub: v.id, icon: 'chip', body: `${rev ? status('bad', 'lock', 'Clave revocada', `Este lector ya no puede enviar lecturas desde el ${v.revokedAt.slice(8)}/10.`) : v.stale ? status('warn', 'wifi', `Sin señal ${v.lastSeen}`, `Tiene ${v.queue} lecturas en cola. Se sincronizarán al volver la red; las horas se reconcilian después.`) : status('good', 'checkc', 'Funcionando', `Última señal ${v.lastSeen}.`, '', 'ns-compact')}
+      <div class="vs-control-group">${row('Obra', v.project || 'Sin obra')}${row('Firmware', v.firmware)}${row('Identificador de evento', v.hasEventId ? 'Sí' : 'No (puede duplicar)')}${row('Reloj', v.clock === 'ok' ? 'Fiable' : 'Con desvío')}${row('Cola sin enviar', v.queue)}${row('Lecturas hoy', v.tapsToday)}${row('Clave', rev ? 'Revocada' : 'Activa desde ' + v.keySince.slice(5).replace('-', '/'))}</div>
+      ${!rev ? (S.confirmRevoke ? status('bad', 'warn', `¿Revocar la clave de ${esc(v.name)}?`, 'Dejará de enviar lecturas hasta que se le configure otra clave. No se borra nada.', `<div style="display:flex;gap:8px;margin-top:10px">${btn('revoke-cancel', 'Cancelar')}${btn('revoke', 'Sí, revocar', { danger: true, v: id })}</div>`) : btn('revoke-ask', 'Revocar clave', { danger: true, icon: 'lock', disabled: readOnly() }).replace('class="vs-btn', 'class="vs-btn vs-wide" style="margin-top:14px" data-x="1" data-c="')) : ''}`, footer: '' };
+  };
+
+  VIEWS.reglas = () => {
+    const r = S.draft || (S.draft = { ...S.rules }), dirty = JSON.stringify(r) !== JSON.stringify(S.rules);
+    const step = (k, title, unit, min, max, stp, presets, hint) => `${label(title)}<div class="ns-stepper">${iconBtn('dec', 'minus', 'Menos', k)}<div class="ns-stepper-val"><b data-region="v-${k}">${String(r[k]).replace('.', ',')}</b><small>${unit}</small></div>${iconBtn('inc', 'plus', 'Más', k)}</div><div class="ns-presets">${presets.map(p => `<button type="button" class="ns-preset" data-act="preset" data-v="${k}:${p}" aria-pressed="${r[k] === p}">${p}${unit === 'minutos' ? ' min' : ' h'}</button>`).join('')}</div>${hint ? `<p class="vs-help">${hint}</p>` : ''}`;
+    const sim = D.calc('07:00', '15:50', r), shrink = S.rules.retencion_fotos === '30_dias' && r.retencion_fotos === 'no_guardar';
+    return { title: 'Reglas de cálculo', sub: 'Valen para todos los lectores', icon: 'sliders', body: `<div class="ns-two-col"><div>${step('umbral_doble_toque_min', 'Doble toque', 'minutos', 0, 30, 1, [3, 5, 10], 'Lecturas más cercanas que esto cuentan como una.')}${step('almuerzo_min', 'Descuento de comida', 'minutos', 0, 180, 15, [30, 45, 60, 90], 'Se resta del rango; editable por día.')}${step('almuerzo_desde_horas', 'Descontar si el rango supera', 'horas', 1, 12, 0.5, [3, 4, 5], '')}${step('jornada_horas', 'Jornada estándar', 'horas', 4, 12, 0.5, [8, 9, 10], 'Hasta aquí son horas normales; el resto, extras.')}</div><div>
+      ${label('Redondeo <span class="ns-open">Decisión abierta</span>')}<div class="vs-choice-grid" style="grid-template-columns:1fr">${[['media', 'A la media hora más cercana', '8 h 50 − 1 h = 7,83 → 8,0'], ['hora_abajo', 'Hora entera hacia abajo', '7,83 → 7'], ['ninguno', 'Sin redondeo', '7,83 → 7,83']].map(([v, t, h]) => `<button type="button" class="vs-choice" data-act="round" data-v="${v}" aria-pressed="${r.redondeo === v}"><span><strong>${t}</strong><small>${h}</small></span>${ic('check').replace('<svg', '<svg class="vs-check"')}</button>`).join('')}</div>
+      <p class="vs-help">Valor <b>inventado</b> para ver el efecto. Hay que confirmarlo con SA y Mini antes de usarlo.</p>
+      <div class="ns-mirror" data-region="sim"><dl><dt>Prueba 07:00 → 15:50</dt><dd class="ns-big">${sim ? D.fmtH(sim.rounded) + ' h' : '—'}</dd><dt>Normales / extras</dt><dd>${sim ? D.fmtH(sim.normal) + ' / ' + D.fmtH(sim.extra) : '—'}</dd></dl></div>
+      ${label('Fotos de las lecturas')}<div class="vs-retention-grid" style="grid-template-columns:1fr">${[['no_guardar', 'No guardar', 'Sin fotos'], ['hasta_confirmar', 'Hasta confirmar', 'Se borran al verificar'], ['30_dias', '30 días', 'Un mes y se purgan']].map(([v, t, h]) => `<button type="button" class="vs-choice" data-act="ret" data-v="${v}" aria-pressed="${r.retencion_fotos === v}" style="flex-direction:row;justify-content:space-between;min-height:56px"><span style="text-align:left"><strong style="font-size:13px;font-weight:650">${t}</strong><small style="font-family:inherit;margin:3px 0 0">${h}</small></span>${ic('check').replace('<svg', '<svg class="vs-check"')}</button>`).join('')}</div>${shrink ? status('warn', 'warn', '¿Borrar las fotos ya guardadas?', 'Cambiar a «No guardar» eliminaría las fotos de los últimos 30 días. Se pedirá confirmar al guardar.', '', 'ns-compact') : ''}
+      <p class="vs-help">El consentimiento por escrito se firma cuando exista el modelo.</p></div></div>
+      <p class="vs-help">Los días ya verificados no cambian: guardan una instantánea con las reglas usadas.</p>`, footer: foot(dirty ? '' : 'Sin cambios', btn('rreset', 'Descartar', { disabled: !dirty }) + btn('rsave-rules', 'Guardar cambios', { primary: true, disabled: !dirty || readOnly() })) };
+  };
+
+  // ---------------------------------------------------------------- shell
+  let overlay, dlg, onClose;
+  function lockView(v) {
+    if (S.scn.session === 'out' && NEEDS_SESSION.includes(v)) return { title: 'Inicia sesión', sub: 'Se necesita tu cuenta de SA', icon: 'lock', body: `<div class="ns-lock"><span class="vs-icon-box">${ic('lock')}</span><p>Las lecturas, lectores y reglas viven en tu cuenta. Las <b>tarjetas</b> y la <b>lectura de prueba</b> siguen funcionando sin sesión.</p>${btn('login', 'Iniciar sesión', { primary: true })}</div>`, footer: '' };
+    return null;
+  }
+  function current() {
+    const c = cur(); let v = c.view;
+    if (wide() && v === 'home') v = c.view = 'lecturas', S.stack = [{ view: 'lecturas' }];
+    return lockView(v) || (locked(v) ? { title: 'Actualiza SA', sub: '', icon: 'refresh', body: '', footer: '' } : VIEWS[v](c));
+  }
+  function render(full) {
+    if (!overlay) return;
+    const c = cur(), view = VIEWS[c.view] ? c.view : 'home', r = current();
+    const sec = sectionOf(view), isRoot = S.stack.length <= 1 || (wide() && S.stack.length === 1);
+    dlg.querySelector('.ns-rail').innerHTML = `<div class="ns-rail-title"><span class="vs-icon-box">${ic('card')}</span><span>NFC<br><small style="font-weight:400;color:var(--dim);font-size:11px">Torre Norte · ${destName()}</small></span></div>${SECTIONS.map(s => `<button type="button" class="ns-rail-item" data-act="section" data-v="${s[0]}" aria-current="${sec === s[0]}"><span class="vs-icon-box">${ic(s[3])}</span>${s[1]}${s[0] === 'lecturas' && S.days.filter(d => d.state === 'pendiente').length ? `<span class="ns-count" data-tone="warn">${S.days.filter(d => d.state === 'pendiente').length}</span>` : ''}</button>`).join('')}`;
+    dlg.querySelector('[data-hdr-icon]').innerHTML = ic(r.icon);
+    dlg.querySelector('#vs-title').textContent = r.title; dlg.querySelector('[data-sub]').textContent = r.sub;
+    dlg.querySelector('[data-act=back]').hidden = view === 'home' || (wide() && S.stack.length <= 1);
+    dlg.querySelector('.ns-banner-slot').innerHTML = banners(view) ? `<div style="padding:12px 22px 0">${banners(view)}</div>` : '';
+    const body = dlg.querySelector('.vs-modal-body');
+    if (full) { const st = body.scrollTop; body.innerHTML = r.body + `<p class="vs-feedback" data-feedback role="status" aria-live="polite">${esc(S.feedback)}</p>`; body.scrollTop = full === 'keep' ? st : 0; }
+    else { const t = document.createElement('div'); t.innerHTML = r.body; t.querySelectorAll('[data-region]').forEach(n => { const cur = body.querySelector(`[data-region="${n.dataset.region}"]`); if (cur) cur.innerHTML = n.innerHTML; if (cur && n.getAttribute('style') !== null) cur.setAttribute('style', n.getAttribute('style')); }); }
+    const f = dlg.querySelector('.vs-modal-footer'); f.innerHTML = r.footer; f.hidden = !r.footer;
+    const fb = dlg.querySelector('[data-feedback]'); if (fb) fb.textContent = S.feedback;
+    document.dispatchEvent(new CustomEvent('nfc-mock:render', { detail: { view } }));
+  }
+  const soft = () => render(false);
+  const keep = () => render('keep');
+  const toLecturas = () => { S.stack = wide() ? [{ view: 'lecturas' }] : [{ view: 'home' }, { view: 'lecturas' }]; };
+  const say = t => { S.feedback = t; const fb = dlg.querySelector('[data-feedback]'); if (fb) fb.textContent = t; };
+  const later = (fn, ms = 450) => setTimeout(fn, ms);
+
+  // ---------------------------------------------------------------- association simulation
+  function startAssoc(emp, mode) { S.A = newAssoc(emp, mode); go('asociar', { emp }); }
+  function readCard() {
+    const A = S.A; A.phase = 'reading'; A.err = null; A.result = null; soft();
+    later(() => {
+      if (A.phase !== 'reading') return;
+      const key = S.scn.next === 'lostreply' ? 'free' : S.scn.next; A.touch = D.TOUCH[key] || D.TOUCH.free; A.phase = 'consulting'; A.lookupId = rid(); render(false);
+      later(() => { if (A.phase !== 'consulting') return;
+        if (S.scn.net === 'off') { A.phase = 'error'; A.err = 'OFFLINE'; return render(false); }
+        if (S.prefs.mode === 'test' && S.scn.listening === 'no') { A.phase = 'error'; A.err = 'CORS'; return render(false); }
+        A.result = A.touch.result; A.phase = 'result'; render(false); }, 700);
+    }, 600);
+  }
+  function register() {
+    const A = S.A; A.phase = 'registering'; A.regId = A.regId || rid(); render(false);
+    later(() => { if (A.phase !== 'registering') return;
+      if (S.scn.next === 'lostreply' && !A.retried) { A.phase = 'error'; A.err = 'LOST'; return render(false); }
+      if (S.scn.net === 'off') { A.phase = 'error'; A.err = 'OFFLINE'; return render(false); }
+      const uid = A.touch.uid.replace(/[ :\-]/g, '').toUpperCase(); const old = S.assign[A.emp];
+      if (old && A.mode === 'replace') { S.free.unshift({ uid: old.uid, lastHolder: A.emp, until: D.TODAY, reason: A.reason, lastRead: null }); (S.history[A.emp] || (S.history[A.emp] = [])).find(h => !h.to).to = D.TODAY; S.history[A.emp].find(h => h.uid === old.uid).reason = A.reason; }
+      S.free = S.free.filter(f => f.uid !== uid); S.assign[A.emp] = { uid, since: D.TODAY }; (S.history[A.emp] || (S.history[A.emp] = [])).unshift({ uid, from: D.TODAY, to: null, reason: null, by: 'tú' });
+      A.phase = 'done'; render(false); }, 800);
+  }
+
+  // ---------------------------------------------------------------- events
+  function onClick(ev) {
+    const t = ev.target.closest('[data-act]'); if (!t || t.disabled) return;
+    const a = t.dataset.act, v = t.dataset.v, c = cur(), A = S.A;
+    switch (a) {
+      case 'close': return close();
+      case 'back': return back();
+      case 'section': return root(v);
+      case 'go': return go(v, { emp: c.emp, id: c.id });
+      case 'emp': return go('tarjeta', { emp: v });
+      case 'day': S.edit = {}; S.photoSel = 0; return go('dia', { id: v });
+      case 'tfilter': S.tFilter = v; return keep();
+      case 'lfilter': S.lFilter = v; if (c.view !== 'lecturas') return; return keep();
+      case 'datechip': return say(v === '3 nov' ? '' : 'Mockup: solo hay datos del 3 nov.');
+      case 'admin': return say('Abriría la app de revisión (otra aplicación, con tu sesión de SA).');
+      case 'update': return say('Mockup: buscaría una nueva versión de SA.');
+      case 'login': S.scn.session = 'in'; syncPanel(); return render(true);
+      // connection
+      case 'assoc': S.prefs.enabled = !S.prefs.enabled; return keep();
+      case 'mode': S.prefs.mode = v; S.check = null; return render(true);
+      case 'saveurl': say('Destino guardado en este teléfono.'); return;
+      case 'check':
+        S.check = 'busy'; keep();
+        return later(() => { S.check = S.scn.net === 'off' ? 'offline' : (S.prefs.mode === 'test' && S.scn.listening === 'no') ? 'unreachable' : 'ok'; keep(); }, 700);
+      // diagnostic
+      case 'test-start': S.test = { phase: 'reading' }; render(true); return later(() => { if (S.test.phase === 'reading') { S.test = { phase: 'done' }; render(true); } }, 900);
+      case 'test-stop': S.test = { phase: 'idle' }; return render(true);
+      case 'test-copy': return say('Resultado copiado.');
+      // card flow
+      case 'assoc-new': S.A = newAssoc(v, 'new'); S.stack = S.stack.filter(s => s.view !== 'liberar'); return go('asociar', { emp: v });
+      case 'assoc-replace': S.A = newAssoc(v, 'replace'); return go('asociar', { emp: v });
+      case 'reason': A.reason = v; return keep();
+      case 'read': A.phase = 'idle'; A.touch = null; A.result = null; A.err = null; A.regId = null; A.retried = false; return readCard();
+      case 'stop': A.phase = 'idle'; return keep();
+      case 'register': return register();
+      case 'retry': if (A.err === 'LOST') { A.retried = true; return register(); } A.phase = 'idle'; return readCard();
+      case 'release': S.rel = { reason: 'perdida' }; return go('liberar', { emp: v });
+      case 'relreason': S.rel.reason = v; return keep();
+      case 'confirm-release': { const e = v, old = S.assign[e]; S.free.unshift({ uid: old.uid, lastHolder: e, until: D.TODAY, reason: S.rel.reason, lastRead: null }); S.history[e].find(h => !h.to).to = D.TODAY; S.history[e].find(h => h.uid === old.uid).reason = S.rel.reason; delete S.assign[e]; S.rel.done = true; S.rel.uid = old.uid; return render(true); }
+      // readings
+      case 'quicknote': S.edit.note = v; return keep();
+      case 'lunch': { const d = dayOf(c.id); d.edited = d.edited || {}; if (v === 'auto') delete d.edited.lunch; else d.edited.lunch = Number(v); if (!Object.keys(d.edited).length) d.edited = null; return keep(); }
+      case 'verify': { const d = dayOf(c.id); d.state = 'verificado'; if (S.rules.retencion_fotos === 'hasta_confirmar') d.photosGone = true; toLecturas(); render(true); return say(`Día verificado${S.rules.retencion_fotos === 'hasta_confirmar' ? '. Las fotos se borraron (retención «hasta confirmar»)' : ''}.`); }
+      case 'save-edit': { const d = dayOf(c.id); d.state = 'editado'; d.editedNote = S.edit.note; toLecturas(); render(true); return say('Edición guardada con nota. La lectura original se conserva.'); }
+      case 'revert': { const d = dayOf(c.id); d.state = 'pendiente'; d.edited = null; return render(true), say('Verificación revertida. El día vuelve a Pendiente.'); }
+      case 'pend': toLecturas(); render(true); return say('Día dejado pendiente.');
+      case 'ropt': S.resolve.opt = v; return keep();
+      case 'rkind': S.resolve.kind = v; return keep();
+      case 'rchan': S.resolve.chan = v; return keep();
+      case 'rowner': S.resolve.owner = v; return keep();
+      case 'rrem': S.resolve.rem = v; return keep();
+      case 'rquick': S.resolve.note = v; return keep();
+      case 'rsave': { const d = dayOf(c.id), R = S.resolve; if (R.opt === 'estandar') { d.edited = { inT: '07:00', outT: '16:00', lunch: 60 }; d.state = 'editado'; d.alerts = d.alerts.filter(x => x !== 'falta_salida'); } else if (R.opt === 'hora') { const k = R.kind === 'salida' ? 'inT' : 'outT'; d.edited = { [k]: R.hora }; d.state = 'editado'; d.alerts = d.alerts.filter(x => x !== 'falta_salida'); } else if (R.opt === 'mini') d.consult = R.owner; else d.pending = true; S.resolve = {}; toLecturas(); render(true); return say(`Decisión guardada: ${({ hora: 'hora indicada', estandar: 'jornada estándar', mini: 'consulta a Mini en curso', pendiente: 'queda pendiente' })[R.opt]}.`); }
+      case 'psel': S.photoSel = Number(v); return keep();
+      case 'verdict': S.verdict = v; return keep();
+      case 'uassign': { const u = S.unknown.find(x => x.id === v); u.done = true; return render(true), say('Lectura asignada. La tarjeta no cambió.'); }
+      case 'uignore': { S.unknown.find(x => x.id === v).done = true; return render(true), say('Lectura ignorada.'); }
+      case 'deliver': S.delivered = true; return render(true);
+      // devices
+      case 'dev': S.confirmRevoke = false; return go('lector', { id: v });
+      case 'revoke-ask': S.confirmRevoke = true; return render(true);
+      case 'revoke-cancel': S.confirmRevoke = false; return render(true);
+      case 'revoke': { const dv = S.devices.find(x => x.id === v); dv.key = 'revoked'; dv.revokedAt = D.TODAY; S.confirmRevoke = false; return render(true), say('Clave revocada.'); }
+      // rules
+      case 'dec': case 'inc': { const k = v, st = { umbral_doble_toque_min: 1, almuerzo_min: 15, almuerzo_desde_horas: 0.5, jornada_horas: 0.5 }[k]; S.draft[k] = Math.max(0, Math.round((S.draft[k] + (a === 'inc' ? st : -st)) * 10) / 10); return keep(); }
+      case 'preset': { const [k, n] = v.split(':'); S.draft[k] = Number(n); return keep(); }
+      case 'round': S.draft.redondeo = v; return keep();
+      case 'ret': S.draft.retencion_fotos = v; return keep();
+      case 'rreset': S.draft = null; return keep();
+      case 'rsave-rules': S.rules = { ...S.draft }; S.draft = null; keep(); return say('Reglas guardadas. Los días no verificados se recalculan.');
+      case 'x': return;
+    }
+  }
+  
+  function onInput(ev) {
+    const t = ev.target, k = t.dataset.in; if (!k) return;
+    const c = cur(), d = c.id && dayOf(c.id);
+    if (k === 'search') { S.search = t.value; return soft(); }
+    if (k === 'url') { S.prefs.customUrl = t.value; return render(false), void 0; }
+    if (k === 'inT' || k === 'outT') { d.edited = d.edited || {}; d.edited[k] = t.value; return soft(); }
+    if (k === 'note') { S.edit.note = t.value; return soft(); }
+    if (k === 'rhora') { S.resolve.hora = t.value; return soft(); }
+    if (k === 'rnote') { S.resolve.note = t.value; return soft(); }
+    if (k === 'relnote') return;
+    if (k === 'pick') { S.unknown.find(x => x.id === t.dataset.v).pick = t.value; return render(true); }
+  }
+
+  // ---------------------------------------------------------------- scenario panel
+  const SCN = [
+    ['net', 'Red', [['on', 'En línea'], ['off', 'Sin red']]], ['app', 'Versión de SA', [['new', 'Actual (1.7.125)'], ['old', 'Antigua (sin NFC nuevo)']]],
+    ['session', 'Sesión de SA', [['in', 'Iniciada'], ['out', 'Sin sesión']]], ['listening', 'Destino Test', [['yes', 'Escuchando'], ['no', 'No escucha (404 sin CORS)']]],
+    ['next', 'Tarjeta que se acerca', [['free', 'Nueva y libre'], ['history', 'Libre con historial'], ['same', 'Ya es de este empleado'], ['other', 'Ocupada por otro'], ['lostreply', 'Respuesta perdida al guardar']]],
+  ];
+  function syncPanel() { document.querySelectorAll('.mk-scn select').forEach(s => { s.value = S.scn[s.dataset.k]; }); }
+  function buildPanel() {
+    const w = document.createElement('div'); w.className = 'mk-scn';
+    w.innerHTML = `<button type="button" class="mk-scn-toggle" aria-expanded="false">Escenario ▾</button><div class="mk-scn-panel"><h4>Solo en la maqueta: simula casos límite</h4>${SCN.map(([k, l, o]) => `<label><b>${l}</b><select data-k="${k}">${o.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>`).join('')}<label><b>Asociación de tarjetas</b><select data-k="assoc"><option value="on">Activada</option><option value="off">Apagada (valor inicial real)</option></select></label><small>Se refleja en la URL (?net=off&amp;app=old…) para compartir un caso.</small></div>`;
+    document.body.append(w);
+    w.querySelector('.mk-scn-toggle').onclick = () => { w.classList.toggle('open'); w.querySelector('.mk-scn-toggle').setAttribute('aria-expanded', w.classList.contains('open')); };
+    w.querySelectorAll('select').forEach(s => { s.value = S.scn[s.dataset.k]; s.onchange = () => { S.scn[s.dataset.k] = s.value; if (s.dataset.k === 'assoc') S.prefs.enabled = s.value === 'on'; if (s.dataset.k === 'dest') S.prefs.mode = s.value; S.check = null; const q = new URLSearchParams(location.search); q.set(s.dataset.k, s.value); try { history.replaceState(null, '', `${location.pathname}?${q}${location.hash}`); } catch (_) { /* sandboxed frame */ } document.dispatchEvent(new CustomEvent('nfc-mock:scenario')); overlay && overlay.classList.contains('open') && render(true); }; });
+  }
+
+  // ---------------------------------------------------------------- open / close
+  function build() {
+    overlay = document.createElement('div'); overlay.className = 'mk-overlay'; overlay.id = 'nfc-overlay';
+    overlay.innerHTML = `<div class="voice-settings-dialog nfc-settings-dialog" open role="dialog" aria-modal="true" aria-labelledby="vs-title"><nav class="ns-rail" aria-label="Secciones NFC"></nav><div class="ns-main"><header class="vs-modal-header">${iconBtn('back', 'back', 'Volver')}<span class="vs-icon-box" data-hdr-icon></span><div class="vs-modal-heading"><h2 id="vs-title" tabindex="-1">NFC</h2><small data-sub></small></div>${iconBtn('close', 'close', 'Cerrar')}</header><div class="ns-banner-slot"></div><div class="vs-modal-body"></div><footer class="vs-modal-footer"></footer></div></div>`;
+    document.body.append(overlay); dlg = overlay.firstElementChild;
+    dlg.addEventListener('click', onClick); dlg.addEventListener('input', onInput); dlg.addEventListener('change', onInput);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && overlay.classList.contains('open')) { if (S.stack.length > 1) back(); else close(); } });
+    matchMedia('(min-width:900px)').addEventListener('change', () => overlay.classList.contains('open') && render(true));
+  }
+  function open(view = 'home', params = {}) {
+    if (view === 'asociar') S.A = newAssoc(params.emp, params.mode || 'new');
+    if (view === 'liberar') S.rel = { reason: 'perdida' };
+    if (view === 'dia' || view === 'resolver') { S.edit = {}; S.resolve = {}; S.photoSel = 0; }
+    S.stack = view === 'home' ? [{ view: 'home' }] : (wide() || view === 'asociar' ? [{ view, ...params }] : [{ view: 'home' }, { view, ...params }]);
+    if (view === 'asociar' && !wide()) S.stack = [{ view: 'asociar', ...params }];
+    overlay.classList.add('open'); render(true);
+    dlg.querySelector('#vs-title').focus();
+  }
+  function close() { overlay.classList.remove('open'); onClose && onClose(); document.dispatchEvent(new CustomEvent('nfc-mock:closed')); }
+
+  function init(opts = {}) {
+    const q = new URLSearchParams(location.search);
+    for (const k of Object.keys(S.scn)) if (q.has(k)) S.scn[k] = q.get(k);
+    S.prefs.enabled = S.scn.assoc === 'on';
+    if (q.has('mode')) S.prefs.mode = q.get('mode');
+    build(); buildPanel(); onClose = opts.onClose;
+    document.querySelectorAll('[data-open-nfc]').forEach(b => b.addEventListener('click', () => open(b.dataset.openNfc || 'home', b.dataset.emp ? { emp: b.dataset.emp } : {})));
+    const h = location.hash.replace(/^#\/?/, '');
+    if (opts.autoOpen !== false && (opts.autoOpen || h)) { const [view, qs] = (h || 'home').split('?'); const p = Object.fromEntries(new URLSearchParams(qs || '')); open(view || 'home', p); }
+  }
+  window.NFCMock = { init, open, close, S };
+})();
+</script>
+<script>
+const svg=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+NFCMock.init({autoOpen:false,onClose:()=>{paintEntry();paintEmp()}});
+function paintEntry(){const S=NFCMock.S,on=S.prefs.enabled,pend=S.days.filter(d=>d.state==='pendiente').length;
+ const chip=!on?['mute','Apagada']:S.scn.net==='off'?['warn','Sin conexión']:S.scn.app==='old'?['warn','Actualizar']:pend?['warn',pend+' por revisar']:['good','Al día'];
+ document.getElementById('nfc-entry').innerHTML=`<span class="vs-icon-box">${svg('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9v6m3-6v6m4-5a3 3 0 0 1 0 4m3-7a7 7 0 0 1 0 10"/>')}</span><span class="vs-copy"><strong>NFC</strong><small>Tarjetas, lecturas y lectores</small></span><span class="ns-entry-end"><span class="ns-chip" data-tone="${chip[0]}">${chip[1]}</span></span><span class="vs-arrow">${svg('<path d="m9 5 7 7-7 7"/>')}</span>`;}
+let empId='emp-104';
+const icon=svg('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9v6m3-6v6m4-5a3 3 0 0 1 0 4m3-7a7 7 0 0 1 0 10"/>');
+function paintEmp(){const S=NFCMock.S,e=NFCData.emp(empId),a=S.assign[empId],box=document.getElementById('entry');
+ nm.value=e.name;nu.value=e.number;ro.value=e.role;t104.setAttribute('aria-current',empId==='emp-104');t101.setAttribute('aria-current',empId==='emp-101');
+ box.hidden=!S.prefs.enabled;
+ box.innerHTML=a?`<button type="button">${icon}<span>Tarjeta NFC ••${a.uid.slice(-4)} · Ver o cambiar</span></button><small>Una tarjeta por empleado.</small>`:`<button type="button">${icon}<span>Asociar tarjeta NFC</span></button><small>Registro experimental en el webhook elegido.</small>`;
+ box.querySelector('button').onclick=()=>NFCMock.open(a?'tarjeta':'asociar',{emp:empId});}
+t104.onclick=()=>{empId='emp-104';paintEmp()};t101.onclick=()=>{empId='emp-101';paintEmp()};
+document.getElementById('nfc-entry').onclick=()=>NFCMock.open('home');
+document.querySelectorAll('[data-open-nfc]').forEach(b=>b.onclick=()=>NFCMock.open(b.dataset.openNfc));
+document.getElementById('openfull').onclick=()=>NFCMock.open('home');
+document.querySelectorAll('.mk-nav [data-pg]').forEach(b=>b.onclick=()=>{document.querySelectorAll('.mk-nav [data-pg]').forEach(x=>x.setAttribute('aria-current',x===b));document.querySelectorAll('.mk-pg').forEach(p=>p.classList.toggle('on',p.id==='pg-'+b.dataset.pg));});
+paintEntry();paintEmp();document.addEventListener('nfc-mock:scenario',()=>{paintEntry();paintEmp()});document.addEventListener('nfc-mock:render',()=>{paintEntry();paintEmp()});
+</script></body></html>
