@@ -1347,7 +1347,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans'
 /* modal overlay (stands in for <dialog>.showModal so the scenario pill stays usable) */
 .mk-overlay{position:fixed;inset:0;z-index:50;display:none;background:#030812bf;backdrop-filter:blur(4px);align-items:center;justify-content:center}
 .mk-overlay.open{display:flex}
-.mk-overlay>.voice-settings-dialog{display:flex;flex-direction:column;margin:0}
+.mk-overlay>.voice-settings-dialog{margin:0}
 @media(max-width:640px){.mk-overlay{align-items:flex-end}.mk-overlay>.voice-settings-dialog{margin:0 8px 8px;width:calc(100vw - 16px);max-height:calc(100dvh - 56px)}}
 /* scenario pill */
 .mk-scn{position:fixed;top:8px;right:8px;z-index:90;font-size:12px}
@@ -1371,7 +1371,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans'
 /* icon sizing the real Settings page gets from its global svg rules */
 .vs-icon-box svg{width:22px;height:22px}.vs-arrow svg{width:18px;height:18px}
 
-.mk-nav{position:sticky;top:0;z-index:40;background:var(--bg);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:8px;overflow-x:auto;align-items:center}
+.mk-nav{position:sticky;top:0;z-index:40;background:var(--bg);border-bottom:1px solid var(--border);padding:10px 130px 10px 16px;display:flex;gap:8px;overflow-x:auto;align-items:center}
 .mk-nav .mk-tab{cursor:pointer;white-space:nowrap}
 .mk-nav b{font-size:13px;margin-right:6px;white-space:nowrap}
 .mk-pg{display:none}.mk-pg.on{display:block}
