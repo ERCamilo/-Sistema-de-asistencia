@@ -9,3 +9,9 @@ Las acciones mantienen su delegación a las funciones originales y los bloqueos 
 Validación: suites de nómina por obra/runtime, versión, cierre, abonos y centavos; Chromium comprueba las cuatro acciones en los cinco pasos de la obra, copia y descarga JSON, envío con el bridge de prueba, y copia desde el generador legacy. Se compara con el JSON filtrado original. También se comprueban áreas táctiles, anchuras, WCAG A/AA y los bloqueos por neto negativo. Se usan datos ficticios y se bloquean peticiones externas; no se registra ningún pago ni se envía una nómina real a SplitX. El botón PDF conserva su generador original; en este recorrido se comprueba su acceso y bloqueo, sin descargar librerías externas.
 
 Siguientes pasos: agente SA publica PR/vista previa y verifica CI; usuario prueba «Resumen y exportar» en su teléfono; agente SA atiende los resultados e integra según el flujo de revisión habitual.
+
+## Revisión del fallo de CI
+
+La primera ejecución completa detectó una aserción heredada que exigía literalmente `min-width: 560px`. La columna Estado introducida en la entrega anterior necesita más ancho; el tamaño literal ya no representaba el contrato visual. Se reprodujo localmente el mismo fallo antes de corregir la comprobación.
+
+Se conserva el test del detalle compacto y se comprueba que la tabla permita desplazar sus columnas dentro del panel. Chromium verifica a 1024 y 1440 px el contenedor, las nueve columnas alineadas entre encabezado y filas, la ausencia de desbordamiento de página y el acceso mediante scroll al control de la última columna. Se mantiene el tamaño de lectura y el ancho de la columna Estado. La suite completa se ejecuta antes de publicar esta corrección.
