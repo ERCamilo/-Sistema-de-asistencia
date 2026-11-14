@@ -53,14 +53,16 @@ const server = http.createServer((req, res) => {
         page.on('pageerror', error => errors.push(error.message));
         await page.setRequestInterception(true);
         page.on('request', request => new URL(request.url()).hostname === '127.0.0.1' ? request.continue() : request.abort());
-        for (const width of [320, 390, 768, 1440]) {
+        for (const width of [320, 390, 768, 1024, 1440]) {
             await page.setViewport({ width, height: 844, isMobile: width < 620, hasTouch: width < 620 });
             await page.goto(`http://127.0.0.1:${server.address().port}/fixture`);
             await page.waitForFunction(() => window.ready);
             const visibleForm = '.payroll-guide-panel:not([hidden]) .payroll-adjustment-form';
             for (const step of ['deductions', 'bonuses']) {
                 await page.evaluate(id => window.step(id), step);
+                await page.$eval(visibleForm + ' label:has(> input[name="scope"][value="employee"])', el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
                 await page.click(visibleForm + ' label:has(> input[name="scope"][value="employee"])');
+                await page.$eval(visibleForm + ' [data-payroll-action="open-adjustment-employee-picker"]', el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
                 await page.click(visibleForm + ' [data-payroll-action="open-adjustment-employee-picker"]');
                 await page.waitForSelector('.payroll-adjustment-picker-modal');
                 await page.waitForFunction(() => getComputedStyle(document.querySelector('.payroll-adjustment-picker-modal')).opacity === '1');
@@ -154,6 +156,27 @@ const server = http.createServer((req, res) => {
                     && (width > 900 ? row.rightOfName : row.belowName)), `separate employee/status at ${width}: ${JSON.stringify(geometry)}`);
             };
             await checkLoanStatusColumns();
+            if (width > 900) {
+                const tableLayout = await page.$eval('.payroll-loans-table', table => {
+                    const host = table.closest('.payroll-loans-desktop'), panel = table.closest('.payroll-guide-content');
+                    const t = table.getBoundingClientRect(), h = host.getBoundingClientRect(), p = panel.getBoundingClientRect();
+                    const header = [...table.querySelector('.payroll-loans-table__columns').children].flatMap(element =>
+                        element.classList.contains('payroll-loans-table__metric-columns') ? [...element.children] : [element]);
+                    const summary = table.querySelector('.payroll-loan-group > summary');
+                    const row = [...summary.children].flatMap(element => element.classList.contains('payroll-loan-group__metrics') ? [...element.children] : [element]);
+                    const aligned = header.length === 9 && row.length === 9 && header.every((cell, i) =>
+                        Math.abs(cell.getBoundingClientRect().left - row[i].getBoundingClientRect().left) <= 2);
+                    const before = table.scrollLeft;
+                    table.scrollLeft = table.scrollWidth;
+                    const last = summary.querySelector('.payroll-loan-selection').getBoundingClientRect();
+                    const lastReachable = last.left >= t.left && last.right <= t.right;
+                    const scrollWorks = table.scrollWidth <= table.clientWidth || table.scrollLeft > 0;
+                    table.scrollLeft = before;
+                    return { fits: t.left >= h.left && t.right <= h.right && h.left >= p.left && h.right <= p.right,
+                        aligned, lastReachable, scrollWorks, noPageOverflow: document.documentElement.scrollWidth <= innerWidth + 1 };
+                });
+                assert.ok(Object.values(tableLayout).every(Boolean), `${width}px: table containment, nine aligned columns and rightmost controls: ${JSON.stringify(tableLayout)}`);
+            }
             const group = 'details[data-employee-id="e0"]';
             await page.$eval(group, el => { el.open = true; });
             await page.$eval(group + ' [data-mode="all"]', el => el.scrollIntoView({block:'center'}));
@@ -162,6 +185,7 @@ const server = http.createServer((req, res) => {
             assert.equal(await page.$eval(group + ' input[type="number"]', el => Number(el.value)), 687.5);
             assert.equal(await page.$eval(group + ' input[type="range"]', el => Number(el.value)), 100);
             assert.ok(await page.$(group + ' .payroll-status--error svg'));
+            assert.equal(await page.$$eval('.payroll-guide-summary__actions button', buttons => buttons.length === 4 && buttons.every(button => button.disabled)), true, 'summary exports keep the existing negative-payroll blocker');
             await checkLoanStatusColumns();
             assert.equal(await page.$eval(group, el => getComputedStyle(el).outlineStyle), 'none');
             await page.click(group + ' [data-mode="interest"]');
@@ -225,6 +249,6 @@ const server = http.createServer((req, res) => {
             if (process.env.PAYROLL_REVIEW_ARTIFACT_DIR) await page.screenshot({ path: path.join(process.env.PAYROLL_REVIEW_ARTIFACT_DIR, `loans-${width}.png`), fullPage: true });
         }
         assert.deepEqual(errors, []);
-        console.log('PASS payroll: mobile rows/footer/short viewport, selected-employee report and closure guard, SVG statuses, synchronized amount/percentage, bulk maximum/30% and warning counts, no capture during drag, four widths and WCAG A/AA');
+        console.log('PASS payroll: mobile rows/footer/short viewport, selected-employee report and closure guard, SVG statuses, synchronized amount/percentage, bulk maximum/30%, no capture during drag, nine aligned/reachable columns, five widths and WCAG A/AA');
     } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

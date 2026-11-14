@@ -1,6 +1,15 @@
 {
-  "version": "1.7.137",
+  "version": "1.7.138",
   "changelog": [
+    {
+      "version": "1.7.138",
+      "date": "2026-11-13",
+      "title": "Exportar nómina desde el celular",
+      "items": [
+        "El resumen de nómina por obra se puede desplegar desde el celular.",
+        "Resumen y exportar ofrece SplitX, PDF, copiar JSON y descargar JSON en todos los pasos, con los filtros y validaciones existentes."
+      ]
+    },
     {
       "version": "1.7.137",
       "date": "2026-11-13",

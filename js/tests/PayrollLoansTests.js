@@ -419,7 +419,7 @@ testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
         );
     },
 
-    'compacta las columnas internas en escritorios de baja resolución'() {
+    'conserva el detalle compacto y el scroll dentro de la tabla de escritorio'() {
         testRunner.assert(
             /\.payroll-loan-child__interest\s*\{\s*grid-column:\s*3;/.test(
                 PAYROLL_REDESIGN_CSS
@@ -430,10 +430,10 @@ testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
             'interés y saldo deben comenzar inmediatamente después del nombre del préstamo'
         );
         testRunner.assert(
-            /\.payroll-loans-table__columns,[\s\S]*?min-width:\s*560px;/.test(
+            /\.payroll-loans-table\s*\{[^}]*overflow-x:\s*auto;/.test(
                 PAYROLL_REDESIGN_CSS
             ),
-            'la tabla de escritorio debe caber en el panel central sin reducir la escala'
+            'las columnas adicionales deben poder desplazarse dentro de la tabla; su ancho y accesibilidad se comprueban en Chromium'
         );
     }
 
