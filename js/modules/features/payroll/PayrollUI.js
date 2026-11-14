@@ -527,6 +527,25 @@ function getState() {
     return context.state;
 }
 
+function renderPayrollMobileSummary({ expanded, periodStart, periodEnd, employeeCount, total, invalid, zero }) {
+    return `<button type="button" class="payroll-guide-summary__mobile-toggle"
+                    data-payroll-action="toggle-payroll-mobile-summary"
+                    aria-expanded="${expanded}"
+                    aria-label="${expanded ? 'Ocultar' : 'Mostrar'} resumen y opciones de exportación">
+        <span class="payroll-guide-summary__mobile-meta">
+            <strong>${formatDateShort(periodStart)} – ${formatDateShort(periodEnd)}</strong>
+            <small>${employeeCount} empleados</small>
+        </span>
+        <span class="payroll-guide-summary__mobile-total"><small>Total neto</small><strong>${formatCurrency(total)}</strong></span>
+        <span class="payroll-guide-summary__mobile-state ${invalid ? 'is-invalid' : zero ? 'is-warning' : 'is-valid'}">
+            <i aria-hidden="true"></i>${invalid || zero ? 'Revisar' : 'Listo'}
+        </span>
+        <span class="payroll-guide-summary__mobile-label">${expanded ? 'Ocultar' : 'Resumen y exportar'}
+            ${icons.get(expanded ? 'chevron-up' : 'chevron-down', { size: 15 })}
+        </span>
+    </button>`;
+}
+
 function getSummaryAmountClass(amount, nonZeroClass) {
     return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
 }
@@ -974,6 +993,7 @@ function ScopedPayrollTab(view) {
 
     const state = getState();
     const exportConfig = state?.exportConfig || {};
+    const mobileSummaryExpanded = Boolean(exportConfig.payrollMobileSummaryExpanded);
     const guideSteps = ['period', 'deductions', 'bonuses', 'loans', 'review'];
     const guideStep = guideSteps.includes(exportConfig.payrollGuideStep)
         ? exportConfig.payrollGuideStep
@@ -1284,7 +1304,9 @@ function ScopedPayrollTab(view) {
                 </main>
 
                 <!-- Resumen lateral -->
-                <aside class="payroll-guide-summary" aria-label="Resumen de nómina de la obra">
+                <aside class="payroll-guide-summary ${mobileSummaryExpanded ? 'is-mobile-expanded' : ''}" aria-label="Resumen de nómina de la obra">
+                    ${renderPayrollMobileSummary({ expanded: mobileSummaryExpanded, periodStart: period.periodStart, periodEnd: period.periodEnd,
+                        employeeCount: rows.length, total: totalAmount, invalid: hasInvalidNetRows, zero: invalidNetRows.length === 0 && rows.some(row => getReviewNet(row) === 0) })}
                     <div class="payroll-guide-summary__details">
                         <div class="payroll-guide-summary__header">
                             <span>Resumen de nómina</span>
@@ -1294,9 +1316,9 @@ function ScopedPayrollTab(view) {
                             <div class="payroll-guide-summary__employee-count"><dt>${activeLeader ? `Líder: ${escapeHTML(activeLeader.name || '')}` : 'Empleados de obra'}</dt><dd>${rows.length}</dd></div>
                             <div><dt>Días trabajados</dt><dd>${formatPayrollDays(totalDays)}</dd></div>
                             <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
-                            <div><dt>Deducciones</dt><dd style="${deductionAmount > 0 ? 'color: #ef4444;' : 'color: #64748b;'}">${deductionAmount > 0 ? `-${formatCurrency(deductionAmount)}` : '$0.00'}</dd></div>
-                            <div><dt>Bonificaciones</dt><dd style="${bonusAmount > 0 ? 'color: #10b981;' : 'color: #64748b;'}">${bonusAmount > 0 ? `+${formatCurrency(bonusAmount)}` : '$0.00'}</dd></div>
-                            <div><dt>Préstamos${activeRegistration ? ' · ya anotados' : ''}</dt><dd style="${loanAmount > 0 ? 'color: #f59e0b;' : 'color: #64748b;'}">${loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Deducciones</dt><dd style="${deductionAmount > 0 ? 'color: #ef4444;' : 'color: #94a3b8;'}">${deductionAmount > 0 ? `-${formatCurrency(deductionAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Bonificaciones</dt><dd style="${bonusAmount > 0 ? 'color: #10b981;' : 'color: #94a3b8;'}">${bonusAmount > 0 ? `+${formatCurrency(bonusAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Préstamos${activeRegistration ? ' · ya anotados' : ''}</dt><dd style="${loanAmount > 0 ? 'color: #f59e0b;' : 'color: #94a3b8;'}">${loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00'}</dd></div>
                             <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                         </dl>
                         <div class="payroll-guide-summary__validation is-valid">
@@ -1308,7 +1330,7 @@ function ScopedPayrollTab(view) {
                             excess: activeRegistration.excess,
                             variant: 'summary'
                         }) : ''}
-                        <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
+                        <div class="payroll-guide-summary__actions">
                             <button type="button"
                                     data-payroll-action="send-to-splitx"
                                     ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
@@ -1965,28 +1987,9 @@ function PayrollGeneratorTab() {
                 </main>
 
                 <aside class="payroll-guide-summary ${mobileSummaryExpanded ? 'is-mobile-expanded' : ''}" aria-label="Resumen de nómina">
-                    <button type="button"
-                            class="payroll-guide-summary__mobile-toggle"
-                            data-payroll-action="toggle-payroll-mobile-summary"
-                            aria-expanded="${mobileSummaryExpanded}"
-                            aria-label="${mobileSummaryExpanded ? 'Ocultar' : 'Mostrar'} resumen completo de nómina">
-                        <span class="payroll-guide-summary__mobile-meta">
-                            <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
-                            <small>${exportData.length} empleados</small>
-                        </span>
-                        <span class="payroll-guide-summary__mobile-total">
-                            <small>Total neto</small>
-                            <strong>${formatCurrency(totalAmount)}</strong>
-                        </span>
-                        <span class="payroll-guide-summary__mobile-state ${hasInvalidNetRows ? 'is-invalid' : hasZeroNetRows ? 'is-warning' : 'is-valid'}">
-                            <i aria-hidden="true"></i>
-                            ${hasInvalidNetRows || hasZeroNetRows ? 'Revisar' : 'Listo'}
-                        </span>
-                        <span class="payroll-guide-summary__mobile-label">
-                            ${mobileSummaryExpanded ? 'Ocultar' : 'Resumen'}
-                            ${icons.get(mobileSummaryExpanded ? 'chevron-up' : 'chevron-down', { size: 15 })}
-                        </span>
-                    </button>
+                    ${renderPayrollMobileSummary({ expanded: mobileSummaryExpanded, periodStart: state.exportConfig.periodStart,
+                        periodEnd: state.exportConfig.periodEnd, employeeCount: exportData.length, total: totalAmount,
+                        invalid: hasInvalidNetRows, zero: hasZeroNetRows })}
                     <div class="payroll-guide-summary__details">
                         <div class="payroll-guide-summary__header">
                             <span>Resumen de nómina</span>
@@ -2047,7 +2050,7 @@ function PayrollGeneratorTab() {
                             excess: activeRegistration.excess,
                             variant: 'summary'
                         }) : ''}
-                        <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
+                        <div class="payroll-guide-summary__actions">
                         <button type="button"
                                 data-payroll-action="send-to-splitx"
                                 ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>

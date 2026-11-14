@@ -60,7 +60,9 @@ const server = http.createServer((req, res) => {
             const visibleForm = '.payroll-guide-panel:not([hidden]) .payroll-adjustment-form';
             for (const step of ['deductions', 'bonuses']) {
                 await page.evaluate(id => window.step(id), step);
+                await page.$eval(visibleForm + ' label:has(> input[name="scope"][value="employee"])', el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
                 await page.click(visibleForm + ' label:has(> input[name="scope"][value="employee"])');
+                await page.$eval(visibleForm + ' [data-payroll-action="open-adjustment-employee-picker"]', el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
                 await page.click(visibleForm + ' [data-payroll-action="open-adjustment-employee-picker"]');
                 await page.waitForSelector('.payroll-adjustment-picker-modal');
                 await page.waitForFunction(() => getComputedStyle(document.querySelector('.payroll-adjustment-picker-modal')).opacity === '1');
@@ -162,6 +164,7 @@ const server = http.createServer((req, res) => {
             assert.equal(await page.$eval(group + ' input[type="number"]', el => Number(el.value)), 687.5);
             assert.equal(await page.$eval(group + ' input[type="range"]', el => Number(el.value)), 100);
             assert.ok(await page.$(group + ' .payroll-status--error svg'));
+            assert.equal(await page.$$eval('.payroll-guide-summary__actions button', buttons => buttons.length === 4 && buttons.every(button => button.disabled)), true, 'summary exports keep the existing negative-payroll blocker');
             await checkLoanStatusColumns();
             assert.equal(await page.$eval(group, el => getComputedStyle(el).outlineStyle), 'none');
             await page.click(group + ' [data-mode="interest"]');
