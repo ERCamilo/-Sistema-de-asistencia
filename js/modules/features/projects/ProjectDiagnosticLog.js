@@ -20,6 +20,12 @@ const ISSUE_KINDS = new Set([
 ]);
 const EMPLOYEE_STATES = new Set(['LEGACY_UNSCOPED', 'EXPLICIT_ORPHAN', 'PENDING']);
 const ALLOWED_COLLECTIONS = new Set(['employees', 'positions', 'leaders', 'attendance']);
+const ALLOWED_CONFIG_ORIGIN_STATUS = new Set([
+    'invalid-id', 'auth-required', 'local-present', 'remote-project',
+    'remote-tombstone', 'remote-alias', 'broken-alias',
+    'canonical-reference', 'not-found-remotely', 'account-changed',
+    'unverified'
+]);
 
 function reasonCode(value) {
     const text = String(value ?? '').toLowerCase();
@@ -68,6 +74,10 @@ export function buildProjectDiagnosticLog(snapshot = {}, {
         ['archivedCases', safelyCount(snapshot.archivedCount)],
         ['readFailures', readErrors.length]
     ];
+    const verifiedOriginCodes = list(snapshot.configOriginStatuses).slice(0, 250)
+        .map(value => ALLOWED_CONFIG_ORIGIN_STATUS.has(value)
+            ? value.toUpperCase().replace(/-/g, '_')
+            : 'UNVERIFIED');
     const sections = [
         'SA MULTIOBRA - INFORME DE DIAGNOSTICO (v1)',
         'Fecha UTC: ' + generatedAt,
@@ -92,6 +102,12 @@ export function buildProjectDiagnosticLog(snapshot = {}, {
         '',
         '[FALLOS DE LECTURA]',
         ...(readErrors.length ? group(readErrors) : ['Ninguno']),
+        '',
+        '[VERIFICACION DE ORIGEN EN FIREBASE]',
+        ...(verifiedOriginCodes.length
+            ? verifiedOriginCodes.map((code, index) =>
+                'consulta-' + String(index + 1).padStart(3, '0') + ' estado=' + code)
+            : ['No solicitada desde esta sesion']),
         '',
         '[LIMITACIONES]',
         'Clasificacion sin datos personales. No incluye la consola ni el contenido de IndexedDB.',
