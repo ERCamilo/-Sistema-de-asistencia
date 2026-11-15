@@ -1,6 +1,14 @@
 {
-  "version": "1.7.142",
+  "version": "1.7.143",
   "changelog": [
+    {
+      "version": "1.7.143",
+      "date": "2026-11-15",
+      "title": "Controles de nómina más claros",
+      "items": [
+        "Líder, Incluir, Filtros y Compartir quedan alineados en una barra compacta. La selección manual se muestra como interruptor en un panel desplegable."
+      ]
+    },
     {
       "version": "1.7.142",
       "date": "2026-11-14",

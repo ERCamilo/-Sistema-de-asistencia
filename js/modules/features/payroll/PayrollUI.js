@@ -574,12 +574,12 @@ const payrollShareSymbol = `<svg width="20" height="20" viewBox="0 0 24 24" fill
 function renderPayrollReviewControls({ selection, leaderId, count, total, invalid }) {
     const active = selection.enabled || selection.excludedIds?.length;
     return `<div class="payroll-review-secondary-controls">
-        <button type="button" data-payroll-action="toggle-payroll-review-filters" aria-expanded="${payrollReviewFiltersExpanded}">Filtros${active ? ' · activos' : ''} <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="${payrollReviewFiltersExpanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'}"/></svg></button>
+        <button type="button" class="payroll-review-filter-toggle ${active ? 'is-active' : ''}" data-payroll-action="toggle-payroll-review-filters" aria-expanded="${payrollReviewFiltersExpanded}" aria-controls="payroll-review-extra-filters" aria-label="${active ? 'Filtros activos' : 'Filtros'}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6m8 4v6"/></svg><span>Filtros</span>${active ? '<i class="payroll-review-filter-dot" aria-hidden="true"></i>' : ''} <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="${payrollReviewFiltersExpanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'}"/></svg></button>
         <button type="button" class="payroll-review-share" data-payroll-action="open-payroll-share" ${invalid ? 'disabled aria-disabled="true"' : ''}>${payrollShareSymbol} Compartir</button>
     </div>
-    <div class="payroll-review-extra-filters" ${payrollReviewFiltersExpanded ? '' : 'hidden'}>
-        ${leaderId && leaderId !== 'all' ? `<span class="payroll-review-filter-chip" role="status">${count} de ${total} empleados
-            <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder">${icons.get('close', { size: 12 })}</button></span>` : ''}
+    <div id="payroll-review-extra-filters" class="payroll-review-extra-filters" ${payrollReviewFiltersExpanded ? '' : 'hidden'}>
+        ${leaderId && leaderId !== 'all' ? `<span class="payroll-review-filter-chip" role="status"><span>${count} de ${total} empleados</span>
+            <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></span>` : ''}
         ${renderPayrollReviewEmployeeFilter(selection)}
     </div>`;
 }
@@ -1947,7 +1947,7 @@ function PayrollGeneratorTab() {
                 </div>
                 
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+                    <div class="payroll-review-toolbar">
                     ${renderPayrollLeaderFilters(leaders, leaderFilter, state.exportConfig.leaderHoursScope, 'payroll-leader-filter')}
                     ${renderPayrollReviewControls({ selection: payrollReviewEmployeeSelection(null, state), leaderId: leaderFilter, count: exportData.length, total: payrollReviewFiltersExpanded ? generateExportData({ byLeader: false, withEmployeeSelection: false }).length : exportData.length, invalid: hasInvalidNetRows })}
                 </div>

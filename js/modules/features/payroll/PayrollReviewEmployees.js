@@ -30,7 +30,7 @@ export const isPayrollReviewPartial = selection => selection.enabled || (selecti
 
 export function renderPayrollReviewEmployeeFilter(selection) {
     return `<div class="payroll-review-employees">
-        <label><input type="checkbox" data-payroll-action="toggle-payroll-review-employee-filter"
+        <label><input type="checkbox" role="switch" data-payroll-action="toggle-payroll-review-employee-filter"
                       ${selection.enabled ? 'checked' : ''}>
             <span>Solo empleados seleccionados</span>
         </label>

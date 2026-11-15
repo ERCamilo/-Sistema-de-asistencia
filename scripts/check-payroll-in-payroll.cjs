@@ -219,6 +219,11 @@ const server = http.createServer((req, res) => {
             assert.equal(await page.$eval('[data-id="juan"][type="checkbox"]', el => el.checked), false);
             assert.equal(await page.evaluate(() => document.activeElement.dataset.id), 'juan');
             assert.equal(await page.$eval('[data-payroll-total-pay-days]', el => el.textContent), '1');
+            assert.equal(await page.$$eval('.payroll-review-secondary-controls button', buttons => buttons.every(button => {
+                const box = button.getBoundingClientRect();
+                return box.height >= 44 && box.left >= 0 && box.right <= innerWidth && button.scrollWidth <= button.clientWidth;
+            })), true, 'filter and share controls remain readable and touchable with active filters');
+
             exported = await page.evaluate(() => getExport());
             assert.deepEqual(exported.map(row => row.sourceEmployeeId), ['pedro']); assert.equal(exported[0].monto, 800);
             assert.equal(exported[0].exportContext.payrollFilter.excludedEmployeeCount, 1);
