@@ -75,6 +75,21 @@ const server = http.createServer((req, res) => {
                     return Math.abs(leader.top - scope.top) < 2 && scope.left > leader.right;
                 }), true, 'leader and included-work filters share a row');
             }
+            if (width < 901) {
+                const compact = await page.$eval('.payroll-review-table', table => {
+                    const row = table.querySelector('.payroll-review-table__row');
+                    const employee = row.querySelector('.payroll-review-table__employee');
+                    const label = employee.querySelector('label');
+                    return { height: row.getBoundingClientRect().height, employee: employee.getBoundingClientRect().width,
+                        target: label.getBoundingClientRect().height, textFits: label.scrollWidth <= label.clientWidth,
+                        width: table.getBoundingClientRect().width };
+                });
+                assert.ok(compact.height <= 56 && compact.target >= 44 && compact.employee <= 166 && compact.textFits,
+                    `${width}px: compact rows without squeezing the touch target or clipping the name: ${JSON.stringify(compact)}`);
+                await page.$eval('.payroll-review-table-view', node => node.scrollIntoView({block:'start',behavior:'instant'}));
+                await page.screenshot({ path: path.join(output, `review-compact-${width}.png`) });
+                console.log(`${width}px compact geometry: ${JSON.stringify(compact)}`);
+            }
             let exported = await page.evaluate(() => getExport());
             assert.deepEqual(exported.map(row => row.sourceEmployeeId), ['juan', 'pedro']);
             assert.equal(exported[0].monto, 1450); assert.equal(exported[0].workDays.worked, 1);

@@ -1,6 +1,14 @@
 {
-  "version": "1.7.141",
+  "version": "1.7.142",
   "changelog": [
+    {
+      "version": "1.7.142",
+      "date": "2026-11-14",
+      "title": "Filas de nómina más compactas",
+      "items": [
+        "La tabla móvil aprovecha mejor el ancho y reduce el espacio entre empleados, conservando los nombres y controles táctiles."
+      ]
+    },
     {
       "version": "1.7.141",
       "date": "2026-11-14",

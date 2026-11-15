@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.141';
+const APP_VERSION = '1.7.142';
 const CHANGELOG = [
+    { version: '1.7.142', date: '2026-11-14', title: 'Filas de nómina más compactas', items: ['La tabla móvil aprovecha mejor el ancho y reduce el espacio entre empleados, conservando los nombres y controles táctiles.'] },
     { version: '1.7.141', date: '2026-11-14', title: 'Revisión de nómina más despejada', items: ['Días de pago incluye los factores ya calculados de horas extra, descanso y festivos. Se conserva el conteo real de asistencia.', 'Los filtros adicionales se pliegan y Compartir reúne las opciones originales de exportación.', 'En móvil se retiran los accesos auxiliares y la barra inferior; la navegación sigue disponible en los cinco pasos superiores.'] },
     { version: '1.7.140', date: '2026-11-14', title: 'Nómina móvil más compacta', items: ['La ficha conserva las iniciales del empleado al deslizar y se reducen los márgenes laterales.', 'El neto despliega su cálculo con chevrón y contador; se elimina la columna separada de desglose.', 'Incluir pasa a ser un desplegable al lado del filtro de líder, con las mismas opciones de trabajo.'] },
     { version: '1.7.139', date: '2026-11-14', title: 'Tabla de nómina accesible en móvil', items: ['En celular solo queda fija la ficha del empleado, dejando espacio para consultar los días y los importes al deslizar.', 'Los accesos Empleados e Importes permiten moverse por la tabla sin cambiar filtros, selecciones ni cálculos.'] },

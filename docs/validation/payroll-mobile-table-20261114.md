@@ -2,7 +2,7 @@
 
 La ficha y el nombre estaban fijados a la izquierda. En un teléfono ocupaban casi todo el ancho visible y podían cubrir el neto aunque la tabla se desplazara. Se reprodujo en Chromium a 320 px.
 
-La versión 1.7.141 mantiene fija una ficha compacta de 44 px con las iniciales del empleado en móvil/tablet (hasta 900 px). El nombre completo y los demás campos se desplazan dentro de la tabla. Se reducen los márgenes del panel de revisión. Escritorio conserva las dos columnas de identidad fijas. La tabla se recorre con el desplazamiento horizontal nativo, sin botones auxiliares Empleados/Importes.
+La versión 1.7.142 mantiene fija una ficha compacta de 44 px con las iniciales del empleado en móvil/tablet (hasta 900 px). El nombre completo y los demás campos se desplazan dentro de la tabla. Se reducen los márgenes del panel de revisión. En móvil se elimina el mínimo genérico de 600 px, se limita la columna de empleado a 132–164 px y se ajusta el relleno: las filas simples miden 53 px, con área táctil de 44 px. Los nombres largos pueden crecer en varias líneas. Escritorio conserva las dos columnas de identidad fijas. La tabla se recorre con el desplazamiento horizontal nativo, sin botones auxiliares Empleados/Importes.
 
 Líder e Incluir permanecen juntos. Incluir conserva sus tres modos y el valor predeterminado En nómina. Filtros muestra u oculta el contador y la selección de empleados; el botón señala si hay selección o exclusiones activas. Plegar los controles no borra la selección.
 

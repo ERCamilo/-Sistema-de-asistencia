@@ -1015,7 +1015,18 @@
 .payroll-review-net-summary > div:last-child { margin-top: 6px; color: #4bc5d5; font-weight: 700; }
 
 @media (max-width: 900px) {
-    .payroll-review-table { --payroll-number-width: 44px; }
+    /* Override the generic 600px table minimum only for this mobile report. */
+    .responsive-table-wrapper .payroll-review-table {
+        --payroll-number-width: 44px;
+        --payroll-employee-width: clamp(132px, 38vw, 164px);
+        width: max-content;
+        min-width: 100%;
+    }
+    /* styles.css makes generic mobile cell padding important. */
+    .payroll-review-table tbody .payroll-review-table__row > td { padding: 4px 8px !important; }
+    .payroll-review-table thead th { padding: 6px 8px !important; }
+    .payroll-review-table tfoot tr > td { padding: 8px; }
+    .payroll-review-table .payroll-review-cell-toggle { min-height: 44px; }
     .payroll-review-table .payroll-review-table__number { width: 44px; max-width: 44px; }
     .payroll-review-table__number > span:first-child { display: block; }
     .payroll-review-table .payroll-review-table__initials { display: inline-flex; align-items: center; justify-content: center; margin-top: 3px; min-height: 22px; width: 24px; border-radius: 5px; background: #24334e; color: #f4f6fa; font: 700 12px system-ui, sans-serif; }
@@ -1023,12 +1034,13 @@
         position: static;
         left: auto;
         z-index: auto;
-        min-width: 168px;
-        max-width: 188px;
+        width: var(--payroll-employee-width);
+        min-width: var(--payroll-employee-width);
+        max-width: var(--payroll-employee-width);
         box-shadow: none;
         white-space: normal;
     }
-    .payroll-review-table__employee .payroll-review-employee-include { width: 152px; }
+    .payroll-review-table__employee .payroll-review-employee-include { width: calc(var(--payroll-employee-width) - 16px); }
     .payroll-review-table__mobile-tools {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
