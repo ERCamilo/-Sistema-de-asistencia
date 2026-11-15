@@ -1,6 +1,16 @@
 {
-  "version": "1.7.138",
+  "version": "1.7.139",
   "changelog": [
+    {
+      "version": "1.7.139",
+      "date": "2026-11-15",
+      "title": "Envío a SplitX más confiable",
+      "items": [
+        "Enviar a SplitX espera hasta un minuto a que SplitX termine de cargar, para que no se abra con la nómina anterior en conexiones lentas.",
+        "Si SplitX vuelve a pedir la nómina (al recargarlo o con «Pedir de nuevo»), se reenvía sin repetir la importación.",
+        "El aviso de confirmación llega aunque tardes en elegir reemplazar o agregar en SplitX."
+      ]
+    },
     {
       "version": "1.7.138",
       "date": "2026-11-13",

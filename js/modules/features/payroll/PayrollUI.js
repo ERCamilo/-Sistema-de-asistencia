@@ -4134,6 +4134,14 @@ export async function exportPayrollPDF() {
     }
 }
 
+/** Tiempos del envío a SplitX (exportados para las pruebas). */
+export const SPLITX_HANDSHAKE = Object.freeze({
+    pingIntervalMs: 800,
+    pingWindowMs: 60000,       // cuánto se espera a que SplitX cargue y responda READY
+    ackWindowMs: 10 * 60000,   // cuánto se espera la confirmación (el usuario puede tardar en decidir)
+    resendMinGapMs: 3000       // un READY posterior a esto, sin confirmación, provoca reenvío
+});
+
 export function sendToSplitX(targetUrl) {
     const data = getSplitXExportData();
     if (!data || data.length === 0) return null;
@@ -4177,27 +4185,53 @@ export function sendToSplitX(targetUrl) {
         return null;
     }
 
+    // Fase 1: PING cada 800 ms hasta READY (SplitX puede tardar en cargar con conexión lenta).
+    // Fase 2: tras enviar, se espera la confirmación mientras el usuario decide en SplitX
+    // (reemplazar / agregar). Si SplitX vuelve a pedir (recarga o "Pedir de nuevo") sin
+    // haber confirmado, se reenvía la misma nómina con el mismo transferId (SplitX deduplica).
+    const { pingIntervalMs, pingWindowMs, ackWindowMs, resendMinGapMs } = SPLITX_HANDSHAKE;
     let payloadSent = false;
+    let lastSentAt = 0;
     let handshakeCompleted = false;
-    let timeoutId = null;
+    let pingTimeoutId = null;
+    let ackTimeoutId = null;
     let retryInterval = null;
 
+    const stopPinging = () => {
+        if (retryInterval) clearInterval(retryInterval);
+        if (pingTimeoutId) clearTimeout(pingTimeoutId);
+        retryInterval = null;
+        pingTimeoutId = null;
+    };
+
     const sendPayload = () => {
-        if (payloadSent || handshakeCompleted) return;
+        if (handshakeCompleted) return false;
+        const now = Date.now();
+        // READY repetidos seguidos (respuesta al PING + aviso al cargar) no duplican el envío.
+        if (payloadSent && now - lastSentAt < resendMinGapMs) return false;
+        const isResend = payloadSent;
         payloadSent = true;
-        if (retryInterval) {
-            clearInterval(retryInterval);
-            retryInterval = null;
-        }
+        lastSentAt = now;
+        stopPinging();
         try {
             targetWindow.postMessage(payload, targetOrigin);
         } catch (err) {
             console.error('Error enviando payload a SplitX:', err);
         }
+        if (!ackTimeoutId) ackTimeoutId = setTimeout(cleanup, ackWindowMs);
+        if (window.showNotification) {
+            window.showNotification(isResend ? '🔁 SplitX pidió la nómina de nuevo; reenviando...' : '🔄 Transfiriendo datos a SplitX...', 'info');
+        }
+        return true;
     };
 
     const sendPing = () => {
         if (payloadSent || handshakeCompleted) return;
+        if (targetWindow.closed) {
+            // El usuario cerró SplitX: no tiene sentido seguir ni avisar que "no cargó".
+            cleanup();
+            return;
+        }
         try {
             targetWindow.postMessage({
                 type: 'SPLITX_PING',
@@ -4210,6 +4244,12 @@ export function sendToSplitX(targetUrl) {
         }
     };
 
+    const finish = (message, type) => {
+        handshakeCompleted = true;
+        cleanup();
+        if (window.showNotification) window.showNotification(message, type);
+    };
+
     const messageHandler = (event) => {
         // Validación estricta de origen y ventana de origen
         if (event.origin !== targetOrigin) return;
@@ -4218,60 +4258,39 @@ export function sendToSplitX(targetUrl) {
 
         if (event.data.type === 'SPLITX_READY') {
             sendPayload();
-            if (window.showNotification) {
-                window.showNotification('🔄 Transfiriendo datos a SplitX...', 'info');
-            }
         } else if (event.data.type === 'SPLITX_IMPORT_SUCCESS') {
             if (event.data.transferId !== transferId) return;
-            handshakeCompleted = true;
-            cleanup();
-            if (window.showNotification) {
-                window.showNotification(`✅ ${event.data.count || data.length} colaboradores cargados en SplitX`, 'success');
-            }
+            finish(`✅ ${event.data.count || data.length} colaboradores cargados en SplitX`, 'success');
         } else if (event.data.type === 'SPLITX_IMPORT_ERROR') {
             if (event.data.transferId !== transferId) return;
-            handshakeCompleted = true;
-            cleanup();
-            if (window.showNotification) {
-                window.showNotification(`❌ Error en SplitX: ${event.data.error || 'Desconocido'}`, 'error');
-            }
+            finish(`❌ Error en SplitX: ${event.data.error || 'Desconocido'}`, 'error');
         } else if (event.data.type === 'SPLITX_IMPORT_CANCELLED') {
             if (event.data.transferId !== transferId) return;
-            handshakeCompleted = true;
-            cleanup();
-            if (window.showNotification) {
-                window.showNotification('ℹ️ Importación cancelada en SplitX', 'info');
-            }
+            finish('ℹ️ Importación cancelada en SplitX', 'info');
         }
     };
 
     const cleanup = () => {
-        if (timeoutId) clearTimeout(timeoutId);
-        if (retryInterval) clearInterval(retryInterval);
+        stopPinging();
+        if (ackTimeoutId) clearTimeout(ackTimeoutId);
+        ackTimeoutId = null;
         window.removeEventListener('message', messageHandler);
     };
 
     window.addEventListener('message', messageHandler);
 
-    // Enviar PING inicial y reintentar cada 800ms hasta recibir READY (sin enviar nómina a ciegas)
+    // Enviar PING inicial y reintentar hasta recibir READY (sin enviar nómina a ciegas)
     sendPing();
-    retryInterval = setInterval(() => {
-        if (handshakeCompleted || payloadSent) {
-            clearInterval(retryInterval);
-            retryInterval = null;
-            return;
-        }
-        sendPing();
-    }, 800);
+    retryInterval = setInterval(sendPing, pingIntervalMs);
 
-    timeoutId = setTimeout(() => {
-        if (!handshakeCompleted) {
+    pingTimeoutId = setTimeout(() => {
+        if (!payloadSent && !handshakeCompleted) {
             cleanup();
             if (window.showNotification) {
                 window.showNotification('⚠️ Si SplitX no cargó automáticamente, puedes usar el botón "Copiar JSON".', 'warning');
             }
         }
-    }, 10000);
+    }, pingWindowMs);
 
     return targetWindow;
 }

@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.138';
+const APP_VERSION = '1.7.139';
 const CHANGELOG = [
+    { version: '1.7.139', date: '2026-11-15', title: 'Envío a SplitX más confiable', items: ['Enviar a SplitX espera hasta un minuto a que SplitX termine de cargar, para que no se abra con la nómina anterior en conexiones lentas.', 'Si SplitX vuelve a pedir la nómina (al recargarlo o con «Pedir de nuevo»), se reenvía sin repetir la importación.', 'El aviso de confirmación llega aunque tardes en elegir reemplazar o agregar en SplitX.'] },
     { version: '1.7.138', date: '2026-11-13', title: 'Exportar nómina desde el celular', items: ['El resumen de nómina por obra se puede desplegar desde el celular.', 'Resumen y exportar ofrece SplitX, PDF, copiar JSON y descargar JSON en todos los pasos, con los filtros y validaciones existentes.'] },
     { version: '1.7.137', date: '2026-11-13', title: 'Estados de préstamos separados', items: ['El paso 4 de nómina muestra las advertencias en una columna Estado, separada del nombre del empleado.', 'En celular, cada advertencia tiene su propia fila; los empleados sin advertencias conservan la tarjeta compacta.'] },
     { version: '1.7.136', date: '2026-11-13', title: 'Préstamos de nómina ordenados', items: ['El paso 4 de nómina ordena los empleados por número de ficha.', 'Busca por nombre o número y filtra el listado por líder que paga, posición y cobros seleccionados.', 'Los filtros conservan los cobros, los totales y las ediciones. Quita los filtros para usar acciones en grupo sin afectar empleados ocultos.', 'En celular, Atrás y Continuar quedan fijos sobre la navegación y se adaptan al teclado, sin ocultar el final del contenido.'] },
