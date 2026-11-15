@@ -28,7 +28,6 @@ import {
 import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import { handlePayrollLoanListFilter, resetPayrollLoanListFilters } from './PayrollLoanListFilters.js';
-import { installPayrollMobileNavigation } from './PayrollMobileNavigation.js';
 import { getPayrollReviewEmployeeSelection, filterPayrollReviewEmployees, renderPayrollReviewEmployeeFilter,
     getPayrollReviewExclusions, payrollReviewExclusionKey, isPayrollReviewPartial } from './PayrollReviewEmployees.js';
 import { payrollWorkedDays, formatPayrollDays } from './PayrollWorkDays.js';
@@ -70,7 +69,7 @@ import {
     renderPayrollRegistrationBanner,
     renderPayrollRegistrationLoans
 } from './PayrollRegistrationUI.js';
-import { renderPayrollReviewTable, scrollPayrollReviewColumns } from './PayrollReviewTable.js';
+import { renderPayrollReviewTable } from './PayrollReviewTable.js';
 import {
     applyPayrollClosureEffects,
     buildPayrollClosureDraft,
@@ -204,6 +203,8 @@ let payrollHistoryState = {
 let payrollHistoryLoadToken = 0;
 // Montos desplegados en la vista previa ("empleado|categoría"); solo pantalla.
 const payrollReviewExpanded = new Set();
+let payrollReviewFiltersExpanded = false;
+let payrollShareModal = null;
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-payroll-action)
@@ -258,7 +259,8 @@ const _ACTION_MAP = {
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
     },
     'toggle-payroll-review-detail': (key) => window.PayrollUI?.togglePayrollReviewDetail?.(key),
-    'show-payroll-review-columns': (view, control) => scrollPayrollReviewColumns(view, control),
+    'toggle-payroll-review-filters': () => togglePayrollReviewFilters(),
+    'open-payroll-share': () => openPayrollShare(),
     'clear-payroll-leader-filter': () => window.PayrollUI?.setLeaderFilter?.('all'),
     'set-payroll-leader-hours-scope': (scope) => window.PayrollUI?.setLeaderHoursScope?.(scope),
     'toggle-payroll-review-employee-filter': (_id, target) => window.PayrollUI?.togglePayrollReviewEmployeeFilter?.(target.checked),
@@ -466,7 +468,8 @@ function _handlePayrollAdjustmentInput(e) {
 let _payrollDelegationAttached = false;
 
 export function init(ctx) {
-    installPayrollMobileNavigation();
+    payrollShareModal?.close(); payrollShareModal = null;
+    payrollReviewFiltersExpanded = false;
     resetPayrollLoanListFilters();
     unsubscribeRuntimeInvalidation?.();
     payrollLoanAmountDrafts.clear();
@@ -475,6 +478,7 @@ export function init(ctx) {
     payrollService = ctx.services.payroll;
     payrollRuntime = ctx.services.payrollRuntime || null;
     unsubscribeRuntimeInvalidation = payrollRuntime?.subscribeInvalidation?.(change => {
+        payrollShareModal?.close(); payrollShareModal = null;
         if (change?.reason === 'config-changed') {
             context?.render?.();
             return;
@@ -563,6 +567,71 @@ function renderPayrollLeaderFilters(leaders, leaderId, hoursScope, selectId) {
             ${[['payroll', 'En nómina'], ['all', 'Todos sus puestos'], ['leader', `Solo puestos de ${active.name || 'este líder'}`]].map(([value, label]) => `<option value="${value}" ${normalizeLeaderHoursScope(hoursScope) === value ? 'selected' : ''}>${escapeHTML(label)}</option>`).join('')}
         </select></label>` : ''}
     </div>`;
+}
+
+const payrollShareSymbol = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M5 13v7h14v-7"/></svg>`;
+
+function renderPayrollReviewControls({ selection, leaderId, count, total, invalid }) {
+    const active = selection.enabled || selection.excludedIds?.length;
+    return `<div class="payroll-review-secondary-controls">
+        <button type="button" data-payroll-action="toggle-payroll-review-filters" aria-expanded="${payrollReviewFiltersExpanded}">Filtros${active ? ' · activos' : ''} <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="${payrollReviewFiltersExpanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'}"/></svg></button>
+        <button type="button" class="payroll-review-share" data-payroll-action="open-payroll-share" ${invalid ? 'disabled aria-disabled="true"' : ''}>${payrollShareSymbol} Compartir</button>
+    </div>
+    <div class="payroll-review-extra-filters" ${payrollReviewFiltersExpanded ? '' : 'hidden'}>
+        ${leaderId && leaderId !== 'all' ? `<span class="payroll-review-filter-chip" role="status">${count} de ${total} empleados
+            <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder">${icons.get('close', { size: 12 })}</button></span>` : ''}
+        ${renderPayrollReviewEmployeeFilter(selection)}
+    </div>`;
+}
+
+export function togglePayrollReviewFilters() {
+    payrollReviewFiltersExpanded = !payrollReviewFiltersExpanded;
+    context.render();
+    document.querySelector('[data-payroll-action="toggle-payroll-review-filters"]')?.focus({ preventScroll: true });
+}
+
+export function openPayrollShare() {
+    const snapshot = () => {
+        const rows = getEffectiveExportRows();
+        if (!rows) return null;
+        const state = getState(), view = getScopedPayrollView();
+        return JSON.stringify([view?.enabled ? view.projectId : 'legacy', view?.period || [state.exportConfig.periodStart, state.exportConfig.periodEnd],
+            state.exportConfig.leaderFilter, state.exportConfig.leaderHoursScope, rows, payrollLeaderAdjustmentView(view)]);
+    };
+    const rows = getEffectiveExportRows();
+    if (!rows) return;
+    if ((!rows.length && !payrollLeaderAdjustmentView(getScopedPayrollView()).length) || getInvalidPayrollLoanRows(rows).length) {
+        window.showNotification?.(!rows.length ? 'No hay empleados incluidos para compartir.' : 'Revisa los pagos negativos antes de compartir.', 'warning');
+        return;
+    }
+    const captured = snapshot();
+    const symbol = path => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+    const actions = [
+        ['splitx', 'Abrir en SplitX', symbol('M14 3h7v7m-1-6L10 14M10 3H3v18h18v-7'), sendToSplitX],
+        ['copy', 'Copiar JSON', symbol('M8 8h12v12H8zM16 8V4H4v12h4'), copyExportJSON],
+        ['pdf', 'Exportar PDF', symbol('M14 2H5v20h14V7l-5-5v5h5M8 12h8m-8 4h8'), exportPayrollPDF],
+        ['download', 'Descargar JSON', symbol('M12 3v12m-4-4 4 4 4-4M5 17v4h14v-4'), downloadExportJSON]
+    ];
+    payrollShareModal?.close();
+    const modal = new Modal({ title: 'Compartir nómina', size: 'small',
+        content: `<div class="payroll-share-actions">${actions.map(([id, label, icon]) => `<button type="button" data-payroll-share-export="${id}" ${!rows.length && id !== 'pdf' ? 'disabled' : ''}>${icon}<span>${label}</span></button>`).join('')}</div><p class="payroll-share-error" role="alert" hidden></p>`,
+        onClose: () => { if (payrollShareModal === modal) payrollShareModal = null; }
+    });
+    payrollShareModal = modal;
+    modal.open();
+    modal.element.addEventListener('click', event => {
+        const button = event.target.closest('[data-payroll-share-export]');
+        if (!button || !modal.isOpen) return;
+        if (snapshot() !== captured) {
+            const error = modal.element.querySelector('.payroll-share-error');
+            error.textContent = 'Cambió la nómina. Cierra y vuelve a abrir Compartir.'; error.hidden = false;
+            return;
+        }
+        const action = actions.find(([id]) => id === button.dataset.payrollShareExport);
+        if (!action) return;
+        modal.close();
+        action[3](); // Within the user gesture: preserve clipboard/popup activation.
+    });
 }
 
 function payrollPeriodKey(periodStart, periodEnd, projectId = null) {
@@ -1209,24 +1278,12 @@ function ScopedPayrollTab(view) {
                     <section class="payroll-guide-panel payroll-guide-panel--review" ${guideStep === 'review' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
                             <h3>Vista previa · ${rows.length} empleados</h3>
-                            <p>Revisá los cálculos y desglose de horas para la obra ${escapeHTML(view.projectId)}.</p>
+                            <p>Revisa los días e importes incluidos en esta nómina.</p>
                         </div>
                         <div class="payroll-review-card">
                             <div class="payroll-review-toolbar">
                                 ${renderPayrollLeaderFilters(leaders, leaderFilter, leaderHoursScope, 'payroll-scoped-leader-filter')}
-                                ${activeLeader ? `
-                                    <span class="payroll-review-filter-chip" role="status">
-                                        ${rows.length} de ${allRowsCount} empleados
-                                        <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder">${icons.get('close', { size: 12 })}</button>
-                                    </span>
-                                ` : ''}
-                                ${renderPayrollReviewEmployeeFilter(reviewEmployeeSelection)}
-                                <button type="button"
-                                        data-payroll-action="export-payroll-pdf"
-                                        class="payroll-btn-secondary payroll-review-toolbar__pdf"
-                                        ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
-                                    ${icons.get('file-pdf', { size: 14 })} Exportar PDF
-                                </button>
+                                ${renderPayrollReviewControls({ selection: reviewEmployeeSelection, leaderId: leaderFilter, count: rows.length, total: allRowsCount, invalid: hasInvalidNetRows })}
                             </div>
                             ${hasInvalidNetRows ? `
                                 <div role="alert" class="payroll-review-alert">
@@ -1239,6 +1296,7 @@ function ScopedPayrollTab(view) {
                                 excludedIds: reviewEmployeeSelection.excludedIds,
                                 allowEmployeeExclusion: true,
                                 hoursPerDay: dayHours,
+                                dayFactors: view.config,
                                 sourceRows,
                                 positions: state.positions || [],
                                 leaders: state.leaders || [],
@@ -1891,16 +1949,7 @@ function PayrollGeneratorTab() {
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
                     ${renderPayrollLeaderFilters(leaders, leaderFilter, state.exportConfig.leaderHoursScope, 'payroll-leader-filter')}
-                    ${payrollReviewEmployeeSelection(null, state).excludedIds.length ? `<button type="button" class="payroll-review-exclusions-reset" data-payroll-action="reset-payroll-review-exclusions">${payrollReviewEmployeeSelection(null, state).excludedIds.length} ${payrollReviewEmployeeSelection(null, state).excludedIds.length === 1 ? 'excluido' : 'excluidos'} · Restablecer</button>` : ''}
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <button type="button"
-                                data-payroll-action="export-payroll-pdf"
-                                class="payroll-btn-secondary"
-                                style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;"
-                                ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
-                            ${icons.get('file-pdf', { size: 14 })} Exportar PDF
-                        </button>
-                    </div>
+                    ${renderPayrollReviewControls({ selection: payrollReviewEmployeeSelection(null, state), leaderId: leaderFilter, count: exportData.length, total: payrollReviewFiltersExpanded ? generateExportData({ byLeader: false, withEmployeeSelection: false }).length : exportData.length, invalid: hasInvalidNetRows })}
                 </div>
 
                 ${hasInvalidNetRows ? `
@@ -1917,7 +1966,7 @@ function PayrollGeneratorTab() {
                     rows: exportData, displayRows: generateExportData({ withEmployeeSelection: false }),
                     sourceRows: generateExportData({ withEmployeeSelection: false, withInclusion: false }),
                     excludedIds: payrollReviewEmployeeSelection(null, state).excludedIds,
-                    allowEmployeeExclusion: true, hoursPerDay: state.settings.regularHoursPerDay || 8,
+                    allowEmployeeExclusion: true, hoursPerDay: state.settings.regularHoursPerDay || 8, dayFactors: state.settings,
                     positions: state.positions, leaders: state.leaders, inclusion: previewInclusion,
                     categoryCounts: previewCategoryCounts,
                     expanded: payrollReviewExpanded, emptyMessage: 'No hay empleados incluidos en esta nómina.'

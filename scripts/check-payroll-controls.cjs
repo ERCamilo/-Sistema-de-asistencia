@@ -113,6 +113,7 @@ const server = http.createServer((req, res) => {
                 await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
             }
             await page.evaluate(() => window.step('review'));
+            await page.click('[data-payroll-action="toggle-payroll-review-filters"]');
             const employeeFilter = '[data-payroll-action="toggle-payroll-review-employee-filter"]';
             await page.$eval(employeeFilter, el => el.scrollIntoView({ block: 'center' }));
             await page.click(employeeFilter);

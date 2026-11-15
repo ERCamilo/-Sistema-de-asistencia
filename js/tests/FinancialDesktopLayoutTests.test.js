@@ -507,7 +507,7 @@ describe('Financial desktop layouts', () => {
         const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
             .map(cell => cell.textContent.trim());
 
-        expect(headers).toEqual(['#', 'EMPLEADO', 'DÍAS', 'BRUTO', 'NETO']);
+        expect(headers).toEqual(['#', 'EMPLEADO', 'DÍAS DE PAGO', 'BRUTO', 'NETO']);
         expect(host.querySelector('th.payroll-review-table__number')).not.toBeNull();
         expect(host.querySelector('th.payroll-review-table__employee')).not.toBeNull();
         expect(host.querySelector('th.is-bonus')).toBeNull();
@@ -565,7 +565,7 @@ describe('Financial desktop layouts', () => {
         const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
             .map(cell => cell.textContent.trim());
 
-        expect(headers.map(text => text.replace(/\s+/g, ''))).toEqual(['#', 'EMPLEADO', 'DÍAS', 'BRUTO', 'BONIFIC.1/1', 'NETO']);
+        expect(headers.map(text => text.replace(/\s+/g, ''))).toEqual(['#', 'EMPLEADO', 'DÍASDEPAGO', 'BRUTO', 'BONIFIC.1/1', 'NETO']);
         expect(host.querySelector('th.is-bonus input[type="checkbox"]')?.checked).toBe(true);
         expect(host.querySelector('th.is-deduction')).toBeNull();
         expect(host.querySelector('th.is-loan')).toBeNull();
@@ -721,7 +721,7 @@ describe('Financial desktop layouts', () => {
         const categoryCounts = [...host.querySelectorAll('.payroll-review-table__toggle-heading small')]
             .map(counter => counter.textContent.trim());
 
-        expect(headers).toEqual(['#', 'EMPLEADO', 'DÍAS', 'BRUTO', 'BONIFIC.', 'DEDUCCIONES', 'PRÉSTAMOS', 'NETO']);
+        expect(headers).toEqual(['#', 'EMPLEADO', 'DÍAS DE PAGO', 'BRUTO', 'BONIFIC.', 'DEDUCCIONES', 'PRÉSTAMOS', 'NETO']);
         expect(categoryCounts).toEqual(['1/1', '1/1', '1/1']);
         expect(row.querySelector('.payroll-review-table__number > span:first-child').textContent.trim()).toBe('12');
         expect(row.querySelector('.payroll-review-table__initials').textContent).toBe('AL');

@@ -1,6 +1,16 @@
 {
-  "version": "1.7.140",
+  "version": "1.7.141",
   "changelog": [
+    {
+      "version": "1.7.141",
+      "date": "2026-11-14",
+      "title": "Revisión de nómina más despejada",
+      "items": [
+        "Días de pago incluye los factores ya calculados de horas extra, descanso y festivos. Se conserva el conteo real de asistencia.",
+        "Los filtros adicionales se pliegan y Compartir reúne las opciones originales de exportación.",
+        "En móvil se retiran los accesos auxiliares y la barra inferior; la navegación sigue disponible en los cinco pasos superiores."
+      ]
+    },
     {
       "version": "1.7.140",
       "date": "2026-11-14",

@@ -417,8 +417,8 @@ describe('PayrollScopedGeneratorFocal — Multi-project Generator Parity & Safet
             expect(html).toContain('payroll-review-table');
             expect(html).toContain('Juan Perez');
             const host = document.createElement('div'); host.innerHTML = html;
-            expect(host.querySelector('[data-payroll-worked-days]').textContent).toBe('1');
-            expect(host.querySelector('.payroll-review-table__hours-split').textContent).toContain('2h extra');
+            expect(host.querySelector('[data-payroll-payment-days]').textContent).toBe('1.375');
+            expect(host.querySelector('.payroll-review-table__hours-split')).toBeNull();
             expect(host.querySelector('.payroll-breakdown-details__body').textContent).toContain('Ordinarios: 1 día');
             expect(html).toContain('$1,100.00');
             expect(html).toContain('payroll-breakdown-details');

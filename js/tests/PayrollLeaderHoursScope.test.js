@@ -270,7 +270,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
             exportContext: { payrollFilter: { leaderId: 'L1', mode: 'payroll', partial: false } } });
         const host = document.createElement('div'); host.innerHTML = PayrollUI.PayrollTab();
         expect(host.querySelector('[data-payroll-hours-scope]').value).toBe('payroll');
-        expect(host.querySelector('[data-payroll-worked-days]').textContent).toBe('1');
+        expect(host.querySelector('[data-payroll-payment-days]').textContent).toBe('1');
         expect(host.querySelector('thead').textContent).toContain('DÍAS');
         PayrollUI.setLeaderHoursScope('all');
         expect(net(await exported())).toBe(1600);
@@ -598,7 +598,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
                 }
                 const row = [...host.querySelectorAll('.payroll-review-table__row')]
                     .find(element => element.querySelector('.payroll-review-table__employee').textContent.includes('Juan'));
-                expect(Number(row.querySelector('[data-payroll-worked-days]').textContent)).toBe(hours / 8);
+                expect(Number(row.querySelector('[data-payroll-payment-days]').textContent)).toBe(gross / dailyRate);
                 expect(row.querySelectorAll('.payroll-review-table__amount')[1].textContent.trim()).toBe(formatCurrency(gross));
                 expect(row.querySelector('.payroll-review-net-value').textContent.trim()).toBe(formatCurrency(gross));
                 const calculation = host.querySelector('[data-payroll-calculation-row="E1"]');

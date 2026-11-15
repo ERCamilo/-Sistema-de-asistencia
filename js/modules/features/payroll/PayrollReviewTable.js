@@ -14,7 +14,7 @@ import icons from '../../ui/IconSystem.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { renderPayrollStatus } from './PayrollStatus.js';
-import { payrollWorkedDays, formatPayrollDays } from './PayrollWorkDays.js';
+import { payrollWorkedDays, payrollPaymentDays, formatPayrollDays } from './PayrollWorkDays.js';
 import { payrollExportMoney, payrollCashTotal } from './PayrollExportMoney.js';
 
 export const REVIEW_CATEGORIES = Object.freeze([
@@ -34,19 +34,6 @@ const initials = name => {
     const words = String(name || '').trim().split(/\s+/).filter(Boolean);
     return [words[0], words.length > 1 ? words.at(-1) : ''].map(word => Array.from(word || '')[0] || '').join('').toLocaleUpperCase('es');
 };
-
-/** Navigation only: use the existing table and preserve its controls and values. */
-export function scrollPayrollReviewColumns(view, control) {
-    const wrapper = control.closest('.payroll-review-table-view')?.querySelector('.responsive-table-wrapper');
-    if (!wrapper) return;
-    const target = wrapper.querySelector('thead [data-payroll-column="net"]');
-    const number = wrapper.querySelector('thead .payroll-review-table__number');
-    const left = view === 'amounts' && target
-        ? Math.max(0, wrapper.scrollLeft + target.getBoundingClientRect().left - wrapper.getBoundingClientRect().left
-            - (number?.getBoundingClientRect().width || 0)) : 0;
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-    wrapper.scrollTo({ left, behavior: reduced ? 'auto' : 'smooth' });
-}
 
 function detailLine(category, item) {
     if (category.kind === 'loans') {
@@ -196,7 +183,7 @@ function calculationRow(row, catalogue, hoursPerDay, colspan) {
  * @param {Set<string>} args.expanded claves "empleado|categoría" desplegadas
  */
 export function renderPayrollReviewTable({ rows = [], displayRows = rows, sourceRows = [], inclusion = {}, expanded = new Set(), emptyMessage = '', positions = [], leaders = [],
-    hoursPerDay = 8, allowEmployeeExclusion = false, excludedIds = [], categoryCounts = null } = {}) {
+    hoursPerDay = 8, dayFactors = {}, allowEmployeeExclusion = false, excludedIds = [], categoryCounts = null } = {}) {
     const excluded = new Set(excludedIds);
     const sourceByKey = new Map(sourceRows.map(row => [reviewRowKey(row), row]));
     const include = {
@@ -250,8 +237,7 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
                     ${excludedPositionsNote(row)}
                 </td>
                 <td class="payroll-review-table__amount">
-                    <span data-payroll-worked-days>${formatPayrollDays(payrollWorkedDays(row, hoursPerDay))}</span>
-                    ${amountOf(row._overtimeHours) > 0 ? `<small class="payroll-review-table__hours-split">+${row._overtimeHours}h extra</small>` : ''}
+                    <span data-payroll-payment-days>${formatPayrollDays(payrollPaymentDays(row, hoursPerDay, dayFactors))}</span>
                 </td>
                 <td class="payroll-review-table__amount">${formatCurrency(row._brutoOriginal)}</td>
                 ${categories.map(category => categoryCell({
@@ -281,10 +267,8 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
 
     return `
         <div class="payroll-review-table-view">
-            <div class="payroll-review-table__mobile-tools" role="group" aria-label="Mover columnas de nómina">
+            <div class="payroll-review-table__mobile-tools">
                 <p>${reviewChevron('left')}${reviewChevron('right')}<span>Desliza para ver días e importes</span></p>
-                <button type="button" data-payroll-action="show-payroll-review-columns" data-value="employees" ${displayRows.length ? '' : 'disabled'}>${reviewChevron('left')} Empleados</button>
-                <button type="button" data-payroll-action="show-payroll-review-columns" data-value="amounts" ${displayRows.length ? '' : 'disabled'}>Importes ${reviewChevron('right')}</button>
             </div>
         <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina de la obra" tabindex="0">
             <table class="payroll-review-table">
@@ -292,7 +276,7 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
                     <tr>
                         <th class="payroll-review-table__number">#</th>
                         <th class="payroll-review-table__employee">EMPLEADO</th>
-                        <th title="Jornadas equivalentes sin horas extra ni multiplicadores de pago">DÍAS</th>
+                        <th title="Días equivalentes de pago: incluye factores de horas extra, festivos y descanso; no es un conteo de asistencia">DÍAS DE PAGO</th>
                         <th>BRUTO</th>
                         ${head}
                         <th data-payroll-column="net">NETO</th>
@@ -305,7 +289,7 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
                 <tfoot>
                     <tr>
                         <td colspan="2">Totales (${rows.length} empleados)</td>
-                        <td class="payroll-review-table__amount" data-payroll-total-days>${formatPayrollDays(rows.reduce((total, row) => total + payrollWorkedDays(row, hoursPerDay), 0))}</td>
+                        <td class="payroll-review-table__amount" data-payroll-total-pay-days>${formatPayrollDays(rows.reduce((total, row) => total + payrollPaymentDays(row, hoursPerDay, dayFactors), 0))}</td>
                         <td class="payroll-review-table__amount">${formatCurrency(sum('_brutoOriginal'))}</td>
                         ${foot}
                         <td class="payroll-review-table__amount is-net">${formatCurrency(sum('monto'))}</td>
