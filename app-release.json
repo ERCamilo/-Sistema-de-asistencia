@@ -1,6 +1,15 @@
 {
-  "version": "1.7.138",
+  "version": "1.7.139",
   "changelog": [
+    {
+      "version": "1.7.139",
+      "date": "2026-11-14",
+      "title": "Tabla de nómina accesible en móvil",
+      "items": [
+        "En celular solo queda fija la ficha del empleado, dejando espacio para consultar los días y los importes al deslizar.",
+        "Los accesos Empleados e Importes permiten moverse por la tabla sin cambiar filtros, selecciones ni cálculos."
+      ]
+    },
     {
       "version": "1.7.138",
       "date": "2026-11-13",

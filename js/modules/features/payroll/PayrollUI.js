@@ -70,7 +70,7 @@ import {
     renderPayrollRegistrationBanner,
     renderPayrollRegistrationLoans
 } from './PayrollRegistrationUI.js';
-import { renderPayrollReviewTable } from './PayrollReviewTable.js';
+import { renderPayrollReviewTable, scrollPayrollReviewColumns } from './PayrollReviewTable.js';
 import {
     applyPayrollClosureEffects,
     buildPayrollClosureDraft,
@@ -258,6 +258,7 @@ const _ACTION_MAP = {
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
     },
     'toggle-payroll-review-detail': (key) => window.PayrollUI?.togglePayrollReviewDetail?.(key),
+    'show-payroll-review-columns': (view, control) => scrollPayrollReviewColumns(view, control),
     'clear-payroll-leader-filter': () => window.PayrollUI?.setLeaderFilter?.('all'),
     'set-payroll-leader-hours-scope': (scope) => window.PayrollUI?.setLeaderHoursScope?.(scope),
     'toggle-payroll-review-employee-filter': (_id, target) => window.PayrollUI?.togglePayrollReviewEmployeeFilter?.(target.checked),

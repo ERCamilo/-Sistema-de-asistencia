@@ -29,6 +29,20 @@ const amountOf = value => Number(value) || 0;
 const visible = value => Math.abs(amountOf(value)) >= 0.005;
 export const reviewRowKey = row => String(row?._employeeId ?? row?.id ?? '');
 const net = row => Math.round((amountOf(row?.monto) + Number.EPSILON) * 100) / 100;
+const reviewChevron = direction => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="${direction === 'left' ? 'm15 18-6-6 6-6' : 'm9 6 6 6-6 6'}"/></svg>`;
+
+/** Navigation only: use the existing table and preserve its controls and values. */
+export function scrollPayrollReviewColumns(view, control) {
+    const wrapper = control.closest('.payroll-review-table-view')?.querySelector('.responsive-table-wrapper');
+    if (!wrapper) return;
+    const target = wrapper.querySelector('thead [data-payroll-column="net"]');
+    const number = wrapper.querySelector('thead .payroll-review-table__number');
+    const left = view === 'amounts' && target
+        ? Math.max(0, wrapper.scrollLeft + target.getBoundingClientRect().left - wrapper.getBoundingClientRect().left
+            - (number?.getBoundingClientRect().width || 0)) : 0;
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    wrapper.scrollTo({ left, behavior: reduced ? 'auto' : 'smooth' });
+}
 
 function detailLine(category, item) {
     if (category.kind === 'loans') {
@@ -250,6 +264,12 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
     const cashDifference = payrollExportMoney(cashTotal - payrollExportMoney(sum('monto')));
 
     return `
+        <div class="payroll-review-table-view">
+            <div class="payroll-review-table__mobile-tools" role="group" aria-label="Mover columnas de nómina">
+                <p>${reviewChevron('left')}${reviewChevron('right')}<span>Desliza para ver días e importes</span></p>
+                <button type="button" data-payroll-action="show-payroll-review-columns" data-value="employees" ${displayRows.length ? '' : 'disabled'}>${reviewChevron('left')} Empleados</button>
+                <button type="button" data-payroll-action="show-payroll-review-columns" data-value="amounts" ${displayRows.length ? '' : 'disabled'}>Importes ${reviewChevron('right')}</button>
+            </div>
         <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina de la obra" tabindex="0">
             <table class="payroll-review-table">
                 <thead>
@@ -259,7 +279,7 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
                         <th title="Jornadas equivalentes sin horas extra ni multiplicadores de pago">DÍAS</th>
                         <th>BRUTO</th>
                         ${head}
-                        <th>NETO</th>
+                        <th data-payroll-column="net">NETO</th>
                         <th>DESGLOSE</th>
                     </tr>
                 </thead>
@@ -278,6 +298,7 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
                     </tr>
                 </tfoot>
             </table>
+        </div>
         </div>
         ${cashDifference ? `<p class="payroll-review-table__scope-note" role="status" data-payroll-cash-rounding>
             Total para SplitX: ${formatCurrency(cashTotal)} · diferencia de ${formatCurrency(cashDifference)} por redondear cada pago a centavos.

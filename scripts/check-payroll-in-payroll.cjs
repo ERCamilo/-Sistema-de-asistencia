@@ -163,6 +163,48 @@ const server = http.createServer((req, res) => {
             await page.click('[data-payroll-action="reset-payroll-review-exclusions"]');
             assert.equal(await page.$eval('[data-id="juan"][type="checkbox"]', el => el.checked), true);
             assert.equal(await page.evaluate(() => JSON.stringify({ attendance: auditState.attendance, employees: auditState.employees })), before);
+            if (width < 901) {
+                await page.$eval('.payroll-review-table__row', row => row.scrollIntoView({ block: 'center', behavior: 'instant' }));
+                const netVisible = await page.$eval('.payroll-review-table', table => {
+                    const wrapper = table.closest('.responsive-table-wrapper');
+                    wrapper.scrollLeft = wrapper.scrollWidth;
+                    const cell = table.querySelector('tbody .payroll-review-table__amount.is-net');
+                    const c = cell.getBoundingClientRect(), w = wrapper.getBoundingClientRect();
+                    const x = Math.max(w.left + 1, c.left) + (Math.min(w.right - 1, c.right) - Math.max(w.left + 1, c.left)) / 2;
+                    const hit = document.elementFromPoint(x, c.top + c.height / 2);
+                    return { visible: cell.contains(hit), scrollable: wrapper.scrollLeft > 0 };
+                });
+                assert.ok(netVisible.visible && netVisible.scrollable, `${width}px: net pay must be readable after horizontal scrolling: ${JSON.stringify(netVisible)}`);
+                await page.$eval('.payroll-review-table', table => { table.closest('.responsive-table-wrapper').scrollLeft = 0; });
+                const exportBeforeScroll = await page.evaluate(() => getExport());
+                await page.evaluate(() => { window.reviewTableNode = document.querySelector('.payroll-review-table'); });
+                const amountsButton = '[data-payroll-action="show-payroll-review-columns"][data-value="amounts"]';
+                const peopleButton = '[data-payroll-action="show-payroll-review-columns"][data-value="employees"]';
+                if (width === 390) await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+                await page.$eval(amountsButton, node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+                await page.focus(amountsButton); await page.keyboard.press('Enter');
+                await page.waitForFunction(() => {
+                    const table = document.querySelector('.payroll-review-table'), wrapper = table.closest('.responsive-table-wrapper');
+                    const cell = table.querySelector('tbody .payroll-review-table__amount.is-net');
+                    const c = cell.getBoundingClientRect(), w = wrapper.getBoundingClientRect();
+                    const hit = document.elementFromPoint((Math.max(w.left + 1, c.left) + Math.min(w.right - 1, c.right)) / 2, c.top + c.height / 2);
+                    return wrapper.scrollLeft > 0 && cell.contains(hit);
+                });
+                const numberFits = await page.$eval('.payroll-review-table', table => {
+                    const n = table.querySelector('tbody .payroll-review-table__number').getBoundingClientRect();
+                    const w = table.closest('.responsive-table-wrapper').getBoundingClientRect();
+                    return Math.abs(n.left - w.left) <= 2 && n.width <= w.width * .25;
+                });
+                assert.equal(numberFits, true, 'only a compact employee number remains fixed');
+                assert.equal(await page.evaluate(() => reviewTableNode === document.querySelector('.payroll-review-table')), true, 'navigation must not recreate editable rows');
+                assert.deepEqual(await page.evaluate(() => getExport()), exportBeforeScroll);
+                await page.screenshot({ path: path.join(output, `review-amounts-${width}.png`) });
+                await page.$eval(peopleButton, node => node.scrollIntoView({ block: 'center', behavior: 'instant' })); await page.click(peopleButton);
+                await page.waitForFunction(() => document.querySelector('.payroll-review-table').closest('.responsive-table-wrapper').scrollLeft < 1);
+                if (width === 390) await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+                assert.deepEqual(await page.evaluate(() => getExport()), exportBeforeScroll);
+                assert.equal(await page.evaluate(() => JSON.stringify({ attendance: auditState.attendance, employees: auditState.employees })), before);
+            }
             // Step 4 filters are presentation-only and must retain cash selections,
             // draft inputs and the same DOM while typing, including on a phone.
             await page.evaluate(async () => {
