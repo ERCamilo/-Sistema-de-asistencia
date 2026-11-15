@@ -11,6 +11,7 @@ import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { projectSetupService } from './ProjectSetupService.js';
 import { applyProjectConflictArchive, projectConflictArchiveStore } from './ProjectConflictArchive.js';
 import { shareProjectDiagnosticLog } from './ProjectDiagnosticLog.js';
+import { inspectPayrollConfigOrigin, describePayrollConfigOrigin } from './ProjectPayrollConfigOrigin.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { analyzeProjectOwnership, CLASSIFICATION } from './ProjectOwnershipReconciliation.js';
 import { projectNameKey } from './ProjectNames.js';
@@ -67,6 +68,7 @@ function initialModalState() {
         includeOrphanAttendance: false,
         pendingMerge: null,
         showArchivePending: false, showArchiveHistory: false,
+        configOriginResults: new Map(), configOriginLoading: '',
         busy: false, message: ''
     };
 }
@@ -220,7 +222,12 @@ export async function refreshProjectReconciliationSnapshot() {
             console.warn('No se pudo actualizar Pendientes de asignación:', error);
         }
     }
-    if (generation === refreshGeneration) snapshot = next;
+    if (generation === refreshGeneration) {
+        snapshot = next;
+        // Remote checks are snapshots in time; a catalog refresh invalidates
+        // their meaning. Never show a stale origin verdict after syncing.
+        modalState.configOriginResults.clear();
+    }
     return snapshot;
 }
 export function getProjectReconciliationSnapshot() {
@@ -444,7 +451,9 @@ function financialRecoveryControls() {
             + (hasDestinationConfig ? ' disabled' : '') + '><option value="">Conservar configuración actual</option>'
             + configs.map(c => '<option value="' + escapeHTML(c.projectId) + '"'
                 + (modalState.configurationSource === c.projectId ? ' selected' : '') + '>Recuperar de ' + escapeHTML(c.projectId) + '</option>').join('')
-            + '</select></label>' + (hasDestinationConfig ? '<p>El destino ya tiene reglas de nómina; no se sobrescribirán.</p>' : '') : '')
+            + '</select></label>'
+            + '<p class="r07-recon-hint">Antes de aplicar una configuración huérfana, SA comprobará su obra original directamente con Firebase. Si existe o la consulta falla, no se realizará esa recuperación.</p>'
+            + (hasDestinationConfig ? '<p>El destino ya tiene reglas de nómina; no se sobrescribirán.</p>' : '') : '')
         + '</fieldset>';
 }
 
@@ -1359,7 +1368,11 @@ function diagnosticReportButton() {
 
 async function shareReconciliationDiagnostic() {
     try {
-        const result = await shareProjectDiagnosticLog(snapshot);
+        // Share only the verified status codes, never the projectId or
+        // the source configuration's financial fields.
+        const configOriginStatuses = [...modalState.configOriginResults.values()]
+            .map(item => item.status);
+        const result = await shareProjectDiagnosticLog({ ...snapshot, configOriginStatuses });
         if (result.action === 'downloaded') {
             window.showNotification?.('Diagnóstico .log descargado. Puedes revisarlo y enviarlo a soporte.', 'success');
         } else if (result.action === 'shared') {
@@ -1518,6 +1531,58 @@ async function recoverHistoricalClosure(closureId) {
     }
 }
 
+function renderConfigOriginAction(row) {
+    if (row.kind !== 'configs') return '';
+    // A forged DOM id must never be enough to inspect another record.
+    const projectId = String(row.projectId || '');
+    const matching = snapshot.projectPayrollConfigs.some(item =>
+        String(item?.projectId || '') === projectId);
+    if (!projectId || !matching) return '<p class="r07-recon-hint">No existe un identificador válido para consultar en Firebase.</p>';
+    const current = modalState.configOriginResults.get(projectId);
+    const checking = modalState.configOriginLoading === projectId;
+    return '<div class="r07-recon-config-origin" data-r07-config-origin>'
+        + '<p class="r07-recon-hint">Referencia local de esta configuración: '
+        + '<code style="overflow-wrap:anywhere">' + escapeHTML(projectId) + '</code></p>'
+        + '<button type="button" class="btn-secondary r07-recon-note-action"'
+        + ' data-r07-action="verify-config-origin"'
+        + ' data-r07-config-origin-id="' + escapeHTML(projectId) + '"'
+        + (checking ? ' disabled' : '') + '>'
+        + (checking ? 'Comprobando Firebase…' : 'Verificar obra original en Firebase')
+        + '</button>'
+        + (current ? '<p role="status" class="r07-recon-hint">'
+            + escapeHTML(describePayrollConfigOrigin(current)) + '</p>' : '')
+        + '<small>Esta verificación es de solo lectura: no reasigna, modifica ni elimina configuraciones.</small>'
+        + '</div>';
+}
+
+async function verifyConfigOrigin(projectId) {
+    if (modalState.busy || modalState.configOriginLoading) return;
+    const row = snapshot.diagnosticIssues.find(item =>
+        item.kind === 'configs' && String(item.projectId || '') === projectId);
+    if (!row || !snapshot.projectPayrollConfigs.some(item =>
+        String(item?.projectId || '') === projectId)) return;
+    const startedFromModal = activeModal, startedFromState = modalState, startedFromSnapshot = snapshot;
+    modalState.configOriginLoading = projectId;
+    rerenderModal();
+    try {
+        const verification = await inspectPayrollConfigOrigin({
+            projectId, localProjects: snapshot.projects
+        });
+        // When the wizard is closed/reopened or a catalog refresh arrives,
+        // never display a stale result as the currently verified identity.
+        if (activeModal !== startedFromModal || modalState !== startedFromState
+            || snapshot !== startedFromSnapshot) return;
+        modalState.configOriginResults.set(projectId, verification);
+    } catch (_) {
+        if (activeModal === startedFromModal && modalState === startedFromState) {
+            modalState.configOriginResults.set(projectId, { status: 'unverified', readOnly: true });
+        }
+    } finally {
+        startedFromState.configOriginLoading = '';
+        if (activeModal === startedFromModal && modalState === startedFromState) rerenderModal();
+    }
+}
+
 function renderExtendedDiagnostics() {
     const groups = [
         ['payments', 'Pagos de préstamos', 'Conserva los importes y abonos. Comprueba la obra original y el cierre antes de modificar cualquier vínculo.'],
@@ -1538,7 +1603,8 @@ function renderExtendedDiagnostics() {
             return '<details class="r07-wizard-details"><summary>' + rows.length + ' · ' + title + '</summary>'
                 + '<p>' + hint + '</p><ul>' + rows.map(row => '<li><strong>' + escapeHTML(row.label)
                     + '</strong> · ' + escapeHTML(row.reason) + renderFinancialReviewAction(row)
-                    + renderHistoricalClosureAction(row) + '</li>').join('') + '</ul></details>';
+                    + renderHistoricalClosureAction(row)
+                    + renderConfigOriginAction(row) + '</li>').join('') + '</ul></details>';
         }).join('') + '</section>';
 }
 
@@ -1826,6 +1892,23 @@ async function applyLocalResolution() {
             params = { ...base, action: REPAIR_ACTION.QUARANTINE };
         }
 
+        if (base.recoverFinancial && base.configurationSource) {
+            // Revalidate *at apply time*, even if the user previously checked
+            // the origin. Never copy payroll settings from an obsolete local
+            // catalog when the original project is still in Firebase.
+            const origin = await inspectPayrollConfigOrigin({
+                projectId: base.configurationSource, localProjects: snapshot.projects
+            });
+            if (activeModal !== startedFromModal) return;
+            modalState.configOriginResults.set(base.configurationSource, origin);
+            if (origin.status !== 'not-found-remotely') {
+                throw new Error('No se puede recuperar esta configuración de nómina: '
+                    + describePayrollConfigOrigin(origin));
+            }
+            if (base.configurationSource !== modalState.configurationSource) {
+                throw new Error('Cambió la configuración seleccionada; vuelve a revisar.');
+            }
+        }
         const result = await applyOwnershipRepair(params);
         if (activeModal !== startedFromModal) {
             // The user exited while the transaction ran. Do not mutate a newly
@@ -1988,6 +2071,7 @@ function handleClick(event) {
     const action = target.dataset.r07Action;
     if (modalState.busy && action !== 'close' && action !== 'share-diagnostics') return;
     if (action === 'share-diagnostics') return shareReconciliationDiagnostic();
+    if (action === 'verify-config-origin') return verifyConfigOrigin(target.dataset.r07ConfigOriginId);
     if (action === 'review-plan') {
         const row = snapshot.diagnosticIssues.find(item => item.key === target.dataset.planKey);
         const review = financialReviewFor(row?.planSelection);

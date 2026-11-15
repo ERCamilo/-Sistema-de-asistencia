@@ -27,6 +27,17 @@ if (!globalThis.localStorage) {
         clear: () => values.clear()
     };
 }
+// The emulator uses Jest's Node environment. DateUtils exposes compatibility
+// helpers on window and ProjectCatalogSync registers browser events. Keep
+// window and globalThis identical: fake-indexeddb/auto installs indexedDB on
+// the selected global (including window), which the repository accesses bare.
+if (typeof globalThis.window === 'undefined') globalThis.window = globalThis;
+if (typeof globalThis.addEventListener !== 'function') {
+    const events = new EventTarget();
+    globalThis.addEventListener = events.addEventListener.bind(events);
+    globalThis.removeEventListener = events.removeEventListener.bind(events);
+    globalThis.dispatchEvent = events.dispatchEvent.bind(events);
+}
 // Notifications are a browser presentation dependency; storage stays real.
 jest.mock('../../../../js/modules/components/Notification.js', () => ({ Notification: { show: jest.fn() } }));
 jest.mock('../../../../js/modules/ui/IconSystem.js', () => ({ __esModule: true, default: { get: () => '' } }));

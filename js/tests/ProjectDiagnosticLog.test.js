@@ -31,6 +31,20 @@ describe('manual privacy-safe Multiobra diagnostic export', () => {
         }
         expect(JSON.stringify(input)).toBe(before);
     });
+    test('optional Firebase origin verification is exported only as a safe status, never a project identifier', () => {
+        const input = { ...sample(), configOriginStatuses: ['remote-project', 'bad-private-id', 'unverified'] };
+        const report = buildProjectDiagnosticLog(input, {
+            now: new Date('2026-11-13T18:59:24.345Z'),
+            version: '1.7.138'
+        });
+        expect(report.content).toContain('[VERIFICACION DE ORIGEN EN FIREBASE]');
+        expect(report.content).toContain('consulta-001 estado=REMOTE_PROJECT');
+        expect(report.content).toContain('consulta-002 estado=UNVERIFIED');
+        expect(report.content).not.toContain('bad-private-id');
+        expect(report.content).not.toContain('emp-real-secret');
+        expect(report.content).not.toContain('Sensitive Name');
+    });
+
     test('offers share sheet when supported, never auto-uploading', async () => {
         const nav = {
             canShare: jest.fn(() => true),

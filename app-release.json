@@ -1,6 +1,16 @@
 {
-  "version": "1.7.138",
+  "version": "1.7.139",
   "changelog": [
+    {
+      "version": "1.7.139",
+      "date": "2026-11-14",
+      "title": "Verificar origen de configuración en Multiobra",
+      "items": [
+        "El solucionador permite comprobar en Firebase si la obra de una configuración de nómina aún existe, tiene un alias o una referencia histórica.",
+        "La consulta es de solo lectura; si la obra original existe o no puede verificarse, se bloquea la recuperación de esa configuración antes de guardar.",
+        "El diagnóstico .log puede incluir estados de verificación anónimos sin compartir identificadores ni datos de nómina."
+      ]
+    },
     {
       "version": "1.7.138",
       "date": "2026-11-13",
