@@ -987,10 +987,25 @@
 
 .payroll-review-table-view { min-width: 0; max-width: 100%; }
 .payroll-review-table__mobile-tools { display: none; }
+.payroll-review-table__initials { display: none; }
+.payroll-review-filter-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; max-width: 440px; }
+.payroll-review-filter-fields > label { display: grid; min-width: 0; gap: 5px; color: var(--text-dim, #a4b1c7); font-size: 12px; font-weight: 600; }
+.payroll-review-filter-fields select { box-sizing: border-box; min-width: 0; width: 100%; min-height: 44px; padding: 8px; border: 1px solid var(--border, #2a3a56); border-radius: 8px; background: var(--panel, #131d2e); color: var(--text, #f4f6fa); font: inherit; }
+.payroll-review-filter-fields select:focus-visible { outline: 2px solid var(--accent, #06b6d4); outline-offset: 2px; }
+.payroll-review-detail__group.is-calculation { color: #4bc5d5; min-width: 0; }
+.payroll-review-detail__group.is-calculation .payroll-breakdown-details__body { min-width: 0; white-space: normal; }
+.payroll-review-detail__group.is-calculation .payroll-breakdown-details__item > div { flex-wrap: wrap; }
+.payroll-review-detail__group.is-calculation .payroll-breakdown-details__item span { overflow-wrap: anywhere; }
+.payroll-review-net-summary { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid #334155; color: #dce3e9; font-size: 12px; }
+.payroll-review-net-summary > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.payroll-review-net-summary dd { margin: 0; }
+.payroll-review-net-summary > div:last-child { margin-top: 6px; color: #4bc5d5; font-weight: 700; }
 
 @media (max-width: 900px) {
     .payroll-review-table { --payroll-number-width: 44px; }
     .payroll-review-table .payroll-review-table__number { width: 44px; max-width: 44px; }
+    .payroll-review-table__number > span:first-child { display: block; }
+    .payroll-review-table .payroll-review-table__initials { display: inline-flex; align-items: center; justify-content: center; margin-top: 3px; min-height: 22px; width: 24px; border-radius: 5px; background: #24334e; color: #f4f6fa; font: 700 12px system-ui, sans-serif; }
     .payroll-review-table :is(th, td).payroll-review-table__employee {
         position: static;
         left: auto;
@@ -7578,7 +7593,8 @@
 }
 
 @media (max-width: 700px) {
-    .payroll-review-card { padding: 14px; }
+    .payroll-review-card { padding: 8px; }
+    .payroll-guide-panel--review { margin-inline: -8px; }
     .payroll-review-toolbar__pdf { margin-left: 0; }
     .payroll-review-detail { padding-left: 12px; grid-template-columns: 1fr; }
 }

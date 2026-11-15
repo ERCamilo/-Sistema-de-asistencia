@@ -551,6 +551,20 @@ function getSummaryAmountClass(amount, nonZeroClass) {
     return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
 }
 
+function renderPayrollLeaderFilters(leaders, leaderId, hoursScope, selectId) {
+    if (!leaders.length) return '';
+    const active = leaders.find(leader => String(leader.id) === String(leaderId));
+    return `<div class="payroll-review-filter-fields">
+        <label><span>Líder</span><select id="${selectId}" name="leaderFilter" aria-label="Filtrar por líder" onchange="PayrollUI.setLeaderFilter(this.value)">
+            <option value="all" ${!active ? 'selected' : ''}>Todos</option>
+            ${leaders.map(leader => `<option value="${escapeHTML(String(leader.id))}" ${String(leader.id) === String(leaderId) ? 'selected' : ''}>${escapeHTML(leader.name || 'Líder')}</option>`).join('')}
+        </select></label>
+        ${active ? `<label><span>Incluir</span><select data-payroll-hours-scope name="leaderHoursScope" aria-label="Trabajo incluido en la nómina" onchange="PayrollUI.setLeaderHoursScope(this.value)">
+            ${[['payroll', 'En nómina'], ['all', 'Todos sus puestos'], ['leader', `Solo puestos de ${active.name || 'este líder'}`]].map(([value, label]) => `<option value="${value}" ${normalizeLeaderHoursScope(hoursScope) === value ? 'selected' : ''}>${escapeHTML(label)}</option>`).join('')}
+        </select></label>` : ''}
+    </div>`;
+}
+
 function payrollPeriodKey(periodStart, periodEnd, projectId = null) {
     const prefix = projectId ? `${projectId}:` : '';
     return `${prefix}${String(periodStart || '')}:${String(periodEnd || '')}`;
@@ -1199,38 +1213,8 @@ function ScopedPayrollTab(view) {
                         </div>
                         <div class="payroll-review-card">
                             <div class="payroll-review-toolbar">
-                                ${leaders.length > 0 ? `
-                                    <label class="payroll-review-leader" for="payroll-scoped-leader-filter">
-                                        ${icons.get('personnel', { size: 15 })}
-                                        <span>Líder</span>
-                                        <select id="payroll-scoped-leader-filter" name="leaderFilter" onchange="PayrollUI.setLeaderFilter(this.value)">
-                                            <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos</option>
-                                            ${leaders.map(leader => `<option value="${escapeHTML(String(leader.id))}" ${leaderFilter === String(leader.id) ? 'selected' : ''}>${escapeHTML(leader.name || 'Líder')}</option>`).join('')}
-                                        </select>
-                                    </label>
-                                ` : ''}
+                                ${renderPayrollLeaderFilters(leaders, leaderFilter, leaderHoursScope, 'payroll-scoped-leader-filter')}
                                 ${activeLeader ? `
-                                    <div class="payroll-review-hours-scope" role="group" aria-label="Trabajo incluido en la nómina">
-                                        <span>Incluir</span>
-                                        <button type="button" data-payroll-action="set-payroll-leader-hours-scope"
-                                                data-value="${LEADER_HOURS_SCOPES.PAYROLL}"
-                                                aria-pressed="${leaderHoursScope === LEADER_HOURS_SCOPES.PAYROLL}"
-                                                title="Solo los tramos que paga este líder, aunque el puesto sea de otro equipo.">En nómina</button>
-                                        <button type="button"
-                                                data-payroll-action="set-payroll-leader-hours-scope"
-                                                data-value="${LEADER_HOURS_SCOPES.ALL}"
-                                                aria-pressed="${leaderHoursScope === LEADER_HOURS_SCOPES.ALL}"
-                                                title="Vista amplia de sus puestos. Usa En nómina para incluir exclusivamente lo que paga este líder.">
-                                            Todos sus puestos
-                                        </button>
-                                        <button type="button"
-                                                data-payroll-action="set-payroll-leader-hours-scope"
-                                                data-value="${LEADER_HOURS_SCOPES.LEADER}"
-                                                aria-pressed="${leaderHoursScope === LEADER_HOURS_SCOPES.LEADER}"
-                                                title="Solo trabajo del equipo de ${escapeHTML(activeLeader.name || 'este líder')} a su cargo; usa el líder guardado en cada tramo, sin trasladar pagos de otro líder.">
-                                            Solo puestos de ${escapeHTML(activeLeader.name || 'este líder')}
-                                        </button>
-                                    </div>
                                     <span class="payroll-review-filter-chip" role="status">
                                         ${rows.length} de ${allRowsCount} empleados
                                         <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder">${icons.get('close', { size: 12 })}</button>
@@ -1906,18 +1890,7 @@ function PayrollGeneratorTab() {
                 
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-                    <div style="display: flex; gap: 8px; align-items: center; max-width: 60%;">
-                        <label for="payroll-leader-filter" style="font-size: 0.75rem; color: #94a3b8; margin-right: 4px;">Líder:</label>
-                        <select id="payroll-leader-filter" name="leaderFilter" aria-label="Filtrar por líder" onchange="PayrollUI.setLeaderFilter(this.value)" class="form-input" style="padding: 6px 12px; font-size: 0.875rem; border-color: #334155; background: #0f172a; color: #f1f5f9; border-radius: 6px; cursor: pointer; outline: none;">
-                            <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos</option>
-                            ${leaders.map(ldr => `
-                                <option value="${ldr.id}" ${leaderFilter === ldr.id ? 'selected' : ''}>${ldr.name}</option>
-                            `).join('')}
-                        </select>
-                    </div>
-                    ${leaderFilter !== 'all' ? `<div class="payroll-review-hours-scope" role="group" aria-label="Trabajo incluido en la nómina">
-                        ${[['payroll', 'En nómina'], ['all', 'Todos sus puestos'], ['leader', 'Solo puestos de este líder']].map(([scope, label]) => `<button type="button" data-payroll-action="set-payroll-leader-hours-scope" data-value="${scope}" aria-pressed="${normalizeLeaderHoursScope(state.exportConfig.leaderHoursScope) === scope}">${label}</button>`).join('')}
-                    </div>` : ''}
+                    ${renderPayrollLeaderFilters(leaders, leaderFilter, state.exportConfig.leaderHoursScope, 'payroll-leader-filter')}
                     ${payrollReviewEmployeeSelection(null, state).excludedIds.length ? `<button type="button" class="payroll-review-exclusions-reset" data-payroll-action="reset-payroll-review-exclusions">${payrollReviewEmployeeSelection(null, state).excludedIds.length} ${payrollReviewEmployeeSelection(null, state).excludedIds.length === 1 ? 'excluido' : 'excluidos'} · Restablecer</button>` : ''}
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <button type="button"
@@ -3714,10 +3687,21 @@ export async function openPayrollReviewEmployees() {
 /** Despliega o pliega el detalle de una categoría de un empleado en la vista previa. */
 export function togglePayrollReviewDetail(key) {
     const value = String(key || '');
-    if (!/^.+\|(bonuses|deductions|loans)$/.test(value)) return;
+    if (!/^.+\|(bonuses|deductions|loans|calculation)$/.test(value)) return;
+    const findButton = () => [...document.querySelectorAll('[data-payroll-action="toggle-payroll-review-detail"]')].find(button => button.dataset.value === value);
+    const previousButton = findButton(), previousWrapper = previousButton?.closest('.responsive-table-wrapper');
+    const scrollLeft = previousWrapper?.scrollLeft || 0;
+    const atEnd = previousWrapper && Math.abs(scrollLeft - (previousWrapper.scrollWidth - previousWrapper.clientWidth)) < 2;
+    const anchor = previousButton && previousWrapper ? previousButton.getBoundingClientRect().left - previousWrapper.getBoundingClientRect().left : null;
     if (payrollReviewExpanded.has(value)) payrollReviewExpanded.delete(value);
     else payrollReviewExpanded.add(value);
     context.render();
+    const button = findButton(), wrapper = button?.closest('.responsive-table-wrapper');
+    if (wrapper) {
+        wrapper.scrollLeft = atEnd ? wrapper.scrollWidth : scrollLeft;
+        if (!atEnd && anchor !== null) wrapper.scrollLeft += button.getBoundingClientRect().left - wrapper.getBoundingClientRect().left - anchor;
+    }
+    button?.focus({ preventScroll: true });
 }
 
 export function togglePayrollPreviewCategory(category, checked) {

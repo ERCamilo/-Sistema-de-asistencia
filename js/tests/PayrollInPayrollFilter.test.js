@@ -79,7 +79,7 @@ test.each([8, 6])('calculation detail shows daily rates and worked days for a %s
     Object.assign(source, { _brutoOriginal: 20700, _bruto: 20700, monto: 20700 });
     const before = JSON.stringify(source);
     const host = document.createElement('div');
-    host.innerHTML = renderPayrollReviewTable({ rows: [source], sourceRows: [source], hoursPerDay });
+    host.innerHTML = renderPayrollReviewTable({ rows: [source], sourceRows: [source], hoursPerDay, expanded: new Set(['e|calculation']) });
     const details = host.querySelectorAll('.payroll-breakdown-details__item');
     expect(details[0].textContent).toContain(hoursPerDay === 8 ? 'Tarifa: $900.00/día' : 'Tarifa: $675.00/día');
     expect(details[0].textContent).toContain(hoursPerDay === 8 ? 'Ordinarios: 4 días ($3,600.00)' : 'Ordinarios: 5.333 días ($3,600.00)');
@@ -97,7 +97,7 @@ test('the daily detail separates fractions of regular, overtime, holiday and res
         holidayHours: 2, holidayAmount: 400, restDayHours: 2, restDayAmount: 325 })]);
     Object.assign(source, { _brutoOriginal: 1425, _bruto: 1425, monto: 1425 });
     const host = document.createElement('div');
-    host.innerHTML = renderPayrollReviewTable({ rows: [source], sourceRows: [source], hoursPerDay: 8 });
+    host.innerHTML = renderPayrollReviewTable({ rows: [source], sourceRows: [source], hoursPerDay: 8, expanded: new Set(['e|calculation']) });
     const detail = host.querySelector('.payroll-breakdown-details__body');
     expect(detail.textContent).toContain('Ordinarios: 0.5 días ($400.00)');
     expect(detail.textContent).toContain('Extra (x1.5): 0.25 días equiv.');

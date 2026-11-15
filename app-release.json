@@ -1,6 +1,16 @@
 {
-  "version": "1.7.139",
+  "version": "1.7.140",
   "changelog": [
+    {
+      "version": "1.7.140",
+      "date": "2026-11-14",
+      "title": "Nómina móvil más compacta",
+      "items": [
+        "La ficha conserva las iniciales del empleado al deslizar y se reducen los márgenes laterales.",
+        "El neto despliega su cálculo con chevrón y contador; se elimina la columna separada de desglose.",
+        "Incluir pasa a ser un desplegable al lado del filtro de líder, con las mismas opciones de trabajo."
+      ]
+    },
     {
       "version": "1.7.139",
       "date": "2026-11-14",

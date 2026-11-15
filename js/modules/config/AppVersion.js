@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.139';
+const APP_VERSION = '1.7.140';
 const CHANGELOG = [
+    { version: '1.7.140', date: '2026-11-14', title: 'Nómina móvil más compacta', items: ['La ficha conserva las iniciales del empleado al deslizar y se reducen los márgenes laterales.', 'El neto despliega su cálculo con chevrón y contador; se elimina la columna separada de desglose.', 'Incluir pasa a ser un desplegable al lado del filtro de líder, con las mismas opciones de trabajo.'] },
     { version: '1.7.139', date: '2026-11-14', title: 'Tabla de nómina accesible en móvil', items: ['En celular solo queda fija la ficha del empleado, dejando espacio para consultar los días y los importes al deslizar.', 'Los accesos Empleados e Importes permiten moverse por la tabla sin cambiar filtros, selecciones ni cálculos.'] },
     { version: '1.7.138', date: '2026-11-13', title: 'Exportar nómina desde el celular', items: ['El resumen de nómina por obra se puede desplegar desde el celular.', 'Resumen y exportar ofrece SplitX, PDF, copiar JSON y descargar JSON en todos los pasos, con los filtros y validaciones existentes.'] },
     { version: '1.7.137', date: '2026-11-13', title: 'Estados de préstamos separados', items: ['El paso 4 de nómina muestra las advertencias en una columna Estado, separada del nombre del empleado.', 'En celular, cada advertencia tiene su propia fila; los empleados sin advertencias conservan la tarjeta compacta.'] },

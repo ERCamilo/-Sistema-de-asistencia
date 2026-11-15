@@ -269,7 +269,7 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         expect(one[0]).toMatchObject({ monto: 800, bruto: 800, workDays: { worked: 1 },
             exportContext: { payrollFilter: { leaderId: 'L1', mode: 'payroll', partial: false } } });
         const host = document.createElement('div'); host.innerHTML = PayrollUI.PayrollTab();
-        expect(host.querySelector('[data-value="payroll"]').getAttribute('aria-pressed')).toBe('true');
+        expect(host.querySelector('[data-payroll-hours-scope]').value).toBe('payroll');
         expect(host.querySelector('[data-payroll-worked-days]').textContent).toBe('1');
         expect(host.querySelector('thead').textContent).toContain('DÍAS');
         PayrollUI.setLeaderHoursScope('all');
@@ -355,7 +355,9 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
         expect(PayrollUI.PayrollTab()).toContain('Solo puestos de Líder Uno');
         PayrollUI.setLeaderHoursScope('leader');
         const html = PayrollUI.PayrollTab();
-        expect(html).toMatch(/aria-pressed="true"[^>]*>\s*Solo puestos de Líder Uno/);
+        const controls = document.createElement('div'); controls.innerHTML = html;
+        expect(controls.querySelector('[data-payroll-hours-scope]').value).toBe('leader');
+        expect(controls.querySelector('[data-payroll-hours-scope]').selectedOptions[0].textContent).toBe('Solo puestos de Líder Uno');
         expect(html).toContain('Sin Plomero 8h');
     });
 
@@ -591,13 +593,17 @@ describe('nómina por obra: horas de todos los puestos o solo los del líder', (
                 expect(output.map(employee => employee.sourceEmployeeId)).toEqual(id === 'L1' ? ['E1'] : ['E1', 'E2']);
                 const host = document.createElement('div');
                 host.innerHTML = PayrollUI.PayrollTab();
+                if (host.querySelector('[data-value="E1|calculation"]').getAttribute('aria-expanded') === 'false') {
+                    PayrollUI.togglePayrollReviewDetail('E1|calculation'); host.innerHTML = PayrollUI.PayrollTab();
+                }
                 const row = [...host.querySelectorAll('.payroll-review-table__row')]
                     .find(element => element.querySelector('.payroll-review-table__employee').textContent.includes('Juan'));
                 expect(Number(row.querySelector('[data-payroll-worked-days]').textContent)).toBe(hours / 8);
                 expect(row.querySelectorAll('.payroll-review-table__amount')[1].textContent.trim()).toBe(formatCurrency(gross));
-                expect(row.querySelector('.payroll-review-table__amount.is-net').textContent.trim()).toBe(formatCurrency(gross));
-                expect(row.querySelectorAll('.payroll-breakdown-details__item')).toHaveLength(1);
-                expect(row.querySelector('.payroll-breakdown-details__item strong').textContent)
+                expect(row.querySelector('.payroll-review-net-value').textContent.trim()).toBe(formatCurrency(gross));
+                const calculation = host.querySelector('[data-payroll-calculation-row="E1"]');
+                expect(calculation.querySelectorAll('.payroll-breakdown-details__item')).toHaveLength(1);
+                expect(calculation.querySelector('.payroll-breakdown-details__item strong').textContent)
                     .toBe(id === 'L1' ? 'Varillero' : 'Albañil');
             }
             expect(byTeam.L1.workDays.total + byTeam.L2.workDays.total).toBe(2);

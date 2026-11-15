@@ -410,6 +410,8 @@ describe('PayrollScopedGeneratorFocal — Multi-project Generator Parity & Safet
 
         test('switching step to review renders preview plus operational close controls', () => {
             PayrollUI.setPayrollGuideStep('review');
+            const initial = document.createElement('div'); initial.innerHTML = PayrollUI.PayrollTab();
+            if (initial.querySelector('[data-value="EMP-A-12|calculation"]').getAttribute('aria-expanded') === 'false') PayrollUI.togglePayrollReviewDetail('EMP-A-12|calculation');
             const html = PayrollUI.PayrollTab();
 
             expect(html).toContain('payroll-review-table');
@@ -436,6 +438,9 @@ describe('PayrollScopedGeneratorFocal — Multi-project Generator Parity & Safet
                 periodEnd: '2026-03-15'
             });
             PayrollUI.setPayrollGuideStep('review');
+
+            const initial = document.createElement('div'); initial.innerHTML = PayrollUI.PayrollTab();
+            if (initial.querySelector('[data-value="EMP-A-12|calculation"]').getAttribute('aria-expanded') === 'false') PayrollUI.togglePayrollReviewDetail('EMP-A-12|calculation');
 
             const html = PayrollUI.PayrollTab();
 

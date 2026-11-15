@@ -68,7 +68,13 @@ const server = http.createServer((req, res) => {
             const origin = `http://127.0.0.1:${server.address().port}`;
             page.on('request', request => request.url().startsWith(origin) || request.url() === 'about:blank' ? request.continue() : request.abort());
             await page.goto(origin + '/fixture'); await page.waitForFunction(() => window.ready);
-            assert.equal(await page.$eval('[data-value="payroll"]', el => el.getAttribute('aria-pressed')), 'true');
+            assert.equal(await page.$eval('[data-payroll-hours-scope]', el => el.value), 'payroll');
+            if (width < 901) {
+                assert.equal(await page.$eval('.payroll-review-filter-fields', root => {
+                    const [leader, scope] = [...root.children].map(label => label.getBoundingClientRect());
+                    return Math.abs(leader.top - scope.top) < 2 && scope.left > leader.right;
+                }), true, 'leader and included-work filters share a row');
+            }
             let exported = await page.evaluate(() => getExport());
             assert.deepEqual(exported.map(row => row.sourceEmployeeId), ['juan', 'pedro']);
             assert.equal(exported[0].monto, 1450); assert.equal(exported[0].workDays.worked, 1);
@@ -113,12 +119,15 @@ const server = http.createServer((req, res) => {
             }
             assert.equal(await page.evaluate(() => auditState.employees.find(employee => employee.id === 'juan').active), false);
             assert.equal(await page.$eval('[data-payroll-total-days]', el => el.textContent), '2');
-            const detail = '.payroll-review-table__row:has([data-id="juan"]) .payroll-breakdown-details';
-            await page.$eval(detail, el => { el.open = true; });
+            const netButton = '[data-payroll-action="toggle-payroll-review-detail"][data-value="juan|calculation"]';
+            const detail = '[data-payroll-calculation-row="juan"]';
+            await page.$eval(netButton, el => el.click());
             assert.match(await page.$eval(detail, el => el.textContent), /Tarifa: \$800\.00\/día/);
             assert.match(await page.$eval(detail, el => el.textContent), /Ordinarios: 0\.5 días/);
             assert.match(await page.$eval(detail, el => el.textContent), /Extra \(x1\.5\): 0\.25 días equiv\./);
-            await page.$eval(detail, el => { el.open = false; });
+            await page.$eval(netButton, el => el.click());
+            assert.equal(await page.$(detail), null);
+            assert.equal(await page.$$eval('.payroll-review-table thead th', cells => cells.some(cell => cell.textContent === 'DESGLOSE')), false);
             const before = await page.evaluate(() => JSON.stringify({ attendance: auditState.attendance, employees: auditState.employees }));
             await page.$eval('[data-payroll-action="toggle-payroll-review-employee"][data-id="juan"]', node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
             await page.click('[data-payroll-action="toggle-payroll-review-employee"][data-id="juan"]');
@@ -154,6 +163,14 @@ const server = http.createServer((req, res) => {
             exported = await page.evaluate(() => getExport()); assert.deepEqual(exported.map(row => row.sourceEmployeeId), ['rosa']);
             assert.match(await page.$eval('.payroll-leader-adjustment', el => el.textContent), /Juan Ejemplo/);
             assert.match(await page.$eval('.payroll-leader-adjustment__balance', el => el.textContent), /−\$650/);
+            await page.select('[data-payroll-hours-scope]', 'all');
+            const allScope = await page.evaluate(() => getExport());
+            assert.deepEqual(allScope.map(row => row.sourceEmployeeId), ['rosa'], 'configured positions retain their recorded payer in the existing all mode');
+            assert.equal(allScope[0].exportContext.payrollFilter.mode, 'all');
+            await page.select('[data-payroll-hours-scope]', 'payroll');
+            assert.deepEqual((await page.evaluate(() => getExport())).map(row => row.sourceEmployeeId), ['rosa']);
+            await page.select('[data-payroll-hours-scope]', 'leader');
+            assert.deepEqual((await page.evaluate(() => getExport())).map(row => row.sourceEmployeeId), ['rosa']);
             await page.select('#payroll-scoped-leader-filter', 'L1');
             assert.equal(await page.$eval('[data-id="juan"][type="checkbox"]', el => el.checked), false);
             await page.evaluate(() => changePeriod('2026-11-10'));
@@ -196,9 +213,23 @@ const server = http.createServer((req, res) => {
                     return Math.abs(n.left - w.left) <= 2 && n.width <= w.width * .25;
                 });
                 assert.equal(numberFits, true, 'only a compact employee number remains fixed');
+                assert.equal(await page.$eval('.payroll-review-table tbody .payroll-review-table__initials', node => node.textContent), 'JE');
                 assert.equal(await page.evaluate(() => reviewTableNode === document.querySelector('.payroll-review-table')), true, 'navigation must not recreate editable rows');
                 assert.deepEqual(await page.evaluate(() => getExport()), exportBeforeScroll);
+                await page.focus(netButton);
+                await page.keyboard.press('Enter');
+                assert.equal(await page.$eval(netButton, node => node.getAttribute('aria-expanded')), 'true');
+                assert.equal(await page.$eval(netButton, button => {
+                    const b = button.getBoundingClientRect(), w = button.closest('.responsive-table-wrapper').getBoundingClientRect();
+                    return b.left >= w.left + 44 && b.right <= w.right;
+                }), true, 'the full net amount and its control stay visible when expanding the card');
+                assert.equal(await page.$eval(detail + ' .payroll-review-detail__group', node => {
+                    const box = node.getBoundingClientRect(), parent = node.closest('.responsive-table-wrapper').getBoundingClientRect();
+                    return box.left >= parent.left && box.right <= parent.right;
+                }), true, 'calculation card fits the visible area');
+                assert.deepEqual(await page.evaluate(() => getExport()), exportBeforeScroll);
                 await page.screenshot({ path: path.join(output, `review-amounts-${width}.png`) });
+                await page.$eval(netButton, node => node.click());
                 await page.$eval(peopleButton, node => node.scrollIntoView({ block: 'center', behavior: 'instant' })); await page.click(peopleButton);
                 await page.waitForFunction(() => document.querySelector('.payroll-review-table').closest('.responsive-table-wrapper').scrollLeft < 1);
                 if (width === 390) await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
