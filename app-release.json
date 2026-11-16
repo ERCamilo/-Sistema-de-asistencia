@@ -7,7 +7,8 @@
       "title": "Pronunciaciones compartidas más claras",
       "items": [
         "Voz muestra el nombre y número de las otras personas que comparten una pronunciación.",
-        "Los avisos al editar y guardar coincidencias incluyen nombres reales y variantes, conservando la selección manual."
+        "Los avisos al editar y guardar coincidencias incluyen nombres reales y variantes, conservando la selección manual.",
+        "Los avisos también detectan nombres con guion y nombres en otro orden."
       ]
     },
     {
