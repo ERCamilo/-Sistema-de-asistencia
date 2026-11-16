@@ -295,7 +295,7 @@ export class VoiceSettingsUI {
         const shared = voiceAliasCollisions(value, this.employeeId, this.adapter.getEmployees(), this.aliases || []);
         button.disabled = this.busy || !value || duplicate;
         warning.hidden = !duplicate && !shared.length;
-        warning.textContent = duplicate ? 'Esta variante ya está guardada para este empleado.' : shared.length ? `También coincide con ${shared.map(employee=>employee.name).join(', ')}. Tendrás que elegir al buscar.` : '';
+        warning.textContent = duplicate ? 'Esta variante ya está guardada para este empleado.' : shared.length ? `También coincide con ${shared.map(employee=>employee.name + ' (N.º ' + (employee.number || '—') + ')').join(', ')}. Tendrás que elegir al buscar.` : '';
     }
     pauseAudio() { this.dialog?.querySelector('audio')?.pause(); }
     releaseAudio() { this.pauseAudio(); if (this.audioURL) URL.revokeObjectURL(this.audioURL); this.audioURL = null; }
