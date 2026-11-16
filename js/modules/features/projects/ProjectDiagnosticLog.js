@@ -54,7 +54,8 @@ export function buildProjectDiagnosticLog(snapshot = {}, {
         + '_' + reasonCode(item?.reason));
     const extra = [
         ...list(snapshot.orphanAttendanceKeys).map(() => 'ORPHAN_ATTENDANCE'),
-        ...list(snapshot.pettyCashRows).map(() => 'PETTY_CASH_UNSCOPED')
+        ...list(snapshot.pettyCashRows).map(() => 'PETTY_CASH_UNSCOPED'),
+        ...list(snapshot.missingPositions).map(() => 'POSITION_NOT_FOUND')
     ];
     const issueCodes = [...employee, ...catalog, ...diagnostic, ...extra];
     const readErrors = list(snapshot.diagnosticReadErrors).map(item =>
@@ -65,6 +66,7 @@ export function buildProjectDiagnosticLog(snapshot = {}, {
         ['financialAndSpecialIssues', list(snapshot.diagnosticIssues).length],
         ['orphanAttendance', list(snapshot.orphanAttendanceKeys).length],
         ['pettyCashWithoutProject', list(snapshot.pettyCashRows).length],
+        ['positionsNotFound', list(snapshot.missingPositions).length],
         ['archivedCases', safelyCount(snapshot.archivedCount)],
         ['readFailures', readErrors.length]
     ];

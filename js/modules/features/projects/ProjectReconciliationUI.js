@@ -3,7 +3,7 @@ import { diagnoseExtendedProjectData } from './ProjectExtendedDiagnostics.js';
 import { recoveredClosureSources } from './ProjectFinancialRecovery.js';
 import { saveHistoricalClosureRecovery } from './ProjectHistoricalClosureRecovery.js';
 import indexedDBService from '../../services/IndexedDBService.js';
-import { state, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
+import { state, stateManager, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { eventBus } from '../../core/Events.js';
 import { Modal } from '../../components/Modal.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
@@ -37,6 +37,19 @@ import {
 } from '../export/ImportFullModal.js';
 import { collectPositionDays } from '../../services/AttendancePositionAudit.js';
 import { slugify, generateUUID } from '../../utils/Helpers.js';
+import { findMissingPositionReferences } from './MissingPositionRepair.js';
+import { findPositionNamesInSnapshots } from './MissingPositionNameLookup.js';
+import {
+    initialPositionRepairState,
+    readPositionRepairUndo,
+    renderMissingPositionsNotice,
+    renderPositionRepairPanel,
+    runPositionRepair,
+    runPositionRepairUndo
+} from './MissingPositionRepairUI.js';
+import firebaseService from '../../services/FirebaseService.js';
+import { saveApplicationData } from '../../services/PersistenceService.js';
+import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 
 const ACTIONABLE = new Set([CLASSIFICATION.LEGACY_UNSCOPED, CLASSIFICATION.EXPLICIT_ORPHAN, CLASSIFICATION.PENDING]);
 let snapshot = emptySnapshot();
@@ -52,7 +65,7 @@ function emptySnapshot() {
     return {
         enabled: false, projectPayrollConfigs: [], payrollClosures: [], projects: [], activeProjects: [], employeeRows: [],
         otherIssues: [], diagnosticIssues: [], diagnosticReadErrors: [], pettyCashRows: [], pettyCashProjects: [], pendingEmployeeCount: 0,
-        orphanAttendanceKeys: [], totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0,
+        orphanAttendanceKeys: [], missingPositions: [], totalPendingCount: 0, validEmployeeCount: 0, issueCount: 0,
         pendingCases: [], archivedCases: [], archivedCount: 0
     };
 }
@@ -66,6 +79,7 @@ function initialModalState() {
         entitySelectedIds: new Set(), entityTargetProjectId: '', entityBusy: false, entityMessage: '',
         includeOrphanAttendance: false,
         pendingMerge: null,
+        positionRepair: null,
         showArchivePending: false, showArchiveHistory: false,
         busy: false, message: ''
     };
@@ -95,7 +109,8 @@ function signature(model) {
         diagnostics: model.diagnosticIssues,
         cash: model.pettyCashRows.map(row => row.id),
         projects: model.projects.map(project => [project.id, project.name, project.status]),
-        archived: model.archivedCases?.map(item => [item.id, item.reason]) || []
+        archived: model.archivedCases?.map(item => [item.id, item.reason]) || [],
+        missingPositions: (model.missingPositions || []).map(item => [item.positionId, item.employeeIds.length, item.attendanceKeys.length, item.name])
     });
 }
 export function buildLocalReconciliationViewModel(appState, projectState) {
@@ -151,6 +166,9 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
             : [];
     }
     const diagnosticIssues = diagnoseExtendedProjectData(appState, projects);
+    // Empleados o días que apuntan a puestos que ya no existen (p. ej. tras
+    // una restauración): se reparan con revisión desde «Puestos no encontrados».
+    const missingPositions = findMissingPositionReferences(appState, { defaultProjectId });
     const missingEmployeeIssue = issue => issue.collection === 'attendance' && !employeeById.has(String(issue.employeeId || ''));
     // Asistencia de empleados que ya no existen y sin obra válida: "Asignar todo
     // a esta obra" también la lleva a la obra destino.
@@ -181,12 +199,13 @@ export function buildLocalReconciliationViewModel(appState, projectState) {
         otherIssues,
         pendingEmployeeCount: employeeRows.length,
         orphanAttendanceKeys,
+        missingPositions,
         // Solo cuenta lo que se puede asignar desde aquí; lo informativo (p. ej. un
         // cierre que solo llega sincronizando) se ve en «Revisión especial».
         totalPendingCount: employeeRows.length + otherIssues.length + pettyCashRows.length
-            + diagnosticIssues.filter(issue => !issue.informational).length,
+            + diagnosticIssues.filter(issue => !issue.informational).length + missingPositions.length,
         validEmployeeCount: employeeAnalysis.summary.counts[CLASSIFICATION.VALID] || 0,
-        issueCount: analysis.summary.issueCount + pettyCashRows.length + diagnosticIssues.length - analysis.issues.filter(missingEmployeeIssue).length,
+        issueCount: analysis.summary.issueCount + pettyCashRows.length + diagnosticIssues.length + missingPositions.length - analysis.issues.filter(missingEmployeeIssue).length,
         analysis
     };
 }
@@ -1553,15 +1572,29 @@ function renderCashChoices() {
         + '</fieldset>';
 }
 
+function positionRepairContext() {
+    return {
+        missingPositions: snapshot.missingPositions || [],
+        positions: state.positions || [],
+        projects: snapshot.projects || [],
+        defaultProjectId: snapshot.defaultProjectId || null,
+        appState: state,
+        hoursPerDay: Number(getActivePayrollSettings(state)?.regularHoursPerDay) || 8,
+        repairState: modalState.positionRepair || {},
+        undoAvailable: Boolean(readPositionRepairUndo())
+    };
+}
+
 function modalContent() {
     if (modalState.financialReview) return renderFinancialConfirmation();
+    if (modalState.positionRepair) return renderPositionRepairPanel(positionRepairContext());
     const preflight = currentPreflight();
     if (!snapshot.employeeRows.length && !catalogIssues().length && !snapshot.pettyCashRows.length
         && !snapshot.orphanAttendanceKeys.length
         && (!hasFinancialRecoveryData() || !hasFinancialRecoveryOutsideHistoricalClosures())
-        && (snapshot.diagnosticIssues.length || snapshot.diagnosticReadErrors.length)) {
+        && (snapshot.diagnosticIssues.length || snapshot.diagnosticReadErrors.length || snapshot.missingPositions?.length)) {
         return '<div class="r07-recon-shell r07-wizard"><div class="r07-wizard-content">'
-            + renderHistoricalTargetSelector() + renderExtendedDiagnostics() + renderArchiveCasePanel()
+            + renderMissingPositionsNotice(snapshot.missingPositions || []) + renderHistoricalTargetSelector() + renderExtendedDiagnostics() + renderArchiveCasePanel()
             + '</div><div class="r07-recon-footer">'
             + diagnosticReportButton()
             + '<button type="button" class="btn-primary r07-recon-footer-btn" data-r07-action="close">Cerrar</button></div></div>';
@@ -1570,7 +1603,7 @@ function modalContent() {
     const allSelected = snapshot.employeeRows.length > 0 && snapshot.employeeRows.every(row => modalState.selectedIds.has(row.id));
     const selectedCatalog = selectedCatalogIds('positions').length + selectedCatalogIds('leaders').length;
     const stages = [
-        renderExtendedDiagnostics() + renderArchiveCasePanel() + '<fieldset class="r07-recon-fieldset"><legend>Elige la obra de destino</legend><div class="r07-recon-choices">'
+        renderMissingPositionsNotice(snapshot.missingPositions || []) + renderExtendedDiagnostics() + renderArchiveCasePanel() + '<fieldset class="r07-recon-fieldset"><legend>Elige la obra de destino</legend><div class="r07-recon-choices">'
             + renderChoice('map', 'Usar una obra existente', 'Asigna los datos a una obra activa.')
             + renderChoice('create', 'Crear una obra', 'Define el nombre de la nueva obra.')
             + '</div>' + renderActionControl(preflight) + '</fieldset>'
@@ -1960,6 +1993,114 @@ async function applyCatalogResolution() {
     }
 }
 
+function openPositionRepair() {
+    if (!snapshot.missingPositions?.length) return;
+    modalState.positionRepair = initialPositionRepairState(snapshot.missingPositions, state.positions || [],
+        { defaultProjectId: snapshot.defaultProjectId || null });
+    rerenderModal();
+    activeModal?.element?.querySelector('#r07-wizard-title')?.focus();
+}
+
+function positionRepairSaveDeps() {
+    return {
+        state,
+        batch: fn => stateManager.batchSetState(fn),
+        rebuildIndex: () => buildAttendanceIndex(),
+        save: options => saveApplicationData(options)
+    };
+}
+
+async function finishPositionRepair(message) {
+    invalidateAllStats();
+    resetPositionAuditCache();
+    await refreshProjectReconciliationSnapshot();
+    modalState.positionRepair = snapshot.missingPositions?.length
+        ? initialPositionRepairState(snapshot.missingPositions, state.positions || [], { defaultProjectId: snapshot.defaultProjectId || null })
+        : null;
+    window.render?.();
+    window.showNotification?.(message, 'success');
+}
+
+async function applyPositionRepair() {
+    const repair = modalState.positionRepair;
+    if (!repair || repair.busy) return;
+    const startedFromModal = activeModal;
+    repair.busy = true;
+    repair.message = '';
+    rerenderModal();
+    try {
+        const result = await runPositionRepair({
+            ...positionRepairSaveDeps(),
+            repairState: repair,
+            hoursPerDay: Number(getActivePayrollSettings(state)?.regularHoursPerDay) || 8,
+            createSnapshot: () => firebaseService.createSnapshot(state, 'pre-restore', 'pre-position-repair')
+        });
+        if (!result.ok) {
+            repair.message = result.message;
+        } else {
+            const count = Object.keys(result.plan.mapping || {}).length;
+            await finishPositionRepair(count + ' ' + (count === 1 ? 'puesto reparado' : 'puestos reparados')
+                + ': ' + result.plan.employeeChanges.length + ' empleados y ' + result.plan.attendanceChanges.length + ' días.');
+        }
+    } catch (error) {
+        repair.message = error?.message || 'No se pudo guardar la reparación.';
+    } finally {
+        repair.busy = false;
+        if (activeModal === startedFromModal && activeModal?.isOpen) rerenderModal();
+    }
+}
+
+async function undoLastPositionRepair() {
+    const repair = modalState.positionRepair;
+    if (!repair || repair.busy) return;
+    const startedFromModal = activeModal;
+    repair.busy = true;
+    rerenderModal();
+    try {
+        const result = await runPositionRepairUndo(positionRepairSaveDeps());
+        if (!result.ok) repair.message = result.message;
+        else await finishPositionRepair('Reparación deshecha: ' + result.result.employeeIds.length + ' empleados vuelven a como estaban.');
+    } catch (error) {
+        repair.message = error?.message || 'No se pudo deshacer la reparación.';
+    } finally {
+        repair.busy = false;
+        if (activeModal === startedFromModal && activeModal?.isOpen) rerenderModal();
+    }
+}
+
+async function searchPositionRepairNames() {
+    const repair = modalState.positionRepair;
+    if (!repair || repair.searching || repair.busy) return;
+    const unnamed = (snapshot.missingPositions || []).filter(item => !(repair.extraNames[item.positionId] || item.name))
+        .map(item => item.positionId);
+    if (!unnamed.length) return;
+    repair.searching = true;
+    repair.message = '';
+    rerenderModal();
+    try {
+        const found = await findPositionNamesInSnapshots(unnamed, {
+            listSnapshots: limit => firebaseService.listSnapshots(limit),
+            getSnapshot: snapshotId => firebaseService.getSnapshot(snapshotId)
+        });
+        const names = Object.fromEntries(Object.entries(found.names).map(([positionId, info]) => [positionId, info.name]));
+        const fresh = initialPositionRepairState(snapshot.missingPositions, state.positions || [],
+            { defaultProjectId: snapshot.defaultProjectId || null, extraNames: { ...repair.extraNames, ...names } });
+        for (const positionId of Object.keys(names)) {
+            if (!repair.decisions[positionId]) repair.decisions[positionId] = fresh.decisions[positionId];
+        }
+        repair.extraNames = fresh.extraNames;
+        const total = Object.keys(names).length;
+        repair.message = total
+            ? 'Se encontró el nombre de ' + total + ' de ' + unnamed.length + ' puestos en ' + found.scanned + ' respaldos.'
+            : 'No se encontraron esos puestos en los últimos ' + found.scanned + ' respaldos.';
+    } catch (error) {
+        repair.message = 'No se pudieron leer los respaldos. Revisa la conexión e inténtalo de nuevo.';
+    } finally {
+        repair.searching = false;
+        if (activeModal?.isOpen) rerenderModal();
+    }
+}
+
 function createSimilarPosition(_employeeId, fromPositionId) {
     if (!fromPositionId || modalState.busy) return;
     const source = (state.positions || []).find(p => String(p?.id || '') === String(fromPositionId));
@@ -1988,6 +2129,11 @@ function handleClick(event) {
     const action = target.dataset.r07Action;
     if (modalState.busy && action !== 'close' && action !== 'share-diagnostics') return;
     if (action === 'share-diagnostics') return shareReconciliationDiagnostic();
+    if (action === 'open-position-repair') return openPositionRepair();
+    if (action === 'close-position-repair') { if (!modalState.positionRepair?.busy) { modalState.positionRepair = null; rerenderModal(); } return; }
+    if (action === 'apply-position-repair') return applyPositionRepair();
+    if (action === 'position-repair-search') return searchPositionRepairNames();
+    if (action === 'position-repair-undo') return undoLastPositionRepair();
     if (action === 'review-plan') {
         const row = snapshot.diagnosticIssues.find(item => item.key === target.dataset.planKey);
         const review = financialReviewFor(row?.planSelection);
@@ -2151,6 +2297,13 @@ function handleClick(event) {
 
 function handleChange(event) {
     if (activeModal?.isOpen && modalState.busy) return;
+    if (event.target?.dataset?.r07PrepairTarget !== undefined && modalState.positionRepair) {
+        if (modalState.positionRepair.busy) return;
+        modalState.positionRepair.decisions[event.target.dataset.r07PrepairTarget] = event.target.value;
+        modalState.positionRepair.message = '';
+        rerenderModal();
+        return;
+    }
     if (event.target?.matches?.('[data-r07-financial-recovery]')) {
         modalState.recoverFinancial = event.target.checked;
         if (!modalState.recoverFinancial) modalState.configurationSource = '';
@@ -2267,6 +2420,12 @@ function updateWizardFooter() {
 }
 
 function handleInput(event) {
+    if (event.target?.dataset?.r07PrepairSalary !== undefined && modalState.positionRepair) {
+        const fromId = event.target.dataset.r07PrepairSalary;
+        const salaries = modalState.positionRepair.salaries;
+        salaries[fromId] = { ...(salaries[fromId] || {}), [event.target.dataset.employeeId]: event.target.value };
+        return;
+    }
     if (event.target?.dataset?.r07PositionName !== undefined) {
         const fromId = event.target.dataset.r07PositionName;
         for (const copy of Object.values(modalState.positionCopies)) {

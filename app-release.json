@@ -1,6 +1,16 @@
 {
-  "version": "1.7.147",
+  "version": "1.7.148",
   "changelog": [
+    {
+      "version": "1.7.148",
+      "date": "2026-11-16",
+      "title": "Reparar puestos no encontrados",
+      "items": [
+        "El asistente de Multiobra detecta empleados y días que apuntan a puestos que ya no existen, por ejemplo después de una restauración.",
+        "Propone el puesto actual con el mismo nombre en la misma obra, conserva los salarios y te deja escribir el salario de quien no lo tenía. Si falta el nombre, lo busca en los respaldos.",
+        "Antes de guardar crea un respaldo protegido, y la última reparación se puede deshacer desde el mismo panel."
+      ]
+    },
     {
       "version": "1.7.147",
       "date": "2026-11-16",

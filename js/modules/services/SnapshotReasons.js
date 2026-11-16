@@ -54,6 +54,13 @@ export const SNAPSHOT_REASONS = {
         color: '#a855f7',
         protected: true
     },
+    'pre-position-repair': {
+        label: 'Antes de reparar puestos no encontrados',
+        icon: '🧩',
+        type: 'pre-restore',
+        color: '#f59e0b',
+        protected: true
+    },
     'pre-bulk-delete': {
         label: 'Antes de borrado masivo',
         icon: '⚠️',

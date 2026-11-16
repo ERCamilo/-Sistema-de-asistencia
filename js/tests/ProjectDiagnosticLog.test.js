@@ -67,3 +67,14 @@ describe('manual privacy-safe Multiobra diagnostic export', () => {
         expect(url.createObjectURL).toHaveBeenCalledTimes(1);
     });
 });
+
+test('cuenta los puestos no encontrados sin exponer sus ids ni nombres', async () => {
+    const { buildProjectDiagnosticLog } = await import('../modules/features/projects/ProjectDiagnosticLog.js');
+    const report = buildProjectDiagnosticLog({
+        missingPositions: [{ positionId: 'secret-id-1', name: 'Varillero', employeeIds: ['e1'] }, { positionId: 'secret-id-2', employeeIds: [] }]
+    }, { now: new Date('2026-11-16T00:00:00Z'), version: '1.7.148' }).content;
+    expect(report).toContain('positionsNotFound=2');
+    expect(report).toContain('[POSITION_NOT_FOUND] count=2');
+    expect(report).not.toContain('secret-id');
+    expect(report).not.toContain('Varillero');
+});
