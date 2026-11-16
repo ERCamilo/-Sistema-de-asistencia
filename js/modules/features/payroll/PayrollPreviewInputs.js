@@ -19,7 +19,7 @@ export function payrollPreviewInputKey(ctx, config, period, adjustmentSelections
         employees: (ctx.employees || []).map(employee => ({
             id: employee.id, number: employee.number, name: employee.name, active: employee.active,
             positions: employee.positions, position: employee.position,
-            positionSalaries: employee.positionSalaries, customWorkingDays: employee.customWorkingDays,
+            positionSalaries: employee.positionSalaries, positionAssignments: employee.positionAssignments, customWorkingDays: employee.customWorkingDays,
             bonuses: employee.bonuses, deductions: employee.deductions
         })),
         positions: ctx.positions,

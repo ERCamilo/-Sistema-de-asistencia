@@ -1,3 +1,4 @@
+import { getEmployeePositionAssignment, resolveEmployeePositionTerms } from '../employees/EmployeePositionAssignments.js';
 import { getDateKey, parseDate } from '../../utils/DateUtils.js';
 import { resolveAdjustmentScope, resolveAdjustmentTargetIds } from './PayrollAdjustments.js';
 import { capturePayrollProjectContext } from './PayrollProjectContext.js';
@@ -41,6 +42,24 @@ export function getPresentAttendanceInPeriodWithContext(ctx, employee, periodSta
     return records;
 }
 
+function matchesConfiguredPayer(employee, records, positions, leaderId) {
+    if (!Object.keys(employee.positionAssignments || {}).length && !records.some(record => record.positionAssignments)) return null;
+    const requested = String(leaderId);
+    if (records.length) return records.some(record => {
+        const worked = record.positionHours?.length ? record.positionHours.map(part => part.positionId)
+            : [record.selectedPosition || employee.positions?.[0]];
+        return worked.some(positionId => {
+            const position = positions.find(item => String(item.id) === String(positionId)) || { id: positionId };
+            return String(resolveEmployeePositionTerms(employee, position, record).payerLeaderId) === requested;
+        });
+    });
+    return (employee.positions || []).some(positionId => {
+        const position = positions.find(item => String(item.id) === String(positionId));
+        const assignment = getEmployeePositionAssignment(employee, position);
+        return String(assignment.isLoanPosition ? assignment.payerLeaderId : assignment.workLeaderId) === requested;
+    });
+}
+
 export function getPayrollEmployeesForPeriodWithContext(ctx, periodStart, periodEnd) {
     const exportConfig = ctx.exportConfig || {};
     const leaderFilter = exportConfig.leaderFilter || 'all';
@@ -51,9 +70,11 @@ export function getPayrollEmployeesForPeriodWithContext(ctx, periodStart, period
             .map(position => position.id)
     );
     return (ctx.employees || []).filter(employee => {
-        if (employee.active === false && !adjustedInactiveIds.has(String(employee.id))) return false;
         const presentRecords = getPresentAttendanceInPeriodWithContext(ctx, employee, periodStart, periodEnd);
+        if (employee.active === false && !presentRecords.length && !adjustedInactiveIds.has(String(employee.id))) return false;
         if (leaderFilter === 'all') return true;
+        const configured = matchesConfiguredPayer(employee, presentRecords, ctx.positions || [], leaderFilter);
+        if (configured !== null) return configured;
         const currentPositions = normalizeIds([...(employee.positions || []), employee.position]);
         const historicalPositions = attendancePositionIds(presentRecords);
         return [...leaderPositions].some(id => currentPositions.has(id) || historicalPositions.has(id));
@@ -146,14 +167,16 @@ export function getPayrollEmployeesForPeriod(state, periodStart, periodEnd) {
     );
 
     return (state?.employees || []).filter(employee => {
-        if (employee.active === false && !adjustedInactiveIds.has(String(employee.id))) return false;
         const presentRecords = getPresentAttendanceInPeriod(
             employee,
             periodStart,
             periodEnd,
             state?.attendance || {}
         );
+        if (employee.active === false && !presentRecords.length && !adjustedInactiveIds.has(String(employee.id))) return false;
         if (leaderFilter === 'all') return true;
+        const configured = matchesConfiguredPayer(employee, presentRecords, state.positions || [], leaderFilter);
+        if (configured !== null) return configured;
 
         const currentPositions = normalizeIds([
             ...(employee.positions || []),

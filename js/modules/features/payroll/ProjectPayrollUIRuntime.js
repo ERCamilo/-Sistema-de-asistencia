@@ -1,3 +1,4 @@
+import { buildPayrollHistoricalOrganization } from './PayrollHistoricalIdentity.js';
 import { capturePayrollProjectContext } from './PayrollProjectContext.js';
 import * as projectPayrollConfigStore from './ProjectPayrollConfigStore.js';
 import {
@@ -378,6 +379,8 @@ export class ProjectPayrollUIRuntime {
                 []
             );
             const breakdown = payroll.breakdown || [];
+            const organization = breakdown.some(part => part.assignmentSchemaVersion === 1)
+                ? buildPayrollHistoricalOrganization({ employee, breakdown, positions: previewContext.positions, leaders: previewContext.leaders }) : null;
             const regularHours = breakdown.reduce((sum, b) => sum + (Number(b.regularHours) || 0), 0);
             const overtimeHours = breakdown.reduce((sum, b) => sum + (Number(b.overtimeHours) || 0), 0);
             const holidayHours = breakdown.reduce((sum, b) => sum + (Number(b.holidayHours) || 0), 0);
@@ -402,6 +405,8 @@ export class ProjectPayrollUIRuntime {
                 _employeeName: employee.name,
                 _number: employee.number,
                 _positionBreakdown: breakdown,
+                ...(organization ? { _employeePosition: organization.positionName, _leaderRefs: organization.leaderRefs,
+                    _personalAdjustmentPayerId: payroll.personalAdjustmentPayerId } : {}),
                 _projectId: request.projectId
             };
         }).sort((left, right) => String(left._number).localeCompare(String(right._number), 'es', { numeric: true }));

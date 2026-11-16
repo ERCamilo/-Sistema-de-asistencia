@@ -81,6 +81,27 @@ test('308: a collision never teaches automatically nor removes another employee 
         expect((await store.aliases('u','p')).find(x=>x.employeeId==='b').aliases).toEqual(['anita']);
         expect((await store.aliases('u','other-project')).find(x=>x.employeeId==='b').aliases).toEqual(['anita']);
         expect((await store.aliases('other','p')).find(x=>x.employeeId==='b').aliases).toEqual(['anita']);
+        await store.removeAlias('u','p','a','ana pequeña');
+        expect((await store.aliases('u','p')).find(x=>x.employeeId==='a').aliases).toEqual([]);
+        expect((await store.aliases('u','p')).find(x=>x.employeeId==='b').aliases).toEqual(['anita']);
+        expect((await store.aliases('u','other-project')).find(x=>x.employeeId==='b').aliases).toEqual(['anita']);
+        expect((await store.aliases('other','p')).find(x=>x.employeeId==='b').aliases).toEqual(['anita']);
         expect(people[0].name).toBe('Ana Peña');
     } finally { store.close(); }
+});
+
+test('308: shared-name warnings agree with exact matching for reordered and hyphenated names', () => {
+    const employees = [...people, { id:'d', number:'00040', name:'Jean-Pierre Exemple', active:true }];
+    for (const [spokenName, otherId] of [['Gómez Ana','b'], ['Jean','d']]) {
+        expect(resolveVoiceEmployees({spokenName}, employees).some(match => match.employee.id === otherId && match.score === 1)).toBe(true);
+        expect(voiceAliasCollisions(spokenName, 'a', employees, []).map(employee => employee.id)).toContain(otherId);
+    }
+});
+
+test('308: a shared alias and a real first name remain manual at every precision, while an explicit number still resolves', () => {
+    const aliases = [{ employeeId:'c', aliases:['ana'] }];
+    for (const level of ['precise','high','medium','low']) {
+        expect(pickAutomaticVoiceMatch(resolveVoiceEmployees({spokenName:'Ana'}, people, aliases), level)).toBeNull();
+    }
+    expect(pickAutomaticVoiceMatch(resolveVoiceEmployees({spokenName:'Ana', spokenNumber:'00028'}, people, aliases))?.employee.id).toBe('b');
 });

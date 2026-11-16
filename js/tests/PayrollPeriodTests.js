@@ -13,7 +13,7 @@ testRunner.addSuite('PayrollPeriod — período y elegibilidad', {
         testRunner.assertEquals(result.periodEnd, '2026-07-20', 'Fin en hoy');
     },
 
-    'excluye empleados inactivos aunque tengan asistencia presente dentro del rango'() {
+    'incluye empleados pausados con asistencia vigente dentro del rango'() {
         const employees = [
             { id: 1, number: 1, active: true },
             { id: 2, number: 2, active: false },
@@ -29,7 +29,7 @@ testRunner.addSuite('PayrollPeriod — período y elegibilidad', {
             }
         };
         const result = getPayrollEmployeesForPeriod(state, '2026-07-01', '2026-07-15');
-        testRunner.assertEquals(JSON.stringify(result.map(item => item.id)), JSON.stringify([1]), 'Nómina solo debe incluir empleados activos');
+        testRunner.assertEquals(JSON.stringify(result.map(item => item.id)), JSON.stringify([1, 2]), 'Debe incluir al pausado que trabajó, sin recuperar asistencias eliminadas o fuera del período');
     },
 
     'incluye un empleado inactivo cuando una regla individual vigente lo selecciona'() {
@@ -109,6 +109,6 @@ testRunner.addSuite('PayrollPeriod — período y elegibilidad', {
             }
         };
         const result = getPayrollEmployeesForPeriod(state, '2026-07-01', '2026-07-15');
-        testRunner.assertEquals(JSON.stringify(result.map(item => item.id)), JSON.stringify([1, 4]), 'Posición actual e histórica deben coincidir solo para empleados activos');
+        testRunner.assertEquals(JSON.stringify(result.map(item => item.id)), JSON.stringify([1, 2, 4]), 'El trabajo histórico debe respetar el líder aunque el empleado esté pausado');
     }
 });

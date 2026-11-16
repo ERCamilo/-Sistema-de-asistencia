@@ -299,6 +299,7 @@ function applyEmployeePositionRemaps(employee, remaps = [], repairTimestamp = Da
         if (legacyMatch) copy.positionId = toId;
         copy.positionSalaries = moveKeyedEmployeeSetting(copy.positionSalaries, fromId, toId);
         copy.positionSalaryModes = moveKeyedEmployeeSetting(copy.positionSalaryModes, fromId, toId);
+        if (copy.positionAssignments) copy.positionAssignments = moveKeyedEmployeeSetting(copy.positionAssignments, fromId, toId);
         copy.customWorkingDays = moveKeyedEmployeeSetting(copy.customWorkingDays, fromId, toId);
         changed = true;
     }
@@ -388,7 +389,7 @@ function preparePositionRemaps({ selectedEmployees, durablePositions, targetProj
     for (const employee of selectedEmployees) {
         const id = trimId(employee?.id);
         const remaps = byEmployeeId.get(id) || [];
-        for (const field of ['positionSalaries', 'positionSalaryModes', 'customWorkingDays']) {
+        for (const field of ['positionSalaries', 'positionSalaryModes', 'positionAssignments', 'customWorkingDays']) {
             const values = employee?.[field] || {};
             const byTarget = new Map();
             for (const remap of remaps) {
@@ -839,7 +840,7 @@ function applyFieldScopedMemoryUpdate(memoryUpdate) {
             if (pid !== undefined) copy.projectId = pid;
             if (leaderPatch !== undefined) copy.leaderId = leaderPatch;
             if (positionPatch) {
-                for (const key of ['positions', 'positionSalaries', 'positionSalaryModes', 'customWorkingDays', 'positionsUpdatedAt']) {
+                for (const key of ['positions', 'positionSalaries', 'positionSalaryModes', 'positionAssignments', 'customWorkingDays', 'positionsUpdatedAt']) {
                     if (Object.prototype.hasOwnProperty.call(positionPatch, key)) {
                         copy[key] = deepCopy(positionPatch[key]);
                     }
@@ -1411,6 +1412,7 @@ function computeMapToExisting(reads, tx, p) {
                     positionId: r.plannedEmployee.positionId,
                     positionSalaries: deepCopy(r.plannedEmployee.positionSalaries || {}),
                     positionSalaryModes: deepCopy(r.plannedEmployee.positionSalaryModes || {}),
+                    ...(r.plannedEmployee.positionAssignments ? { positionAssignments: deepCopy(r.plannedEmployee.positionAssignments) } : {}),
                     customWorkingDays: deepCopy(r.plannedEmployee.customWorkingDays || {}),
                     positionsUpdatedAt: r.plannedEmployee.positionsUpdatedAt,
                     updatedAt: r.plannedEmployee.updatedAt
@@ -1760,6 +1762,7 @@ function computeCreateProjectAndMap(reads, tx, p) {
                     positionId: r.plannedEmployee.positionId,
                     positionSalaries: deepCopy(r.plannedEmployee.positionSalaries || {}),
                     positionSalaryModes: deepCopy(r.plannedEmployee.positionSalaryModes || {}),
+                    ...(r.plannedEmployee.positionAssignments ? { positionAssignments: deepCopy(r.plannedEmployee.positionAssignments) } : {}),
                     customWorkingDays: deepCopy(r.plannedEmployee.customWorkingDays || {}),
                     positionsUpdatedAt: r.plannedEmployee.positionsUpdatedAt,
                     updatedAt: r.plannedEmployee.updatedAt

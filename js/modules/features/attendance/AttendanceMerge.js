@@ -34,7 +34,10 @@ export function mergeAttendanceRecords(local, incoming) {
         const localUpdatedAt = localRecord.updatedAt || 0;
         const incomingUpdatedAt = incomingRecord.updatedAt || 0;
         if (incomingUpdatedAt > localUpdatedAt) {
-            merged[key] = incomingRecord;
+            const samePosition = String(incomingRecord.selectedPosition || '') === String(localRecord.selectedPosition || '')
+                && JSON.stringify((incomingRecord.positionHours || []).map(part => part.positionId)) === JSON.stringify((localRecord.positionHours || []).map(part => part.positionId));
+            merged[key] = !incomingRecord.positionAssignments && localRecord.positionAssignments && samePosition
+                ? { ...incomingRecord, positionAssignments: localRecord.positionAssignments } : incomingRecord;
         }
         // empate o incoming más viejo → se conserva local (ya está en merged)
     }

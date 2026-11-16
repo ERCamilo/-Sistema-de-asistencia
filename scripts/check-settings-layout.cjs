@@ -25,6 +25,7 @@ import {SettingsTab,initSettingsUI,reconcileSettingsDraftBeforeSave} from '/js/m
 import {state,stateManager} from '/js/modules/core/AppState.js';
 import {DOMDiff} from '/js/modules/utils/DOMDiff.js';
 import {clearSettingsFormErrors,refreshSettingsFormErrors,showSettingsFieldError,showSettingsFormError} from '/js/modules/ui/settings/SettingsFormFeedback.js';
+import {payRateChanged} from '/js/modules/features/payroll/PayRateChangeNotice.js';
 import {refreshSettingsDraftBar,discardSettingsDraft,captureSettingsDraft,restoreSettingsDraft,guardSettingsDraftBeforeSave} from '/js/modules/ui/settings/SettingsDraftBar.js';
 import {HolidayService} from '/js/modules/features/attendance/HolidayService.js';
 import {StorageCard,SyncCard,attachSettingsDiagnostics,refreshDeviceSettingsDiagnostics,getSettingsSyncStatus} from '/js/modules/ui/settings/SettingsDiagnostics.js';
@@ -48,7 +49,7 @@ window.draw=tab=>{clearSettingsFormErrors();discardSettingsDraft({});state.setti
 window.changeSettingsTab=tab=>window.draw(tab);
 window.fixtureRender=()=>{const draft=captureSettingsDraft();DOMDiff.patchSelf(document.getElementById('settings-screen'),SettingsTab());restoreSettingsDraft(draft);refreshSettingsFormErrors();refreshSettingsDraftBar();};
 window.saveCalls=0;
-const deps={state,document,isProjectsEnabled:()=>false,payrollUIRuntime:{},showNotification:()=>{},saveApplicationData:()=>window.saveCalls++,render:window.fixtureRender,stateManager,updateWeatherApiKeyProvider:()=>{},guardSettingsDraftBeforeSave,reconcileSettingsDraftBeforeSave,clearSettingsFormErrors,showSettingsFieldError,showSettingsFormError,logError:()=>{}};
+const deps={state,document,isProjectsEnabled:()=>false,payrollUIRuntime:{},showNotification:()=>{},saveApplicationData:()=>window.saveCalls++,render:window.fixtureRender,stateManager,updateWeatherApiKeyProvider:()=>{},guardSettingsDraftBeforeSave,reconcileSettingsDraftBeforeSave,clearSettingsFormErrors,showSettingsFieldError,showSettingsFormError,logError:()=>{},getActivePayrollSettings:current=>current.settings,payRateChanged,notifyPayRateChange:()=>{window.payNotices=(window.payNotices||0)+1}};
 window.saveSettings=new Function(...Object.keys(deps),'return ('+${JSON.stringify(saveHandler)}+');')(...Object.values(deps));
 window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=true;
 </script></body></html>`;
@@ -186,6 +187,7 @@ window.draw('general');await refreshDeviceSettingsDiagnostics();window.ready=tru
         assert.equal(await page.$('#settings-error-overtimeFactor'),null);
         await page.click('#settings-draft-bar [data-settings-action="save-settings"]');
         assert.equal(await page.evaluate(()=>window.saveCalls),1);
+        assert.equal(await page.evaluate(()=>window.payNotices),1,'a new overtime factor announces since when it applies');
         const dirtyFields=await page.evaluate(()=>[...document.querySelectorAll('#settings-screen input,#settings-screen select')].filter(el=>['companyName','weatherApiKey','weatherLocationInput','scrollbarMode','showAttendanceCardDeficit','attendanceDeficitUnit','regularHoursPerDay','overtimeFactor','holidayFactor','restDayFactor','defaultDeductionPercentage'].includes(el.id)).map(el=>({id:el.id,value:el.value,defaultValue:el.defaultValue,checked:el.checked,defaultChecked:el.defaultChecked,options:el.options?[...el.options].map(o=>({value:o.value,defaultSelected:o.defaultSelected})):null})));
         assert.equal(await page.$eval('#settings-draft-bar',el=>el.hidden),true,JSON.stringify(dirtyFields));
         console.log('PASS handler real: error inline, borrador preservado, corrección y guardado contextual único');

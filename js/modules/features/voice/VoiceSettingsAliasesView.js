@@ -3,7 +3,6 @@ import { voiceAliasCollisions } from './VoiceSettingsData.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { vsArrow, vsIdentity, vsIcon, vsIconButton } from './VoiceSettingsViewUtils.js';
 
-
 function sharedOwnersLabel(ui, employee, alias) {
     const collisions = voiceAliasCollisions(alias, employee.id, ui.adapter.getEmployees(), ui.aliases || []);
     return collisions.length

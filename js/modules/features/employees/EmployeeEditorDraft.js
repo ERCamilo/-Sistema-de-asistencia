@@ -83,6 +83,17 @@ export function readEmployeeForm(root, regularHours) {
             if (rate > 0 && Number.isFinite(rate)) fields.positionSalaries[posId] = toStoredHourly(rate, mode, regularHours);
         }
     });
+    fields.positionAssignments = {};
+    root.querySelectorAll('[data-position-assignment]').forEach(card => {
+        const controls = card.querySelector('.employee-position-leaders');
+        if (!controls || controls.dataset.assignmentStored !== 'true' && controls.dataset.assignmentEdited !== 'true') return;
+        fields.positionAssignments[card.dataset.positionAssignment] = {
+            workLeaderId: card.querySelector('[data-position-work-leader]')?.value || null,
+            isLoanPosition: card.querySelector('[data-position-loan-switch]')?.checked === true,
+            payerLeaderId: card.querySelector('[data-position-payer]')?.value || null,
+            payerChosen: card.querySelector('[data-position-payer]')?.dataset.payerChosen === 'true'
+        };
+    });
     return fields;
 }
 
@@ -90,7 +101,13 @@ function positionsOf(fields) {
     return {
         positions: [...(fields.positions || [])].sort(),
         positionSalaries: fields.positionSalaries || {},
-        positionSalaryModes: fields.positionSalaryModes || {}
+        positionSalaryModes: fields.positionSalaryModes || {},
+        positionAssignments: Object.fromEntries(Object.entries(fields.positionAssignments || {})
+            .filter(([id]) => (fields.positions || []).map(String).includes(String(id)))
+            .map(([id, value]) => [id, {
+                workLeaderId: value.workLeaderId || null, isLoanPosition: value.isLoanPosition === true,
+                payerLeaderId: value.payerLeaderId || null, payerChosen: value.payerChosen === true
+            }]))
     };
 }
 
@@ -188,6 +205,7 @@ export class EmployeeEditorDraft {
             fields.positions = [...(employee.positions || [])];
             fields.positionSalaries = { ...(employee.positionSalaries || {}) };
             fields.positionSalaryModes = { ...(employee.positionSalaryModes || {}) };
+            fields.positionAssignments = { ...(employee.positionAssignments || {}) };
         } else {
             if (!equal(positionsOf(employee), positionsOf(this.initialEmployee))
                 && !equal(positionsOf(employee), positionsOf(form))) conflicts.push('Puestos y tarifas');
@@ -214,7 +232,12 @@ export class EmployeeEditorDraft {
                 checked: card.querySelector('input[name="empPosition"]')?.checked,
                 rate: card.querySelector('.custom-salary-input')?.value,
                 mode: card.querySelector('.custom-salary-mode')?.value,
-                source: card.dataset.salarySource
+                source: card.dataset.salarySource,
+                workLeader: card.querySelector('[data-position-work-leader]')?.value,
+                loanPosition: card.querySelector('[data-position-loan-switch]')?.checked,
+                payerLeader: card.querySelector('[data-position-payer]')?.value,
+                payerChosen: card.querySelector('[data-position-payer]')?.dataset.payerChosen,
+                assignmentEdited: card.querySelector('.employee-position-leaders')?.dataset.assignmentEdited
             }))
         });
     }

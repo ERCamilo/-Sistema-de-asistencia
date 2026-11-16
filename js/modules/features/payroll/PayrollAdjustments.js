@@ -168,8 +168,8 @@ export function calculateScopedAdjustment(adjustment, context = {}, index = 0, f
     } else if (resolved.scope === 'leader') {
         matchingEntries = breakdown.filter(item => {
             const position = positionsById.get(String(item.positionId));
-            return position?.leaderId != null
-                && String(position.leaderId) === resolved.targetId;
+            const leaderId = item.assignmentSchemaVersion === 1 ? item.payerLeaderId : position?.leaderId;
+            return leaderId != null && String(leaderId) === resolved.targetId;
         });
         applies = matchingEntries.length > 0;
     }

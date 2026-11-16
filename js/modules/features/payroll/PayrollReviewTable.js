@@ -14,6 +14,8 @@ import icons from '../../ui/IconSystem.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { renderPayrollStatus } from './PayrollStatus.js';
+import { payrollWorkedDays, payrollPaymentDays, formatPayrollDays } from './PayrollWorkDays.js';
+import { payrollExportMoney, payrollCashTotal } from './PayrollExportMoney.js';
 
 export const REVIEW_CATEGORIES = Object.freeze([
     { kind: 'bonuses', field: '_bonuses', details: '_bonusDetails', label: 'BONIF.', title: 'Bonificaciones', sign: '+', css: 'is-bonus' },
@@ -27,6 +29,11 @@ const amountOf = value => Number(value) || 0;
 const visible = value => Math.abs(amountOf(value)) >= 0.005;
 export const reviewRowKey = row => String(row?._employeeId ?? row?.id ?? '');
 const net = row => Math.round((amountOf(row?.monto) + Number.EPSILON) * 100) / 100;
+const reviewChevron = direction => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="${direction === 'left' ? 'm15 18-6-6 6-6' : 'm9 6 6 6-6 6'}"/></svg>`;
+const initials = name => {
+    const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+    return [words[0], words.length > 1 ? words.at(-1) : ''].map(word => Array.from(word || '')[0] || '').join('').toLocaleUpperCase('es');
+};
 
 function detailLine(category, item) {
     if (category.kind === 'loans') {
@@ -117,25 +124,55 @@ function excludedPositionsNote(row) {
     return `<small class="payroll-review-table__scope-note" title="No se incluyen en esta nómina">Sin ${escapeHTML(text)}</small>`;
 }
 
-function breakdownCell(row) {
+/**
+ * Equipo al que pertenece un tramo del desglose. Un mismo puesto puede salir en
+ * varias líneas cuando sus días tienen líderes distintos; sin esta etiqueta no
+ * se entiende por qué una línea queda fuera al filtrar por líder.
+ */
+export function payrollPartTeamLabel(part, { positions = [], leaders = [] } = {}) {
+    const same = (a, b) => a != null && b != null && String(a) === String(b);
+    const name = (leaderId, recorded) => (leaders || []).find(leader => same(leader.id, leaderId))?.name || recorded || '';
+    if (part?.assignmentSchemaVersion !== 1) {
+        const position = (positions || []).find(item => same(item.id, part?.positionId));
+        const leader = name(position?.leaderId, '');
+        return leader ? `Equipo de ${leader}` : 'Sin líder';
+    }
+    if (part.workLeaderId == null || part.workLeaderId === '') return 'Sin líder';
+    const team = name(part.workLeaderId, part.workLeaderName);
+    if (!team) return 'Líder no disponible';
+    const payer = !same(part.payerLeaderId, part.workLeaderId) && part.payerLeaderId != null && part.payerLeaderId !== ''
+        ? name(part.payerLeaderId, part.payerLeaderName) : '';
+    return payer ? `Equipo de ${team} · paga ${payer}` : `Equipo de ${team}`;
+}
+
+function calculationRow(row, catalogue, hoursPerDay, colspan) {
     const breakdown = row._positionBreakdown || [];
-    if (breakdown.length === 0) return '<td><span class="payroll-review-table__muted">Sin desglose</span></td>';
+    const days = hours => {
+        const value = payrollWorkedDays({ _regularHours: hours }, hoursPerDay);
+        return `${formatPayrollDays(value)} ${value === 1 ? 'día' : 'días'}`;
+    };
     return `
-        <td>
-            <details class="payroll-breakdown-details">
-                <summary>Ver cálculo (${breakdown.length})</summary>
+        <tr class="payroll-review-detail-row is-calculation" data-payroll-calculation-row="${escapeHTML(reviewRowKey(row))}">
+            <td colspan="${colspan}"><div class="payroll-review-detail"><section class="payroll-review-detail__group is-calculation">
+                <h4>Cálculo del pago <span>${breakdown.length}</span></h4>
                 <div class="payroll-breakdown-details__body">
                     ${breakdown.map(item => `
                         <div class="payroll-breakdown-details__item">
                             <strong>${escapeHTML(item.positionName || 'Puesto')}</strong>
-                            <div><span>Tarifa: ${formatCurrency(item.hourlyRate)}/h</span><span>Reg: ${item.regularHours}h (${formatCurrency(item.regularAmount)})</span></div>
-                            ${amountOf(item.overtimeHours) > 0 ? `<div class="is-overtime"><span>Extra (x${item.overtimeRate / (item.hourlyRate || 1)}): ${item.overtimeHours}h</span><span>${formatCurrency(item.overtimeAmount)}</span></div>` : ''}
-                            ${(amountOf(item.holidayHours) + amountOf(item.restDayHours)) > 0 ? `<div class="is-holiday"><span>Feriado/Descanso: ${amountOf(item.holidayHours) + amountOf(item.restDayHours)}h</span><span>${formatCurrency(amountOf(item.holidayAmount) + amountOf(item.restDayAmount))}</span></div>` : ''}
+                            <small class="payroll-breakdown-details__team">${escapeHTML(payrollPartTeamLabel(item, catalogue))}</small>
+                            <div><span>Tarifa: ${formatCurrency(amountOf(item.hourlyRate) * hoursPerDay)}/día</span><span>Ordinarios: ${days(item.regularHours)} (${formatCurrency(item.regularAmount)})</span></div>
+                            ${amountOf(item.overtimeHours) > 0 ? `<div class="is-overtime"><span>Extra (x${item.overtimeRate / (item.hourlyRate || 1)}): ${days(item.overtimeHours)} equiv.</span><span>${formatCurrency(item.overtimeAmount)}</span></div>` : ''}
+                            ${amountOf(item.holidayHours) > 0 ? `<div class="is-holiday"><span>Feriado: ${days(item.holidayHours)}</span><span>${formatCurrency(item.holidayAmount)}</span></div>` : ''}
+                            ${amountOf(item.restDayHours) > 0 ? `<div class="is-holiday"><span>Descanso: ${days(item.restDayHours)}</span><span>${formatCurrency(item.restDayAmount)}</span></div>` : ''}
                             <div class="is-subtotal">Subtotal: ${formatCurrency(item.subtotal)}</div>
                         </div>`).join('')}
                 </div>
-            </details>
-        </td>`;
+                <dl class="payroll-review-net-summary">
+                    ${[['Bruto', row._brutoOriginal, ''], ['Bonificaciones', row._bonuses, '+'], ['Deducciones', row._deductions, '−'], ['Préstamos', row._loans, '−'], ['Neto', row.monto, '']]
+                        .map(([label, value, sign]) => `<div><dt>${label}</dt><dd>${sign}${formatCurrency(value)}</dd></div>`).join('')}
+                </dl>
+            </section></div></td>
+        </tr>`;
 }
 
 /**
@@ -145,7 +182,9 @@ function breakdownCell(row) {
  * @param {object} args.inclusion  { bonuses, deductions, loans }
  * @param {Set<string>} args.expanded claves "empleado|categoría" desplegadas
  */
-export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion = {}, expanded = new Set(), emptyMessage = '' } = {}) {
+export function renderPayrollReviewTable({ rows = [], displayRows = rows, sourceRows = [], inclusion = {}, expanded = new Set(), emptyMessage = '', positions = [], leaders = [],
+    hoursPerDay = 8, dayFactors = {}, allowEmployeeExclusion = false, excludedIds = [], categoryCounts = null } = {}) {
+    const excluded = new Set(excludedIds);
     const sourceByKey = new Map(sourceRows.map(row => [reviewRowKey(row), row]));
     const include = {
         bonuses: inclusion.bonuses !== false,
@@ -153,9 +192,9 @@ export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion
         loans: inclusion.loans !== false
     };
     const categories = REVIEW_CATEGORIES.filter(category =>
-        !include[category.kind] || sourceRows.some(row => visible(row[category.field]))
-    );
-    const colspan = 6 + categories.length;
+        !include[category.kind] || categoryCounts?.[category.kind]?.total > 0 || sourceRows.some(row => visible(row[category.field]))
+    ).map(category => categoryCounts ? { ...category, label: { bonuses: 'BONIFIC.', deductions: 'DEDUCCIONES', loans: 'PRÉSTAMOS' }[category.kind] } : category);
+    const colspan = 5 + categories.length;
     const counts = Object.fromEntries(categories.map(category => [
         category.kind,
         rows.filter(row => visible(sourceByKey.get(reviewRowKey(row))?.[category.field])).length
@@ -172,37 +211,49 @@ export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion
                        ${include[category.kind] ? 'checked' : ''}
                        aria-label="Incluir ${category.title.toLowerCase()} en el cálculo">
                 <span>${category.label}</span>
-                <small>${counts[category.kind]}</small>
+                <small>${categoryCounts?.[category.kind] ? `${categoryCounts[category.kind].active}/${categoryCounts[category.kind].total}` : counts[category.kind]}</small>
             </label>
         </th>`).join('');
 
-    const body = rows.map((row, index) => {
+    const body = displayRows.map((row, index) => {
         const key = reviewRowKey(row);
         const source = sourceByKey.get(key) || row;
         const expandedKinds = new Set(categories
             .map(category => category.kind)
             .filter(kind => expanded.has(`${key}|${kind}`)));
-        const negative = net(row) < 0;
+        const isExcluded = excluded.has(key);
+        const negative = !isExcluded && net(row) < 0;
+        const calculationExpanded = expanded.has(`${key}|calculation`);
+        const parts = (row._positionBreakdown || []).length;
         return `
-            <tr class="payroll-review-table__row ${index % 2 === 0 ? 'is-even' : ''} ${negative ? 'is-invalid' : ''} ${expandedKinds.size ? 'is-expanded' : ''}">
-                <td class="payroll-review-table__number">${escapeHTML(String(row._number || row.id))}</td>
+            <tr class="payroll-review-table__row ${index % 2 === 0 ? 'is-even' : ''} ${negative ? 'is-invalid' : ''} ${isExcluded ? 'is-payroll-excluded' : ''} ${expandedKinds.size ? 'is-expanded' : ''}">
+                <td class="payroll-review-table__number"><span>${escapeHTML(String(row._number || row.id))}</span><span class="payroll-review-table__initials" aria-hidden="true" title="${escapeHTML(row._employeeName || '')}">${escapeHTML(initials(row._employeeName))}</span></td>
                 <td class="payroll-review-table__employee">
-                    ${escapeHTML(row._employeeName)}
+                    ${allowEmployeeExclusion ? `<label class="payroll-review-employee-include"><input type="checkbox"
+                        data-payroll-action="toggle-payroll-review-employee" data-id="${escapeHTML(key)}"
+                        aria-label="Incluir a ${escapeHTML(row._employeeName)} en esta nómina" ${isExcluded ? '' : 'checked'}><span>${escapeHTML(row._employeeName)}</span></label>` : escapeHTML(row._employeeName)}
+                    ${isExcluded ? '<small class="payroll-review-employee-excluded-label">Excluido de esta nómina</small>' : ''}
                     ${negative ? renderPayrollStatus('No tiene saldo suficiente', 'error') : ''}
                     ${excludedPositionsNote(row)}
                 </td>
                 <td class="payroll-review-table__amount">
-                    ${row._totalHours ?? 0}h
-                    ${amountOf(row._overtimeHours) > 0 ? `<small class="payroll-review-table__hours-split">(${row._regularHours}h reg + ${row._overtimeHours}h extra)</small>` : ''}
+                    <span data-payroll-payment-days>${formatPayrollDays(payrollPaymentDays(row, hoursPerDay, dayFactors))}</span>
                 </td>
                 <td class="payroll-review-table__amount">${formatCurrency(row._brutoOriginal)}</td>
                 ${categories.map(category => categoryCell({
                     category, row, source, included: include[category.kind], expanded: expandedKinds.has(category.kind)
                 })).join('')}
-                <td class="payroll-review-table__amount is-net ${negative ? 'is-invalid' : ''}">${formatCurrency(row.monto)}</td>
-                ${breakdownCell(row)}
+                <td class="payroll-review-table__amount is-net ${negative ? 'is-invalid' : ''}">
+                    <button type="button" class="payroll-review-cell-toggle is-net" data-payroll-action="toggle-payroll-review-detail"
+                            data-value="${escapeHTML(key)}|calculation" aria-expanded="${calculationExpanded}"
+                            aria-label="${escapeHTML(formatCurrency(row.monto))}. ${calculationExpanded ? 'Ocultar' : 'Ver'} ${parts} tramos del cálculo de ${escapeHTML(row._employeeName || 'este empleado')}">
+                        <span class="payroll-review-net-value">${formatCurrency(row.monto)}</span>
+                        <small><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="${calculationExpanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'}"/></svg>${parts}</small>
+                    </button>
+                </td>
             </tr>
-            ${expandedKinds.size ? detailRow({ row, source, categories, inclusion: include, expandedKinds, colspan }) : ''}`;
+            ${expandedKinds.size ? detailRow({ row, source, categories, inclusion: include, expandedKinds, colspan }) : ''}
+            ${calculationExpanded ? calculationRow(row, { positions, leaders }, hoursPerDay, colspan) : ''}`;
     }).join('');
 
     const foot = categories.map(category => {
@@ -211,19 +262,24 @@ export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion
         const text = `${category.sign}${formatCurrency(value)}`;
         return `<td class="payroll-review-table__amount ${category.css}${included ? '' : ' is-excluded'}">${included ? text : `<s>${text}</s>`}</td>`;
     }).join('');
+    const cashTotal = payrollCashTotal(rows);
+    const cashDifference = payrollExportMoney(cashTotal - payrollExportMoney(sum('monto')));
 
     return `
+        <div class="payroll-review-table-view">
+            <div class="payroll-review-table__mobile-tools">
+                <p>${reviewChevron('left')}${reviewChevron('right')}<span>Desliza para ver días e importes</span></p>
+            </div>
         <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina de la obra" tabindex="0">
             <table class="payroll-review-table">
                 <thead>
                     <tr>
                         <th class="payroll-review-table__number">#</th>
                         <th class="payroll-review-table__employee">EMPLEADO</th>
-                        <th>HORAS</th>
+                        <th title="Días equivalentes de pago: incluye factores de horas extra, festivos y descanso; no es un conteo de asistencia">DÍAS DE PAGO</th>
                         <th>BRUTO</th>
                         ${head}
-                        <th>NETO</th>
-                        <th>DESGLOSE</th>
+                        <th data-payroll-column="net">NETO</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -233,13 +289,16 @@ export function renderPayrollReviewTable({ rows = [], sourceRows = [], inclusion
                 <tfoot>
                     <tr>
                         <td colspan="2">Totales (${rows.length} empleados)</td>
-                        <td class="payroll-review-table__amount">${rows.reduce((total, row) => total + amountOf(row._totalHours), 0)}h</td>
+                        <td class="payroll-review-table__amount" data-payroll-total-pay-days>${formatPayrollDays(rows.reduce((total, row) => total + payrollPaymentDays(row, hoursPerDay, dayFactors), 0))}</td>
                         <td class="payroll-review-table__amount">${formatCurrency(sum('_brutoOriginal'))}</td>
                         ${foot}
                         <td class="payroll-review-table__amount is-net">${formatCurrency(sum('monto'))}</td>
-                        <td></td>
                     </tr>
                 </tfoot>
             </table>
-        </div>`;
+        </div>
+        </div>
+        ${cashDifference ? `<p class="payroll-review-table__scope-note" role="status" data-payroll-cash-rounding>
+            Total para SplitX: ${formatCurrency(cashTotal)} · diferencia de ${formatCurrency(cashDifference)} por redondear cada pago a centavos.
+        </p>` : ''}`;
 }

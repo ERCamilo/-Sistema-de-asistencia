@@ -15,7 +15,7 @@ export function payrollClosureBlockerMessage(gate) {
     if (gate?.reason === 'payroll-not-confirmed') return 'Confirma que la nómina mostrada fue pagada.';
     if (gate?.reason === 'already-closed') return 'Esta vista previa ya fue cerrada.';
     if (gate?.reason === 'leader-filtered') return 'Quita el filtro de líder para cerrar la nómina completa de la obra.';
-    if (gate?.reason === 'employee-filtered') return 'Desmarca «Solo empleados seleccionados» para cerrar la nómina completa de la obra.';
+    if (gate?.reason === 'employee-filtered') return 'Restablece los empleados excluidos y desmarca «Solo empleados seleccionados» para cerrar la nómina completa de la obra.';
     if (gate?.reason === 'correction-required') {
         return 'Este período ya tiene un cierre. Prepará una corrección para conservar la auditoría.';
     }

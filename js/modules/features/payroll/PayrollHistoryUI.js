@@ -1,3 +1,5 @@
+import { filterHistoricalPayrollByPayer } from './PayrollHistoricalIdentity.js';
+import { renderPayrollLeaderAdjustments } from './PayrollLeaderAdjustments.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 
@@ -347,9 +349,8 @@ export function renderPayrollHistoryDetail(closure, {
     const filters = normalizeDetailFilters(detailFilters);
     const allRows = sortHistoryRows(closure.rows || []);
     const leaders = historyLeaders(allRows);
-    const rows = filters.leaderId
-        ? allRows.filter(row => (row.leaderRefs || []).some(leader => String(leader.id) === filters.leaderId))
-        : allRows;
+    for (const group of closure.leaderAdjustments || []) if (!leaders.some(leader => leader.id === group.leaderId)) leaders.push({ id: group.leaderId, name: group.leaderName });
+    const rows = filterHistoricalPayrollByPayer(allRows, filters.leaderId);
     const showBonuses = hasAmount(rows, 'bonuses');
     const showDeductions = hasAmount(rows, 'deductions');
     const showLoans = hasAmount(rows, 'loans');
@@ -418,6 +419,7 @@ export function renderPayrollHistoryDetail(closure, {
                 <span class="is-net"><small>Neto pagado</small><strong>${formatCurrency(visibleTotals.net)}</strong></span>
                 ${isSimulation ? `<span class="is-simulated"><small>Neto simulado</small><strong>${formatCurrency(visibleTotals.simulatedNet)}</strong></span>` : ''}
             </div>
+            ${renderPayrollLeaderAdjustments((closure.leaderAdjustments || []).filter(group => !filters.leaderId || group.leaderId === filters.leaderId), { readOnly: true })}
             <div class="payroll-history-detail__table-wrap" tabindex="0" aria-label="Detalle de empleados; desplazamiento horizontal disponible">
                 <table class="payroll-history-detail__table">
                     <thead><tr>

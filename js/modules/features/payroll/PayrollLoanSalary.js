@@ -1,4 +1,4 @@
-import { getEligiblePayrollLoans, PAYROLL_LOAN_MODE } from './PayrollLoans.js';
+import { getDuePayrollLoans, PAYROLL_LOAN_MODE } from './PayrollLoans.js';
 
 export const DEFAULT_PAYROLL_LOAN_PERCENTAGE = 30;
 
@@ -38,13 +38,14 @@ export function getPayrollLoanEquivalentPercentage(amount, salary) {
 /** Replace the target employees' temporary choices in one pass; never record payments.
  * Include every selectable charge so «maximum» can cover more than the next installment.
  */
-export function buildPayrollLoanSalarySelection(employees, payrollRows, periodEnd, kind) {
+export function buildPayrollLoanSalarySelection(employees, payrollRows, periodEnd, kind, periodStart = null) {
     if (!['available', 'recommended'].includes(kind)) return [];
     const rows = new Map((payrollRows || []).map(row => [String(row._employeeId), row]));
     return (employees || []).flatMap(employee => {
         const row = rows.get(String(employee.id));
         if (!row) return [];
-        const eligible = getEligiblePayrollLoans(employee, periodEnd);
+        // Los programados para una nómina posterior no entran en los cobros masivos.
+        const eligible = getDuePayrollLoans(employee, periodEnd, periodStart);
         const debt = eligible.reduce((total, loan) => total + loan.chargeOptions.reduce((sum, charge) => sum + charge.amount, 0), 0);
         const salary = getPayrollLoanSalaryAmounts(row, debt);
         const amount = kind === 'available' ? salary.available : salary.suggested;

@@ -1,6 +1,6 @@
 # Cierre técnico de regresión — Voz #308
 
-Fecha: 2026-11-08. Rama dependiente de PR #335, que incorpora el estado base de NFC 1.7.129; esta entrega sería SA 1.7.130 y no debe fusionarse antes de su dependencia.
+Revisión actualizada: 2026-11-16. La dependencia PR #335 se integró el 2026-11-12. La rama se actualiza con main 1.7.147 y esta entrega usa 1.7.148; se conserva el historial de versiones publicado. El PR pasa a tener main como base.
 
 ## Problema reproducido en main v1.7.128
 
@@ -23,6 +23,16 @@ Se crearon cinco pruebas nuevas independientes. La ejecución anterior al arregl
 - Recorrido de Chrome: scripts/check-voice-settings.cjs en 320, 390 y 1440 px; fixture con pronunciación compartida, texto con nombre y número, accesibilidad Axe y borrador conservado.
 - No usar empleados ni datos reales en QA; se emplean personas sintéticas en almacenamiento IndexedDB de navegador de pruebas.
 
+## Revisión del 16 de noviembre
+
+Se reprodujo otra diferencia: el buscador aceptaba «Gómez Ana» como el nombre real «Ana Gómez», pero el aviso de pronunciaciones compartidas lo omitía. La misma diferencia afectaba a componentes de nombres con guion, como «Jean» en «Jean-Pierre». La advertencia ahora usa la normalización, el límite de longitud y las formas exactas (nombre completo sin espacios, palabras y orden alterno) del buscador, sin ejecutar comparaciones aproximadas por cada variante mostrada.
+
+Las pruebas adicionales comprueban esos nombres, selección manual en todos los niveles de precisión y prioridad de un número explícito. También se comprueba eliminar una asociación compartida sin borrar la de otra persona, cuenta u obra. No cambian los algoritmos ni las puntuaciones del buscador, el almacenamiento o las reglas de negocio.
+
+La vista previa de voz que debe actualizarse es https://test-sa-voice-mvp.sistema-de-asistencia.pages.dev. Publicar una rama de prueba en ese alias evita cambiar CORS, Firebase o el origen del almacenamiento. La producción de Cloudflare sigue siendo main. Las pruebas de interfaz usan datos ficticios y transporte simulado; no acreditan una nueva prueba con Gemini y sesión real.
+
 ## Estado de entrega
 
-Este PR es apilado sobre PR #335: no fusionar directamente a main antes de integrar #335. Cerrar #308 únicamente después de que CI y release gate pasen en el SHA final y la funcionalidad esté integrada. Mantener como referencia los resultados rojo→verde y los hallazgos de la auditoría.
+Cerrar #308 únicamente después de que CI y release gate pasen en el SHA final y la funcionalidad esté integrada. Mantener como referencia los resultados rojo→verde y los hallazgos de la auditoría.
+
+Siguientes pasos: agente SA termina pruebas y actualiza la vista previa habitual; usuario revisa pronunciaciones compartidas en su teléfono; agente SA atiende resultados e integra tras la revisión.

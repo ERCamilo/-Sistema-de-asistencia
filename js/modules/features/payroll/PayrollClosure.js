@@ -1,3 +1,4 @@
+import { canonicalLeaderAdjustments } from './PayrollLeaderAdjustments.js';
 export const LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION = 2;
 export const PAYROLL_CLOSURE_SCHEMA_VERSION = 3;
 export const PAYROLL_CLOSURE_STATUS = Object.freeze({
@@ -110,6 +111,13 @@ function assertScopedClosureShape(closure) {
 }
 
 function assertNativeClosurePayload(closure) {
+    if (closure.leaderAdjustments?.length) {
+        const allowed = new Set(closure.rows.map(row => row.employeeId));
+        const groups = canonicalLeaderAdjustments(closure.leaderAdjustments);
+        if (groups.some(group => group.entries.some(entry => !allowed.has(entry.employeeId)))) {
+            throw new Error('El ajuste de líder contiene empleados ajenos al cierre.');
+        }
+    }
     for (const row of closure.rows) {
         if (!isRecord(row)) throw new TypeError('Las filas del cierre de Nómina no son válidas');
         for (const field of ['employeeId', 'employeeNumber', 'employeeName', 'employeePosition']) {
@@ -177,6 +185,9 @@ function compactRow(row = {}) {
         .sort((left, right) => left.number.localeCompare(right.number, 'es', { numeric: true }) ||
             left.name.localeCompare(right.name, 'es') || left.id.localeCompare(right.id));
     return {
+        ...((row._positionBreakdown || []).some(part => part.assignmentSchemaVersion === 1)
+            ? { positionBreakdown: canonicalValue(row._positionBreakdown),
+                personalAdjustmentPayerId: row._personalAdjustmentPayerId !== undefined ? row._personalAdjustmentPayerId : row._positionBreakdown[0]?.payerLeaderId || null } : {}),
         employeeId: text(row._employeeId),
         employeeNumber: text(row._number ?? row.id),
         employeeName: text(row._employeeName),
@@ -203,6 +214,7 @@ export function buildPayrollClosureSnapshot(options = {}) {
             .sort((a, b) => a.employeeNumber.localeCompare(b.employeeNumber, 'es', { numeric: true }) ||
                 a.employeeId.localeCompare(b.employeeId))
     };
+    if (options.leaderAdjustments?.length) snapshot.leaderAdjustments = canonicalValue(canonicalLeaderAdjustments(options.leaderAdjustments));
     if (!hasOwn(options, 'projectId')) return snapshot;
     return {
         projectId: canonicalProjectId(options.projectId),
@@ -219,6 +231,7 @@ function closureContent(closure = {}) {
         periodStart: text(closure.periodStart),
         periodEnd: text(closure.periodEnd),
         periodSource: text(closure.periodSource),
+        ...(closure.leaderAdjustments?.length ? { leaderAdjustments: clone(closure.leaderAdjustments) } : {}),
         totals: clone(closure.totals || {}),
         employeeCount: Number(closure.employeeCount) || 0,
         rows: clone(closure.rows || []),
@@ -286,7 +299,7 @@ export function buildPayrollClosure(options = {}) {
             projectId,
             periodStart,
             periodEnd,
-            rows
+            rows, leaderAdjustments: options.leaderAdjustments
         }));
         if (text(fingerprint) !== expectedFingerprint) {
             throw new Error('La identidad del cierre no corresponde a su projectId y contenido');
@@ -329,6 +342,7 @@ export function buildPayrollClosure(options = {}) {
         totals,
         employeeCount: compactRows.length,
         rows: compactRows,
+        ...(options.leaderAdjustments?.length ? { leaderAdjustments: canonicalValue(canonicalLeaderAdjustments(options.leaderAdjustments)) } : {}),
         adjustments: clone(adjustments || { bonuses: [], deductions: [] }),
         loanSettlementBatchId: loanSettlementBatchId == null ? null : text(loanSettlementBatchId),
         paymentRefs: clone(paymentRefs || []),
@@ -418,7 +432,8 @@ export function validatePayrollClosureForScopedWrite(
         projectId,
         periodStart: closure.periodStart,
         periodEnd: closure.periodEnd,
-        rows: clone(closure.rows)
+        rows: clone(closure.rows),
+        ...(closure.leaderAdjustments?.length ? { leaderAdjustments: canonicalValue(canonicalLeaderAdjustments(closure.leaderAdjustments)) } : {})
     });
     if (closure.fingerprint !== expectedFingerprint && !sameCanonicalFingerprint(closure.fingerprint, expectedFingerprint)) {
         throw new Error('La identidad nativa del cierre no corresponde a su projectId y payload');
@@ -525,7 +540,8 @@ export function voidPayrollClosure(closure, {
             projectId,
             periodStart: text(closure.periodStart),
             periodEnd: text(closure.periodEnd),
-            rows: clone(closure.rows || [])
+            rows: clone(closure.rows || []),
+            ...(closure.leaderAdjustments?.length ? { leaderAdjustments: canonicalValue(canonicalLeaderAdjustments(closure.leaderAdjustments)) } : {})
         });
         if (closure.schemaVersion !== PAYROLL_CLOSURE_SCHEMA_VERSION ||
             closure.projectId !== projectId || closure.id !== expectedId ||

@@ -21,7 +21,10 @@ import { Notification } from '../components/Notification.js';
 import { SyncStatus } from './SyncStatus.js';
 import { checkMirrorDocSize } from './MirrorSizeGuard.js';
 import { createEntityUploadTracker } from './EntityUploadTracker.js';
-import { supportsGzipCodec, gzipToBase64, gunzipFromBase64 } from './SnapshotCodec.js';
+import {
+    supportsGzipCodec, gzipToBase64, gunzipFromBase64,
+    splitIntoChunks, joinChunks, chunkDocId
+} from './SnapshotCodec.js';
 import { resolveSettingsWrite } from './SettingsWriteGuard.js';
 import { sanitizeExportConfig } from './ExportConfigSanitizer.js';
 
@@ -599,43 +602,46 @@ class FirebaseService {
             const stateString = JSON.stringify(cleanState);
             const FIRESTORE_SAFE_BYTES = 800000; // margen bajo el límite de ~1MB por doc
             const tooBigInline = stateString.length > FIRESTORE_SAFE_BYTES;
-            let storageUrl = null;
             let compressedState = null;
-            let isExternal = false;
+            let encoding = null;
+            let chunkCount = 0;
 
             if (tooBigInline) {
-                // 📦 Comprimir ANTES de recurrir a Storage (2026-07-11: el
-                // bucket nunca se aprovisionó — 404 — y cada snapshot grande
-                // moría tras ~2 min de reintentos). El estado es JSON
-                // repetitivo: gzip+base64 lo deja muy por debajo del límite
-                // de Firestore, sin depender de infraestructura extra.
-                if (supportsGzipCodec()) {
-                    try {
-                        const b64 = await gzipToBase64(stateString);
-                        if (b64.length <= FIRESTORE_SAFE_BYTES) {
-                            compressedState = b64;
-                            console.log(`📦 Snapshot grande (${(stateString.length / 1024).toFixed(1)} KB) comprimido a ${(b64.length / 1024).toFixed(1)} KB (inline en Firestore).`);
-                        }
-                    } catch (gzErr) {
-                        console.warn('⚠️ Compresión del snapshot falló; se intenta Storage:', gzErr);
-                    }
+                // 📦 Comprimir: el estado es JSON repetitivo (gzip ~10x).
+                // 2026-11-16: el bucket de Storage NO está aprovisionado
+                // (preflight CORS fallido + ~2 min de reintentos), así que ya
+                // no se sube nada allí. Si el base64 comprimido sigue sin
+                // caber en un doc, se reparte en documentos-trozo hermanos
+                // (`<id>__chunk_<n>`). No llevan `metadata`, así que las
+                // consultas por metadata.* (listar/podar/borrar) los ignoran.
+                if (!supportsGzipCodec()) {
+                    throw new Error('Snapshot demasiado grande y el navegador no soporta compresión gzip');
                 }
-                if (!compressedState) {
-                    // Último recurso: Storage (puede no estar aprovisionado).
-                    isExternal = true;
-                    console.log(`📦 Snapshot grande (${(stateString.length / 1024).toFixed(1)} KB). Subiendo a Storage...`);
-                    const storageRef = ref(storage, `users/${auth.currentUser.uid}/snapshots/snapshot_${timestamp}.json`);
-                    await uploadString(storageRef, stateString);
-                    storageUrl = await getDownloadURL(storageRef);
+                const b64 = await gzipToBase64(stateString);
+                if (b64.length <= FIRESTORE_SAFE_BYTES) {
+                    compressedState = b64;
+                    encoding = 'gzip-base64';
+                    console.log(`📦 Snapshot grande (${(stateString.length / 1024).toFixed(1)} KB) comprimido a ${(b64.length / 1024).toFixed(1)} KB (inline en Firestore).`);
+                } else {
+                    const parts = splitIntoChunks(b64, FIRESTORE_SAFE_BYTES);
+                    // Trozos PRIMERO: si el doc principal existe, sus trozos también.
+                    for (let i = 0; i < parts.length; i++) {
+                        const chunkRef = doc(db, 'users', auth.currentUser.uid, 'snapshots', chunkDocId(docRef.id, i));
+                        await setDoc(chunkRef, { snapshotId: docRef.id, index: i, data: parts[i] });
+                    }
+                    chunkCount = parts.length;
+                    encoding = 'gzip-base64-chunked';
+                    console.log(`📦 Snapshot enorme (${(stateString.length / 1024).toFixed(1)} KB) comprimido a ${(b64.length / 1024).toFixed(1)} KB en ${chunkCount} trozo(s) de Firestore.`);
                 }
             }
 
             await setDoc(docRef, {
-                state: (tooBigInline || isExternal) ? null : cleanState,
+                state: tooBigInline ? null : cleanState,
                 compressedState: compressedState,
-                encoding: compressedState ? 'gzip-base64' : null,
-                isExternal: isExternal,
-                storageUrl: storageUrl,
+                encoding: encoding,
+                chunkCount: chunkCount,
+                isExternal: false,
+                storageUrl: null,
                 metadata: {
                     timestamp,
                     type,
@@ -650,7 +656,7 @@ class FirebaseService {
                     lastChangedBy: getDeviceId()
                 }
             });
-            console.log(`📸 Snapshot (${type}/${resolvedReason}) creado en Firebase ${isExternal ? '(en Storage)' : '(en Firestore)'}`);
+            console.log(`📸 Snapshot (${type}/${resolvedReason}) creado en Firebase${chunkCount ? ` (${chunkCount} trozos)` : ''}`);
 
             // 📣 Notificar al usuario (solo snapshots automáticos/del sistema;
             // los manuales ya muestran su propio toast desde el botón).
@@ -830,6 +836,14 @@ class FirebaseService {
             if (!state && data.compressedState && data.encoding === 'gzip-base64') {
                 console.log('📦 Descomprimiendo snapshot inline (gzip-base64)...');
                 state = JSON.parse(await gunzipFromBase64(data.compressedState));
+            } else if (!state && data.encoding === 'gzip-base64-chunked') {
+                const count = Number(data.chunkCount) || 0;
+                console.log(`📦 Reuniendo snapshot troceado (${count} trozos)...`);
+                const parts = await Promise.all(Array.from({ length: count }, async (_, i) => {
+                    const snap = await getDoc(doc(db, 'users', auth.currentUser.uid, 'snapshots', chunkDocId(snapshotId, i)));
+                    return snap.exists() ? snap.data()?.data : undefined;
+                }));
+                state = JSON.parse(await gunzipFromBase64(joinChunks(parts)));
             } else if (data.isExternal) {
                 // ⚡ Legado: snapshots externos en Storage (getBlob del SDK,
                 // más robusto contra Tracking Prevention)
@@ -1352,6 +1366,16 @@ class FirebaseService {
                     }
                 }
                 
+                // 1b. Trozos hermanos de snapshots enormes
+                const chunks = Number(data.chunkCount) || 0;
+                for (let i = 0; i < chunks; i++) {
+                    try {
+                        await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'snapshots', chunkDocId(snapshotId, i)));
+                    } catch (e) {
+                        console.warn(`⚠️ No se pudo eliminar el trozo ${i} del snapshot:`, e);
+                    }
+                }
+
                 // 2. Borrar documento de Firestore
                 await deleteDoc(docRef);
                 console.log(`🗑️ Snapshot ${snapshotId} eliminado de Firestore`);
@@ -1388,6 +1412,10 @@ class FirebaseService {
                 if (data.isExternal) {
                     const storageRef = ref(storage, `users/${auth.currentUser.uid}/snapshots/${docSnap.id}.json`);
                     try { await deleteObject(storageRef); } catch (e) {}
+                }
+                const chunks = Number(data.chunkCount) || 0;
+                for (let i = 0; i < chunks; i++) {
+                    batch.delete(doc(db, 'users', auth.currentUser.uid, 'snapshots', chunkDocId(docSnap.id, i)));
                 }
 
                 batch.delete(docSnap.ref);

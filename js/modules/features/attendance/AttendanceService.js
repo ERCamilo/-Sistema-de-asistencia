@@ -1,3 +1,4 @@
+import { captureAttendancePositionAssignments } from '../employees/EmployeePositionAssignments.js';
 import { getActivePayrollSettings } from '../payroll/ActivePayrollSettings.js';
 import icons from '../../ui/IconSystem.js';
 import { getDateKey, isDayHoliday } from '../../utils/DateUtils.js';
@@ -48,9 +49,9 @@ export class AttendanceService {
             deviceId: getDeviceId()
         };
 
-        this.state.attendance[key] = stampBirthProject(record);
+        this.state.attendance[key] = stampBirthProject(captureAttendancePositionAssignments(record, { ...this.state, settings: getActivePayrollSettings(this.state) }));
         this._maintainCoherence(employeeId, dateKey);
-        return record;
+        return this.state.attendance[key];
     }
 
     // Actualizar registro
@@ -64,7 +65,7 @@ export class AttendanceService {
             return null;
         }
 
-        Object.assign(record, updates, {
+        Object.assign(record, captureAttendancePositionAssignments({ ...record, ...updates }, { ...this.state, settings: getActivePayrollSettings(this.state) }), {
             updatedAt: Date.now(),
             lastAccessed: Date.now(),
             deviceId: getDeviceId()

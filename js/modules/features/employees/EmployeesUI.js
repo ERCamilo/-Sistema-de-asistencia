@@ -1,3 +1,4 @@
+import { effectivePositionLeaderId } from './EmployeePositionAssignments.js';
 import icons from '../../ui/IconSystem.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { slugify } from '../../utils/Helpers.js';
@@ -836,10 +837,7 @@ function getFilteredEmployeesOrLeaders() {
             );
         }
         if (leaderFilters.length) {
-            const leaderPositions = state.positions
-                .filter(p => leaderFilters.includes(p.leaderId))
-                .map(p => p.id);
-            filteredItems = filteredItems.filter(emp => (emp.positions || []).some(pid => leaderPositions.includes(pid)));
+            filteredItems = filteredItems.filter(emp => (emp.positions || []).some(pid => leaderFilters.map(String).includes(String(effectivePositionLeaderId(emp, state.positions.find(position => String(position.id) === String(pid)))))));
         }
         if (searchValue) {
             filteredItems = filteredItems.filter(emp => {
@@ -866,13 +864,8 @@ function getFilteredEmployeesOrLeaders() {
     const leaderEmployeeCounts = new Map();
     if (!isEmployees) {
         state.leaders.forEach(leader => {
-            const positionIds = new Set(
-                state.positions
-                    .filter(position => position.active && position.leaderId === leader.id)
-                    .map(position => position.id)
-            );
             const employeeCount = state.employees.filter(employee =>
-                employee.active && (employee.positions || []).some(id => positionIds.has(id))
+                employee.active && (employee.positions || []).some(id => String(effectivePositionLeaderId(employee, state.positions.find(position => String(position.id) === String(id)))) === String(leader.id))
             ).length;
             leaderEmployeeCounts.set(leader.id, employeeCount);
         });
