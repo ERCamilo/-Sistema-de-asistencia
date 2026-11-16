@@ -1,6 +1,15 @@
 {
-  "version": "1.7.144",
+  "version": "1.7.145",
   "changelog": [
+    {
+      "version": "1.7.145",
+      "date": "2026-11-16",
+      "title": "Respaldos grandes y cierres de nómina",
+      "items": [
+        "Los respaldos automáticos de cuentas con mucho historial vuelven a guardarse en la nube, sin errores de conexión ni esperas de varios minutos.",
+        "Puedes volver a cerrar una nómina después de deshacerla aunque el saldo de un préstamo haya cambiado entretanto."
+      ]
+    },
     {
       "version": "1.7.144",
       "date": "2026-11-16",
