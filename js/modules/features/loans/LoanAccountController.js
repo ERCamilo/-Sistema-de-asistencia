@@ -204,6 +204,11 @@ export async function registerNewAccountLoan(employeeId, draft, { period = null,
         if (!emp || !entityInScope(emp, current)) throw Error('Empleado no disponible en el proyecto activo');
         return emp;
     };
+    // Cuotas: la nómina elegida (formulario o voz) es la de la primera cuota.
+    if (snapshot.installmentMode === INSTALLMENT_MODE.INSTALLMENTS && !snapshot.firstDueDate &&
+        /^\d{4}-\d{2}-\d{2}$/.test(String(period || '')) && period > getDateKey(new Date())) {
+        snapshot.firstDueDate = period;
+    }
     let emp = check();
     const validation = validateLoanInput(snapshot);
     if (!validation.valid) throw Error(validation.errors.join('. '));

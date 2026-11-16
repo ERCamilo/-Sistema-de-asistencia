@@ -1,6 +1,14 @@
 {
-  "version": "1.7.146",
+  "version": "1.7.147",
   "changelog": [
+    {
+      "version": "1.7.147",
+      "date": "2026-11-16",
+      "title": "Primera cuota por voz",
+      "items": [
+        "En el préstamo por voz en cuotas eliges en qué nómina se cobra la primera cuota."
+      ]
+    },
     {
       "version": "1.7.146",
       "date": "2026-11-16",
