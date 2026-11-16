@@ -343,7 +343,8 @@ export function renderPayrollHistoryDetail(closure, {
     now = Date.now(),
     currentEmployees = [],
     detailFilters = {},
-    readOnly = false
+    readOnly = false,
+    forPrint = false
 } = {}) {
     if (!closure) return '<div class="payroll-history__message">No se encontró el cierre.</div>';
     const filters = normalizeDetailFilters(detailFilters);
@@ -364,13 +365,14 @@ export function renderPayrollHistoryDetail(closure, {
         simulatedNet: money(totals.simulatedNet + calculatePayrollHistoryNet(row, filters))
     }), { gross: 0, bonuses: 0, deductions: 0, loans: 0, net: 0, simulatedNet: 0 });
     const currentById = new Map((currentEmployees || []).map(employee => [String(employee.id), employee]));
-    const canUndo = !readOnly && closure.status === 'closed';
+    const canUndo = !forPrint && !readOnly && closure.status === 'closed';
+    const selectedLeader = leaders.find(leader => String(leader.id) === filters.leaderId);
     return `
         <section class="payroll-history payroll-history-detail" aria-labelledby="payroll-history-detail-title">
-            <button type="button" class="payroll-history-detail__back"
+            ${forPrint ? '' : `<button type="button" class="payroll-history-detail__back"
                     data-payroll-action="close-payroll-history-detail">
                 ← Volver al historial
-            </button>
+            </button>`}
             <header class="payroll-history-detail__header">
                 <div>
                     <span class="payroll-history-card__status is-${text(closure.status)}">${statusLabel(closure.status)}</span>
@@ -380,19 +382,23 @@ export function renderPayrollHistoryDetail(closure, {
                     ${closure.registrationKind === 'already-paid' ? `<small>Periodo ya pagado: ${plural((closure.linkedPaymentRefs || []).length, 'abono anotado enlazado', 'abonos anotados enlazados')}; no se cobraron préstamos otra vez.</small>` : ''}
                     ${closure.status === 'voided' ? `<small>Anulada ${formatDateTime(closure.voidedAt)} · ${text(closure.voidedBy || 'Sin usuario')}</small>` : ''}
                 </div>
-                <div class="payroll-history-detail__actions">
+                ${forPrint ? '' : `<div class="payroll-history-detail__actions">
+                    <button type="button" class="payroll-history-detail__print"
+                            data-payroll-action="print-payroll-history-detail"
+                            title="Imprime los importes guardados del líder seleccionado, sin simulaciones">Imprimir</button>
                     ${syncLabel(closure.syncStatus)}
                     ${canUndo ? `
                         <button type="button" class="payroll-loan-settlement__undo"
                                 data-payroll-action="undo-payroll-closure"
                                 data-id="${text(closure.id)}">Deshacer cierre</button>
                     ` : ''}
-                </div>
+                </div>`}
             </header>
+            ${forPrint ? `<p class="payroll-history-print-scope">Líder histórico: ${filters.leaderId ? text(selectedLeader?.name || 'Sin nombre') : 'Todos'} · ${plural(rows.length, 'empleado', 'empleados')}</p>` : ''}
             <div class="payroll-history-detail__notice" role="note">
-                ${readOnly ? 'Consulta de solo lectura para la obra activa. ' : ''}Este es un registro histórico inmutable. Los datos actuales del empleado no lo modifican.
+                ${readOnly && !forPrint ? 'Consulta de solo lectura para la obra activa. ' : ''}Este es un registro histórico inmutable. Los datos actuales del empleado no lo modifican. La impresión usa los importes guardados, sin simulaciones.
             </div>
-            <div class="payroll-history-detail__controls" aria-label="Filtros y simulación del detalle">
+            ${forPrint ? '' : `<div class="payroll-history-detail__controls" aria-label="Filtros y simulación del detalle">
                 <label>
                     <span>Líder histórico</span>
                     <select class="form-input" data-payroll-history-detail-filter="leaderId">
@@ -410,7 +416,7 @@ export function renderPayrollHistoryDetail(closure, {
                     <label><input type="checkbox" data-payroll-history-detail-filter="includeDeductions" ${filters.includeDeductions ? 'checked' : ''}> Deducciones</label>
                     <label><input type="checkbox" data-payroll-history-detail-filter="includeLoans" ${filters.includeLoans ? 'checked' : ''}> Préstamos</label>
                 </fieldset>
-            </div>
+            </div>`}
             <div class="payroll-history-detail__totals">
                 <span><small>Bruto</small><strong>${formatCurrency(visibleTotals.gross)}</strong></span>
                 ${showBonuses ? `<span><small>Bonificaciones</small><strong>${formatCurrency(visibleTotals.bonuses)}</strong></span>` : ''}
@@ -419,7 +425,7 @@ export function renderPayrollHistoryDetail(closure, {
                 <span class="is-net"><small>Neto pagado</small><strong>${formatCurrency(visibleTotals.net)}</strong></span>
                 ${isSimulation ? `<span class="is-simulated"><small>Neto simulado</small><strong>${formatCurrency(visibleTotals.simulatedNet)}</strong></span>` : ''}
             </div>
-            ${renderPayrollLeaderAdjustments((closure.leaderAdjustments || []).filter(group => !filters.leaderId || group.leaderId === filters.leaderId), { readOnly: true })}
+            ${renderPayrollLeaderAdjustments((closure.leaderAdjustments || []).filter(group => !filters.leaderId || group.leaderId === filters.leaderId), { readOnly: true, expanded: forPrint })}
             <div class="payroll-history-detail__table-wrap" tabindex="0" aria-label="Detalle de empleados; desplazamiento horizontal disponible">
                 <table class="payroll-history-detail__table">
                     <thead><tr>
@@ -455,7 +461,7 @@ export function renderPayrollHistoryDetail(closure, {
                             <td class="is-net">${formatCurrency(isSimulation ? calculatePayrollHistoryNet(row, filters) : row.net)}</td>
                         </tr>
                     `;
-    }).join('')}${rows.length === 0 ? '<tr><td colspan="7">No hay empleados para este líder.</td></tr>' : ''}</tbody>
+    }).join('')}${rows.length === 0 ? `<tr><td colspan="${4 + Number(showBonuses) + Number(showDeductions) + Number(showLoans)}">No hay empleados para este líder.</td></tr>` : ''}</tbody>
                 </table>
             </div>
         </section>

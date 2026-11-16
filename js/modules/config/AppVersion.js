@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.144';
+const APP_VERSION = '1.7.145';
 const CHANGELOG = [
+    { version: '1.7.145', date: '2026-11-16', title: 'Imprimir cierres de nómina', items: ['El detalle del historial incluye Imprimir, con opción de guardar como PDF desde el navegador.', 'El reporte respeta el líder histórico seleccionado y usa los importes guardados, sin simulaciones ni nuevos cálculos de nómina.'] },
     { version: '1.7.144', date: '2026-11-16', title: 'Nómina compacta y envíos a SplitX', items: ['La tabla y los controles de revisión aprovechan mejor el espacio en el celular.', 'Compartir conserva la espera ampliada y los reintentos de envío a SplitX en conexiones lentas.'] },
     { version: '1.7.143', date: '2026-11-15', title: 'Controles de nómina más claros', items: ['Líder, Incluir, Filtros y Compartir quedan alineados en una barra compacta. La selección manual se muestra como interruptor en un panel desplegable.'] },
     { version: '1.7.142', date: '2026-11-14', title: 'Filas de nómina más compactas', items: ['La tabla móvil aprovecha mejor el ancho y reduce el espacio entre empleados, conservando los nombres y controles táctiles.'] },
