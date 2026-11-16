@@ -1,6 +1,15 @@
 {
-  "version": "1.7.144",
+  "version": "1.7.145",
   "changelog": [
+    {
+      "version": "1.7.145",
+      "date": "2026-11-16",
+      "title": "Imprimir cierres de nómina",
+      "items": [
+        "El detalle del historial incluye Imprimir, con opción de guardar como PDF desde el navegador.",
+        "El reporte respeta el líder histórico seleccionado y usa los importes guardados, sin simulaciones ni nuevos cálculos de nómina."
+      ]
+    },
     {
       "version": "1.7.144",
       "date": "2026-11-16",

@@ -193,6 +193,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/payroll/PayrollExportMoney.js",
     "./js/modules/features/payroll/PayrollFactors.js",
     "./js/modules/features/payroll/PayrollHistoricalIdentity.js",
+    "./js/modules/features/payroll/PayrollHistoryPrint.js",
     "./js/modules/features/payroll/PayrollHistoryUI.js",
     "./js/modules/features/payroll/PayrollLeaderAdjustments.js",
     "./js/modules/features/payroll/PayrollLoanAmount.js",
