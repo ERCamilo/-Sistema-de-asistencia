@@ -547,7 +547,8 @@ function NewLoanModal(emp, m, { periods, today, summary, salary }) {
     const count = Math.max(2, Number(m.count) || 2);
     const after = round2(summary.balance + total);
     const pct = salary > 0 ? Math.round(after / salary * 100) : null;
-    const future = periods.filter(p => p.payDate >= today).slice(0, 4);
+    // Hasta 8 nóminas: se puede programar el cobro para un período determinado.
+    const future = periods.filter(p => p.payDate >= today).slice(0, 8);
     void numbers;
     return `${head('int', `Nuevo préstamo #${nextNumber}`, `hoy debe ${M(summary.balance)} · ${summary.count} préstamos`)}
     <div class="la-md__b">
@@ -556,13 +557,14 @@ function NewLoanModal(emp, m, { periods, today, summary, salary }) {
         <div class="la-row3"><div class="la-fl"><span>Cómo se cobra</span>${seg('plan', m.plan, [{ value: 'lump', label: 'Pago único' }, { value: 'installments', label: 'Cuotas' }])}</div>
             ${m.plan === 'lump' ? (future.length ? select('period', m.period, 'En la nómina', periodOptions(future)) : dateInput('period', m.period, 'Se cobra el')) : numInput('count', m.count, { label: 'Cuotas' })}
             ${m.plan === 'installments' ? select('freq', m.freq, 'Cada', [1, 2, 3, 4].map(w => ({ value: w, label: `${w} semana${w === 1 ? '' : 's'}` }))) : '<span></span>'}</div>
-        ${m.plan === 'installments' ? `<div class="la-line">${count} cuotas de <b>${M(total / count)}</b></div>` : ''}
+        ${m.plan === 'installments' ? `<div class="la-row2b">${future.length ? select('period', m.period, 'Primera cuota en la nómina', periodOptions(future)) : dateInput('period', m.period, 'Primera cuota el')}<span></span></div>
+        <div class="la-line">${count} cuotas de <b>${M(total / count)}</b>${m.period ? ` · la primera el ${dm(m.period)}` : ''}</div>` : ''}
         ${pct !== null ? `<div class="la-meter"><div class="la-meter__t"><span>Debería <b>${M(after, 0)}</b> · gana <b>≈${M(salary, 0)}</b></span><b class="${pct > 60 ? 'la-t-bad' : pct > 35 ? 'la-t-int' : 'la-t-pay'}">${pct} %</b></div>
             <div class="la-meter__sc"><span style="left:min(calc(${Math.min(pct, 100)}% - 1px), calc(100% - 3px))"></span></div>
             ${pct > 60 ? '<span class="la-t-bad">Pasa del 60 % de lo que gana: solo es un aviso.</span>' : ''}</div>` : ''}
         ${textInput('concept', m.concept, 'Concepto', 'Préstamo')}
     </div>
-    ${footer(m.plan === 'lump' ? `Se cobra <b>${M(total)}</b>${m.period ? ` el ${dm(m.period)}` : ''}` : `${count} cuotas de <b>${M(total / count)}</b>`, `Crear préstamo #${nextNumber}`, 'new', amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(String(m.date || '')))}`;
+    ${footer(m.plan === 'lump' ? `Se cobra <b>${M(total)}</b>${m.period ? ` el ${dm(m.period)}` : ''}` : `${count} cuotas de <b>${M(total / count)}</b>${m.period ? ` desde el ${dm(m.period)}` : ''}`, `Crear préstamo #${nextNumber}`, 'new', amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(String(m.date || '')))}`;
 }
 
 function EditModal(emp, m, { periods, today }) {

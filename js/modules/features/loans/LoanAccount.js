@@ -580,7 +580,8 @@ export function editLoan(emp, loanId, changes = {}, options = {}) {
         loan.installments = generateInstallmentSchedule({
             principal: loan.principal, interestRate: loan.interestRate, interestIncluded: !!loan.interestIncluded,
             startDate: loan.startDate, count: (loan.installments || []).length || 2,
-            frequencyWeeks: Number(loan.installmentFrequencyWeeks || 2)
+            frequencyWeeks: Number(loan.installmentFrequencyWeeks || 2),
+            firstDueDate: loan.firstDueDate || null
         });
     }
     refreshStatus(loan, options.by || null, now);
