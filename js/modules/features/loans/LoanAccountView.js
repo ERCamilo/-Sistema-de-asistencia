@@ -460,10 +460,10 @@ function AccountModal(emp, modal, ctx) {
         : modal.type === 'close' ? CloseModal(emp, modal)
         : modal.type === 'agree' ? AgreeModal(emp, modal, ctx)
         : modal.type === 'unconsolidate' ? UnconsolidateModal(emp, modal) : '';
-    return `<div class="la-ov" data-app-close-on-self="laClose"><div class="la-md" role="dialog" aria-modal="true">${body}</div></div>`;
+    return `<div class="la-ov" data-app-close-on-self="laClose"><div class="la-md" role="dialog" aria-modal="true" aria-labelledby="la-modal-title">${body}</div></div>`;
 }
 
-const head = (tone, title, sub) => `<div class="la-md__h"><h2><span class="la-tag la-c-${tone}"></span>${escapeHTML(title)}${sub ? `<small>${escapeHTML(sub)}</small>` : ''}</h2><button type="button" class="la-closex" data-app-fn="laClose" aria-label="Cerrar">✕</button></div>`;
+const head = (tone, title, sub) => `<div class="la-md__h"><h2 id="la-modal-title"><span class="la-tag la-c-${tone}"></span>${escapeHTML(title)}${sub ? `<small>${escapeHTML(sub)}</small>` : ''}</h2><button type="button" class="la-closex" data-app-fn="laClose" aria-label="Cerrar">✕</button></div>`;
 const numInput = (field, value, { big = false, label = '', id = '' } = {}) => `<label class="la-fl" for="la-${id || field}">${label}<input id="la-${id || field}" class="la-input${big ? ' la-input--big' : ''}" type="text" inputmode="decimal" autocomplete="off" value="${escapeAttr(value ?? '')}" oninput="laField('${field}', this.value)"></label>`;
 const textInput = (field, value, label, placeholder = '') => `<label class="la-fl" for="la-${field}">${label}<input id="la-${field}" class="la-input" type="text" value="${escapeAttr(value ?? '')}" placeholder="${escapeAttr(placeholder)}" oninput="laFieldQuiet('${field}', this.value)"></label>`;
 const dateInput = (field, value, label) => `<label class="la-fl" for="la-${field}">${label}<input id="la-${field}" class="la-input" type="date" value="${escapeAttr(value || '')}" onchange="laField('${field}', this.value)"></label>`;
@@ -479,7 +479,7 @@ function periodOptions(periods, { from = null, to = null, closed = null } = {}) 
 function PayModal(emp, m, { periods, today, summary, salary, agreement }) {
     const target = m.target && m.target !== 'account' ? (emp.loans || []).find(l => String(l.id) === String(m.target)) : null;
     const numbers = getLoanNumbers(emp.loans || []);
-    const pool = target ? summary.loans.filter(x => x.loan.id === target.id) : summary.loans;
+    const pool = target ? summary.loans.filter(x => x.loan.id === target.id) : m.voice && m.target !== 'account' ? [] : summary.loans;
     const owed = round2(pool.reduce((t, x) => t + x.balance, 0));
     const intOwed = round2(pool.reduce((t, x) => t + x.interest, 0));
     const amount = Number(m.amount) || 0;
@@ -493,9 +493,10 @@ function PayModal(emp, m, { periods, today, summary, salary, agreement }) {
     const thirty = Math.round(salary * 0.3 / 100) * 100;
     return `${head('pay', target ? `Pagar el préstamo #${numbers.get(target.id)}` : 'Abonar a la cuenta', `debe ${M(owed)}${target ? '' : ` · ${pool.length} préstamos`}`)}
     <div class="la-md__b">
-        <div class="la-row3">${numInput('amount', m.amount, { big: true, label: 'Monto' })}${dateInput('date', m.date, 'Fecha')}${select('channel', m.channel, 'Forma de pago', Object.entries(CHANNEL_LABEL).map(([value, label]) => ({ value, label })))}</div>
+        ${m.voice ? `<button type="button" class="la-btn" data-app-fn="laVoiceChangeEmployee">Cambiar empleado</button><details class="voice-form-transcript" ${m.voice.needsReview ? 'open' : ''}><summary>Texto reconocido</summary><p style="white-space:pre-wrap">${escapeHTML(m.voice.transcript)}</p>${m.voice.needsReview ? '<p>Revisa los datos antes de guardar.</p>' : ''}${(m.voice.issues || []).map(i => `<p>${escapeHTML(i.message)}</p>`).join('')}</details>${select('target', m.target, 'Aplicar a', [{value:'',label:'Selecciona un préstamo o toda la cuenta'}, {value:'account',label:'Toda la cuenta'}, ...summary.loans.map(x => ({value:x.loan.id,label:`Préstamo #${numbers.get(x.loan.id)}`}))])}` : ''}
+        <div class="la-row3">${numInput('amount', m.amount, { big: true, label: 'Monto' })}${dateInput('date', m.date, 'Fecha')}${select('channel', m.channel, 'Forma de pago', [...(m.voice ? [{value:'',label:'Selecciona'}] : []), ...Object.entries(CHANNEL_LABEL).map(([value, label]) => ({ value, label }))])}</div>
         <div class="la-row2b"><div class="la-chips"><button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${owed}">Todo ${M(owed, 0)}</button>${intOwed > 0 ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${intOwed}" title="Paga solo el interés pendiente; el capital queda igual">Solo interés ${M(intOwed, 0)}</button>` : ''}${!target && agreement ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${Math.min(agreement.amount, owed)}">Acordado ${M(agreement.amount, 0)}</button>` : ''}${!target && thirty > 0 ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${Math.min(thirty, owed)}">30 % sueldo ${M(thirty, 0)}</button>` : ''}</div>
-            ${m.channel === 'payroll' && recent.length ? `<label class="la-inl" for="la-period">Nómina<select id="la-period" class="la-input" onchange="laField('period', this.value)">${periodOptions(recent, { closed }).map(o => `<option value="${escapeAttr(o.value)}" ${o.value === m.period ? 'selected' : ''} ${o.disabled ? 'disabled' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></label>` : ''}</div>
+            ${m.channel === 'payroll' && recent.length ? `<label class="la-inl" for="la-period">Nómina<select id="la-period" class="la-input" onchange="laField('period', this.value)">${m.voice ? '<option value="">Selecciona</option>' : ''}${periodOptions(recent, { closed }).map(o => `<option value="${escapeAttr(o.value)}" ${o.value === m.period ? 'selected' : ''} ${o.disabled ? 'disabled' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></label>` : ''}</div>
         <div class="la-tbl"><table><thead><tr><th>${target ? 'Primero su interés, luego su capital' : 'Reparto · interés de todos, luego capital del más viejo'}</th><th>Debe</th><th>Interés</th><th>Capital</th><th>Queda</th></tr></thead><tbody>
             ${pool.map(x => { const p = byLoan.get(x.loan.id) || { interest: 0, capital: 0 }; const q = round2(x.balance - p.interest - p.capital);
                 return `<tr><td><b>#${x.number}</b> ${dm(x.loan.startDate)}</td><td><b>${M(x.balance, 0)}</b><small class="la-split"><span class="la-t-int">${M(x.interest, 0)} int.</span> · <span class="la-t-cap">${M(x.capital, 0)} cap.</span></small></td><td class="la-t-payint">${p.interest ? M(p.interest, 0) : '—'}</td><td class="la-t-pay">${p.capital ? M(p.capital, 0) : '—'}</td><td>${q <= 0.004 ? '<span class="la-pill la-pill--pay">Saldado</span>' : M(q, 0)}</td></tr>`; }).join('')}
@@ -504,7 +505,7 @@ function PayModal(emp, m, { periods, today, summary, salary, agreement }) {
         ${plan.excess > 0.01 ? `<div class="la-warnbox">Pasa de lo que debe por <b>${M(plan.excess)}</b>. Corrige el monto (todavía no se puede dejar saldo a favor).</div>` : ''}
         ${textInput('note', m.note, 'Nota (opcional)', 'Ej.: abono acordado en la obra')}
     </div>
-    ${footer(`Queda debiendo <b>${M(Math.max(0, summary.balance - Math.min(amount, owed)))}</b>`, 'Guardar abono', 'pay', amount > 0 && plan.excess <= 0.01)}`;
+    ${footer(`Queda debiendo <b>${M(Math.max(0, summary.balance - Math.min(amount, owed)))}</b>`, 'Guardar abono', 'pay', amount > 0 && plan.excess <= 0.01 && (!m.voice || m.target && (m.target === 'account' || !!target) && ['payroll','cash','transfer'].includes(m.channel) && (m.channel !== 'payroll' || periods.some(p => p.payDate === m.period && !closed.has(p.end)))))}`;
 }
 
 function RefiModal(emp, m, { periods, today, summary }) {

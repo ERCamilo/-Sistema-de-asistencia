@@ -1,6 +1,16 @@
 {
-  "version": "1.7.148",
+  "version": "1.7.149",
   "changelog": [
+    {
+      "version": "1.7.149",
+      "date": "2026-11-16",
+      "title": "Notas y abonos por voz",
+      "items": [
+        "Voz prepara notas de empleados y abonos de préstamos en los formularios habituales, para revisar y guardar.",
+        "Puedes cambiar de empleado conservando los datos; las notas se añaden a las ya guardadas para ese día.",
+        "Los abonos conservan el reparto actual de interés y capital; una grabación ya utilizada no se registra de nuevo."
+      ]
+    },
     {
       "version": "1.7.148",
       "date": "2026-11-16",

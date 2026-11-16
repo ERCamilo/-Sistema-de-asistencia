@@ -67,7 +67,7 @@ import { openVoiceAttendanceEmployee } from './modules/features/voice/VoiceAtten
 import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
 import { getAccountSummary as voiceAccountSummary } from './modules/features/loans/LoanAccount.js';
 import { selectLoansEmployee as selectVoiceLoansEmployee } from './modules/features/loans/LoansController.js';
-import { registerNewAccountLoan, laUseClassicView, laSetTab } from './modules/features/loans/LoanAccountController.js';
+import { openVoiceAccountPaymentDraft, registerNewAccountLoan, laUseClassicView, laSetTab } from './modules/features/loans/LoanAccountController.js';
 import { getAccountPayPeriods } from './modules/features/loans/LoanAccountView.js';
 import { previousVoiceInterest } from './modules/features/voice/VoiceLoanDraft.js';
 import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
@@ -210,7 +210,7 @@ import { VoicePettyCashUI } from './modules/features/voice/VoicePettyCashUI.js';
 import { initBottomNav, watchMicPermission } from './modules/ui/navigation/BottomNav.js';
 import { chooseBottomNav } from './modules/ui/navigation/LegacyBottomNav.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
-import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
+import { openVoiceNoteDraft, NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import {
     prepareRestoreProjectSurface,
@@ -1315,6 +1315,14 @@ const voiceMvp = new VoiceMvpUI({
         });
         if (state.activeTab === 'settings') guardSettingsDraftOnLeave({ onProceed: proceed });
         else proceed();
+    },
+    onNoteDraft: (employeeId, context) => openVoiceNoteDraft(employeeId, context),
+    onPaymentDraft: (employeeId, context) => {
+        if (state.loansLedger?.account?.modal || state.loansLedger?.showAddForm) throw Error('Cierra el formulario de préstamos abierto antes de revisar el abono de voz.');
+        context.guard();
+        selectVoiceLoansEmployee(employeeId); laUseClassicView(false); laSetTab('loans');
+        window.openCuentasPorCobrar();
+        openVoiceAccountPaymentDraft(employeeId, context);
     },
     onLoans: employeeId => { selectVoiceLoansEmployee(employeeId); window.openCuentasPorCobrar(); },
     onLoan: async (employeeId, draft, context) => {

@@ -20,7 +20,7 @@ export async function processVoiceRecording(ui, record, { background = false } =
     };
     guard();
     if (record.unsaved) throw Error('Conserva el audio localmente antes de enviarlo.');
-    if (record.completedLoanId || record.completedCashId || record.cashDraft?.pendingMovement) throw Error('Esta grabación ya tiene una operación confirmada o pendiente.');
+    if (record.completedAction || record.completedLoanId || record.completedCashId || record.cashDraft?.pendingMovement) throw Error('Esta grabación ya tiene una operación confirmada o pendiente.');
     if (record.retryAt > Date.now()) throw Error('Espera hasta ' + new Date(record.retryAt).toLocaleTimeString() + ' antes de reintentar.');
     record.processingRequested = true;
     ui.processingRecord = record; ui.processingController = new AbortController();
@@ -92,7 +92,7 @@ export async function processVoiceRecording(ui, record, { background = false } =
             // Cleanup releases only our lease; it never applies a response to a
             // changed session, replaces edits, or recreates deleted audio.
             if (claimed) saved = await ui.store.finishProcessing(record, owner, update);
-            else if (ui.store.updateRecording) saved = await ui.store.updateRecording(record.uid, record.projectKey, record.requestId, current => !current.audio || current.completedLoanId || current.completedCashId || current.processingLease?.until > Date.now() ? null : update(current));
+            else if (ui.store.updateRecording) saved = await ui.store.updateRecording(record.uid, record.projectKey, record.requestId, current => !current.audio || current.completedAction || current.completedLoanId || current.completedCashId || current.processingLease?.until > Date.now() ? null : update(current));
             else if (!ui.store.claimProcessing) { saved = update(record); await ui.store.put(saved); }
         }
         if (!paused && sameRecord(ui, record)) {

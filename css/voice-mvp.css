@@ -271,3 +271,8 @@
 .voice-position-choice{display:block;flex:1;min-width:0}
 .voice-position-match{display:block;text-align:left;padding:0 12px 9px 63px;font-size:11px;font-weight:500;line-height:1.4;color:#9be2f4;overflow-wrap:anywhere}
 .voice-choices button[aria-pressed=true] .voice-position-match{color:#19373d}
+
+/* Voice evidence inside the existing note and repayment editors. */
+.voice-form-transcript{padding:10px 12px;margin:0 0 10px;border:1px solid #315283;border-radius:12px;background:#142238;color:#e2e8f0;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.voice-form-transcript summary{color:#b9d7ff;font-weight:600;cursor:pointer}
+.voice-form-transcript p{margin:6px 0 0;white-space:pre-wrap}

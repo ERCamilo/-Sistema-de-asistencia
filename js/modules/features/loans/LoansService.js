@@ -401,6 +401,8 @@ export function recordPayment(emp, loanId, params, options = {}) {
         voided: false,
         voidedAt: null
     };
+    if (params.voiceRequestId) payment.voiceRequestId = String(params.voiceRequestId);
+    if (params.voiceActorUid) payment.voiceActorUid = String(params.voiceActorUid);
     if (params.source) payment.source = String(params.source);
     // Cuenta de préstamos: de dónde vino el abono y cómo se repartió al registrarlo.
     if (params.origin) payment.origin = String(params.origin);

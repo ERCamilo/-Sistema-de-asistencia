@@ -6,6 +6,7 @@
  */
 
 import { state } from '../../core/AppState.js';
+import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 
 export function NoteEditorModal() {
@@ -17,7 +18,7 @@ export function NoteEditorModal() {
     return `
         <div class="modal-overlay animate-fade-in" data-app-close-on-self="close-note-modal" style="background: rgba(0,0,0,0.45); z-index: 10002;">
             <div class="export-menu animate-slide-up"
-                 data-app-stop-only="1"
+                 data-app-stop-only="1" role="dialog" aria-modal="true" aria-labelledby="note-modal-title"
                  style="position: fixed;
                         left: 50%;
                         top: 50%;
@@ -27,20 +28,22 @@ export function NoteEditorModal() {
                         padding: 16px;
                         box-shadow: 0 20px 60px rgba(0,0,0,0.5);
                         border: 1px solid #334155;
+                        max-height: 88dvh; overflow-y: auto;
                         max-width: 92%;
                         width: 520px;">
-                <div style="font-size: 0.95rem; color: #f1f5f9; font-weight: 700; margin-bottom: 6px;">
-                    Nota de asistencia
+                <div id="note-modal-title" style="font-size: 0.95rem; color: #f1f5f9; font-weight: 700; margin-bottom: 6px;">
+                    ${state.noteModalVoice ? 'Nueva nota por voz' : 'Nota de asistencia'}
                 </div>
                 <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 12px;">
-                    ${empName}
+                    ${escapeHTML(empName)}
                 </div>
 
+                ${state.noteModalVoice ? `<button type="button" data-app-fn="changeVoiceNoteEmployee" style="color:#e2e8f0;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 12px;margin-bottom:10px">Cambiar empleado</button><details class="voice-form-transcript" ${state.noteModalVoice.needsReview ? 'open' : ''}><summary>Texto reconocido</summary><p style="white-space:pre-wrap">${escapeHTML(state.noteModalVoice.transcript)}</p>${state.noteModalVoice.needsReview ? '<p>Revisa los datos antes de guardar.</p>' : ''}${(state.noteModalVoice.issues || []).map(i => `<p>${escapeHTML(i.message)}</p>`).join('')}</details><p style="color:#94a3b8;font-size:.8rem">Se añadirá a la nota de ese día, si ya existe.</p>` : ''}
                 <div style="display: grid; gap: 10px; margin-bottom: 12px;">
                     <div>
-                        <label style="font-size: 0.75rem; color: #94a3b8; display:block; margin-bottom: 6px;">Fecha</label>
-                        <input type="date"
-                               value="${state.noteModalDate || getDateKey(new Date())}"
+                        <label for="note-modal-date" style="font-size: 0.75rem; color: #94a3b8; display:block; margin-bottom: 6px;">Fecha</label>
+                        <input id="note-modal-date" type="date"
+                               value="${escapeAttr(state.noteModalDate || getDateKey(new Date()))}"
                                onchange="setNoteModalDate(this.value)"
                                style="width: 100%;
                                       background: #0f172a;
@@ -51,8 +54,8 @@ export function NoteEditorModal() {
                                       font-size: 0.85rem;">
                     </div>
                     <div>
-                        <label style="font-size: 0.75rem; color: #94a3b8; display:block; margin-bottom: 6px;">Nota</label>
-                        <textarea
+                        <label for="note-modal-text" style="font-size: 0.75rem; color: #94a3b8; display:block; margin-bottom: 6px;">Nota</label>
+                        <textarea id="note-modal-text"
                             oninput="setNoteModalText(this.value)"
                             placeholder="Escribe la nota..."
                             style="width: 100%;
@@ -66,7 +69,7 @@ export function NoteEditorModal() {
                                    font-size: 0.8rem;
                                    line-height: 1.4;
                                    outline: none;"
-                        >${state.noteModalText || ''}</textarea>
+                        >${escapeHTML(state.noteModalText || '')}</textarea>
                     </div>
                 </div>
 
@@ -82,7 +85,7 @@ export function NoteEditorModal() {
                                    cursor: pointer;">
                         Guardar
                     </button>
-                    <button type="button" data-app-fn="deleteNoteModal"
+                    <button type="button" ${state.noteModalVoice ? 'hidden' : ''} data-app-fn="deleteNoteModal"
                             style="padding: 10px 12px;
                                    background: #1e293b;
                                    border: 1px solid #ef4444;
