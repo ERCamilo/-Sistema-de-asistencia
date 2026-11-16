@@ -311,6 +311,79 @@ describe('Payroll SplitX postMessage Integration', () => {
         );
     });
 
+    describe('resilient handshake (slow SplitX loads, reloads and retries)', () => {
+        const ORIGIN = 'https://splitx.erlin.do';
+        const fromSplitX = (data) => window.dispatchEvent(new MessageEvent('message', { data, origin: ORIGIN, source: mockWindow }));
+        const payloads = () => mockWindow.postMessage.mock.calls.filter(c => c[0]?.type === 'SPLITX_IMPORT_PAYROLL');
+        const pings = () => mockWindow.postMessage.mock.calls.filter(c => c[0]?.type === 'SPLITX_PING');
+
+        test('keeps pinging past 10 s so a slow SplitX still gets the payroll', () => {
+            PayrollUI.sendToSplitX(ORIGIN);
+            jest.advanceTimersByTime(25000);
+            expect(notifications.some(n => n.type === 'warning')).toBe(false);
+            fromSplitX({ type: 'SPLITX_READY', version: '1.0' });
+            expect(payloads()).toHaveLength(1);
+        });
+
+        test('stops pinging and warns once SplitX never answers within the ping window', () => {
+            PayrollUI.sendToSplitX(ORIGIN);
+            jest.advanceTimersByTime(PayrollUI.SPLITX_HANDSHAKE.pingWindowMs + 1000);
+            const count = pings().length;
+            expect(notifications.some(n => n.type === 'warning' && n.msg.includes('Copiar JSON'))).toBe(true);
+            jest.advanceTimersByTime(5000);
+            expect(pings()).toHaveLength(count);
+            fromSplitX({ type: 'SPLITX_READY', version: '1.0' });
+            expect(payloads()).toHaveLength(0);
+        });
+
+        test('waits for the confirmation while the user decides in SplitX (replace / append)', () => {
+            PayrollUI.sendToSplitX(ORIGIN);
+            fromSplitX({ type: 'SPLITX_READY', version: '1.0' });
+            const transferId = payloads()[0][0].transferId;
+            jest.advanceTimersByTime(45000);
+            expect(notifications.some(n => n.type === 'warning')).toBe(false);
+            fromSplitX({ type: 'SPLITX_IMPORT_SUCCESS', transferId, count: 1 });
+            expect(notifications.some(n => n.type === 'success')).toBe(true);
+        });
+
+        test('resends the same payroll when SplitX asks again later without confirming (reload or "Pedir de nuevo")', () => {
+            PayrollUI.sendToSplitX(ORIGIN);
+            fromSplitX({ type: 'SPLITX_READY', version: '1.0' });
+            jest.advanceTimersByTime(PayrollUI.SPLITX_HANDSHAKE.resendMinGapMs + 500);
+            fromSplitX({ type: 'SPLITX_READY', version: '1.0' });
+            expect(payloads()).toHaveLength(2);
+            expect(payloads()[1][0].transferId).toBe(payloads()[0][0].transferId);
+            expect(payloads()[1][1]).toBe(ORIGIN);
+        });
+
+        test('does not resend after SplitX confirmed the import', () => {
+            PayrollUI.sendToSplitX(ORIGIN);
+            fromSplitX({ type: 'SPLITX_READY', version: '1.0' });
+            fromSplitX({ type: 'SPLITX_IMPORT_SUCCESS', transferId: payloads()[0][0].transferId, count: 1 });
+            jest.advanceTimersByTime(10000);
+            fromSplitX({ type: 'SPLITX_READY', version: '1.0' });
+            expect(payloads()).toHaveLength(1);
+        });
+
+        test('stops listening once the confirmation window ends', () => {
+            PayrollUI.sendToSplitX(ORIGIN);
+            fromSplitX({ type: 'SPLITX_READY', version: '1.0' });
+            jest.advanceTimersByTime(PayrollUI.SPLITX_HANDSHAKE.ackWindowMs + 1000);
+            fromSplitX({ type: 'SPLITX_READY', version: '1.0' });
+            expect(payloads()).toHaveLength(1);
+        });
+
+        test('stops pinging when the SplitX window is closed, without a misleading warning', () => {
+            PayrollUI.sendToSplitX(ORIGIN);
+            mockWindow.closed = true;
+            jest.advanceTimersByTime(3000);
+            const count = pings().length;
+            jest.advanceTimersByTime(PayrollUI.SPLITX_HANDSHAKE.pingWindowMs);
+            expect(pings()).toHaveLength(count);
+            expect(notifications.some(n => n.type === 'warning')).toBe(false);
+        });
+    });
+
     test('sendToSplitX handles popup blocker by notifying user and returning null', () => {
         window.open = jest.fn(() => null);
 

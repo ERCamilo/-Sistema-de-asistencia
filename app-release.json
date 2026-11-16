@@ -1,6 +1,15 @@
 {
-  "version": "1.7.143",
+  "version": "1.7.144",
   "changelog": [
+    {
+      "version": "1.7.144",
+      "date": "2026-11-16",
+      "title": "Nómina compacta y envíos a SplitX",
+      "items": [
+        "La tabla y los controles de revisión aprovechan mejor el espacio en el celular.",
+        "Compartir conserva la espera ampliada y los reintentos de envío a SplitX en conexiones lentas."
+      ]
+    },
     {
       "version": "1.7.143",
       "date": "2026-11-15",
@@ -39,11 +48,12 @@
     },
     {
       "version": "1.7.139",
-      "date": "2026-11-14",
-      "title": "Tabla de nómina accesible en móvil",
+      "date": "2026-11-15",
+      "title": "Envío a SplitX más confiable",
       "items": [
-        "En celular solo queda fija la ficha del empleado, dejando espacio para consultar los días y los importes al deslizar.",
-        "Los accesos Empleados e Importes permiten moverse por la tabla sin cambiar filtros, selecciones ni cálculos."
+        "Enviar a SplitX espera hasta un minuto a que SplitX termine de cargar, para que no se abra con la nómina anterior en conexiones lentas.",
+        "Si SplitX vuelve a pedir la nómina (al recargarlo o con «Pedir de nuevo»), se reenvía sin repetir la importación.",
+        "El aviso de confirmación llega aunque tardes en elegir reemplazar o agregar en SplitX."
       ]
     },
     {
