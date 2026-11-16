@@ -14,7 +14,7 @@ import icons from '../../ui/IconSystem.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { renderPayrollStatus } from './PayrollStatus.js';
-import { payrollWorkedDays, formatPayrollDays } from './PayrollWorkDays.js';
+import { payrollWorkedDays, payrollPaymentDays, formatPayrollDays } from './PayrollWorkDays.js';
 import { payrollExportMoney, payrollCashTotal } from './PayrollExportMoney.js';
 
 export const REVIEW_CATEGORIES = Object.freeze([
@@ -29,6 +29,11 @@ const amountOf = value => Number(value) || 0;
 const visible = value => Math.abs(amountOf(value)) >= 0.005;
 export const reviewRowKey = row => String(row?._employeeId ?? row?.id ?? '');
 const net = row => Math.round((amountOf(row?.monto) + Number.EPSILON) * 100) / 100;
+const reviewChevron = direction => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="${direction === 'left' ? 'm15 18-6-6 6-6' : 'm9 6 6 6-6 6'}"/></svg>`;
+const initials = name => {
+    const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+    return [words[0], words.length > 1 ? words.at(-1) : ''].map(word => Array.from(word || '')[0] || '').join('').toLocaleUpperCase('es');
+};
 
 function detailLine(category, item) {
     if (category.kind === 'loans') {
@@ -140,17 +145,16 @@ export function payrollPartTeamLabel(part, { positions = [], leaders = [] } = {}
     return payer ? `Equipo de ${team} · paga ${payer}` : `Equipo de ${team}`;
 }
 
-function breakdownCell(row, catalogue, hoursPerDay) {
+function calculationRow(row, catalogue, hoursPerDay, colspan) {
     const breakdown = row._positionBreakdown || [];
-    if (breakdown.length === 0) return '<td><span class="payroll-review-table__muted">Sin desglose</span></td>';
     const days = hours => {
         const value = payrollWorkedDays({ _regularHours: hours }, hoursPerDay);
         return `${formatPayrollDays(value)} ${value === 1 ? 'día' : 'días'}`;
     };
     return `
-        <td>
-            <details class="payroll-breakdown-details">
-                <summary>Ver cálculo (${breakdown.length})</summary>
+        <tr class="payroll-review-detail-row is-calculation" data-payroll-calculation-row="${escapeHTML(reviewRowKey(row))}">
+            <td colspan="${colspan}"><div class="payroll-review-detail"><section class="payroll-review-detail__group is-calculation">
+                <h4>Cálculo del pago <span>${breakdown.length}</span></h4>
                 <div class="payroll-breakdown-details__body">
                     ${breakdown.map(item => `
                         <div class="payroll-breakdown-details__item">
@@ -163,8 +167,12 @@ function breakdownCell(row, catalogue, hoursPerDay) {
                             <div class="is-subtotal">Subtotal: ${formatCurrency(item.subtotal)}</div>
                         </div>`).join('')}
                 </div>
-            </details>
-        </td>`;
+                <dl class="payroll-review-net-summary">
+                    ${[['Bruto', row._brutoOriginal, ''], ['Bonificaciones', row._bonuses, '+'], ['Deducciones', row._deductions, '−'], ['Préstamos', row._loans, '−'], ['Neto', row.monto, '']]
+                        .map(([label, value, sign]) => `<div><dt>${label}</dt><dd>${sign}${formatCurrency(value)}</dd></div>`).join('')}
+                </dl>
+            </section></div></td>
+        </tr>`;
 }
 
 /**
@@ -175,7 +183,7 @@ function breakdownCell(row, catalogue, hoursPerDay) {
  * @param {Set<string>} args.expanded claves "empleado|categoría" desplegadas
  */
 export function renderPayrollReviewTable({ rows = [], displayRows = rows, sourceRows = [], inclusion = {}, expanded = new Set(), emptyMessage = '', positions = [], leaders = [],
-    hoursPerDay = 8, allowEmployeeExclusion = false, excludedIds = [], categoryCounts = null } = {}) {
+    hoursPerDay = 8, dayFactors = {}, allowEmployeeExclusion = false, excludedIds = [], categoryCounts = null } = {}) {
     const excluded = new Set(excludedIds);
     const sourceByKey = new Map(sourceRows.map(row => [reviewRowKey(row), row]));
     const include = {
@@ -186,7 +194,7 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
     const categories = REVIEW_CATEGORIES.filter(category =>
         !include[category.kind] || categoryCounts?.[category.kind]?.total > 0 || sourceRows.some(row => visible(row[category.field]))
     ).map(category => categoryCounts ? { ...category, label: { bonuses: 'BONIFIC.', deductions: 'DEDUCCIONES', loans: 'PRÉSTAMOS' }[category.kind] } : category);
-    const colspan = 6 + categories.length;
+    const colspan = 5 + categories.length;
     const counts = Object.fromEntries(categories.map(category => [
         category.kind,
         rows.filter(row => visible(sourceByKey.get(reviewRowKey(row))?.[category.field])).length
@@ -215,9 +223,11 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
             .filter(kind => expanded.has(`${key}|${kind}`)));
         const isExcluded = excluded.has(key);
         const negative = !isExcluded && net(row) < 0;
+        const calculationExpanded = expanded.has(`${key}|calculation`);
+        const parts = (row._positionBreakdown || []).length;
         return `
             <tr class="payroll-review-table__row ${index % 2 === 0 ? 'is-even' : ''} ${negative ? 'is-invalid' : ''} ${isExcluded ? 'is-payroll-excluded' : ''} ${expandedKinds.size ? 'is-expanded' : ''}">
-                <td class="payroll-review-table__number">${escapeHTML(String(row._number || row.id))}</td>
+                <td class="payroll-review-table__number"><span>${escapeHTML(String(row._number || row.id))}</span><span class="payroll-review-table__initials" aria-hidden="true" title="${escapeHTML(row._employeeName || '')}">${escapeHTML(initials(row._employeeName))}</span></td>
                 <td class="payroll-review-table__employee">
                     ${allowEmployeeExclusion ? `<label class="payroll-review-employee-include"><input type="checkbox"
                         data-payroll-action="toggle-payroll-review-employee" data-id="${escapeHTML(key)}"
@@ -227,17 +237,23 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
                     ${excludedPositionsNote(row)}
                 </td>
                 <td class="payroll-review-table__amount">
-                    <span data-payroll-worked-days>${formatPayrollDays(payrollWorkedDays(row, hoursPerDay))}</span>
-                    ${amountOf(row._overtimeHours) > 0 ? `<small class="payroll-review-table__hours-split">+${row._overtimeHours}h extra</small>` : ''}
+                    <span data-payroll-payment-days>${formatPayrollDays(payrollPaymentDays(row, hoursPerDay, dayFactors))}</span>
                 </td>
                 <td class="payroll-review-table__amount">${formatCurrency(row._brutoOriginal)}</td>
                 ${categories.map(category => categoryCell({
                     category, row, source, included: include[category.kind], expanded: expandedKinds.has(category.kind)
                 })).join('')}
-                <td class="payroll-review-table__amount is-net ${negative ? 'is-invalid' : ''}">${formatCurrency(row.monto)}</td>
-                ${breakdownCell(row, { positions, leaders }, hoursPerDay)}
+                <td class="payroll-review-table__amount is-net ${negative ? 'is-invalid' : ''}">
+                    <button type="button" class="payroll-review-cell-toggle is-net" data-payroll-action="toggle-payroll-review-detail"
+                            data-value="${escapeHTML(key)}|calculation" aria-expanded="${calculationExpanded}"
+                            aria-label="${escapeHTML(formatCurrency(row.monto))}. ${calculationExpanded ? 'Ocultar' : 'Ver'} ${parts} tramos del cálculo de ${escapeHTML(row._employeeName || 'este empleado')}">
+                        <span class="payroll-review-net-value">${formatCurrency(row.monto)}</span>
+                        <small><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="${calculationExpanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'}"/></svg>${parts}</small>
+                    </button>
+                </td>
             </tr>
-            ${expandedKinds.size ? detailRow({ row, source, categories, inclusion: include, expandedKinds, colspan }) : ''}`;
+            ${expandedKinds.size ? detailRow({ row, source, categories, inclusion: include, expandedKinds, colspan }) : ''}
+            ${calculationExpanded ? calculationRow(row, { positions, leaders }, hoursPerDay, colspan) : ''}`;
     }).join('');
 
     const foot = categories.map(category => {
@@ -250,17 +266,20 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
     const cashDifference = payrollExportMoney(cashTotal - payrollExportMoney(sum('monto')));
 
     return `
+        <div class="payroll-review-table-view">
+            <div class="payroll-review-table__mobile-tools">
+                <p>${reviewChevron('left')}${reviewChevron('right')}<span>Desliza para ver días e importes</span></p>
+            </div>
         <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina de la obra" tabindex="0">
             <table class="payroll-review-table">
                 <thead>
                     <tr>
                         <th class="payroll-review-table__number">#</th>
                         <th class="payroll-review-table__employee">EMPLEADO</th>
-                        <th title="Jornadas equivalentes sin horas extra ni multiplicadores de pago">DÍAS</th>
+                        <th title="Días equivalentes de pago: incluye factores de horas extra, festivos y descanso; no es un conteo de asistencia">DÍAS DE PAGO</th>
                         <th>BRUTO</th>
                         ${head}
-                        <th>NETO</th>
-                        <th>DESGLOSE</th>
+                        <th data-payroll-column="net">NETO</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -270,14 +289,14 @@ export function renderPayrollReviewTable({ rows = [], displayRows = rows, source
                 <tfoot>
                     <tr>
                         <td colspan="2">Totales (${rows.length} empleados)</td>
-                        <td class="payroll-review-table__amount" data-payroll-total-days>${formatPayrollDays(rows.reduce((total, row) => total + payrollWorkedDays(row, hoursPerDay), 0))}</td>
+                        <td class="payroll-review-table__amount" data-payroll-total-pay-days>${formatPayrollDays(rows.reduce((total, row) => total + payrollPaymentDays(row, hoursPerDay, dayFactors), 0))}</td>
                         <td class="payroll-review-table__amount">${formatCurrency(sum('_brutoOriginal'))}</td>
                         ${foot}
                         <td class="payroll-review-table__amount is-net">${formatCurrency(sum('monto'))}</td>
-                        <td></td>
                     </tr>
                 </tfoot>
             </table>
+        </div>
         </div>
         ${cashDifference ? `<p class="payroll-review-table__scope-note" role="status" data-payroll-cash-rounding>
             Total para SplitX: ${formatCurrency(cashTotal)} · diferencia de ${formatCurrency(cashDifference)} por redondear cada pago a centavos.

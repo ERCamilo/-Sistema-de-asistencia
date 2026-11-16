@@ -507,13 +507,13 @@ describe('Financial desktop layouts', () => {
         const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
             .map(cell => cell.textContent.trim());
 
-        expect(headers).toEqual(['#', 'EMPLEADO', 'DÍAS', 'BRUTO', 'NETO', 'DESGLOSE']);
+        expect(headers).toEqual(['#', 'EMPLEADO', 'DÍAS DE PAGO', 'BRUTO', 'NETO']);
         expect(host.querySelector('th.payroll-review-table__number')).not.toBeNull();
         expect(host.querySelector('th.payroll-review-table__employee')).not.toBeNull();
         expect(host.querySelector('th.is-bonus')).toBeNull();
         expect(host.querySelector('th.is-deduction')).toBeNull();
         expect(host.querySelector('th.is-loan')).toBeNull();
-        expect(host.querySelector('tbody tr').children).toHaveLength(6);
+        expect(host.querySelector('tbody tr').children).toHaveLength(5);
     });
 
     test('review table keeps a configured bonus toggle visible when it applies zero in the current payroll', () => {
@@ -565,7 +565,7 @@ describe('Financial desktop layouts', () => {
         const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
             .map(cell => cell.textContent.trim());
 
-        expect(headers.map(text => text.replace(/\s+/g, ''))).toEqual(['#', 'EMPLEADO', 'DÍAS', 'BRUTO', 'BONIFIC.1/1', 'NETO', 'DESGLOSE']);
+        expect(headers.map(text => text.replace(/\s+/g, ''))).toEqual(['#', 'EMPLEADO', 'DÍASDEPAGO', 'BRUTO', 'BONIFIC.1/1', 'NETO']);
         expect(host.querySelector('th.is-bonus input[type="checkbox"]')?.checked).toBe(true);
         expect(host.querySelector('th.is-deduction')).toBeNull();
         expect(host.querySelector('th.is-loan')).toBeNull();
@@ -629,7 +629,7 @@ describe('Financial desktop layouts', () => {
 
         expect(inactiveRow).toBeDefined();
         expect((inactiveRow.querySelector('.is-bonus').querySelector('.payroll-review-cell-toggle > span') || inactiveRow.querySelector('.is-bonus')).textContent.trim()).toBe('+$2,000.00');
-        expect(inactiveRow.querySelector('.is-net').textContent.trim()).toBe('$2,000.00');
+        expect(inactiveRow.querySelector('.payroll-review-net-value').textContent.trim()).toBe('$2,000.00');
     });
 
     test('review table keeps an inactive deduction conflict visible and blocks export', () => {
@@ -721,14 +721,15 @@ describe('Financial desktop layouts', () => {
         const categoryCounts = [...host.querySelectorAll('.payroll-review-table__toggle-heading small')]
             .map(counter => counter.textContent.trim());
 
-        expect(headers).toEqual(['#', 'EMPLEADO', 'DÍAS', 'BRUTO', 'BONIFIC.', 'DEDUCCIONES', 'PRÉSTAMOS', 'NETO', 'DESGLOSE']);
+        expect(headers).toEqual(['#', 'EMPLEADO', 'DÍAS DE PAGO', 'BRUTO', 'BONIFIC.', 'DEDUCCIONES', 'PRÉSTAMOS', 'NETO']);
         expect(categoryCounts).toEqual(['1/1', '1/1', '1/1']);
-        expect(row.querySelector('.payroll-review-table__number').textContent.trim()).toBe('12');
+        expect(row.querySelector('.payroll-review-table__number > span:first-child').textContent.trim()).toBe('12');
+        expect(row.querySelector('.payroll-review-table__initials').textContent).toBe('AL');
         expect(row.querySelector('.payroll-review-table__employee').textContent.trim()).toBe('Ada Lovelace');
         expect((row.querySelector('.is-bonus').querySelector('.payroll-review-cell-toggle > span') || row.querySelector('.is-bonus')).textContent.trim()).toBe('+$100.00');
         expect((row.querySelector('.is-deduction').querySelector('.payroll-review-cell-toggle > span') || row.querySelector('.is-deduction')).textContent.trim()).toBe('−$300.00');
         expect((row.querySelector('.is-loan').querySelector('.payroll-review-cell-toggle > span') || row.querySelector('.is-loan')).textContent.trim()).toBe('−$275.00');
-        expect(row.children).toHaveLength(9);
+        expect(row.children).toHaveLength(8);
         expect(host.querySelector('th.is-loan')).not.toBeNull();
         expect(PAYROLL_REDESIGN_CSS).toMatch(
             /\.payroll-review-table[^}]*\.is-loan\s*\{[^}]*color:\s*#f59e0b;/

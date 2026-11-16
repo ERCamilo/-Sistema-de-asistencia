@@ -201,7 +201,6 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/payroll/PayrollLoanSettlement.js",
     "./js/modules/features/payroll/PayrollLoans.js",
     "./js/modules/features/payroll/PayrollLoansDesktop.js",
-    "./js/modules/features/payroll/PayrollMobileNavigation.js",
     "./js/modules/features/payroll/PayrollPeriod.js",
     "./js/modules/features/payroll/PayrollPreview.js",
     "./js/modules/features/payroll/PayrollPreviewInputs.js",
