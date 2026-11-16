@@ -9,6 +9,7 @@ import {
     round2
 } from '../loans/LoansService.js';
 import { replayLoan } from '../loans/LoanTimeline.js';
+import { getLoanDueDate } from '../loans/LoanAccount.js';
 
 /**
  * Cuánto se descuenta a un empleado en esta nómina (paso 4):
@@ -50,13 +51,48 @@ export function calculatePayrollBeforeLoans(
     );
 }
 
-export function getEligiblePayrollLoans(employee, periodEnd = null) {
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86_400_000;
+const isoTime = key => Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)));
+
+/**
+ * ¿El día de pago `payDate` corresponde a una nómina POSTERIOR a la del
+ * período [periodStart, periodEnd]? El día de pago suele caer unos días
+ * después del fin del período, pero siempre antes de que termine el período
+ * siguiente: por eso el umbral es fin + duración del período. Sin inicio se
+ * asume una semana.
+ */
+export function isScheduledAfterPayroll(payDate, periodStart, periodEnd) {
+    if (!ISO_DAY.test(String(payDate || '')) || !ISO_DAY.test(String(periodEnd || ''))) return false;
+    const length = ISO_DAY.test(String(periodStart || ''))
+        ? Math.max(1, Math.round((isoTime(periodEnd) - isoTime(periodStart)) / DAY_MS) + 1)
+        : 7;
+    return isoTime(payDate) >= isoTime(periodEnd) + length * DAY_MS;
+}
+
+/**
+ * Nómina (día de pago) para la que está programado el próximo cobro:
+ * - pago único: la «Nómina de cobro» (o la que fijó un refinanciamiento);
+ * - cuotas: solo si se programó la primera cuota (`firstDueDate`), la fecha
+ *   de la siguiente cuota pendiente. Las cuotas sin programar conservan el
+ *   comportamiento anterior (se ofrecen desde ya).
+ */
+function scheduledPayDateOf(loan, chargeOptions, isInstallments) {
+    if (isInstallments) {
+        return loan.firstDueDate ? (chargeOptions[0]?.dueDate || null) : null;
+    }
+    return getLoanDueDate(loan);
+}
+
+export function getEligiblePayrollLoans(employee, periodEnd = null, periodStart = null) {
     return (employee?.loans || [])
         .filter(loan => loan.status === LOAN_STATUS.ACTIVE && getBalance(loan) > 0)
         .map(loan => {
             const chargeOptions = getPayrollDeductionOptions(loan, periodEnd);
             const terms = getActiveLoanTerms(loan);
             const isInstallments = terms.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+            const scheduledPayDate = scheduledPayDateOf(loan, chargeOptions, isInstallments);
+            const scheduledLater = isScheduledAfterPayroll(scheduledPayDate, periodStart, periodEnd);
             return {
                 loanId: loan.id,
                 concept: loan.concept || 'Préstamo',
@@ -66,15 +102,23 @@ export function getEligiblePayrollLoans(employee, periodEnd = null) {
                 balance: getBalance(loan),
                 chargeOptions,
                 maxChargeCount: chargeOptions.length,
-                defaultChargeCount: chargeOptions.length > 0 ? 1 : 0
+                scheduledPayDate,
+                scheduledLater,
+                // Programado para una nómina posterior: visible pero sin marcar.
+                defaultChargeCount: chargeOptions.length > 0 && !scheduledLater ? 1 : 0
             };
         })
         .filter(loan => loan.maxChargeCount > 0);
 }
 
-export function buildPayrollLoanSelection(employees, periodEnd = null) {
+/** Préstamos que tocan en esta nómina (excluye los programados para después). */
+export function getDuePayrollLoans(employee, periodEnd = null, periodStart = null) {
+    return getEligiblePayrollLoans(employee, periodEnd, periodStart).filter(loan => !loan.scheduledLater);
+}
+
+export function buildPayrollLoanSelection(employees, periodEnd = null, periodStart = null) {
     return (employees || []).map(employee => {
-        const loans = getEligiblePayrollLoans(employee, periodEnd)
+        const loans = getEligiblePayrollLoans(employee, periodEnd, periodStart)
             .filter(loan => loan.defaultChargeCount > 0)
             .map(loan => ({
                 loanId: loan.loanId,

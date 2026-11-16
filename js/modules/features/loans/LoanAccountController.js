@@ -271,7 +271,8 @@ export function laSave() {
         const draft = {
             principal: money(m.amount), interestRate: money(m.rate), startDate: m.date, concept: m.concept,
             installmentMode: m.plan === 'installments' ? INSTALLMENT_MODE.INSTALLMENTS : INSTALLMENT_MODE.LUMP,
-            installmentCount: Math.max(2, Math.round(Number(m.count) || 2)), installmentFrequencyWeeks: Number(m.freq) || 2
+            installmentCount: Math.max(2, Math.round(Number(m.count) || 2)), installmentFrequencyWeeks: Number(m.freq) || 2,
+            ...(m.plan === 'installments' && /^\d{4}-\d{2}-\d{2}$/.test(String(m.period || '')) ? { firstDueDate: m.period } : {})
         };
         return registerNewAccountLoan(emp.id, draft, { period: m.plan === 'lump' ? m.period : null }).catch(error => alertMsg(`❌ ${error.message}`));
     } else if (m.type === 'edit') {
