@@ -1,3 +1,5 @@
+import { assertVoiceFormContext, hasVoiceSource, validVoiceDate } from '../voice/VoiceActionDrafts.js';
+import { getLoanNumbers } from './LoanAccount.js';
 import { loanDataKey } from './LoanDataKey.js';
 /**
  * 🧾 LoanAccountController — acciones de la ficha «cuenta de préstamos».
@@ -34,6 +36,7 @@ import { registerLoanExportGlobals } from './LoanExportPanel.js';
 import { registerConsolidationReviewGlobals } from './LoanConsolidationReviewPanel.js';
 import { readLoanUiMemory, saveLoanUiMemory } from './LoanUiMemory.js';
 
+let voicePaymentContext = null;
 const CLASSIC_KEY = 'loans-account-view';
 
 /** ¿Usar la ficha nueva? Se puede volver a la anterior por dispositivo. */
@@ -100,6 +103,28 @@ function act(fn, announce, after = view => { view.modal = null; view.ask = null;
     }
 }
 
+function persistVoicePaymentDraft() {
+    const m = ui().modal;
+    if (m?.voice && voicePaymentContext) voicePaymentContext.onChange?.({
+        amount: m.amount, date: m.date, note: m.note, channel: m.channel,
+        period: m.period, target: m.target, spokenLoanNumber: m.spokenLoanNumber
+    });
+}
+export function openVoiceAccountPaymentDraft(employeeId, context) {
+    assertVoiceFormContext(context, employeeId);
+    const emp = selectedEmployee();
+    if (!emp || String(emp.id) !== String(employeeId)) throw Error('Selecciona la cuenta del empleado antes de revisar el abono.');
+    if (ui().modal) throw Error('Cierra el formulario de préstamos abierto antes de revisar el abono de voz.');
+    const draft = context.draft;
+    let target = draft.target;
+    if (target == null) {
+        const numbers = getLoanNumbers(emp.loans || []);
+        target = draft.spokenLoanNumber == null ? 'account' : (emp.loans || []).find(l => String(numbers.get(l.id)) === String(Number(draft.spokenLoanNumber)))?.id || '';
+    }
+    voicePaymentContext = context;
+    update(view => { view.modal = { type: 'pay', ...draft, target, voice: { transcript: context.transcript, issues: context.issues, needsReview: context.needsReview } }; view.ask = null; });
+}
+
 // ─── Navegación ──────────────────────────────────────────────────────────────
 
 export function laSetTab(tab) { update(view => { view.tab = tab === 'mov' ? 'mov' : 'loans'; view.ask = null; }); }
@@ -108,11 +133,19 @@ export function laToggleShowVoid() { update(view => { view.showVoid = !view.show
 export function laAsk(key, where) { update(view => { const id = `${key}#${where}`; view.ask = view.ask === id ? null : id; view.askRevision = selectedEmployee() ? loanDataKey([selectedEmployee()]) : null; view.fixWhy = ''; }); }
 export function laCancelAsk() { update(view => { view.ask = null; view.fixWhy = ''; }); }
 export function laFixWhy(value) { update(view => { view.fixWhy = String(value || ''); }, { redraw: false }); }
-export function laClose() { update(view => { view.modal = null; }); }
+export function laVoiceChangeEmployee() {
+    const context = voicePaymentContext;
+    if (!context) return;
+    try { assertVoiceFormContext(context, selectedEmployee()?.id); }
+    catch (error) { alertMsg(error.message); return; }
+    laClose(); context.changeEmployee?.();
+}
+export function laClose() { persistVoicePaymentDraft(); voicePaymentContext = null; update(view => { view.modal = null; }); }
 
 // ─── Ventanas ────────────────────────────────────────────────────────────────
 
 export function laOpen(type, loanId = null) {
+    persistVoicePaymentDraft(); voicePaymentContext = null;
     const emp = selectedEmployee();
     if (!emp) return;
     const today = getDateKey(new Date());
@@ -171,11 +204,13 @@ export function laField(field, value) {
             view.modal.sel = sel;
         }
     });
+    persistVoicePaymentDraft();
 }
 
 /** Campos de texto libre: se guardan sin redibujar para no mover el cursor. */
 export function laFieldQuiet(field, value) {
     update(view => { if (view.modal) view.modal[field] = String(value ?? ''); }, { redraw: false });
+    persistVoicePaymentDraft();
 }
 
 export function laToggleSel(loanId) {
@@ -254,13 +289,28 @@ export function laSave() {
     const periods = getAccountPayPeriods(today);
     const money = v => round2(Number(v) || 0);
     if (m.type === 'pay') {
+        const context = m.voice ? voicePaymentContext : null;
+        if (m.voice) {
+            try {
+                if (!context) throw Error('Vuelve a abrir el abono desde Voz.');
+                assertVoiceFormContext(context, selectedEmployee()?.id);
+                if (!validVoiceDate(m.date)) throw Error('Selecciona una fecha válida.');
+                if (!['payroll', 'cash', 'transfer'].includes(m.channel)) throw Error('Selecciona la forma de pago.');
+                if (!m.target) throw Error('Selecciona a qué préstamo aplicar el abono.');
+                if (m.channel === 'payroll' && !periods.some(p => p.payDate === m.period && !closedPeriodEnds().has(p.end))) throw Error('Selecciona un período de nómina abierto.');
+                const payments = (state.employees || []).flatMap(e => (e.loans || []).flatMap(l => l.payments || []));
+                if (hasVoiceSource(payments, context)) throw Error('Esta grabación ya se utilizó para guardar un abono.');
+            } catch (error) { alertMsg(error.message); return; }
+        }
         const period = m.channel === 'payroll' ? periods.find(p => p.payDate === m.period) : null;
         const params = {
             amount: money(m.amount), date: m.date, note: m.note, recordedBy: options().by, channel: m.channel,
+            ...(context ? { voiceRequestId: context.requestId, voiceActorUid: context.uid } : {}),
             payrollPeriodStart: period?.start, payrollPeriodEnd: period?.end
         };
-        act(emp => m.target === 'account' ? recordAccountPayment(emp, params, options()) : recordDirectPayment(emp, m.target, params, options()),
+        const result = act(emp => m.target === 'account' ? recordAccountPayment(emp, params, options()) : recordDirectPayment(emp, m.target, params, options()),
             r => `Abono registrado: ${money(m.amount).toFixed(2)}${r?.payments ? ` en ${r.payments.length} préstamo(s)` : ''}`);
+        if (result && context) { voicePaymentContext = null; context.onSaved?.(); }
     } else if (m.type === 'refi') {
         const failed = periods.find(p => p.payDate === m.period);
         const next = followingPayPeriod(periods, m.period);
@@ -464,7 +514,7 @@ export function registerLoanAccountGlobals() {
     registerConsolidationReviewGlobals();
     Object.assign(window, {
         laUseClassicView, laSetTab, laToggleLoan, laToggleShowVoid, laAsk, laCancelAsk, laFixWhy, laClose,
-        laOpen, laField, laFieldQuiet, laToggleSel, laCopySummary, laSave, laVoid, laAdjust, laFix,
+        laOpen, laField, laFieldQuiet, laVoiceChangeEmployee, laToggleSel, laCopySummary, laSave, laVoid, laAdjust, laFix,
         laUndoClosure, laCancelAgreement, laRestoreConsolidation, laUndoAllConsolidations, laApplyBackfill, laReviewPayment,
         lpToggleAlerts, lpAlertPanel, lpRiskLevel, lpTip, lpCard
     });

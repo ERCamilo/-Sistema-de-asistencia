@@ -14,7 +14,30 @@ import { state, stateManager, invalidateEmployeeStats, buildAttendanceIndex } fr
 import { getDateKey } from '../../utils/DateUtils.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { render } from '../../core/RenderManager.js';
+import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
+import { assertVoiceFormContext, hasVoiceSource, validVoiceDate } from '../voice/VoiceActionDrafts.js';
 import { upsertNote, clearNote } from './NotesService.js';
+
+let voiceNoteContext = null;
+const notifyVoiceNote = message => window.showNotification?.(message, 'error');
+function changeVoiceNoteDraft() {
+    voiceNoteContext?.onChange?.({ text: state.noteModalText, date: state.noteModalDate });
+}
+/** Prefills the ordinary editor; the existing save button remains the only writer. */
+export function openVoiceNoteDraft(employeeId, context) {
+    assertVoiceFormContext(context, employeeId);
+    if (state.showNoteModal) throw Error('Cierra la nota abierta antes de abrir el borrador de voz.');
+    const emp = state.employees.find(e => String(e.id) === String(employeeId));
+    if (!emp || !entityInScope(emp, peekEntityScope())) throw Error('Empleado no disponible en la obra activa.');
+    openNewNote(employeeId);
+    voiceNoteContext = context;
+    stateManager.batchSetState(() => {
+        state.noteModalText = context.draft.text || '';
+        state.noteModalDate = context.draft.date;
+        state.noteModalVoice = { transcript: context.transcript, issues: context.issues, needsReview: context.needsReview };
+    });
+    render();
+}
 
 // ─── Open / close the Notes Center ───────────────────────────────────────────
 
@@ -54,6 +77,9 @@ export function openNoteEditor(employeeId, dateKey) {
     const key = `${employeeId}-${dateKey}`;
     const att = state.attendance[key];
     if (!att || att.deletedAt != null || !att.notes) return; // Fase 1 (U2c): no abrir un tombstone como si tuviera nota
+    changeVoiceNoteDraft(); voiceNoteContext = null; stateManager.batchSetState(() => {
+        state.noteModalVoice = null;
+    });
 
     stateManager.batchSetState(() => {
         state.showNotesCenter = true;
@@ -66,6 +92,9 @@ export function openNoteEditor(employeeId, dateKey) {
 }
 
 export function openNewNote(employeeId) {
+    voiceNoteContext = null; stateManager.batchSetState(() => {
+        state.noteModalVoice = null;
+    });
     if (!employeeId) {
         if (typeof window !== 'undefined' && window.showNotification) {
             window.showNotification('❌ Selecciona un empleado primero', 'error');
@@ -83,7 +112,22 @@ export function openNewNote(employeeId) {
     render();
 }
 
+export function changeVoiceNoteEmployee() {
+    const context = voiceNoteContext;
+    if (!context) return;
+    try { assertVoiceFormContext(context, state.noteModalEmployeeId); }
+    catch (error) { notifyVoiceNote(error.message); return; }
+    closeNoteModal();
+    stateManager.batchSetState(() => {
+        state.showNotesCenter = false;
+    });
+    render(); context.changeEmployee?.();
+}
 export function closeNoteModal() {
+    changeVoiceNoteDraft();
+    voiceNoteContext = null; stateManager.batchSetState(() => {
+        state.noteModalVoice = null;
+    });
     stateManager.batchSetState(() => {
         state.showNoteModal = false;
         state.noteModalEmployeeId = null;
@@ -95,11 +139,11 @@ export function closeNoteModal() {
 }
 
 export function setNoteModalText(value) {
-    state.noteModalText = value;
+    state.noteModalText = value; changeVoiceNoteDraft();
 }
 
 export function setNoteModalDate(value) {
-    state.noteModalDate = value;
+    state.noteModalDate = value; changeVoiceNoteDraft();
 }
 
 // ─── Save / delete the current note ──────────────────────────────────────────
@@ -115,7 +159,22 @@ export function saveNoteModal() {
         return;
     }
 
-    const result = upsertNote(state, employeeId, dateKey, text);
+    const context = voiceNoteContext;
+    let finalText = text;
+    if (state.noteModalVoice) {
+        try {
+            if (!context) throw Error('Vuelve a abrir el borrador desde Voz.');
+            assertVoiceFormContext(context, employeeId);
+            if (!validVoiceDate(state.noteModalDate)) throw Error('Selecciona una fecha válida.');
+            const emp = state.employees.find(e => String(e.id) === String(employeeId));
+            const existing = state.attendance[`${employeeId}-${dateKey}`];
+            if (!emp || !entityInScope(emp, peekEntityScope()) || existing && !entityInScope(existing, peekEntityScope())) throw Error('La nota no pertenece a la obra activa.');
+            if (existing?.deletedAt != null) throw Error('La asistencia de ese día fue eliminada. Revisa el registro antes de añadir una nota.');
+            if (hasVoiceSource(Object.values(state.attendance).flatMap(a => a.voiceNoteRequests || []), context)) throw Error('Esta grabación ya se utilizó para guardar una nota.');
+            finalText = [existing?.notes?.trim(), text].filter(Boolean).join('\n');
+        } catch (error) { notifyVoiceNote(error.message); return; }
+    }
+    const result = upsertNote(state, employeeId, dateKey, finalText, context ? { voiceSource: { voiceRequestId: context.requestId, voiceActorUid: context.uid } } : {});
     if (!result) {
         if (window.showNotification) window.showNotification('❌ Empleado no encontrado', 'error');
         return;
@@ -125,11 +184,14 @@ export function saveNoteModal() {
     invalidateEmployeeStats(employeeId);
     buildAttendanceIndex(dateKey);
     saveApplicationData({ announce: 'Nota guardada' });
+    voiceNoteContext = null;
     closeNoteModal();
+    context?.onSaved?.();
     render();
 }
 
 export function deleteNoteModal() {
+    if (state.noteModalVoice) return;
     const employeeId = state.noteModalEmployeeId;
     const dateKey = state.noteModalDate;
     if (!employeeId || !dateKey) return;
@@ -162,6 +224,7 @@ export function deleteNoteModal() {
  */
 export function registerLegacyGlobals() {
     if (typeof window === 'undefined') return;
+    window.changeVoiceNoteEmployee = changeVoiceNoteEmployee;
     window.openNotesCenter = openNotesCenter;
     window.closeNotesCenter = closeNotesCenter;
     window.selectNotesEmployee = selectNotesEmployee;

@@ -5,7 +5,7 @@ import { vsArrow, vsDate, vsIcon, vsIdentity, vsWave } from './VoiceSettingsView
 import { voiceHasPendingWork, voiceProcessingStatus } from './VoicePending.js';
 
 function pendingActions(ui, record, available) {
-    if (!available || record.completedLoanId || record.completedCashId || record.purpose === 'name-example') return '';
+    if (!available || record.completedAction || record.completedLoanId || record.completedCashId || record.purpose === 'name-example') return '';
     const active = record.processingLease?.until > Date.now(), waiting = record.retryAt > Date.now();
     return `<div class="vs-pending-actions"><span class="vs-pending-status" role="status">${escapeHTML(voiceProcessingStatus(record))}</span>${record.error ? `<details><summary>Ver error</summary><p>${escapeHTML(record.error.message || 'No se pudo procesar.')}</p></details>` : ''}<div>${ui.adapter.onReviewRecording ? `<button type="button" class="vs-btn" data-vs-action="review-record" data-value="${escapeAttr(record.requestId)}" ${active?'disabled':''}>${record.result || record.pendingResult?'Revisar borrador':'Abrir audio'}</button>` : ''}${ui.adapter.onProcessRecording && !record.cashDraft?.pendingMovement && voiceHasPendingWork(record) ? `<button type="button" class="vs-btn vs-primary" data-vs-action="process-record" data-value="${escapeAttr(record.requestId)}" ${active || ui.adapter.isProcessing?.() || waiting || navigator.onLine === false || ui.adapter.isEnabled?.() === false ? 'disabled':''}>${active?'Procesando…':waiting?'En espera':record.error || record.processingState==='processing'?'Reintentar':'Enviar'}</button>` : ''}</div>${waiting?`<small>Reintentar después de ${escapeHTML(new Date(record.retryAt).toLocaleTimeString())}</small>`:''}</div>`;
 }

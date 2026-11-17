@@ -55,6 +55,7 @@ export function upsertNote(state, employeeId, dateKey, text, opts = {}) {
         existing.selectedPosition = emp.positions[0];
     }
 
+    if (opts.voiceSource) existing.voiceNoteRequests = [...(existing.voiceNoteRequests || []), { ...opts.voiceSource }];
     existing.notes = trimmed;
     existing._isDirty = true;
     existing.updatedAt = Date.now();

@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.148';
+const APP_VERSION = '1.7.149';
 const CHANGELOG = [
+    { version: '1.7.149', date: '2026-11-16', title: 'Notas y abonos por voz', items: ['Los borradores de notas usan marcos azules sobre fondo oscuro y los abonos una tarjeta verde, con el estilo de los préstamos por voz.', 'Voz prepara notas de empleados y abonos de préstamos en los formularios habituales, para revisar y guardar.', 'Puedes cambiar de empleado conservando los datos; las notas se añaden a las ya guardadas para ese día.', 'Los abonos conservan el reparto actual de interés y capital; una grabación ya utilizada no se registra de nuevo.'] },
     { version: '1.7.148', date: '2026-11-16', title: 'Pronunciaciones compartidas más claras', items: ['Voz muestra el nombre y número de las otras personas que comparten una pronunciación.', 'Los avisos al editar y guardar coincidencias incluyen nombres reales y variantes, conservando la selección manual.', 'Los avisos también detectan nombres con guion y nombres en otro orden.'] },
     { version: '1.7.147', date: '2026-11-16', title: 'Primera cuota por voz', items: ['En el préstamo por voz en cuotas eliges en qué nómina se cobra la primera cuota.'] },
     { version: '1.7.146', date: '2026-11-16', title: 'Préstamos programados para una nómina', items: ['Al registrar un préstamo de pago único eliges en cuál de las próximas 8 nóminas se cobra; en cuotas, en qué nómina va la primera cuota.', 'Nómina muestra los préstamos programados para más adelante con la etiqueta «Programado», sin marcarlos ni incluirlos en los cobros masivos. Puedes marcarlos a mano para adelantar el cobro.'] },

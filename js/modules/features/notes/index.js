@@ -15,6 +15,7 @@ export {
     backToNotesList,
     openNoteEditor,
     openNewNote,
+    openVoiceNoteDraft,
     closeNoteModal,
     setNoteModalText,
     setNoteModalDate,
