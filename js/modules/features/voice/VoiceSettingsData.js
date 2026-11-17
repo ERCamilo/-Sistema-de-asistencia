@@ -1,3 +1,4 @@
+import { normalizeVoiceName } from './VoiceMatching.js';
 import { voiceAudioExpiry, voiceRetentionPolicy, VOICE_DAY } from './VoiceRetention.js';
 
 export const voiceProjectKey = scope => scope?.enabled ? String(scope.projectId || 'pending') : 'legacy';
@@ -11,11 +12,20 @@ export function voiceRecordingInfo(record, settings = {}, now = Date.now()) {
         label: available ? record.completedLoanId ? 'Préstamo' : 'Borrador' : record.audioDiscardReason === 'manual' ? 'Audio eliminado' : expiresAt <= now ? 'Audio vencido' : 'Audio no disponible' };
 }
 
-export function voiceAliasCollisions(value, employeeId, employees, aliases) {
-    const compact = text => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-    const key = compact(value);
+// Use the same exact-name forms as the resolver, without running fuzzy matching
+// for every alias rendered in the settings list.
+export function voiceAliasCollisions(value, employeeId, employees = [], aliases = []) {
+    const normalize = text => normalizeVoiceName(text).slice(0, 160);
+    const compact = text => text.replace(/\s/g, '');
+    const ordered = text => text.split(' ').sort().join(' ');
+    const name = normalize(value), key = compact(name);
     if (!key) return [];
-    return employees.filter(employee => employee.id !== employeeId && (
-        compact(employee.name) === key || String(employee.name || '').split(/\s+/).some(part => compact(part) === key)
-        || (aliases.find(row => row.employeeId === employee.id)?.aliases || []).some(alias => compact(alias) === key)));
+    const aliasMap = new Map(aliases.map(row => [row.employeeId, row.aliases || []]));
+    return employees.filter(employee => {
+        if (employee.id === employeeId) return false;
+        const full = normalize(employee.name);
+        return (full && (compact(full) === key || ordered(full) === ordered(name)))
+            || full.split(' ').includes(name)
+            || (aliasMap.get(employee.id) || []).some(alias => compact(normalize(alias)) === key);
+    });
 }
