@@ -1,3 +1,4 @@
+import { VoicePaymentModal } from './VoicePaymentModal.js';
 import { readLoanEmployee } from './LoanChronology.js';
 /**
  * 🧾 LoanAccountView — ficha de préstamos del empleado como «cuenta» (fase B).
@@ -460,7 +461,8 @@ function AccountModal(emp, modal, ctx) {
         : modal.type === 'close' ? CloseModal(emp, modal)
         : modal.type === 'agree' ? AgreeModal(emp, modal, ctx)
         : modal.type === 'unconsolidate' ? UnconsolidateModal(emp, modal) : '';
-    return `<div class="la-ov" data-app-close-on-self="laClose"><div class="la-md" role="dialog" aria-modal="true" aria-labelledby="la-modal-title">${body}</div></div>`;
+    const voicePayment = modal.type === 'pay' && !!modal.voice;
+    return `<div class="la-ov ${voicePayment ? 'voice-form-overlay' : ''}" data-app-close-on-self="laClose"><div class="la-md ${voicePayment ? 'voice-form-sheet voice-form-sheet--payment' : ''}" role="dialog" aria-modal="true" aria-labelledby="la-modal-title">${body}</div></div>`;
 }
 
 const head = (tone, title, sub) => `<div class="la-md__h"><h2 id="la-modal-title"><span class="la-tag la-c-${tone}"></span>${escapeHTML(title)}${sub ? `<small>${escapeHTML(sub)}</small>` : ''}</h2><button type="button" class="la-closex" data-app-fn="laClose" aria-label="Cerrar">✕</button></div>`;
@@ -491,21 +493,42 @@ function PayModal(emp, m, { periods, today, summary, salary, agreement }) {
     const recent = periods.filter(p => p.payDate <= (nextPayPeriod(periods, today)?.payDate || today)).slice(-3);
     if (m.period && !recent.some(p => p.payDate === m.period)) recent.push(...periods.filter(p => p.payDate === m.period));
     const thirty = Math.round(salary * 0.3 / 100) * 100;
-    return `${head('pay', target ? `Pagar el préstamo #${numbers.get(target.id)}` : 'Abonar a la cuenta', `debe ${M(owed)}${target ? '' : ` · ${pool.length} préstamos`}`)}
-    <div class="la-md__b">
-        ${m.voice ? `<button type="button" class="la-btn" data-app-fn="laVoiceChangeEmployee">Cambiar empleado</button><details class="voice-form-transcript" ${m.voice.needsReview ? 'open' : ''}><summary>Texto reconocido</summary><p style="white-space:pre-wrap">${escapeHTML(m.voice.transcript)}</p>${m.voice.needsReview ? '<p>Revisa los datos antes de guardar.</p>' : ''}${(m.voice.issues || []).map(i => `<p>${escapeHTML(i.message)}</p>`).join('')}</details>${select('target', m.target, 'Aplicar a', [{value:'',label:'Selecciona un préstamo o toda la cuenta'}, {value:'account',label:'Toda la cuenta'}, ...summary.loans.map(x => ({value:x.loan.id,label:`Préstamo #${numbers.get(x.loan.id)}`}))])}` : ''}
-        <div class="la-row3">${numInput('amount', m.amount, { big: true, label: 'Monto' })}${dateInput('date', m.date, 'Fecha')}${select('channel', m.channel, 'Forma de pago', [...(m.voice ? [{value:'',label:'Selecciona'}] : []), ...Object.entries(CHANNEL_LABEL).map(([value, label]) => ({ value, label }))])}</div>
-        <div class="la-row2b"><div class="la-chips"><button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${owed}">Todo ${M(owed, 0)}</button>${intOwed > 0 ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${intOwed}" title="Paga solo el interés pendiente; el capital queda igual">Solo interés ${M(intOwed, 0)}</button>` : ''}${!target && agreement ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${Math.min(agreement.amount, owed)}">Acordado ${M(agreement.amount, 0)}</button>` : ''}${!target && thirty > 0 ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${Math.min(thirty, owed)}">30 % sueldo ${M(thirty, 0)}</button>` : ''}</div>
-            ${m.channel === 'payroll' && recent.length ? `<label class="la-inl" for="la-period">Nómina<select id="la-period" class="la-input" onchange="laField('period', this.value)">${m.voice ? '<option value="">Selecciona</option>' : ''}${periodOptions(recent, { closed }).map(o => `<option value="${escapeAttr(o.value)}" ${o.value === m.period ? 'selected' : ''} ${o.disabled ? 'disabled' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></label>` : ''}</div>
-        <div class="la-tbl"><table><thead><tr><th>${target ? 'Primero su interés, luego su capital' : 'Reparto · interés de todos, luego capital del más viejo'}</th><th>Debe</th><th>Interés</th><th>Capital</th><th>Queda</th></tr></thead><tbody>
+    const breakdown = `<div class="la-tbl"><table><thead><tr><th>${target ? 'Primero su interés, luego su capital' : 'Reparto · interés de todos, luego capital del más viejo'}</th><th>Debe</th><th>Interés</th><th>Capital</th><th>Queda</th></tr></thead><tbody>
             ${pool.map(x => { const p = byLoan.get(x.loan.id) || { interest: 0, capital: 0 }; const q = round2(x.balance - p.interest - p.capital);
                 return `<tr><td><b>#${x.number}</b> ${dm(x.loan.startDate)}</td><td><b>${M(x.balance, 0)}</b><small class="la-split"><span class="la-t-int">${M(x.interest, 0)} int.</span> · <span class="la-t-cap">${M(x.capital, 0)} cap.</span></small></td><td class="la-t-payint">${p.interest ? M(p.interest, 0) : '—'}</td><td class="la-t-pay">${p.capital ? M(p.capital, 0) : '—'}</td><td>${q <= 0.004 ? '<span class="la-pill la-pill--pay">Saldado</span>' : M(q, 0)}</td></tr>`; }).join('')}
             <tr class="la-tot"><td>Total</td><td>${M(owed, 0)}<small class="la-split"><span class="la-t-int">${M(intOwed, 0)} int.</span> · <span class="la-t-cap">${M(owed - intOwed, 0)} cap.</span></small></td><td class="la-t-payint">${M(tInt, 0)}</td><td class="la-t-pay">${M(tCap, 0)}</td><td>${M(Math.max(0, owed - tInt - tCap), 0)}</td></tr>
-        </tbody></table></div>
+        </tbody></table></div>`;
+    if (m.voice) {
+        const canSave = amount > 0 && plan.excess <= 0.01 && m.target && (m.target === 'account' || !!target)
+            && ['payroll','cash','transfer'].includes(m.channel)
+            && (m.channel !== 'payroll' || periods.some(p => p.payDate === m.period && !closed.has(p.end)));
+        const hint = !m.target || m.target !== 'account' && !target ? 'Selecciona el préstamo.'
+            : !m.channel ? 'Selecciona la forma de pago.' : m.channel === 'payroll' && !periods.some(p => p.payDate === m.period && !closed.has(p.end)) ? 'Selecciona una nómina abierta.'
+            : amount <= 0 ? 'Completa el monto.' : plan.excess > 0.01 ? 'El abono supera el saldo pendiente.' : '';
+        return VoicePaymentModal({
+            employee: emp, positions: state.positions || [], source: m.voice, canSave, hint,
+            amountField: numInput('amount', m.amount, { big: true, label: 'Monto' }),
+            dateField: dateInput('date', m.date, 'Fecha'),
+            channelField: select('channel', m.channel, 'Forma de pago', [{value:'',label:'Seleccionar'}, ...Object.entries(CHANNEL_LABEL).map(([value,label]) => ({value,label}))]),
+            targetField: select('target', m.target, 'Aplicar a', [{value:'',label:'Seleccionar préstamo'}, {value:'account',label:'Toda la cuenta'}, ...summary.loans.map(x => ({value:x.loan.id,label:`Préstamo #${numbers.get(x.loan.id)}`}))]),
+            periodField: m.channel === 'payroll' ? select('period', m.period, 'Nómina', [{value:'',label:'Seleccionar'}, ...periodOptions(recent, {closed})]) : '',
+            noteField: textInput('note', m.note, 'Nota opcional', 'Añadir una nota'),
+            quickAmounts: `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${owed}">Todo ${M(owed,0)}</button>${intOwed > 0 ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${intOwed}">Solo interés ${M(intOwed,0)}</button>` : ''}${!target && agreement ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${Math.min(agreement.amount,owed)}">Acordado ${M(agreement.amount,0)}</button>` : ''}${!target && thirty > 0 ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${Math.min(thirty,owed)}">30 % sueldo ${M(thirty,0)}</button>` : ''}`,
+            currentBalance: M(summary.balance), remaining: M(Math.max(0, summary.balance - Math.min(amount, owed))),
+            warning: plan.excess > 0.01 ? `<p class="voice-form-warning" role="alert">Supera el saldo por ${M(plan.excess)}.</p>` : '',
+            loanCount: pool.length, breakdown
+        });
+    }
+    return `${head('pay', target ? `Pagar el préstamo #${numbers.get(target.id)}` : 'Abonar a la cuenta', `debe ${M(owed)}${target ? '' : ` · ${pool.length} préstamos`}`)}
+    <div class="la-md__b">
+        <div class="la-row3">${numInput('amount', m.amount, { big: true, label: 'Monto' })}${dateInput('date', m.date, 'Fecha')}${select('channel', m.channel, 'Forma de pago', Object.entries(CHANNEL_LABEL).map(([value, label]) => ({ value, label })))}</div>
+        <div class="la-row2b"><div class="la-chips"><button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${owed}">Todo ${M(owed, 0)}</button>${intOwed > 0 ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${intOwed}" title="Paga solo el interés pendiente; el capital queda igual">Solo interés ${M(intOwed, 0)}</button>` : ''}${!target && agreement ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${Math.min(agreement.amount, owed)}">Acordado ${M(agreement.amount, 0)}</button>` : ''}${!target && thirty > 0 ? `<button type="button" data-app-fn="laField" data-arg="amount" data-arg2="${Math.min(thirty, owed)}">30 % sueldo ${M(thirty, 0)}</button>` : ''}</div>
+            ${m.channel === 'payroll' && recent.length ? `<label class="la-inl" for="la-period">Nómina<select id="la-period" class="la-input" onchange="laField('period', this.value)">${periodOptions(recent, { closed }).map(o => `<option value="${escapeAttr(o.value)}" ${o.value === m.period ? 'selected' : ''} ${o.disabled ? 'disabled' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></label>` : ''}</div>
+        ${breakdown}
         ${plan.excess > 0.01 ? `<div class="la-warnbox">Pasa de lo que debe por <b>${M(plan.excess)}</b>. Corrige el monto (todavía no se puede dejar saldo a favor).</div>` : ''}
         ${textInput('note', m.note, 'Nota (opcional)', 'Ej.: abono acordado en la obra')}
     </div>
-    ${footer(`Queda debiendo <b>${M(Math.max(0, summary.balance - Math.min(amount, owed)))}</b>`, 'Guardar abono', 'pay', amount > 0 && plan.excess <= 0.01 && (!m.voice || m.target && (m.target === 'account' || !!target) && ['payroll','cash','transfer'].includes(m.channel) && (m.channel !== 'payroll' || periods.some(p => p.payDate === m.period && !closed.has(p.end)))))}`;
+    ${footer(`Queda debiendo <b>${M(Math.max(0, summary.balance - Math.min(amount, owed)))}</b>`, 'Guardar abono', 'pay', amount > 0 && plan.excess <= 0.01)}`;
 }
 
 function RefiModal(emp, m, { periods, today, summary }) {

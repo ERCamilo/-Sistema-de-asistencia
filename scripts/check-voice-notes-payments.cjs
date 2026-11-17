@@ -51,15 +51,23 @@ const server=http.createServer((req,res)=>{
   const {default:puppeteer}=await import('puppeteer-core');browser=await puppeteer.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage']});
   const origin='http://127.0.0.1:'+server.address().port;
   for(const width of [320,390,1440]){
-   const page=await browser.newPage(),errors=[],businessRequests=[];await page.setViewport({width,height:844});
+   const page=await browser.newPage(),errors=[],businessRequests=[];await page.setViewport({width,height:844});await page.emulateTimezone('America/Santo_Domingo');
    page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);page.on('request',req=>{if(req.url().startsWith(origin)||req.url().startsWith('blob:')||req.url().startsWith('data:'))req.continue();else{if(/n8n|firestore|identitytoolkit/i.test(req.url()))businessRequests.push(req.url());req.abort();}});
    await page.goto(origin+'/fixture');await page.waitForFunction(()=>window.ready).catch(e=>{throw Error(e.message+' — '+JSON.stringify(errors));});
    await page.click('#note');await page.waitForSelector('#note-modal-text');assert.equal(await page.$eval('#note-modal-text',el=>el.value),'no vino');assert.equal(await page.evaluate(()=>saveCount),0);
+   await page.addScriptTag({path:require.resolve('axe-core/axe.min.js')});
+   const checkDesign=async()=>{
+    const violations=await page.evaluate(async()=> (await axe.run('.voice-form-sheet',{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)})));
+    assert.deepEqual(violations,[]);
+    const layout=await page.$eval('.voice-form-sheet',el=>{const r=el.getBoundingClientRect(),f=el.querySelector('.voice-form-footer').getBoundingClientRect();return {left:r.left,right:r.right,bottom:r.bottom,footerBottom:f.bottom,width:innerWidth,height:innerHeight,scroll:el.scrollWidth,client:el.clientWidth};});
+    assert.ok(layout.left>=0&&layout.right<=layout.width+1&&layout.bottom<=layout.height+1&&layout.footerBottom<=layout.height+1&&layout.scroll<=layout.client+1,JSON.stringify(layout));
+   };
+   await checkDesign();
    const shot=async name=>{if(process.env.VOICE_ACTION_SHOTS){fs.mkdirSync(process.env.VOICE_ACTION_SHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.VOICE_ACTION_SHOTS,width+'-'+name+'.png')});}};
    await shot('nota');await page.click('[data-app-fn=saveNoteModal]');await page.waitForFunction(()=>saveCount===1&&!state.showNoteModal);
    assert.equal(await page.evaluate(()=>Object.values(state.attendance)[0].present),false);
    await page.click('#payment');await page.waitForSelector('#la-channel');assert.equal(await page.$eval('#la-channel',el=>el.value),'');assert.equal(await page.$eval('[data-app-fn=laSave]',el=>el.disabled),true);
-   await page.select('#la-channel','cash');await page.waitForFunction(()=>!document.querySelector('[data-app-fn=laSave]').disabled);await shot('abono');
+   await page.select('#la-channel','cash');await page.waitForFunction(()=>!document.querySelector('[data-app-fn=laSave]').disabled);await checkDesign();await shot('abono');
    const bounds=await page.$eval('.la-md',el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,width:innerWidth};});assert.ok(bounds.left>=0&&bounds.right<=bounds.width+1,JSON.stringify(bounds));
    await page.click('[data-app-fn=laVoiceChangeEmployee]');await page.waitForSelector('[data-voice-view=employees]');assert.equal(await page.evaluate(()=>saveCount),1);
    await page.click('[data-voice-action=select][data-id=a]');await page.waitForSelector('#la-channel');assert.equal(await page.$eval('#la-channel',el=>el.value),'cash');

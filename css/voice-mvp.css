@@ -276,3 +276,67 @@
 .voice-form-transcript{padding:10px 12px;margin:0 0 10px;border:1px solid #315283;border-radius:12px;background:#142238;color:#e2e8f0;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .voice-form-transcript summary{color:#b9d7ff;font-weight:600;cursor:pointer}
 .voice-form-transcript p{margin:6px 0 0;white-space:pre-wrap}
+
+/* Notes and repayments inherit the compact voice-draft composition. */
+.voice-form-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:12px;overflow:hidden;background:#000a;z-index:10002}
+.voice-form-sheet{--voice-form-accent:#4b88ff;--voice-form-ink:#f3f6fc;--voice-form-surface:#10151e;box-sizing:border-box;display:flex;flex-direction:column;width:min(420px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:2px solid var(--voice-form-accent);border-radius:24px;background:var(--voice-form-surface);color:var(--voice-form-ink);box-shadow:0 24px 64px #0008;font-family:'IBM Plex Sans',system-ui,sans-serif;overflow:hidden}
+.voice-form-sheet--payment.la-md{--voice-form-accent:#42d99a;--voice-form-ink:#101713;--voice-form-surface:#42d99a;width:min(420px,calc(100vw - 24px));max-height:calc(100dvh - 24px);border-color:#42d99a;border-radius:24px;background:var(--voice-form-surface);color:var(--voice-form-ink)}
+.voice-form-header{display:flex;align-items:center;gap:12px;flex:none;padding:16px 16px 8px}
+.voice-form-header h2{flex:1;min-width:0;margin:0;color:inherit;font-size:26px;line-height:1.2;letter-spacing:-.02em;font-weight:700}
+.voice-form-sheet svg{width:22px;height:22px;flex-shrink:0}
+.voice-form-sheet button{font:inherit;cursor:pointer}
+.voice-form-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 42px;min-width:42px;min-height:42px;padding:9px;border:1px solid #6a93d859;border-radius:12px;background:transparent;color:inherit}
+.voice-form-header .voice-form-icon{border-color:transparent}
+.voice-form-body{display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px;scrollbar-width:thin;scrollbar-color:#586c86 transparent}
+.voice-form-sheet .voice-identity-card{display:flex;align-items:center;gap:10px;margin:0 0 2px;padding:10px;border:1px solid #3b6197;border-radius:16px;background:#0b1017;color:#f3f6fc}
+.voice-form-sheet--payment .voice-identity-card{border-color:#101713;background:#111714}
+.voice-form-sheet .voice-avatar{flex:0 0 44px;width:44px;height:44px}
+.voice-form-sheet .voice-person{flex:1;min-width:0}
+.voice-form-sheet .voice-person strong{display:block;font-size:16px;line-height:1.25;overflow-wrap:anywhere}
+.voice-form-sheet .voice-employee-meta{font-size:12px;color:#a6afb7}
+.voice-form-sheet .voice-code{color:#a6afb7}
+.voice-form-swap{display:inline-flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;height:44px;padding:10px;border:1px solid #34413a;border-radius:12px;background:#202924;color:#f3f6fc}
+.voice-form-sheet--note .voice-form-swap{background:#19263b;border-color:#365c92}
+.voice-form-field,.voice-form-sheet .la-fl{display:flex;flex-direction:column;gap:5px;margin:0;padding:8px 10px;min-width:0;border:1px solid #375d97;border-radius:12px;background:#0b1017;color:#afc7eb;font-size:12px;font-weight:500}
+.voice-form-sheet .voice-form-field input,.voice-form-sheet .voice-form-field textarea,.voice-form-sheet .la-input{box-sizing:border-box;width:100%;min-width:0;min-height:32px;margin:0;padding:2px 0;border:0;border-radius:6px;background:transparent;color:#f3f6fc;font:500 16px/1.4 'IBM Plex Sans',system-ui,sans-serif;color-scheme:dark}
+.voice-form-sheet .voice-form-field textarea{min-height:112px;max-height:240px;resize:vertical;padding:3px 0;font-weight:400}
+.voice-form-sheet select option{background:#111714;color:#f3f6fc}
+.voice-form-sheet--payment .la-fl{background:#111714;border-color:#111714;color:#aab9b1}
+.voice-form-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.voice-form-amount .la-fl{padding:0;background:transparent;border:0;color:#101713;font-size:13px}
+.voice-form-amount .la-input{min-height:54px;padding:0 0 0 29px;color:#101713;font:700 40px/1.15 'IBM Plex Sans',system-ui,sans-serif}
+.voice-form-amount .la-fl{position:relative}
+.voice-form-amount .la-fl::before{content:'$';position:absolute;bottom:4px;left:0;font-size:38px;font-weight:700}
+.voice-form-quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:-5px}
+.voice-form-quick button{padding:5px 9px;min-height:32px;border:1px solid #17674566;border-radius:20px;background:transparent;color:#113b29;font-size:11px;font-weight:600}
+.voice-form-balance{display:flex;flex-direction:column;gap:4px;padding:10px 0;border-top:1px solid #146c494d;border-bottom:1px solid #146c494d;font-size:12px}
+.voice-form-balance>div{display:flex;align-items:baseline;flex-wrap:wrap;gap:10px;font-size:19px;font-weight:500}
+.voice-form-balance strong{font-size:25px;font-weight:700}
+.voice-form-caption{margin:0;color:#9fb5d3;font-size:11px;line-height:1.4}
+.voice-form-source{padding:11px 12px;border:1px solid #365f9d;border-radius:14px;background:#131f32;color:#f3f6fc;font-size:12px;overflow-wrap:anywhere}
+.voice-form-source summary{color:#b7d1f8;font-weight:600;cursor:pointer}
+.voice-form-source p{margin:8px 0 0;line-height:1.5;white-space:pre-wrap}
+.voice-form-issues{margin-top:8px;color:#c3d0e3;font-size:11px}
+.voice-form-sheet--payment .voice-form-source{border-color:#274d3a;background:#111b16}
+.voice-form-sheet--payment .voice-form-source summary{color:#a6dfc2}
+.voice-form-sheet--payment .voice-form-issues{color:#b3cdbf}
+.voice-form-breakdown{padding:0;color:#113b29;font-size:12px}
+.voice-form-breakdown>summary{display:flex;align-items:center;gap:8px;min-height:32px;cursor:pointer;font-weight:600;list-style:none}
+.voice-form-breakdown>summary::before{content:'›';display:inline-block;font-size:22px;transition:transform .18s ease}
+.voice-form-breakdown[open]>summary::before{transform:rotate(90deg)}
+.voice-form-breakdown>summary span{margin-left:auto;padding:2px 8px;border:1px solid #17674566;border-radius:12px;font-size:11px}
+.voice-form-breakdown .la-tbl{margin-top:6px;background:#111b16;color:#edf7f1;border-radius:12px;overflow-x:auto}
+.voice-form-breakdown .la-tbl table{min-width:390px}
+.voice-form-warning{margin:0;padding:8px 10px;border:1px solid #8a3b25;border-radius:10px;background:#ffe5d2;color:#64200e;font-size:12px}
+.voice-form-footer{display:flex;flex-wrap:wrap;gap:10px;flex:none;align-items:center;margin:0;padding:12px 16px;border-top:1px solid #365f9d66;background:var(--voice-form-surface)}
+.voice-form-save{display:flex;flex:1;justify-content:center;align-items:center;gap:12px;min-height:48px;padding:10px 14px;border:1px solid #326fdd;border-radius:14px;background:#285fc7;color:#fff;font-weight:700!important;font-size:15px!important}
+.voice-form-sheet--payment .voice-form-footer{border-color:#146c494d}
+.voice-form-sheet--payment .voice-form-icon{border-color:#17674566}
+.voice-form-sheet--payment .voice-form-save{background:#111714;border-color:#111714;color:#61eab0}
+.voice-form-save:disabled{opacity:.5;cursor:not-allowed}
+.voice-form-hint{flex-basis:100%;font-size:11px;color:inherit;line-height:1.4}
+.voice-form-sheet :focus-visible{outline:2px solid var(--voice-form-accent);outline-offset:3px}
+.voice-form-sheet--payment :focus-visible{outline-color:#12281d}
+.voice-form-sheet--payment .la-fl :focus-visible{outline-color:#61eab0}
+@media(max-width:420px){.voice-form-header h2{font-size:24px}.voice-form-body{padding:10px 14px}.voice-form-footer{padding:10px 14px}}
+@media(prefers-reduced-motion:reduce){.voice-form-breakdown>summary::before{transition:none}}
