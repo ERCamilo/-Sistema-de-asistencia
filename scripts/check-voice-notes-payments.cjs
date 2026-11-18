@@ -42,7 +42,7 @@ const server=http.createServer((req,res)=>{
  const pathname=new URL(req.url,'http://fixture').pathname;
  if(pathname==='/fixture'){res.setHeader('Content-Type','text/html');res.end(fixture);return;}
  if(pathname==='/js/modules/data/firebase.js'){res.setHeader('Content-Type','text/javascript');res.end(firebaseStub);return;}
- if(pathname==='/js/modules/services/PersistenceService.js' && !req.url.includes('?original')){res.setHeader('Content-Type','text/javascript');res.end('export * from \'./PersistenceService.js?original\'; export function saveApplicationData(){window.saveCount++;}');return;}
+ if(pathname==='/js/modules/services/PersistenceService.js' && !req.url.includes('?original')){res.setHeader('Content-Type','text/javascript');res.end('export * from \'./PersistenceService.js?original\'; export function saveApplicationData(){window.saveCount++;return {localOk:true};}');return;}
  const file=path.resolve(ROOT,'.'+pathname);if(!file.startsWith(ROOT+path.sep)){res.writeHead(403).end();return;}
  fs.readFile(file,(error,body)=>{if(error){res.writeHead(404).end();return;}res.setHeader('Content-Type',{'.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml'}[path.extname(file)]||'application/octet-stream');res.end(body);});
 });

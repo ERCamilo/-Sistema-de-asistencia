@@ -20,12 +20,12 @@ beforeEach(()=>{
     state.attendance={};state.showNoteModal=false;state.noteModalVoice=null;
     state.settings={regularHoursPerDay:8,holidays:[],payPeriod:{periodStart:'2026-08-21',periodLength:21,payDay:'2026-09-12'}};
     state.loansLedger={selectedEmployeeId:'a',account:{tab:'loans',modal:null}};
-    closeNoteModal();state.showNotesCenter=false;laClose();saveApplicationData.mockClear();
+    closeNoteModal();state.showNotesCenter=false;laClose();saveApplicationData.mockReset().mockResolvedValue({localOk:true});
 });
 afterEach(()=>{closeNoteModal();laClose();});
 test('repayment prefill never writes; original save uses the existing interest/capital allocation once',()=>{
     const loan=addLoan();const ctx=context({amount:500,date:'2026-11-16',note:'anticipo',channel:'cash',period:'',spokenLoanNumber:null});
-    saveApplicationData.mockClear();openVoiceAccountPaymentDraft('a',ctx);
+    saveApplicationData.mockReset().mockResolvedValue({localOk:true});openVoiceAccountPaymentDraft('a',ctx);
     expect(savedLoan(loan).payments).toHaveLength(0);expect(saveApplicationData).not.toHaveBeenCalled();
     laSave();expect(savedLoan(loan).payments).toHaveLength(1);expect(savedLoan(loan).payments[0]).toMatchObject({amount:500,note:'anticipo',channel:'cash',voiceRequestId:'r1',voiceActorUid:'u',allocation:{interest:200,capital:300}});
     expect(getBalance(savedLoan(loan))).toBe(700);expect(ctx.onSaved).toHaveBeenCalledTimes(1);
@@ -48,7 +48,7 @@ test.each([
     {channel:''},{spokenLoanNumber:'999'}, {date:'2026-02-30'},{amount:9999},{channel:'payroll',period:''}
 ])('incomplete or invalid repayment cannot be committed: %j',overrides=>{
     const loan=addLoan();const ctx=context({amount:100,date:'2026-11-16',channel:'cash',...overrides});
-    saveApplicationData.mockClear();openVoiceAccountPaymentDraft('a',ctx);laSave();
+    saveApplicationData.mockReset().mockResolvedValue({localOk:true});openVoiceAccountPaymentDraft('a',ctx);laSave();
     expect(savedLoan(loan).payments).toHaveLength(0);expect(saveApplicationData).not.toHaveBeenCalled();expect(ctx.onSaved).not.toHaveBeenCalled();
 });
 test('payroll repayments use the selected existing payroll period',()=>{
@@ -66,17 +66,17 @@ test('late session/scope/employee guards prevent a payment',()=>{
     ctx.guard.mockImplementation(()=>{throw Error('Cambió la cuenta o proyecto');});laSave();expect(savedLoan(loan).payments).toHaveLength(0);
     ctx.guard.mockImplementation(()=>{});state.loansLedger.selectedEmployeeId='b';laSave();expect(savedLoan(loan).payments).toHaveLength(0);
 });
-test('dictation appends to the latest note only on save, preserves attendance and cannot replay even after clearing text',()=>{
+test('dictation appends to the latest note only on save, preserves attendance and cannot replay even after clearing text',async()=>{
     state.attendance['a-2026-11-16']={employeeId:'a',date:'2026-11-16',notes:'Anterior',hoursWorked:8,overtimeHours:2,present:true,selectedPosition:'p'};
     const ctx=context({text:'no vino',date:'2026-11-16'});openVoiceNoteDraft('a',ctx);
     expect(state.attendance['a-2026-11-16'].notes).toBe('Anterior');expect(saveApplicationData).not.toHaveBeenCalled();
-    state.attendance['a-2026-11-16'].notes='Anterior\nNota sincronizada';setNoteModalText('no vino hoy');saveNoteModal();
+    state.attendance['a-2026-11-16'].notes='Anterior\nNota sincronizada';setNoteModalText('no vino hoy');await saveNoteModal();
     expect(state.attendance['a-2026-11-16']).toMatchObject({notes:'Anterior\nNota sincronizada\nno vino hoy',hoursWorked:8,overtimeHours:2,present:true});expect(ctx.onSaved).toHaveBeenCalledTimes(1);
-    clearNote(state,'a','2026-11-16');openVoiceNoteDraft('a',ctx);saveNoteModal();expect(state.attendance['a-2026-11-16'].notes).toBe('');
+    clearNote(state,'a','2026-11-16');openVoiceNoteDraft('a',ctx);await saveNoteModal();expect(state.attendance['a-2026-11-16'].notes).toBe('');
     expect(window.showNotification).toHaveBeenLastCalledWith(expect.stringContaining('ya se utilizó'),'error');
 });
-test('note date is editable and a new note does not mark attendance present',()=>{
-    const ctx=context({text:'trajo herramientas',date:'2026-11-16'});openVoiceNoteDraft('a',ctx);setNoteModalDate('2026-11-15');saveNoteModal();
+test('note date is editable and a new note does not mark attendance present',async()=>{
+    const ctx=context({text:'trajo herramientas',date:'2026-11-16'});openVoiceNoteDraft('a',ctx);setNoteModalDate('2026-11-15');await saveNoteModal();
     expect(state.attendance['a-2026-11-16']).toBeUndefined();expect(state.attendance['a-2026-11-15']).toMatchObject({present:false,hoursWorked:0,notes:'trajo herramientas'});
 });
 test('deleted attendance, invalid dates, stale context and empty notes cannot be written',()=>{

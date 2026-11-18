@@ -45,7 +45,7 @@ export function NoteEditorModal() {
                         <label for="note-modal-date" style="font-size: 0.75rem; color: #94a3b8; display:block; margin-bottom: 6px;">Fecha</label>
                         <input id="note-modal-date" type="date"
                                value="${escapeAttr(state.noteModalDate || getDateKey(new Date()))}"
-                               onchange="setNoteModalDate(this.value)"
+                               onchange="setNoteModalDate(this.value)" ${state.noteModalEditing ? 'readonly' : ''}
                                style="width: 100%;
                                       background: #0f172a;
                                       color: #e2e8f0;
@@ -86,7 +86,7 @@ export function NoteEditorModal() {
                                    cursor: pointer;">
                         Guardar
                     </button>
-                    <button type="button" data-app-fn="deleteNoteModal"
+                    <button type="button" data-app-fn="deleteNoteModal" ${state.noteModalEditing ? '' : 'hidden'}
                             style="padding: 10px 12px;
                                    background: #1e293b;
                                    border: 1px solid #ef4444;
