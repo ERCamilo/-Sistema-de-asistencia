@@ -2581,11 +2581,15 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             null,
             `Asistencia de ${emp.name}`,
             () => {
-                state.attendance[key] = previousAtt
-                    ? stampAttendanceWrite(previousAtt)
-                    : tombstoneAttendanceWrite(state.attendance[key]);
-                invalidateEmployeeStats(empId);
-                buildAttendanceIndex(getDateKey(date));
+                stateManager.batchSetState(() => {
+                    if (previousAtt) {
+                        state.attendance[key] = stampAttendanceWrite(previousAtt);
+                    } else {
+                        state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
+                    }
+                    invalidateEmployeeStats(empId);
+                    buildAttendanceIndex(getDateKey(date));
+                });
             }
         );
     }
