@@ -17,7 +17,7 @@
  * con `now` destruiría la frescura que el merge LWW (U3) necesita comparar.
  */
 
-import { peekEntityScope } from '../projects/ProjectContext.js';
+import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 
 /**
  * F1.5 (ADR-008) — NACIMIENTO: estampa el proyecto activo en un registro
@@ -91,6 +91,17 @@ export function tombstoneAttendanceWrite(record, now = Date.now()) {
         if (scope.enabled && scope.defaultProjectId) tomb.projectId = scope.defaultProjectId;
     }
     return tomb;
+}
+
+export function attendanceNoteFields(record) {
+    if (!record || !entityInScope(record)) return { notes: '' };
+    if (record.deletedAt != null && !Number.isFinite(record.noteUpdatedAt)) return { notes: '' };
+    const { notes = '', noteUpdatedAt, voiceNoteRequests } = record;
+    return {
+        notes,
+        ...(Number.isFinite(noteUpdatedAt) ? { noteUpdatedAt } : {}),
+        ...(voiceNoteRequests ? { voiceNoteRequests } : {})
+    };
 }
 
 export default stampAttendanceWrite;

@@ -128,7 +128,7 @@ import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
-import { stampAttendanceWrite as stampBaseAttendanceWrite, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
+import { stampAttendanceWrite as stampBaseAttendanceWrite, attendanceNoteFields, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
 import {
     buildBulkUndoPlan,
     buildClearVisibleAttendancePlan,
@@ -210,7 +210,7 @@ import { VoicePettyCashUI } from './modules/features/voice/VoicePettyCashUI.js';
 import { initBottomNav, watchMicPermission } from './modules/ui/navigation/BottomNav.js';
 import { chooseBottomNav } from './modules/ui/navigation/LegacyBottomNav.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
-import { openVoiceNoteDraft, NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
+import { upsertNote, clearNote, openVoiceNoteDraft, NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import {
     prepareRestoreProjectSurface,
@@ -2568,7 +2568,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             selectedPosition: selectedPos,
             multiPosition: false,
             positionHours: [],
-            notes: ''
+            ...attendanceNoteFields(att)
         });
 
         // Limpiar selección temporal después de usarla
@@ -2581,9 +2581,15 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             null,
             `Asistencia de ${emp.name}`,
             () => {
-                state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
-                invalidateEmployeeStats(empId);
-                buildAttendanceIndex(getDateKey(date));
+                stateManager.batchSetState(() => {
+                    if (previousAtt) {
+                        state.attendance[key] = stampAttendanceWrite(previousAtt);
+                    } else {
+                        state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
+                    }
+                    invalidateEmployeeStats(empId);
+                    buildAttendanceIndex(getDateKey(date));
+                });
             }
         );
     }
@@ -3783,7 +3789,7 @@ window.handleWeekCheck = (empId, dateStr, event, element) => {
             overtimeHours: 0,
             isHoliday: isDayHoliday(date, getActivePayrollSettings(state).holidays),
             useTempPosition: false,
-            notes: '',
+            ...attendanceNoteFields(state.attendance[key]),
             multiPosition: emp.positions?.length > 1,
             positionHours: emp.positions?.length > 0 ?
                 [{ positionId: emp.positions[0], hours: hours }] :
@@ -5046,37 +5052,14 @@ window.saveQuickNoteFromDetail = (empId) => {
     if (!emp) return;
     // F1 R02: fail closed — empleado/registro de otra obra nunca se mutan.
     if (!entityInScope(emp)) return;
-    if (state.attendance[key] && !entityInScope(state.attendance[key])) return;
+    if (state.attendance[key] && (!entityInScope(state.attendance[key]) || state.attendance[key].deletedAt != null)) return;
 
     // ⚡ Fase 4 Paso 5: el upsert/clear + la coherencia van en batchSetState → 1 repintado
     // (antes: el del set-trap + el manual del final). Notas NO son financieras, pero la
     // coherencia se mantiene uniforme (un upsert puede CREAR el registro → debe indexarse).
     stateManager.batchSetState(() => {
-        if (!text) {
-            // Empty textarea = clear the note (if any existed).
-            if (state.attendance[key]) {
-                state.attendance[key].notes = '';
-                state.attendance[key].updatedAt = Date.now();
-                state.attendance[key]._isDirty = true;
-            }
-        } else {
-            const existing = state.attendance[key] || {
-                employeeId: empId,
-                date: dateKey,
-                present: false,
-                hoursWorked: 0,
-                overtimeHours: 0,
-                isHoliday: false,
-                // F1 R02: posición por defecto dentro de la obra activa.
-                selectedPosition: (emp.positions || []).find(pid =>
-                    (state.positions || []).some(p => p.id === pid && entityInScope(p))) || null,                multiPosition: false,
-                positionHours: [],
-                notes: ''
-            };
-            existing.notes = text;
-            existing._isDirty = true;
-            state.attendance[key] = stampAttendanceWrite(existing); // U1b: choke point (antes updatedAt a mano)
-        }
+        if (text) upsertNote(state, empId, dateKey, text);
+        else clearNote(state, empId, dateKey);
         invalidateEmployeeStats(empId);
         buildAttendanceIndex(dateKey);
     });
@@ -5084,7 +5067,7 @@ window.saveQuickNoteFromDetail = (empId) => {
     // El repintado lo agenda batchSetState al cerrar; se suelta la llamada manual.
     // Toast honesto con el resultado real del guardado (local/nube).
     const _noteLabel = text ? 'Nota guardada' : 'Nota eliminada';
-    if (typeof saveApplicationData === 'function') saveApplicationData({ announce: _noteLabel });
+    if (typeof saveApplicationData === 'function') saveApplicationData({ dateKey, announce: _noteLabel });
 };
 
 // Click delegation and responsive employee-detail routing live below.
