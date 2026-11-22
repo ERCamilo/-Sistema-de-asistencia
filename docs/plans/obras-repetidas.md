@@ -13,7 +13,12 @@ unión por id). Esta función detecta esos pares y los muestra para revisarlos.
 | «No son la misma» persistente y sincronizado (`notSameAs`) | Hecho |
 | Resumen y diferencias por par (`ProjectDuplicateReview`) | Hecho |
 | Pantalla «Obras repetidas» (`ui/ProjectDuplicatesScreen`) | Hecha, tras bandera |
-| **Fusión de dos obras** | **Pendiente** (siguiente entrega) |
+| Plan de fusión puro y que falla cerrado (`ProjectMergePlan`) | Hecho |
+| Acción `MERGE_PROJECT` en el motor de reparación (una transacción) | Hecha |
+| Servicio (copia de seguridad, obra activa, aviso) y comprobación previa | Hechos |
+| Lápida `mergedIntoId` y adopción en dispositivos atrasados (`ProjectCatalogSync`) | Hechas |
+| Paso «Unir en una sola obra» en la pantalla | Hecho, tras bandera |
+| Probado con dos dispositivos reales y datos reales | **Pendiente** |
 
 La entrada (Ajustes → Proyectos) está detrás de la bandera
 `asistencia_feature_project_duplicates` (apagada por defecto) y solo avisa si hay
@@ -46,26 +51,62 @@ atrasado no se pierde). `Project` conserva el campo al editar la obra.
 Limitación conocida: no hay «volver a sugerir»; con unión de listas, quitar un
 descarte reaparecería desde otro dispositivo (haría falta registrar revocaciones).
 
-## La fusión (pendiente) — decisiones ya tomadas
+## Cómo funciona la fusión
 
-- **No reutilizar `MAP_TO_EXISTING`**: el motor de reparación conserva a propósito
-  la asistencia con obra válida como historia de su obra de origen. La fusión
-  debe reescribir `projectId` de empleados, puestos, líderes y asistencia
-  (lo que hace `adoptProject`), dentro de la misma transacción, aislamiento y
-  propagación a la nube que ya usa `applyOwnershipRepair` → acción nueva
-  `MERGE_PROJECT` en ese motor.
-- Después de mover, las personas repetidas se resuelven con la pantalla existente
-  «Duplicados» (`mergeDuplicateEmployees`), que ya une préstamos, abonos y
-  asistencia por id.
-- La obra retirada queda como lápida con `mergedIntoId` (como los empleados), y un
-  dispositivo atrasado la adopta al recibirla (`adoptProject`). Hoy el alias
-  `projectAliasesV1` se escribe pero nadie lo lee.
-- Se **bloquea** si la obra sobrante tiene cierres de nómina (su id incluye
-  `projectId`) o caja chica.
-- Antes de fusionar: copia de seguridad automática (colección `snapshots`).
-- Una obra activa o la inicial no se puede retirar tal cual: hay que cambiar de
-  obra o conservar la inicial como destino.
-- Fusiones simultáneas A→B y B→A: el destino se decide de forma determinista
-  (la más antigua, luego el id) y se evitan cadenas y ciclos.
-- Mini: si se retira una obra a la que Mini está vinculado, hay que desvincular y
-  volver a vincular (decisión: aceptable, el SA es la fuente de verdad).
+Fusionar B (se retira) en A (se conserva) es un **cambio de dueño**, no una copia:
+los ids de empleados, puestos, líderes y asistencia no cambian, solo su obra.
+
+1. **Comprobación previa** (`checkProjectMerge`): el mismo plan que usa el motor,
+   sin escribir. La pantalla muestra los bloqueos antes de dejar confirmar.
+2. **Copia de seguridad** (`createFirebaseSnapshot('pre-restore', 'pre-fusion-obras')`).
+   Si falla, no se fusiona nada.
+3. **Motor** (`applyOwnershipRepair`, acción `MERGE_PROJECT`): una sola transacción de
+   IndexedDB con aislamiento de guardados, memoria de la app actualizada solo en los
+   campos que cambian (no pisa ediciones sin guardar) y cola hacia la nube.
+   Cambia `projectId` de empleados, puestos, líderes y asistencia, y de los préstamos,
+   adelantos, bonos, deducciones, acuerdos y pagos manuales de esas personas. Retira B
+   con lápida (`deletedAt` + `mergedIntoId`), renombra A si se pidió, y deja constancia
+   en el historial de reparaciones (`fromProject`/`intoProject`: no usar
+   `sourceProjectId`/`targetProjectId`, porque ProjectUsage los contaría como referencias
+   vivas y dejaría las obras «en uso» para siempre).
+4. Si B era la obra activa, se cambia a A. Se avisa al catálogo (`projects:setup-changed`)
+   para que publique la lápida.
+5. Las personas que están en las dos obras quedan repetidas dentro de A: se unen con la
+   pantalla «Duplicados» existente (`mergeDuplicateEmployees`), a la que lleva el resumen.
+
+### Falla cerrado
+
+El plan solo reescribe la clave `projectId`. Después comprueba que B queda **vacía** con
+la misma contabilidad que usa el borrado de obras (`summarizeProjectUsage`). Si no,
+no cambia nada y explica por qué. Se bloquea con: cierres de nómina (su id incluye la
+obra), caja chica, cambios sin sincronizar que mencionan B (outbox), pagos enlazados a
+un cierre de nómina, referencias que no sabe mover (`sourceProjectId`, `payrollProjectId`,
+anidadas en puestos/líderes/asistencia), otros registros que apuntan a B, cambios sin
+guardar en memoria, B activa fuera de lugar (inicial) o nombre repetido. La obra inicial
+nunca se retira: se conserva como destino.
+
+### Dispositivos atrasados
+
+La lápida de B lleva `mergedIntoId`. Al recibirla, un dispositivo que aún tenga datos
+bajo B ejecuta la misma acción en modo `adopt` (sin tocar el catálogo) y la lápida
+queda en su sitio. Si no se puede (cierres, cambios sin guardar…), la protección de
+borrados deja B visible y señalada y no se pierde nada. Las cadenas nunca pasan de un
+salto: al fusionar A en C, las lápidas que apuntaban a A pasan a apuntar a C. Dos
+dispositivos que fusionan en sentidos opuestos a la vez dejan ambas obras visibles y
+señaladas (protección de borrados) en lugar de perder datos.
+
+## Límites conocidos
+
+- **Puestos repetidos**: se mueven tal cual. Si las dos obras tenían un puesto con el
+  mismo nombre, A queda con dos. No se fusionan por nombre todavía.
+- **Cierres de nómina y caja chica** de la obra retirada bloquean la fusión. Moverlos
+  exigiría rehacer ids con huella (cierres) y vínculos fiscales (caja chica).
+- **Configuración de nómina de B**: A conserva la suya; la de B queda huérfana.
+- **Mini**: si Mini estaba vinculado a B (`saProjectId`), hay que desvincularlo y
+  volver a vincularlo; las bandejas y consolidaciones de Mini guardadas por `saProjectId`
+  de B no se reasignan. Decisión: aceptable, SA es la fuente de verdad.
+- **«Volver a sugerir»** no existe: con unión de listas, quitar un descarte
+  reaparecería desde otro dispositivo (haría falta registrar revocaciones).
+- La asistencia no se fusiona día a día: cada registro conserva su clave
+  `empleado-fecha`, y la unión de personas repetidas (con su asistencia) la hace
+  «Duplicados».

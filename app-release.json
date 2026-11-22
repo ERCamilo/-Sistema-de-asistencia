@@ -1,6 +1,16 @@
 {
-  "version": "1.7.150",
+  "version": "1.7.151",
   "changelog": [
+    {
+      "version": "1.7.151",
+      "date": "2026-11-22",
+      "title": "Preparación para fusionar obras repetidas",
+      "items": [
+        "Prepara la fusión de dos obras que en realidad son la misma: pasa el personal, la asistencia y los préstamos a una sola obra, con copia de seguridad previa.",
+        "Tus otros dispositivos adoptan la fusión al sincronizar.",
+        "Todavía no se muestra: se activará en una próxima versión."
+      ]
+    },
     {
       "version": "1.7.150",
       "date": "2026-11-18",

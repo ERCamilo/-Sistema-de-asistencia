@@ -1,6 +1,8 @@
 import { planFinancialRecovery } from './ProjectFinancialRecovery.js';
 import { reviewFinancialPlanRepair } from './ProjectFinancialPlanRepair.js';
 import { findProjectNameConflict, duplicateProjectNameMessage } from './ProjectNames.js';
+import { planProjectMerge } from './ProjectMergePlan.js';
+import { protectedProjectIds, usageStoreNames } from './ProjectUsage.js';
 /**
  * 🔧 ProjectOwnershipRepairService.js — R07 A2b (application service)
  *
@@ -82,6 +84,7 @@ export const REPAIR_ACTION = Object.freeze({
     QUARANTINE:             'QUARANTINE',
     MAP_CATALOG_ENTITIES:  'MAP_CATALOG_ENTITIES',
     MAP_FINANCIAL_PLAN: 'MAP_FINANCIAL_PLAN',
+    MERGE_PROJECT:          'MERGE_PROJECT',
     RESOLVE_LATER:          'QUARANTINE', // alias
 });
 
@@ -800,6 +803,15 @@ function applyFieldScopedMemoryUpdate(memoryUpdate) {
                     ? { ...plan, projectId: patch.targetProjectId, updatedAt: memoryUpdate.repairTimestamp } : plan) };
         }) });
     }
+    if (memoryUpdate.employeeMerges?.size) {
+        // Fusión de obras: solo los campos que el plan cambió, sobre el objeto ACTUAL
+        // en memoria, para no pisar ediciones sin guardar de otros campos.
+        stateManager.setState({ employees: (stateManager._state.employees || []).map(employee => {
+            const patch = memoryUpdate.employeeMerges.get(trimId(employee?.id));
+            if (!patch) return employee;
+            return { ...employee, ...deepCopy(patch), updatedAt: memoryUpdate.repairTimestamp };
+        }) });
+    }
     const employeeProjectIds = memoryUpdate.employeeProjectIds;
     const attendanceProjectIds = memoryUpdate.attendanceProjectIds;
     const employeePositionPatches = memoryUpdate.employeePositionPatches;
@@ -943,7 +955,7 @@ function applyFieldScopedMemoryUpdate(memoryUpdate) {
  * `tx` and must return a value. Resolves with that value on oncomplete and
  * rejects on onerror/onabort.
  */
-function runReadWriteTransaction(db, storeNames, planFn) {
+function runReadWriteTransaction(db, storeNames, planFn, { fullRead = [] } = {}) {
     return new Promise((resolve, reject) => {
         const stores = [...new Set(storeNames)];
         const tx = db.transaction(stores, 'readwrite');
@@ -969,7 +981,7 @@ function runReadWriteTransaction(db, storeNames, planFn) {
 
         for (const name of stores) {
             const store = tx.objectStore(name);
-            const req = (name === 'settings')
+            const req = (name === 'settings' && !fullRead.includes(name))
                 ? store.get(RECONCILIATION_META_KEY)
                 : store.getAll();
             req.onsuccess = (event) => {
@@ -2418,6 +2430,87 @@ export function adoptMemoryOnlyOrphans(durable, memory, scope = peekEntityScope(
     return adopted;
 }
 
+/**
+ * Lo que está en memoria y aún no se guardó no puede quedar atrás: un registro
+ * nuevo de la obra sobrante resucitaría su id, y un préstamo editado se pisaría.
+ */
+function findUnsavedMergeChanges(reads, plan, p) {
+    const memory = p.memorySnapshot;
+    if (!memory) return [];
+    const source = trimId(p.sourceProjectId);
+    const known = {
+        employees: indexById(reads.employees), positions: indexById(reads.positions), leaders: indexById(reads.leaders),
+        attendance: new Set((reads.attendance || []).map(record => trimId(record?.key)))
+    };
+    let count = 0;
+    for (const name of ['employees', 'positions', 'leaders']) {
+        for (const record of memory[name] || []) {
+            if (trimId(record?.projectId) === source && !known[name].has(trimId(record.id))) count++;
+        }
+    }
+    for (const [key, record] of Object.entries(memory.attendance || {})) {
+        if (trimId(record?.projectId) === source && !known.attendance.has(trimId(key))) count++;
+    }
+    const memoryEmployees = indexById(memory.employees);
+    for (const [employeeId, patch] of plan.memory.employeeMerges) {
+        const current = memoryEmployees.get(employeeId);
+        const saved = known.employees.get(employeeId);
+        if (!current || !saved) continue;
+        if (Object.keys(patch).some(key => key !== 'projectId' && JSON.stringify(current[key]) !== JSON.stringify(saved[key]))) count++;
+    }
+    return count ? [{
+        kind: 'UNSAVED_CHANGES', count,
+        message: 'Hay cambios sin guardar que afectan estas obras. Espera a que se guarden y vuelve a intentarlo.'
+    }] : [];
+}
+
+/**
+ * MERGE_PROJECT: cambia de dueño todo lo de la obra sobrante (empleados, puestos,
+ * líderes, asistencia y lo financiero de esas personas) y la retira del catálogo
+ * con `mergedIntoId`, en UNA transacción. El plan es puro y falla cerrado
+ * (ProjectMergePlan): si algo no se puede mover con seguridad, no cambia nada.
+ */
+function computeMergeProject(reads, tx, p) {
+    const source = trimId(p.sourceProjectId);
+    const target = trimId(p.targetProjectId);
+    const plan = planProjectMerge({
+        sourceId: source, targetId: target, projectName: p.projectName, data: reads,
+        timestamp: p.repairTimestamp, protectedIds: p.protectedIds || {}, adopt: p.adopt === true
+    });
+    const asConflicts = blockers => blockers.map(({ code, message, count }) => ({ kind: code, message, ...(count ? { count } : {}) }));
+    if (!plan.ok) return { result: conflictResult(plan.blockers[0].message, { conflicts: asConflicts(plan.blockers) }) };
+    const unsaved = findUnsavedMergeChanges(reads, plan, p);
+    if (unsaved.length) return { result: conflictResult(unsaved[0].message, { conflicts: unsaved }) };
+    if (plan.empty) {
+        return { result: { status: REPAIR_STATUS.NO_OP, reason: 'No queda nada por mover a la obra de destino', affected: [] } };
+    }
+
+    for (const record of plan.writes.employees) txPut(tx, 'employees', record);
+    for (const record of plan.writes.positions) txPut(tx, 'positions', record);
+    for (const record of plan.writes.leaders) txPut(tx, 'leaders', record);
+    for (const { key, record } of plan.writes.attendance) txPut(tx, 'attendance', { ...record, key });
+    for (const row of plan.writes.projects) txPut(tx, 'projects', row);
+    const metaRow = (reads.settings || []).find(row => row?.key === RECONCILIATION_META_KEY) || null;
+    // `fromProject`/`intoProject` (no `sourceProjectId`/`targetProjectId`): la contabilidad
+    // de uso de obras (ProjectUsage) lee `settings` y contaría estas claves como
+    // referencias vivas, dejando las dos obras «en uso» para siempre.
+    txPut(tx, 'settings', buildUpdatedMeta(metaRow, {
+        action: REPAIR_ACTION.MERGE_PROJECT, fromProject: source, intoProject: target,
+        adopt: p.adopt === true, counts: plan.counts, targetName: plan.targetName
+    }));
+
+    return {
+        result: {
+            status: REPAIR_STATUS.OK,
+            action: REPAIR_ACTION.MERGE_PROJECT,
+            sourceProjectId: source, targetProjectId: target, targetName: plan.targetName,
+            adopt: p.adopt === true, counts: plan.counts, affected: [], durableCommitted: true
+        },
+        memoryUpdate: { ...plan.memory, repairTimestamp: p.repairTimestamp },
+        repairAttendanceRecords: plan.writes.attendance
+    };
+}
+
 /** Dispatch to the correct in-transaction planner for the given action. */
 function computeRepair(action, reads, tx, p) {
     if (p.recoverFinancial && [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)) return computeWholeFinancialRecovery(action, reads, tx, p);
@@ -2425,6 +2518,8 @@ function computeRepair(action, reads, tx, p) {
     switch (action) {
         case REPAIR_ACTION.MAP_FINANCIAL_PLAN:
             return computeFinancialPlanMap(reads, tx, p);
+        case REPAIR_ACTION.MERGE_PROJECT:
+            return computeMergeProject(reads, tx, p);
         case REPAIR_ACTION.MAP_TO_EXISTING:
             if ((p.positionIds || []).length || (p.leaderIds || []).length || (p.leaderRemaps || []).length || (p.leaderCopies || []).length) {
                 return computeCombinedAssignment(reads, tx, p, false);
@@ -2615,13 +2710,15 @@ export async function applyOwnershipRepair(params = {}) {
         assignAllOrphanAttendance = false,
         financialPlan = null,
         recoverFinancial = false, configurationSource = '', financialEmployeeIds = null,
+        sourceProjectId, adopt = false, protectedIds = null,
         _db = indexedDBService
     } = params;
+    const isMerge = action === REPAIR_ACTION.MERGE_PROJECT;
 
     // --- Input guard: employees must be an explicit non-empty array.
     const catalogOnly = [REPAIR_ACTION.MAP_TO_EXISTING, REPAIR_ACTION.CREATE_PROJECT_AND_MAP].includes(action)
         && Array.isArray(employees) && !employees.length && (positionIds.length || leaderIds.length || pettyCashIds.length || orphanAttendanceKeys.length || assignAllOrphanAttendance || recoverFinancial);
-    if (action !== REPAIR_ACTION.MAP_CATALOG_ENTITIES && !catalogOnly && (!Array.isArray(employees) || employees.length === 0)) {
+    if (action !== REPAIR_ACTION.MAP_CATALOG_ENTITIES && !isMerge && !catalogOnly && (!Array.isArray(employees) || employees.length === 0)) {
         return {
             status: REPAIR_STATUS.CONFLICT,
             reason: 'employees must be a non-empty explicit array; global repair is not supported',
@@ -2677,6 +2774,12 @@ export async function applyOwnershipRepair(params = {}) {
         assignAllOrphanAttendance,
         financialPlan, recoverFinancial, configurationSource, financialEmployeeIds,
         memoryFinancialEmployees: recoverFinancial ? deepCopy(stateManager._state.employees || []) : null,
+        sourceProjectId, adopt,
+        protectedIds: isMerge ? (protectedIds || protectedProjectIds()) : null,
+        memorySnapshot: isMerge ? deepCopy({
+            employees: stateManager._state.employees || [], positions: stateManager._state.positions || [],
+            leaders: stateManager._state.leaders || [], attendance: stateManager._state.attendance || {}
+        }) : null,
         allEmployees: effectiveAllEmployees,
         catalog,
         skipDependencyCheck,
@@ -2690,8 +2793,10 @@ export async function applyOwnershipRepair(params = {}) {
         const rawDb = _db.db || _db;
         let txOutcome = null;
 
-        await runReadWriteTransaction(rawDb, [...REPAIR_STORES, ...(recoverFinancial ? ['payrollClosures', 'projectPayrollConfigs', 'mainSyncOutbox'] : action === REPAIR_ACTION.MAP_FINANCIAL_PLAN ? ['payrollClosures'] : action === REPAIR_ACTION.CREATE_PROJECT_AND_MAP ? ['projectPayrollConfigs'] : []), ...(pettyCashIds.length ? ['pettyCashProjects', 'pettyCashOutbox'] : [])], (reads, tx) => {
+        const mergeStores = isMerge ? usageStoreNames(rawDb) : [];
+        await runReadWriteTransaction(rawDb, [...REPAIR_STORES, ...mergeStores, ...(recoverFinancial ? ['payrollClosures', 'projectPayrollConfigs', 'mainSyncOutbox'] : action === REPAIR_ACTION.MAP_FINANCIAL_PLAN ? ['payrollClosures'] : action === REPAIR_ACTION.CREATE_PROJECT_AND_MAP ? ['projectPayrollConfigs'] : []), ...(pettyCashIds.length ? ['pettyCashProjects', 'pettyCashOutbox'] : [])], (reads, tx) => {
             const durable = {
+                ...(isMerge ? reads : {}),
                 payrollClosures: reads.payrollClosures || [], projectPayrollConfigs: reads.projectPayrollConfigs || [],
                 projects: reads.projects || [],
                 employees: reads.employees || [],
@@ -2704,7 +2809,7 @@ export async function applyOwnershipRepair(params = {}) {
             adoptMemoryOnlyOrphans(durable, stateManager._state);
             txOutcome = computeRepair(action, durable, tx, computeParams);
             return txOutcome.result;
-        });
+        }, { fullRead: isMerge ? ['settings'] : [] });
 
         if (!txOutcome || !txOutcome.result) {
             throw new Error('Reconciliation produced no result');
