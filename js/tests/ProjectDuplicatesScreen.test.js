@@ -313,6 +313,86 @@ describe('fusionar', () => {
         expect(deps.mergeProjects).not.toHaveBeenCalled();
     });
 
+    describe('dirección consciente de los bloqueos', () => {
+        const closures = { ok: false, blockers: [{ code: 'PAYROLL_CLOSURES', message: 'La obra que se va a unir tiene cierres de nómina.' }] };
+        const ok = { ok: true, blockers: [] };
+        // B (Edificio Sur) tiene cierres: solo se puede conservar B, no retirarla.
+        const onlyBKeeps = jest.fn(async (source, target) => (source === 'B' ? closures : ok));
+
+        test('si la dirección sugerida está bloqueada y la inversa no, invierte sola y lo explica', async () => {
+            await openMerge({ deps: { checkMerge: onlyBKeeps } });
+            await flush();
+            expect($('.dup-card.is-keep').textContent).toContain('Edificio Sur');
+            expect($('.dup-card.is-merge').textContent).toContain('Torre Norte');
+            expect(text()).toMatch(/Conservamos Edificio Sur porque tiene cierres de nómina/);
+            expect($('[data-pdup-name]').value).toBe('Edificio Sur');
+            expect($('[data-pdup-action="confirm-merge"]').disabled).toBe(false);
+        });
+
+        test('al confirmar fusiona en la dirección que sí es posible', async () => {
+            const made = await openMerge({ deps: { checkMerge: onlyBKeeps } });
+            await flush();
+            click('[data-pdup-action="confirm-merge"]');
+            await flush();
+            expect(made.deps.mergeProjects).toHaveBeenCalledWith({ sourceId: 'A', targetId: 'B', projectName: 'Edificio Sur' });
+        });
+
+        test('si las dos direcciones están bloqueadas, no invierte y muestra el bloqueo', async () => {
+            const both = jest.fn(async () => closures);
+            await openMerge({ deps: { checkMerge: both } });
+            await flush();
+            expect($('.dup-card.is-keep').textContent).toContain('Torre Norte');
+            expect(text()).toContain('La obra que se va a unir tiene cierres de nómina.');
+            expect($('[data-pdup-action="confirm-merge"]').disabled).toBe(true);
+            expect(text()).not.toContain('Conservamos');
+        });
+
+        test('con la obra inicial no invierte aunque esté bloqueada', async () => {
+            const blockedA = jest.fn(async () => closures);
+            await openMerge({ deps: { checkMerge: blockedA, getDefaultProjectId: () => 'A' } });
+            await flush();
+            expect(blockedA).toHaveBeenCalledTimes(1);
+            expect($('.dup-card.is-keep').textContent).toContain('Torre Norte');
+        });
+
+        test('invertir a mano hacia una dirección bloqueada no vuelve a invertir solo', async () => {
+            await openMerge({ deps: { checkMerge: jest.fn(async source => (source === 'A' ? closures : ok)) } });
+            await flush();
+            expect($('.dup-card.is-keep').textContent).toContain('Torre Norte');
+            click('[data-pdup-action="swap"]');
+            await flush();
+            expect($('.dup-card.is-keep').textContent).toContain('Edificio Sur');
+            expect($('[data-pdup-action="confirm-merge"]').disabled).toBe(true);
+            expect(text()).not.toContain('Conservamos');
+        });
+
+        test('no pisa el nombre que el usuario ya escribió', async () => {
+            const slow = jest.fn(async source => { await new Promise(resolve => setTimeout(resolve, 5)); return source === 'B' ? closures : ok; });
+            await openMerge({ deps: { checkMerge: slow } });
+            const input = $('[data-pdup-name]');
+            input.value = 'Mi nombre';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            await new Promise(resolve => setTimeout(resolve, 30));
+            expect($('.dup-card.is-keep').textContent).toContain('Edificio Sur');
+            expect($('[data-pdup-name]').value).toBe('Mi nombre');
+        });
+
+        test('si la comprobación inversa falla, se queda con la dirección sugerida bloqueada', async () => {
+            const flaky = jest.fn(async source => { if (source === 'A') throw new Error('idb'); return closures; });
+            await openMerge({ deps: { checkMerge: flaky } });
+            await flush();
+            expect($('.dup-card.is-keep').textContent).toContain('Torre Norte');
+            expect($('[data-pdup-action="confirm-merge"]').disabled).toBe(true);
+        });
+    });
+
+    test('el resumen final cuenta también las cajas chicas', async () => {
+        await openMerge({ deps: { mergeProjects: jest.fn(async () => ({ ...mergeOk, counts: { ...mergeOk.counts, pettyCash: 2 } })) } });
+        click('[data-pdup-action="confirm-merge"]');
+        await flush();
+        expect(text()).toMatch(/2\s*cajas chicas/);
+    });
+
     test('si la comprobación falla, deja que el motor decida', async () => {
         const { deps } = await openMerge({ deps: { checkMerge: jest.fn(async () => { throw new Error('idb'); }) } });
         expect($('[data-pdup-action="confirm-merge"]').disabled).toBe(false);

@@ -4,11 +4,11 @@
     {
       "version": "1.7.151",
       "date": "2026-11-22",
-      "title": "Preparación para fusionar obras repetidas",
+      "title": "Menos obras repetidas",
       "items": [
-        "Prepara la fusión de dos obras que en realidad son la misma: pasa el personal, la asistencia y los préstamos a una sola obra, con copia de seguridad previa.",
-        "Tus otros dispositivos adoptan la fusión al sincronizar.",
-        "Todavía no se muestra: se activará en una próxima versión."
+        "Al crear una obra se revisa primero lo que creaste en tus otros dispositivos, para que no se repita. Sin conexión te avisa que no pudo revisarlo.",
+        "Prepara la fusión de dos obras que en realidad son la misma: pasa el personal, la asistencia, los préstamos y las cajas chicas a una sola obra, con copia de seguridad previa.",
+        "La fusión todavía no se muestra: se activará en una próxima versión."
       ]
     },
     {

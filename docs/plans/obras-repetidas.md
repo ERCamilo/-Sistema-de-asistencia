@@ -18,6 +18,9 @@ unión por id). Esta función detecta esos pares y los muestra para revisarlos.
 | Servicio (copia de seguridad, obra activa, aviso) y comprobación previa | Hechos |
 | Lápida `mergedIntoId` y adopción en dispositivos atrasados (`ProjectCatalogSync`) | Hechas |
 | Paso «Unir en una sola obra» en la pantalla | Hecho, tras bandera |
+| Caja chica: las cajas de la obra retirada pasan a la obra destino | Hecho |
+| Dirección consciente de bloqueos (conserva la obra con cierres) | Hecho |
+| Blindaje al crear: revisar el catálogo de otros dispositivos antes de crear | Hecho (visible, sin bandera) |
 | Probado con dos dispositivos reales y datos reales | **Pendiente** |
 
 La entrada (Ajustes → Proyectos) está detrás de la bandera
@@ -74,6 +77,28 @@ los ids de empleados, puestos, líderes y asistencia no cambian, solo su obra.
 5. Las personas que están en las dos obras quedan repetidas dentro de A: se unen con la
    pantalla «Duplicados» existente (`mergeDuplicateEmployees`), a la que lleva el resumen.
 
+### Caja chica
+
+Una caja solo guarda un vínculo opcional a la obra (`officialProjectId`); sus períodos y
+movimientos no guardan la obra de forma canónica (contrato F1.7). La fusión repunta el
+vínculo de las cajas de B a A y lo encola hacia la nube (`pettyCashOutbox`, mismo
+mecanismo que la reasignación manual); no toca períodos ni movimientos. Las cajas de B
+aparecen bajo A junto a las de A. Un cambio de caja pendiente de sincronizar que mencione
+a B bloquea la fusión hasta que se envíe.
+
+### Cierres de nómina: la dirección importa
+
+Un cierre es una foto del dinero y su id incluye la obra, así que no se reetiqueta. Una obra
+duplicada por un dispositivo atrasado casi nunca tiene cierres (cerrar nómina es deliberado
+y se hace en la principal), así que la pantalla comprueba las dos direcciones: si la
+sugerida está bloqueada y la inversa no, **invierte sola** (conserva la obra con cierres) y
+lo explica. Solo queda bloqueada si **las dos** tienen cierres. Para ese caso, la opción
+estudiada es recuperar los cierres en la obra destino con la recuperación financiera
+existente (copia con `recovery.sourceId`, original conservado, cerrojo en la nube
+`payrollClosureClaims`); se hará cuando aparezca un caso real. Archivar la obra retirada
+en lugar de borrarla no sirve: las cuentas de préstamos se filtran por obra y quedarían
+escondidas para la persona.
+
 ### Falla cerrado
 
 El plan solo reescribe la clave `projectId`. Después comprueba que B queda **vacía** con
@@ -99,8 +124,7 @@ señaladas (protección de borrados) en lugar de perder datos.
 
 - **Puestos repetidos**: se mueven tal cual. Si las dos obras tenían un puesto con el
   mismo nombre, A queda con dos. No se fusionan por nombre todavía.
-- **Cierres de nómina y caja chica** de la obra retirada bloquean la fusión. Moverlos
-  exigiría rehacer ids con huella (cierres) y vínculos fiscales (caja chica).
+- **Cierres de nómina** en las dos obras bloquean la fusión (ver arriba).
 - **Configuración de nómina de B**: A conserva la suya; la de B queda huérfana.
 - **Mini**: si Mini estaba vinculado a B (`saProjectId`), hay que desvincularlo y
   volver a vincularlo; las bandejas y consolidaciones de Mini guardadas por `saProjectId`
@@ -110,3 +134,22 @@ señaladas (protección de borrados) en lugar de perder datos.
 - La asistencia no se fusiona día a día: cada registro conserva su clave
   `empleado-fecha`, y la unión de personas repetidas (con su asistencia) la hace
   «Duplicados».
+
+## Blindaje: que no se generen copias
+
+Resolver duplicados es la red de seguridad; lo mejor es que no nazcan. Se refuerza por capas:
+
+1. **Hecho — revisar antes de crear.** `createEmptyProject` pone al día el catálogo (hasta
+   4 s) antes de comprobar el nombre. Una obra del mismo nombre creada en otro dispositivo se
+   rechaza al crear. Sin conexión se crea igual y se avisa («No se pudieron revisar tus otras
+   obras… te avisaremos al sincronizar»).
+2. **Siguiente — avisar al sincronizar.** Hoy el aviso de obras parecidas solo está en
+   Ajustes → Proyectos. Mostrarlo (una vez por par) cuando una sincronización trae una obra
+   parecida a una local.
+3. **Siguiente — «¿ya existe?» al crear.** Listar las obras actuales en el formulario de
+   creación, sobre todo sin conexión.
+4. **Idea — pre-detección por personal.** Cuando una obra nueva reciba empleados que ya
+   existen en otra obra, sugerir unir antes de que se acumulen datos.
+5. **Idea — ids deterministas por nombre.** Dos dispositivos que crean «Torre Norte» sin
+   conexión generarían el mismo id y el catálogo (unión por id) los uniría solo. A evaluar:
+   colisión con lápidas de obras borradas con ese nombre, renombres y el formato `PRJ-…`.

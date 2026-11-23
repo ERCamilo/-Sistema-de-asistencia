@@ -27,6 +27,12 @@ const ICON = {
 
 const LEVEL_LABEL = { [SIMILARITY_LEVEL.IDENTICAL]: 'Idéntica', [SIMILARITY_LEVEL.SIMILAR]: 'Parecida' };
 const MAX_NAMES = 5;
+const BLOCKER_REASON = {
+    PAYROLL_CLOSURES: 'tiene cierres de nómina',
+    PAYROLL_REFERENCE: 'tiene pagos de nómina enlazados',
+    UNSYNCED_CHANGES: 'tiene cambios sin sincronizar',
+    OTHER_REFERENCES: 'tiene registros que no se pueden mover'
+};
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const initials = name => escapeHTML(String(name || '?').trim().split(/\s+/).map(part => part[0] || '').join('').slice(0, 2).toUpperCase());
@@ -236,6 +242,8 @@ function renderMerge(view) {
     const locked = Boolean(view.defaultProjectId) && [sides.review.a.id, sides.review.b.id].includes(view.defaultProjectId);
     const blockers = draft.check && !draft.check.ok ? draft.check.blockers || [] : [];
     const error = view.error ? `<div class="dup-notice is-bad"><strong>${escapeHTML(view.error)}</strong></div>` : '';
+    const swapped = draft.autoSwap
+        ? `<div class="dup-notice is-info"><strong>Conservamos ${escapeHTML(keep.name)} porque ${escapeHTML(draft.autoSwap.reason)} y eso no se puede mover a otra obra.</strong></div>` : '';
     const blocked = blockers.length
         ? `<div class="dup-notice is-bad" role="alert"><strong>No se puede fusionar todavía</strong>${blockers.map(item => `<p>${escapeHTML(item.message)}</p>`).join('')}</div>` : '';
     return `
@@ -243,7 +251,7 @@ function renderMerge(view) {
             <span class="dup-kicker">FUSIONAR OBRAS</span>
             <h1 class="dup-h1">Unir en una sola obra</h1>
             <p class="dup-lead">Todo lo de una obra pasa a la otra y la primera se retira. Antes se guarda una copia de seguridad.</p>
-            ${error}${blocked}
+            ${error}${blocked}${swapped}
             <div class="dup-cards is-2">${renderMergeCard(keep, 'keep')}${renderMergeCard(retire, 'retire')}</div>
             <button type="button" class="dup-btn is-quiet" data-pdup-action="swap" ${locked || view.busy ? 'disabled aria-disabled="true"' : ''}>Invertir: conservar ${escapeHTML(retire.name)}</button>
             <label class="dup-field"><span>Nombre de la obra</span>
@@ -260,7 +268,8 @@ function renderMerged(view) {
         [counts.employees, 'personas'],
         [counts.attendance, 'registros de asistencia'],
         [counts.positions, 'puestos'],
-        [counts.leaders, 'líderes']
+        [counts.leaders, 'líderes'],
+        [counts.pettyCash, 'cajas chicas']
     ].filter(([n]) => n > 0);
     return `
         <div class="dup-body dup-done">
@@ -485,20 +494,45 @@ export class ProjectDuplicatesScreen {
         void this.runCheck();
     }
 
-    /** Comprueba, sin escribir, si la fusión es posible. Si no puede comprobar, decide el motor al confirmar. */
-    async runCheck() {
+    /**
+     * Comprueba, sin escribir, si la fusión es posible. Si la dirección sugerida está
+     * bloqueada y la inversa no (lo normal cuando solo una de las dos obras tiene cierres),
+     * invierte sola y lo explica. Si no puede comprobar, decide el motor al confirmar.
+     */
+    async runCheck({ allowAutoSwap = true } = {}) {
         const draft = this.view.mergeDraft;
         if (!draft) return;
         const token = ++this.checkToken;
-        let check = { ok: true, blockers: [] };
-        try {
-            if (this.deps.checkMerge) check = await this.deps.checkMerge(draft.retireId, draft.keepId) || check;
-        } catch (error) {
-            console.warn('No se pudo comprobar la fusión de obras:', error?.message || error);
+        const deps = this.deps;
+        const safeCheck = async (source, target) => {
+            try { return (await deps.checkMerge?.(source, target)) || { ok: true, blockers: [] }; } catch (error) {
+                console.warn('No se pudo comprobar la fusión de obras:', error?.message || error);
+                return null;
+            }
+        };
+        let check = (await safeCheck(draft.retireId, draft.keepId)) || { ok: true, blockers: [] };
+        let swap = null;
+        if (!check.ok && allowAutoSwap && deps.checkMerge && !this.isDefaultLocked()) {
+            const reverse = await safeCheck(draft.keepId, draft.retireId);
+            if (reverse?.ok) swap = { check: reverse, reason: BLOCKER_REASON[check.blockers?.[0]?.code] || 'no se puede mover con seguridad' };
         }
         if (token !== this.checkToken || this.view.mergeDraft !== draft || !this.overlay) return;
+        if (swap) {
+            const previousKeep = draft.keepId;
+            const nameUntouched = draft.name === this.nameOf(previousKeep);
+            draft.keepId = draft.retireId;
+            draft.retireId = previousKeep;
+            if (nameUntouched) draft.name = this.nameOf(draft.keepId);
+            draft.autoSwap = { reason: swap.reason };
+            check = swap.check;
+        }
         draft.check = check;
         this.render(false);
+    }
+
+    isDefaultLocked() {
+        const review = this.view.pairs.find(pair => pair.id === this.view.pairId);
+        return Boolean(this.view.defaultProjectId) && Boolean(review) && [review.a.id, review.b.id].includes(this.view.defaultProjectId);
     }
 
     swapDirection() {
@@ -509,7 +543,7 @@ export class ProjectDuplicatesScreen {
         this.view.mergeDraft = { keepId: draft.retireId, retireId: draft.keepId, name: this.nameOf(draft.retireId), check: null };
         this.view.error = '';
         this.render(false);
-        void this.runCheck();
+        void this.runCheck({ allowAutoSwap: false });
     }
 
     async confirmMerge() {

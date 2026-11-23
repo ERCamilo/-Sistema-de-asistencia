@@ -772,6 +772,7 @@
 .dup-notice p { margin: 4px 0 0; color: var(--text-dim); }
 .dup-notice.is-warn { background: color-mix(in oklch, var(--warn) 20%, var(--panel)); }
 .dup-notice.is-bad { background: color-mix(in oklch, var(--bad) 22%, var(--panel)); }
+.dup-notice.is-info { background: color-mix(in oklch, var(--accent) 16%, var(--panel)); }
 .dup-advanced { margin-top: 18px; color: var(--text-faint); font-size: 12px; }
 .dup-advanced summary { min-height: 44px; display: inline-flex; align-items: center; cursor: pointer; }
 .dup-cards { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -15,6 +15,18 @@ function esc(value) {
     }[ch]));
 }
 
+/**
+ * Aviso al crear una obra. Si no se pudo revisar el catálogo de otros dispositivos
+ * (sin conexión) y hay sesión, se avisa que la obra podría repetirse allí.
+ */
+export function announceProjectCreated(result, { currentUser = window.currentUser } = {}) {
+    window.showNotification?.(`Proyecto creado: ${result.project?.name || ''}`, 'success');
+    if (result.catalogChecked === false && currentUser) {
+        window.showNotification?.('No se pudieron revisar tus otras obras (sin conexión). Si esta obra ya existe en otro dispositivo, te avisaremos al sincronizar.', 'info');
+    }
+    window.dispatchEvent(new CustomEvent('projects:created', { detail: { project: result.project } }));
+}
+
 export function renderProjectCreateFormHTML() {
     return `
         <div class="project-create-form" data-project-create-form>
@@ -89,8 +101,7 @@ export function mountProjectCreateForm(container, {
             const result = await setupService.createEmptyProject({ name: rawValue });
             if (nameInput) nameInput.value = '';
             updateCharCount();
-            window.showNotification?.(`Proyecto creado: ${result.project?.name || ''}`, 'success');
-            window.dispatchEvent(new CustomEvent('projects:created', { detail: { project: result.project } }));
+            announceProjectCreated(result);
             onSuccess?.(result.project, result.state);
         } catch (error) {
             setStatus(`<strong>Error:</strong> ${esc(error?.message || error)}`, true);

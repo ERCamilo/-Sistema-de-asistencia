@@ -2489,6 +2489,13 @@ function computeMergeProject(reads, tx, p) {
     for (const record of plan.writes.positions) txPut(tx, 'positions', record);
     for (const record of plan.writes.leaders) txPut(tx, 'leaders', record);
     for (const { key, record } of plan.writes.attendance) txPut(tx, 'attendance', { ...record, key });
+    for (const record of plan.writes.pettyCash) {
+        txPut(tx, 'pettyCashProjects', record);
+        txPut(tx, 'pettyCashOutbox', {
+            op: 'save', col: 'projects', id: record.id, data: record,
+            source: 'project-merge', ts: p.repairTimestamp, status: 'pending'
+        });
+    }
     for (const row of plan.writes.projects) txPut(tx, 'projects', row);
     const metaRow = (reads.settings || []).find(row => row?.key === RECONCILIATION_META_KEY) || null;
     // `fromProject`/`intoProject` (no `sourceProjectId`/`targetProjectId`): la contabilidad

@@ -12,6 +12,9 @@ import { summarizeProjectUsage } from './ProjectUsage.js';
  *   - al final comprueba que B queda VACÍA con la misma contabilidad que usa el
  *     borrado de obras (ProjectUsage). Si algo quedara referenciándola, no es válido.
  *
+ * Caja chica: una caja solo guarda un vínculo opcional a la obra (`officialProjectId`);
+ * se repunta de B a A sin tocar períodos ni movimientos (contrato F1.7).
+ *
  * Con `adopt: true` la obra B ya está retirada (lápida con `mergedIntoId`) y se
  * mueve lo que un dispositivo atrasado aún tenga bajo su id. No toca el catálogo.
  */
@@ -45,7 +48,7 @@ const MESSAGES = {
     SOURCE_NOT_MERGED: 'La obra retirada no se unió a esta obra.',
     NAME_INVALID: 'Escribe un nombre de entre 1 y 80 caracteres.',
     PAYROLL_CLOSURES: 'La obra que se va a unir tiene cierres de nómina. No se pueden mover porque su identidad incluye la obra.',
-    PETTY_CASH: 'La obra que se va a unir tiene registros de caja chica. Todavía no se pueden mover.',
+    PETTY_CASH: 'Quedan cajas chicas ligadas a la obra que se va a unir que no se pudieron mover.',
     UNSYNCED_CHANGES: 'Hay cambios de la obra que se va a unir pendientes de sincronizar. Espera a que se envíen y vuelve a intentarlo.',
     PAYROLL_REFERENCE: 'Hay pagos de nómina enlazados a la obra que se va a unir. No se reetiquetan para no alterar el dinero.',
     NESTED_REFERENCE: 'Hay datos que mencionan la obra que se va a unir de una forma que no se puede mover con seguridad.',
@@ -177,6 +180,9 @@ export function planProjectMerge({ sourceId, targetId, projectName, data = {}, t
     const positions = relabelAll(list(data.positions), source, target, timestamp, { topLevelOnly: true });
     const leaders = relabelAll(list(data.leaders), source, target, timestamp, { topLevelOnly: true });
     const attendance = relabelAll(list(data.attendance), source, target, timestamp, { topLevelOnly: true });
+    const cash = list(data.pettyCashProjects)
+        .filter(row => row && trimId(row.officialProjectId) === source)
+        .map(row => ({ before: row, after: { ...copy(row), officialProjectId: target, updatedAt: timestamp } }));
     const blocked = new Set([...employees.blocked, ...positions.blocked, ...leaders.blocked, ...attendance.blocked]);
     if (blocked.size) return { ok: false, blockers: [...blocked].map(code => blocker(code)) };
 
@@ -191,7 +197,8 @@ export function planProjectMerge({ sourceId, targetId, projectName, data = {}, t
         employees: moved(data.employees, employees.writes, idOf),
         positions: moved(data.positions, positions.writes, idOf),
         leaders: moved(data.leaders, leaders.writes, idOf),
-        attendance: moved(data.attendance, attendance.writes, keyOf)
+        attendance: moved(data.attendance, attendance.writes, keyOf),
+        pettyCashProjects: moved(data.pettyCashProjects, cash, idOf)
     };
     const usage = summarizeProjectUsage([sourceRow], post, { liveState: {}, defaultProjectId: trimId(protectedIds.defaultProjectId) })[source];
     const leftovers = usageBlockers(usage);
@@ -214,15 +221,20 @@ export function planProjectMerge({ sourceId, targetId, projectName, data = {}, t
         positions: positions.writes.map(({ after }) => after),
         leaders: leaders.writes.map(({ after }) => after),
         attendance: attendance.writes.map(({ after }) => ({ key: keyOf(after), record: after })),
+        pettyCash: cash.map(({ after }) => after),
         projects: catalog
     };
     const memory = {
         employeeMerges: new Map(employees.writes.map(({ before, after }) => [idOf(before), topLevelPatch(before, after)])),
         positionProjectIds: new Map(positions.writes.map(({ after }) => [idOf(after), target])),
         leaderProjectIds: new Map(leaders.writes.map(({ after }) => [idOf(after), target])),
-        attendanceProjectIds: new Map(attendance.writes.map(({ after }) => [keyOf(after), target]))
+        attendanceProjectIds: new Map(attendance.writes.map(({ after }) => [keyOf(after), target])),
+        pettyCashProjectIds: new Map(cash.map(({ after }) => [idOf(after), target]))
     };
-    const counts = { employees: writes.employees.length, positions: writes.positions.length, leaders: writes.leaders.length, attendance: writes.attendance.length };
+    const counts = {
+        employees: writes.employees.length, positions: writes.positions.length, leaders: writes.leaders.length,
+        attendance: writes.attendance.length, pettyCash: writes.pettyCash.length
+    };
     const empty = Object.values(counts).every(n => n === 0) && catalog.length === 0;
     return { ok: true, empty, writes, memory, counts, targetName: naming.name || targetRow.name };
 }

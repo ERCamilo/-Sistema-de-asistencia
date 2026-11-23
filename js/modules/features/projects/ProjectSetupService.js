@@ -1,5 +1,6 @@
 import { isProjectsEnabled, setProjectsEnabled } from '../../config/FeatureFlags.js';
 import { initProjectsInfrastructure } from './ProjectsBoot.js';
+import { syncProjectCatalogWithin } from './ProjectCatalogSync.js';
 import { projectStore } from './ProjectStore.js';
 import { getEntityScope, setActiveProjectId } from './ProjectContext.js';
 import { Project, PROJECT_STATUS } from './Project.js';
@@ -10,6 +11,8 @@ import { state } from '../../core/AppState.js';
 import { readProjectUsageData, summarizeProjectUsage, deleteEmptyProject, protectedProjectIds } from './ProjectUsage.js';
 import { isFullImportIsolationInProgress, isProjectRepairIsolationInProgress } from '../../services/PersistenceService.js';
 
+/** Cuánto se espera, como máximo, a que el catálogo se ponga al día antes de crear una obra. */
+const CREATE_CATALOG_SYNC_MS = 4000;
 export const PROJECT_SETUP_NAME_MAX_LENGTH = 80;
 
 export function normalizeProjectSetupName(value) {
@@ -35,6 +38,7 @@ export class ProjectSetupService {
         boot = initProjectsInfrastructure,
         flags = { isEnabled: isProjectsEnabled, setEnabled: setProjectsEnabled },
         setActiveId = setActiveProjectId,
+        syncCatalog = ms => syncProjectCatalogWithin(ms),
         isDraftDirty = (doc = (typeof document !== 'undefined' ? document : null)) => (doc ? isSettingsDraftDirty(doc) : false)
     } = {}) {
         this.store = store;
@@ -42,6 +46,7 @@ export class ProjectSetupService {
         this.boot = boot;
         this.flags = flags;
         this.setActiveId = setActiveId;
+        this.syncCatalog = syncCatalog;
         this.isDraftDirty = isDraftDirty;
         this.switchGeneration = 0;
         // Serialize mutations so a slower superseded switch cannot overwrite
@@ -316,6 +321,11 @@ export class ProjectSetupService {
             throw new Error('Activa Proyectos antes de crear un nuevo proyecto.');
         }
         const normalizedName = normalizeProjectSetupName(name);
+        // Blindaje contra obras repetidas: antes de comprobar el nombre, se pone al día el
+        // catálogo con lo creado en otros dispositivos. Sin conexión (o sin sesión) se crea
+        // igual y el resultado lo indica; la revisión de «Obras repetidas» lo atrapa después.
+        let catalogChecked = false;
+        try { catalogChecked = (await this.syncCatalog(CREATE_CATALOG_SYNC_MS)) != null; } catch (_) { /* sin red */ }
         const existingProjects = await this.store.listAll();
         assertUniqueProjectName(normalizedName, existingProjects);
 
@@ -327,6 +337,7 @@ export class ProjectSetupService {
         const created = await this.store.create(model);
         return {
             project: created,
+            catalogChecked,
             state: await this.getState()
         };
     }

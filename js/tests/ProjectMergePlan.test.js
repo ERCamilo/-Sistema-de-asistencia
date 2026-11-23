@@ -104,6 +104,54 @@ describe('lo que se mueve', () => {
     });
 });
 
+describe('caja chica', () => {
+    const cashData = (extra = {}) => dataset({
+        pettyCashProjects: [
+            { id: 'PC1', name: 'Gastos', officialProjectId: 'B', nextRecordNumber: 9 },
+            { id: 'PC2', name: 'Otra caja', officialProjectId: 'A' },
+            { id: 'PC3', name: 'De otra obra', officialProjectId: 'OTRA' },
+            { id: 'PC4', name: 'Sin obra' }
+        ],
+        pettyCashPeriods: [{ id: 'per1', projectId: 'PC1', name: 'Septiembre' }],
+        pettyCashMovements: [{ id: 'mov1', projectId: 'PC1', periodId: 'per1', amount: 250 }],
+        ...extra
+    });
+
+    test('repunta el vínculo de las cajas de B a A, sin tocar períodos ni movimientos', () => {
+        const result = plan(cashData());
+        expect(result.ok).toBe(true);
+        expect(result.writes.pettyCash).toEqual([{ id: 'PC1', name: 'Gastos', officialProjectId: 'A', nextRecordNumber: 9, updatedAt: TS }]);
+        expect(result.memory.pettyCashProjectIds).toEqual(new Map([['PC1', 'A']]));
+        expect(result.counts.pettyCash).toBe(1);
+        expect(JSON.stringify(result.writes)).not.toContain('mov1');
+    });
+
+    test('las cajas de otra obra o sin vínculo no se tocan', () => {
+        const { writes } = plan(cashData());
+        expect(writes.pettyCash.map(c => c.id)).toEqual(['PC1']);
+    });
+
+    test('si solo hay caja chica que mover, la fusión no está vacía', () => {
+        const result = plan(cashData({ employees: [], positions: [], leaders: [], attendance: [] }), { adopt: false });
+        expect(result.empty).toBe(false);
+        expect(result.counts).toMatchObject({ employees: 0, pettyCash: 1 });
+    });
+
+    test('también se mueve al adoptar en un dispositivo atrasado', () => {
+        const tomb = { ...project('B', 'Edificio Sur'), deletedAt: 300, mergedIntoId: 'A' };
+        const result = planProjectMerge({ sourceId: 'B', targetId: 'A', data: cashData({ projects: [project('A', 'Torre Norte'), tomb] }), timestamp: TS, adopt: true });
+        expect(result.ok).toBe(true);
+        expect(result.writes.pettyCash.map(c => c.id)).toEqual(['PC1']);
+    });
+
+    test('no muta las entradas', () => {
+        const data = cashData();
+        const before = JSON.stringify(data);
+        plan(data);
+        expect(JSON.stringify(data)).toBe(before);
+    });
+});
+
 describe('catálogo', () => {
     test('retira B con lápida y mergedIntoId, y sube su updatedAt', () => {
         const { writes } = plan(dataset());
@@ -174,9 +222,18 @@ describe('cuándo se bloquea', () => {
         expect(codes(result)).toContain(MERGE_BLOCKER.PAYROLL_CLOSURES);
     });
 
-    test('caja chica de la obra sobrante', () => {
-        const result = plan(dataset({ pettyCashProjects: [{ id: 'PC1', officialProjectId: 'B' }] }));
-        expect(codes(result)).toContain(MERGE_BLOCKER.PETTY_CASH);
+    test('caja chica con otras referencias a la obra sobrante que no se saben mover', () => {
+        const odd = dataset({ pettyCashProjects: [{ id: 'PC1', officialProjectId: 'B', meta: { sourceProjectId: 'B' } }] });
+        expect(plan(odd).ok).toBe(false);
+        expect(codes(plan(odd))).toContain(MERGE_BLOCKER.OTHER_REFERENCES);
+    });
+
+    test('cambios de caja chica sin sincronizar que mencionan la obra sobrante', () => {
+        const result = plan(dataset({
+            pettyCashProjects: [{ id: 'PC1', officialProjectId: 'B' }],
+            pettyCashOutbox: [{ key: 1, op: 'save', col: 'projects', id: 'PC1', data: { id: 'PC1', officialProjectId: 'B' }, status: 'pending' }]
+        }));
+        expect(codes(result)).toContain(MERGE_BLOCKER.UNSYNCED_CHANGES);
     });
 
     test('cambios sin sincronizar que mencionan la obra sobrante', () => {

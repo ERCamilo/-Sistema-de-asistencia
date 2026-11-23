@@ -153,6 +153,76 @@ describe('fusionar B en A', () => {
     });
 });
 
+describe('caja chica', () => {
+    const cash = [
+        { id: 'PC1', name: 'Gastos', officialProjectId: B.id, nextRecordNumber: 9, updatedAt: 10 },
+        { id: 'PC2', name: 'Otra', officialProjectId: A.id, updatedAt: 10 }
+    ];
+    async function seedCash() {
+        await seed(fixture());
+        for (const row of cash) await db.update('pettyCashProjects', row);
+        await db.update('pettyCashPeriods', { id: 'per1', projectId: 'PC1', name: 'Septiembre' });
+        await db.update('pettyCashMovements', { id: 'mov1', projectId: 'PC1', periodId: 'per1', amount: 250, receiptStatus: 'uploaded' });
+        stateManager.setState({ pettyCash: { projects: JSON.parse(JSON.stringify(cash)), periods: [], movements: [] } }, { silent: true });
+    }
+    afterEach(() => stateManager.setState({ pettyCash: undefined }, { silent: true }));
+
+    test('repunta las cajas de B a A y deja intactos períodos y movimientos', async () => {
+        await seedCash();
+        const periods = await durable('pettyCashPeriods');
+        const movements = await durable('pettyCashMovements');
+        const result = await merge();
+        expect(result.status).toBe(REPAIR_STATUS.OK);
+        expect(result.counts.pettyCash).toBe(1);
+        const projects = await durable('pettyCashProjects');
+        expect(byId(projects, 'PC1')).toMatchObject({ name: 'Gastos', nextRecordNumber: 9, officialProjectId: A.id });
+        expect(byId(projects, 'PC2')).toEqual(cash[1]);
+        expect(await durable('pettyCashPeriods')).toEqual(periods);
+        expect(await durable('pettyCashMovements')).toEqual(movements);
+    });
+
+    test('encola el cambio hacia la nube una sola vez por caja y actualiza la memoria', async () => {
+        await seedCash();
+        await merge();
+        const queued = await durable('pettyCashOutbox');
+        expect(queued).toHaveLength(1);
+        expect(queued[0]).toMatchObject({ op: 'save', col: 'projects', id: 'PC1', status: 'pending', data: { officialProjectId: A.id } });
+        expect(stateManager._state.pettyCash.projects.find(p => p.id === 'PC1').officialProjectId).toBe(A.id);
+        expect(stateManager._state.pettyCash.projects.find(p => p.id === 'PC2').officialProjectId).toBe(A.id);
+    });
+
+    test('un cambio de caja pendiente de sincronizar bloquea la fusión', async () => {
+        await seedCash();
+        await db.update('pettyCashOutbox', { op: 'save', col: 'projects', id: 'PC1', data: { id: 'PC1', officialProjectId: B.id }, status: 'pending', ts: 1 });
+        const result = await merge();
+        expect(result.status).toBe(REPAIR_STATUS.CONFLICT);
+        expect(result.conflicts.map(c => c.kind)).toContain('UNSYNCED_CHANGES');
+        expect(byId(await durable('pettyCashProjects'), 'PC1').officialProjectId).toBe(B.id);
+    });
+
+    test('si falla al encolar la caja, se revierte todo', async () => {
+        await seedCash();
+        const original = db.db.transaction.bind(db.db);
+        let calls = 0;
+        jest.spyOn(db.db, 'transaction').mockImplementation((...args) => {
+            const tx = original(...args);
+            if (++calls === 1) {
+                const store = tx.objectStore('pettyCashOutbox');
+                const add = store.add.bind(store);
+                const put = store.put.bind(store);
+                store.add = (...a) => { add(...a); tx.abort(); };
+                store.put = (...a) => { put(...a); tx.abort(); };
+            }
+            return tx;
+        });
+        await expect(merge()).rejects.toBeDefined();
+        jest.restoreAllMocks();
+        expect(byId(await durable('pettyCashProjects'), 'PC1').officialProjectId).toBe(B.id);
+        expect(byId(await durable('employees'), 'e1').projectId).toBe(B.id);
+        expect(byId(await durable('projects'), B.id).deletedAt).toBeUndefined();
+    });
+});
+
 describe('el historial no deja obras «en uso»', () => {
     test('tras fusionar, A se puede volver a fusionar en otra obra', async () => {
         await seed(fixture());
