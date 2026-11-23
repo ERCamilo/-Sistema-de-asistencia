@@ -106,7 +106,7 @@ const check = (name, ok, extra = '') => { results.push([ok, name, extra]); if (!
       const r = await open(w, h, 'modal.html?session=out#/lecturas'); check(`${T} Sin sesión: lecturas bloqueadas pero tarjetas disponibles`, /Inicia sesión/.test(await txt(r))); if (!(await r.locator('.ns-rail').isVisible())) await clickAct(r, 'back'); await clickAct(r, 'section', 'tarjetas'); check(`${T} Sin sesión: Tarjetas abre`, /Tarjetas|empleado/i.test(await txt(r)) && !/Inicia sesión/.test(await txt(r))); await r.close();
     });
     await blk(async () => { // Lost card => freed, not blocked
-      const p = await open(w, h, 'modal.html#/tarjeta?emp=emp-101'); await clickAct(p, 'release'); await p.waitForSelector('text=¿Liberar la tarjeta', { timeout: 3000 });
+      const p = await open(w, h, 'modal.html#/tarjeta?emp=emp-101'); await clickAct(p, 'release'); await p.waitForSelector('text=¿Desasociar la tarjeta', { timeout: 3000 });
       await clickAct(p, 'confirm-release'); await p.waitForSelector('text=quedó libre', { timeout: 3000 });
       check(`${T} Tarjeta perdida: queda libre, sin estado bloqueado`, !/bloquead[ao]/i.test((await txt(p)).replace(/no está bloqueada|sin bloqueo|no se bloquea/gi, '')) && /Asociar nueva tarjeta/.test(await txt(p)));
       await clickAct(p, 'assoc-new', 'emp-101'); await p.waitForSelector('[data-act="read"]'); await clickAct(p, 'read'); await p.waitForSelector('text=Tarjeta disponible', { timeout: 4000 }); check(`${T} Tras liberar se puede asociar otra`, true); await p.close();

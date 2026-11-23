@@ -102,6 +102,7 @@ window.NFCData = (() => {
   };
 
   const toMin = hhmm => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+  const t12 = v => { if (!v) return '—'; const [h, m] = v.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'p. m.' : 'a. m.'}`; };
   const fmtH = h => (Math.round(h * 100) / 100).toString().replace('.', ',');
   const fmtHM = min => `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
   /** Pure mirror of the proposed conversion (calcularDia + redondeo). */
@@ -120,5 +121,5 @@ window.NFCData = (() => {
     return { range, lunch, worked, rounded, normal, extra };
   }
   const dayLabel = '3 nov';
-  return { esc, TODAY, DAY, EMP, emp, initials, ASSIGN, FREE, HISTORY, REASONS, TOUCH, DEVICES, DAYS, PENDING_DATE, UNKNOWN, ALERTS, RULES_DEFAULT, calc, fmtH, fmtHM, toMin, dayLabel };
+  return { esc, TODAY, DAY, EMP, emp, initials, ASSIGN, FREE, HISTORY, REASONS, TOUCH, DEVICES, DAYS, PENDING_DATE, UNKNOWN, ALERTS, RULES_DEFAULT, calc, t12, fmtH, fmtHM, toMin, dayLabel };
 })();
