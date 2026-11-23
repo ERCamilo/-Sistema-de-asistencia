@@ -143,11 +143,14 @@ Resolver duplicados es la red de seguridad; lo mejor es que no nazcan. Se refuer
    4 s) antes de comprobar el nombre. Una obra del mismo nombre creada en otro dispositivo se
    rechaza al crear. Sin conexión se crea igual y se avisa («No se pudieron revisar tus otras
    obras… te avisaremos al sincronizar»).
-2. **Siguiente — avisar al sincronizar.** Hoy el aviso de obras parecidas solo está en
-   Ajustes → Proyectos. Mostrarlo (una vez por par) cuando una sincronización trae una obra
-   parecida a una local.
-3. **Siguiente — «¿ya existe?» al crear.** Listar las obras actuales en el formulario de
-   creación, sobre todo sin conexión.
+2. **Hecho (tras bandera) — aviso en el encabezado.** Un botón con insignia numérica junto al
+   de empleados duplicados (`SystemAlertsManager`) cuenta los pares sospechosos y abre la
+   pantalla «Obras repetidas». Se recalcula cuando cambia el catálogo (`projects:setup-changed`,
+   `projects:created`, `app:ready`; con 400 ms de agrupación) y, como mucho cada 30 s, en los
+   repintados. Al cerrar la pantalla se vuelve a calcular. Solo con la bandera encendida.
+3. **Hecho — «¿ya existe?» al crear.** El formulario lista las obras que ya tienes (hasta 6 y
+   «y N más») y avisa, al escribir, si el nombre ya está en uso (sin importar mayúsculas ni
+   espacios). No bloquea: decide `createEmptyProject`.
 4. **Idea — pre-detección por personal.** Cuando una obra nueva reciba empleados que ya
    existen en otra obra, sugerir unir antes de que se acumulen datos.
 5. **Idea — ids deterministas por nombre.** Dos dispositivos que crean «Torre Norte» sin

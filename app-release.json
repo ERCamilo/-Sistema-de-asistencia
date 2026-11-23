@@ -7,6 +7,7 @@
       "title": "Menos obras repetidas",
       "items": [
         "Al crear una obra se revisa primero lo que creaste en tus otros dispositivos, para que no se repita. Sin conexión te avisa que no pudo revisarlo.",
+        "El formulario de nueva obra muestra las obras que ya tienes y te avisa si el nombre ya existe.",
         "Prepara la fusión de dos obras que en realidad son la misma: pasa el personal, la asistencia, los préstamos y las cajas chicas a una sola obra, con copia de seguridad previa.",
         "La fusión todavía no se muestra: se activará en una próxima versión."
       ]
