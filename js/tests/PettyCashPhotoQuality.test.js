@@ -20,16 +20,21 @@ const setup = (width, height) => {
 afterEach(() => { jest.restoreAllMocks(); delete global.createImageBitmap; });
 
 describe('compressImage (lo que ve el lector)', () => {
-    test('los valores por defecto son 2400 px y calidad 0.9', () => {
-        expect(OCR_MAX_WIDTH).toBe(2400);
+    test('los valores por defecto son 2800 px y calidad 0.9', () => {
+        expect(OCR_MAX_WIDTH).toBe(2800);
         expect(OCR_QUALITY).toBe(0.9);
     });
-    test('una foto de 3000 px de ancho se reduce a 2400 y sale en JPEG de calidad 0.9', async () => {
-        const calls = setup(3000, 4000);
+    test('una foto de 3500 px de ancho se reduce a 2800 y sale en JPEG de calidad 0.9', async () => {
+        const calls = setup(3500, 4000);
         const url = await compressImage(new Blob(['x'], { type: 'image/webp' }));
         expect(url.startsWith('data:image/jpeg')).toBe(true);
-        expect(calls.size).toEqual([2400, 3200]);
+        expect(calls.size).toEqual([2800, 3200]);
         expect(calls.toDataURL).toEqual(['image/jpeg', 0.9]);
+    });
+    test('la foto normal de la cámara (≈2170 × 3860) llega entera al lector', async () => {
+        const calls = setup(2173, 3863);
+        await compressImage(new Blob(['x'], { type: 'image/webp' }));
+        expect(calls.size).toEqual([2173, 3863]);
     });
     test('una foto más chica no se agranda', async () => {
         const calls = setup(1200, 1600);

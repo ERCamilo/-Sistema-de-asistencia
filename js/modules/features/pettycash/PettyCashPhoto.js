@@ -44,10 +44,11 @@ export function receiptStoragePath(uid, txId) {
 }
 
 /**
- * Lo que se manda al lector: 2400 px de ancho y calidad 0.9. Con 1600 px y 0.82 la
- * letra pequeña (montos, totales) se leía mal. Nunca se agranda una foto chica.
+ * Lo que se manda al lector: hasta 2800 px de ancho y calidad 0.9 (la foto normal de la
+ * cámara, ≈ 2170 px de ancho, llega entera). Con 1600 px y 0.82 la letra pequeña (montos,
+ * totales) se leía mal. Nunca se agranda una foto chica.
  */
-export const OCR_MAX_WIDTH = 2400;
+export const OCR_MAX_WIDTH = 2800;
 export const OCR_QUALITY = 0.9;
 const OCR_MAX_DATA_URL_CHARS = 9_000_000;
 
@@ -141,12 +142,16 @@ export async function prepareReceiptForOcr(file) {
     };
 }
 
+/** Vista previa guardada en el teléfono (lista, pila de la cámara, respaldo sin la original). */
+export const PREVIEW_MAX_DIM = 720;
+export const PREVIEW_QUALITY = 0.7;
+
 export async function createReceiptPreview(file) {
     const { kind } = validateReceiptFile(file);
     if (kind === 'pdf') return createPdfThumbnail(file);
     const processingDataUrl = await compressImage(file);
     return {
-        previewDataUrl: await downscaleDataUrl(processingDataUrl, 480, 0.5),
+        previewDataUrl: await downscaleDataUrl(processingDataUrl, PREVIEW_MAX_DIM, PREVIEW_QUALITY),
         pageCount: 1,
         processingDataUrl
     };
@@ -228,7 +233,9 @@ export async function downscaleDataUrl(dataUrl, maxDim = 480, quality = 0.5) {
         canvas.width = Math.round((img.naturalWidth || img.width) * scale);
         canvas.height = Math.round((img.naturalHeight || img.height) * scale);
         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        return canvas.toDataURL('image/jpeg', quality);
+        // WebP pesa bastante menos a la misma calidad; si el navegador no lo codifica, JPEG.
+        const webp = canvas.toDataURL('image/webp', quality);
+        return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', quality);
     } catch (_) {
         return dataUrl;
     }

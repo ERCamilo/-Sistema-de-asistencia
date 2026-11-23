@@ -57,8 +57,9 @@ export const SAMPLE_WIDTH = 72;
 export const V_SCALE = 3;
 /** Pasadas de suavizado vertical (toleran inclinación y movimiento de la mano). */
 export const SMOOTH_PASSES = 2;
-// El lector recibe hasta 1600 px de ancho: más no ayuda y pesa más.
-const MAX_STITCH_WIDTH = 1600;
+// Ancho de la factura larga unida: 1800 px da más detalle a la letra pequeña; el tope de
+// 12 MP de abajo sigue protegiendo la memoria del teléfono.
+export const MAX_STITCH_WIDTH = 1800;
 const MAX_STITCH_PIXELS = 12_000_000;
 
 /**

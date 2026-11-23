@@ -17,7 +17,7 @@
  *
  * Probado en js/tests/PettyCashPaperCrop.test.js.
  */
-export const PAPER_MARGIN = 0.06;          // margen alrededor del papel, como fracción de su tamaño
+export const PAPER_MARGIN = 0.03;          // margen alrededor del papel, como fracción de su tamaño
 export const PAPER_SIZE = 240;             // ancho de la copia que se analiza
 const MIN_SEPARATION = 60;                 // diferencia de gris mínima entre papel y fondo
 const MIN_AREA = 0.12;                     // el papel debe ocupar al menos esto del cuadro

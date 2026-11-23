@@ -15,9 +15,14 @@
  */
 import { straightenCanvas } from './PettyCashPaperStraighten.js';
 
-/** Lado largo máximo de la foto guardada (≈ 6–7 MP en una factura vertical). */
-export const MAX_PHOTO_LONG_SIDE = 3000;
-export const PHOTO_QUALITY = 0.9;
+/**
+ * Tamaño máximo de la foto guardada: hasta 8.4 MP y 4096 px de lado largo. Antes se limitaba
+ * solo el lado largo a 3000 px, y una factura larga y angosta quedaba con muy poco ancho (letra
+ * pequeña ilegible). Con WebP a 0.86 una foto de 8.4 MP pesa lo mismo que una de 6.75 MP a 0.9.
+ */
+export const MAX_PHOTO_LONG_SIDE = 4096;
+export const MAX_PHOTO_PIXELS = 8_400_000;
+export const PHOTO_QUALITY = 0.86;
 const TAKE_PHOTO_TIMEOUT_MS = 2500;
 
 /** Recorte centrado de la foto a la forma del visor; null si la orientación no coincide. */
@@ -37,6 +42,12 @@ export function photoCrop(photoW, photoH, viewW, viewH) {
 export function fitLongSide(w, h, max) {
     const k = Math.min(1, max / Math.max(w, h));
     return { w: Math.round(w * k), h: Math.round(h * k) };
+}
+
+/** Tamaño reducido para no pasar de `maxPixels` ni de `maxLongSide` (nunca agranda). */
+export function fitPhoto(w, h, maxLongSide = MAX_PHOTO_LONG_SIDE, maxPixels = MAX_PHOTO_PIXELS) {
+    const k = Math.min(1, maxLongSide / Math.max(w, h), Math.sqrt(maxPixels / (w * h)));
+    return k >= 1 ? { w: Math.round(w), h: Math.round(h) } : { w: Math.floor(w * k), h: Math.floor(h * k) };
 }
 
 export const extensionFor = (type) => (type === 'image/webp' ? 'webp' : type === 'image/png' ? 'png' : 'jpg');
@@ -91,9 +102,9 @@ export async function takeShot({
 }
 
 /** Recorta y reduce la toma (sin codificar): un lienzo listo para guardar o unir. */
-export function renderShot(shot, { doc = globalThis.document, makeCanvas = () => doc.createElement('canvas'), maxLongSide = MAX_PHOTO_LONG_SIDE, maxWidth = Infinity } = {}) {
+export function renderShot(shot, { doc = globalThis.document, makeCanvas = () => doc.createElement('canvas'), maxLongSide = MAX_PHOTO_LONG_SIDE, maxPixels = MAX_PHOTO_PIXELS, maxWidth = Infinity } = {}) {
     const { source, crop } = shot;
-    let size = fitLongSide(crop.sw, crop.sh, maxLongSide);
+    let size = fitPhoto(crop.sw, crop.sh, maxLongSide, maxPixels);
     if (size.w > maxWidth) size = { w: Math.round(maxWidth), h: Math.round(size.h * (maxWidth / size.w)) };
     const canvas = makeCanvas();
     canvas.width = size.w;
@@ -114,7 +125,7 @@ export async function photoFromShot(shot, { doc = globalThis.document, render = 
     const canvas = render(shot, { doc });
     if (Array.isArray(shot.quad)) {
         try {
-            const straight = await straightenCanvasFn(canvas, shot.quad, { doc, maxSide: MAX_PHOTO_LONG_SIDE });
+            const straight = await straightenCanvasFn(canvas, shot.quad, { doc, maxSide: MAX_PHOTO_LONG_SIDE, maxPixels: MAX_PHOTO_PIXELS });
             if (straight) return encode(straight);
         } catch (_) { /* se guarda el recorte sin enderezar */ }
     }

@@ -2,7 +2,7 @@
  * Factura larga por partes: buscar dónde se repite la franja de la parte
  * anterior en la siguiente (para alinear en vivo y para unir sin duplicar).
  */
-import { planStitch, judgeAlignment, findBand, locateOverlap, BAND_STEPS, OVERLAP_FRACTION } from '../modules/features/pettycash/PettyCashStitch.js';
+import { planStitch, judgeAlignment, findBand, locateOverlap, BAND_STEPS, OVERLAP_FRACTION, MAX_STITCH_WIDTH } from '../modules/features/pettycash/PettyCashStitch.js';
 
 // "Factura" sintética: cada fila tiene un patrón distinto y no se repite (renglones de texto).
 const W = 24;
@@ -183,5 +183,11 @@ describe('locateOverlap (al unir): dónde quedó el final de la parte anterior',
     test('sin coincidencia confiable: null (la unión asume la franja arriba)', () => {
         const doc = receipt(200);
         expect(locateOverlap(steppedBand(doc, 112), slice(doc, 130, 60), 60)).toBeNull();
+    });
+});
+
+describe('ancho de la factura larga unida', () => {
+    test('sale hasta 1800 px de ancho (antes 1600): más detalle para el lector sin pasar de 12 MP', () => {
+        expect(MAX_STITCH_WIDTH).toBe(1800);
     });
 });

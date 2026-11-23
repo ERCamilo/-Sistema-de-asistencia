@@ -21,6 +21,7 @@ import {
     periodsOfProject, movementsOfPeriod, saldoProyectoFlat
 } from './PettyCashCalc.js';
 import { PettyCashRepository } from '../../services/PettyCashRepository.js';
+import { cameraItemData } from './PettyCashCameraData.js';
 import { PettyCashLiveSyncCoordinator } from '../../services/PettyCashLiveSyncCoordinator.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { PettyCashStore } from './PettyCashStore.js';
@@ -591,12 +592,7 @@ export async function cameraItemsState(ids = [], { listJobs = () => indexedDBSer
         const movement = d.movements.find(m => m.id === id) || null;
         const job = byId.get(id) || (movement && Number(movement.amount) ? { ocrStatus: 'extracted' } : {});
         const review = receiptReviewState(job, movement, { period, movements: periodMovements, ...projectFiscal(projectOfMovement(movement, period)) });
-        const data = movement ? {
-            paidTo: movement.paidTo || null,
-            ncf: movement.ncf || null,
-            total: Number(movement.amount) ? rd(movement.amount) : null,
-            category: movement.category || null
-        } : {};
+        const data = cameraItemData(movement, { money: rd });
         return [id, { ...review, data }];
     }));
 }

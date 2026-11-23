@@ -33,6 +33,9 @@ describe('detectPaper', () => {
         expect(r.x1 - r.x0).toBeLessThan(0.75);
         expect(m).toBeGreaterThan(0);
     });
+    test('el margen es de 3 %: menos fondo, la foto pesa menos', () => {
+        expect(PAPER_MARGIN).toBe(0.03);
+    });
     test('el margen es generoso: ningún borde del papel queda dentro del recorte', () => {
         const r = detectPaper(paperOn(40, PAPER));
         expect(r.x0 * W).toBeLessThan(70 - 2);

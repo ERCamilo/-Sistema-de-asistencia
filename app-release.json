@@ -1,6 +1,17 @@
 {
-  "version": "1.7.151",
+  "version": "1.7.152",
   "changelog": [
+    {
+      "version": "1.7.152",
+      "date": "2026-11-23",
+      "title": "Facturas más nítidas y revisión rápida",
+      "items": [
+        "Las fotos de facturas se guardan y se envían al lector con más resolución, sobre todo las largas y angostas, sin pesar más: el recorte deja menos fondo alrededor.",
+        "La vista previa guardada en el teléfono se ve más nítida.",
+        "Al tocar el visor, la cámara enfoca y mide la luz en ese punto en más teléfonos, y si disparas enseguida espera a que termine de enfocar.",
+        "La revisión rápida de la cámara muestra fecha, total y NCF en botones que llevan a cada dato en la foto, además del comercio, RNC, ITBIS y categoría."
+      ]
+    },
     {
       "version": "1.7.151",
       "date": "2026-11-22",

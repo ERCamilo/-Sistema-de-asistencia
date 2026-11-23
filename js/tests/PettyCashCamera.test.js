@@ -4,7 +4,7 @@
  * Visor en vivo, disparador, pila de fotos con su estado, bandeja compacta y
  * vista previa por foto. Las fotos entran a la misma cola de caja chica.
  */
-import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, RESOLVED_ADVANCE_MS, summarizeCameraItems, highlightBox } from '../modules/features/pettycash/PettyCashCamera.js';
+import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, RESOLVED_ADVANCE_MS, summarizeCameraItems, highlightBox, FOCUS_SETTLE_MS } from '../modules/features/pettycash/PettyCashCamera.js';
 
 function setup(overrides = {}) {
     const stop = jest.fn();
@@ -456,6 +456,55 @@ describe('Cámara de facturas', () => {
         expect(buttons[0].getAttribute('aria-pressed')).toBe('true');
         $('[data-pcam-zoom-out]').click();
         expect(hl.hidden).toBe(true);
+        camera.close();
+    });
+
+    test('vista rápida: botones de fecha, total y NCF que llevan a su lugar en la foto, y más datos', async () => {
+        const { camera, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        states.set('m1', { state: 'ok', issues: [], data: {
+            paidTo: 'Ferretería Sol', date: '2026-11-10', ncf: 'B0100000123', total: 'RD$ 590.00',
+            rncEmisor: '131246796', itbis: 'RD$ 90.00', category: 'Materiales',
+            boxes: { date: [100, 600, 140, 900], total: [880, 100, 910, 900] }
+        } });
+        await camera.refresh();
+        camera.openPreview(0);
+        const jumps = [...document.querySelectorAll('[data-pcam-jump]')];
+        expect(jumps.map(b => b.dataset.pcamJump)).toEqual(['date', 'total', 'ncf']);
+        expect(jumps[0].textContent).toContain('Fecha');
+        expect(jumps[0].textContent).toContain('10 nov 2026');
+        expect(jumps[1].textContent).toContain('RD$ 590.00');
+        expect(jumps[2].textContent).toContain('B0100000123');
+        // el NCF no tiene recuadro: se ve el dato, pero no lleva a ningún lugar
+        expect(jumps[2].disabled).toBe(true);
+        const sheet = $('[data-pcam-sheet]').textContent;
+        expect(sheet).toContain('Ferretería Sol');
+        expect(sheet).toContain('131246796');
+        expect(sheet).toContain('RD$ 90.00');
+        expect(sheet).toContain('Materiales');
+        jumps[1].click();
+        expect(Number($('[data-pcam-zoom]').dataset.zoom)).toBeGreaterThan(1);
+        const hl = $('[data-pcam-hl]');
+        expect(hl.hidden).toBe(false);
+        expect(hl.style.top).toBe('86.5%');
+        expect(jumps[1].getAttribute('aria-pressed')).toBe('true');
+        expect(jumps[0].getAttribute('aria-pressed')).toBe('false');
+        // otra vez el mismo botón: vuelve a la foto completa
+        jumps[1].click();
+        expect(hl.hidden).toBe(true);
+        expect(jumps[1].getAttribute('aria-pressed')).toBe('false');
+        camera.close();
+    });
+
+    test('vista rápida sin datos leídos todavía: no muestra botones vacíos', async () => {
+        const { camera, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        states.set('m1', { state: 'ok', issues: [], data: {} });
+        await camera.refresh();
+        camera.openPreview(0);
+        expect(document.querySelectorAll('[data-pcam-jump]')).toHaveLength(0);
         camera.close();
     });
 
@@ -925,7 +974,7 @@ describe('Cámara de facturas: enfoque', () => {
         track.getCapabilities = () => ({ focusMode: ['continuous', 'single-shot'], torch: true });
         const { camera } = setup({ track });
         await camera.open();
-        const wanted = expect.objectContaining({ facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 } });
+        const wanted = expect.objectContaining({ facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1920 }, aspectRatio: { ideal: 4 / 3 } });
         expect(applyConstraints).toHaveBeenCalledWith(wanted);
         applyConstraints.mockClear();
         $('[data-pcam-torch]').click(); await flush();
@@ -985,6 +1034,60 @@ describe('Cámara de facturas: enfoque', () => {
         tap(frame, 100, 200);
         await flush();
         expect($('[data-pcam-focus-ring]')?.hidden ?? true).toBe(true);
+    });
+
+    test('sin enfoque de un toque pero con punto de interés: enfoca de forma continua en ese punto y muestra el aro', async () => {
+        const applyConstraints = jest.fn().mockResolvedValue();
+        const track = { getCapabilities: () => ({ focusMode: ['continuous'] }), getSettings: () => ({ focusMode: 'continuous', pointsOfInterest: [] }), applyConstraints };
+        const { camera } = setup({ track });
+        await camera.open();
+        const frame = $('[data-pcam-frame]');
+        frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
+        applyConstraints.mockClear();
+        tap(frame, 50, 100);
+        await flush();
+        expect(applyConstraints).toHaveBeenCalledWith(expect.objectContaining({ advanced: [{ focusMode: 'continuous', pointsOfInterest: [{ x: 0.25, y: 0.25 }] }] }));
+        expect($('[data-pcam-focus-ring]').hidden).toBe(false);
+        camera.close();
+    });
+
+    test('si el teléfono mide la luz por zonas, también la mide donde se tocó (el papel no sale quemado)', async () => {
+        const applyConstraints = jest.fn().mockResolvedValue();
+        const track = { getCapabilities: () => ({ focusMode: ['continuous', 'single-shot'], exposureMode: ['manual', 'continuous'] }), applyConstraints };
+        const { camera } = setup({ track });
+        await camera.open();
+        const frame = $('[data-pcam-frame]');
+        frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
+        applyConstraints.mockClear();
+        tap(frame, 100, 200);
+        await flush();
+        expect(applyConstraints).toHaveBeenCalledWith(expect.objectContaining({ advanced: [{ focusMode: 'single-shot', exposureMode: 'continuous', pointsOfInterest: [{ x: 0.5, y: 0.5 }] }] }));
+        camera.close();
+    });
+
+    test('disparar justo después de tocar espera a que termine de enfocar', async () => {
+        jest.useFakeTimers();
+        const { applyConstraints, track } = withFocus(['continuous', 'single-shot']);
+        const { camera, deps } = setup({ track });
+        await camera.open();
+        const frame = $('[data-pcam-frame]');
+        frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
+        tap(frame, 100, 200);
+        await flush();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(deps.grabFrame).not.toHaveBeenCalled();
+        jest.advanceTimersByTime(FOCUS_SETTLE_MS + 20);
+        await flush();
+        expect(deps.grabFrame).toHaveBeenCalledTimes(1);
+        // sin un toque reciente, dispara de inmediato
+        jest.advanceTimersByTime(2000);
+        await flush();
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(deps.grabFrame).toHaveBeenCalledTimes(2);
+        expect(applyConstraints).toHaveBeenCalled();
+        camera.close();
     });
 
     test('un error al enfocar no rompe la cámara', async () => {

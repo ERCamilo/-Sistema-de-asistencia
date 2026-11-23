@@ -228,7 +228,7 @@ describe('expandQuad y tamaño de salida', () => {
     test('el tamaño de salida es el de los lados más largos y no pasa del tope', () => {
         const size = quadOutputSize([[0, 0], [100, 0], [100, 300], [0, 300]], 2400);
         expect(size).toEqual({ w: 100, h: 300 });
-        const big = quadOutputSize([[0, 0], [3000, 0], [3000, 4000], [0, 4000]], STRAIGHTEN_MAX_SIDE);
+        const big = quadOutputSize([[0, 0], [3600, 0], [3600, 4800], [0, 4800]], STRAIGHTEN_MAX_SIDE, Infinity);
         expect(Math.max(big.w, big.h)).toBe(STRAIGHTEN_MAX_SIDE);
         expect(big.w / big.h).toBeCloseTo(0.75, 2);
         const tilted = quadOutputSize([[10, 0], [110, 20], [100, 320], [0, 300]], 2400);
@@ -238,6 +238,17 @@ describe('expandQuad y tamaño de salida', () => {
     test('el margen por defecto es el mismo que usa el recorte recto o más chico', () => {
         expect(STRAIGHTEN_MARGIN).toBeGreaterThan(0);
         expect(STRAIGHTEN_MARGIN).toBeLessThanOrEqual(0.1);
+    });
+    test('el margen es pequeño (2.5 %): menos mesa alrededor, la foto pesa menos', () => {
+        expect(STRAIGHTEN_MARGIN).toBe(0.025);
+    });
+    test('el tope también es de megapíxeles: una factura normal no baja a 3000 px', () => {
+        expect(STRAIGHTEN_MAX_SIDE).toBe(4096);
+        const normal = quadOutputSize([[0, 0], [2250, 0], [2250, 4000], [0, 4000]], STRAIGHTEN_MAX_SIDE, 8_400_000);
+        expect(normal.w * normal.h).toBeLessThanOrEqual(8_400_000);
+        expect(normal.w).toBeGreaterThan(2100);
+        const narrow = quadOutputSize([[0, 0], [1100, 0], [1100, 3700], [0, 3700]], STRAIGHTEN_MAX_SIDE, 8_400_000);
+        expect(narrow).toEqual({ w: 1100, h: 3700 });
     });
 });
 

@@ -776,6 +776,38 @@ body.pcam-open { overflow: hidden; }
     to { background-position: -200% 0; }
 }
 
+/* Vista rápida: fecha, total y NCF a un toque; cada botón acerca la foto a su dato. */
+.pcam-quick {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.pcam-jump {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-height: 48px;
+    min-width: 0;
+    padding: 6px 10px;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    background: #111c2e;
+    color: #e2e8f0;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pcam-jump span { color: #94a3b8; font-size: 11px; font-weight: 600; }
+.pcam-jump b { max-width: 100%; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.pcam-jump:not(:disabled) span { color: #fb923c; }
+.pcam-jump[aria-pressed="true"] { border-color: #fb923c; background: #2a1a0c; }
+.pcam-jump:disabled { cursor: default; opacity: 0.85; }
+.pcam-jump:focus-visible { outline: 2px solid #fb923c; outline-offset: 2px; }
+
 .pcam-rows { margin: 0; }
 
 .pcam-rows div {
