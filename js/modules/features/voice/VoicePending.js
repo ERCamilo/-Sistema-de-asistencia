@@ -2,11 +2,11 @@ import { voiceAudioExpiry } from './VoiceRetention.js';
 import { VOICE_LIMITS } from './VoiceCore.js';
 
 export const VOICE_PROCESSING_LEASE_MS = 120000;
-export const voiceHasPendingWork = record => !!record && !record.completedLoanId && !record.completedCashId && record.purpose !== 'name-example'
+export const voiceHasPendingWork = record => !!record && !record.completedAction && !record.completedLoanId && !record.completedCashId && record.purpose !== 'name-example'
     && !record.cashDraft?.pendingMovement && (['queued','processing','paused','error'].includes(record.processingState) || !!record.error || !record.result && !record.pendingResult);
-export const voiceKeepPending = record => !!record && !record.completedLoanId && !record.completedCashId && record.purpose !== 'name-example' && record.processingState !== 'expired' && (!!record.processingState || !!record.error || !!record.processingRequested);
+export const voiceKeepPending = record => !!record && !record.completedAction && !record.completedLoanId && !record.completedCashId && record.purpose !== 'name-example' && record.processingState !== 'expired' && (!!record.processingState || !!record.error || !!record.processingRequested);
 export function voiceProcessingStatus(record, now = Date.now()) {
-    if (record.completedLoanId || record.completedCashId) return 'Registrado';
+    if (record.completedAction || record.completedLoanId || record.completedCashId) return 'Registrado';
     if (record.processingState === 'processing') return record.processingLease?.until > now ? 'Procesando…' : 'Envío interrumpido';
     if (record.processingState === 'queued') return globalThis.navigator?.onLine === false ? 'En espera de conexión' : 'Pendiente de envío';
     if (record.processingState === 'paused') return 'Envío pausado';
@@ -17,7 +17,7 @@ export function voiceProcessingStatus(record, now = Date.now()) {
 }
 export function voiceCanProcess(record, policy, now = Date.now()) {
     return !!record.audio && record.audio.size > 0 && record.audio.size <= VOICE_LIMITS.maxBytes && !(record.durationMs > VOICE_LIMITS.maxDurationMs)
-        && !record.discarded && !record.unsaved && !record.completedLoanId && !record.completedCashId
+        && !record.discarded && !record.unsaved && !record.completedAction && !record.completedLoanId && !record.completedCashId
         && !record.cashDraft?.pendingMovement && record.purpose !== 'name-example' && voiceAudioExpiry(record, policy) > now;
 }
 // Compare the request payload, excluding credentials and editable business data.

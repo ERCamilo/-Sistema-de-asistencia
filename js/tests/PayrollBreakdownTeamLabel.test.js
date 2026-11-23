@@ -26,7 +26,7 @@ test('the review table prints the team under each job, escaped', () => {
             { positionId: 'p', positionName: 'Ayudante', hourlyRate: 112.5, regularHours: 8, regularAmount: 900, subtotal: 900 },
             { positionId: 'p', positionName: 'Ayudante', hourlyRate: 112.5, regularHours: 8, regularAmount: 900, subtotal: 900,
                 assignmentSchemaVersion: 1, workLeaderId: 'x', workLeaderName: '<b>Otro</b>', payerLeaderId: 'x' }] };
-    document.body.innerHTML = `<table>${renderPayrollReviewTable({ rows: [row], sourceRows: [row], ...catalogue })}</table>`;
+    document.body.innerHTML = renderPayrollReviewTable({ rows: [row], sourceRows: [row], expanded: new Set(['e|calculation']), ...catalogue });
     const teams = [...document.querySelectorAll('.payroll-breakdown-details__team')].map(node => node.textContent);
     expect(teams).toEqual(['Equipo de Marcos', 'Equipo de <b>Otro</b>']);
     expect(document.querySelector('.payroll-breakdown-details__team b')).toBeNull();

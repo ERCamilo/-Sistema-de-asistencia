@@ -16,9 +16,13 @@ export function protectedProjectIds() {
     return { activeProjectId: id(active), defaultProjectId: id(initial) };
 }
 
+/** Stores que cuentan para saber si una obra está en uso (los de una conexión IndexedDB abierta). */
+export function usageStoreNames(rawDb) {
+    return rawDb?.objectStoreNames ? [...rawDb.objectStoreNames].filter(name => !SKIP_STORES.has(name)) : FALLBACK_STORES;
+}
+
 function usageStores(idb) {
-    return idb.db?.objectStoreNames
-        ? [...idb.db.objectStoreNames].filter(name => !SKIP_STORES.has(name)) : FALLBACK_STORES;
+    return usageStoreNames(idb.db);
 }
 
 /** Una sola vista consistente; un fallo de lectura nunca equivale a cero. */

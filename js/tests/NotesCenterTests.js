@@ -31,7 +31,7 @@ testRunner.addSuite("NotesCenter — tombstones no muestran su nota vieja (Fase 
         const html = NotesCenter();
 
         testRunner.assert(!html.includes('Ada Lovelace'), "el empleado con solo nota tombstoneada no debe listarse");
-        testRunner.assert(html.includes('Aún no hay notas guardadas'), "debe mostrar el estado vacío");
+        testRunner.assert(html.includes('No hay notas en el historial cargado'), "debe mostrar el estado vacío");
     },
 
     "un empleado con nota viva SÍ aparece, aunque otro registro del mismo empleado esté tombstoneado"() {

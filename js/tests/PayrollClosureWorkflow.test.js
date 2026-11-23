@@ -459,4 +459,50 @@ describe('Unified payroll closure workflow', () => {
         expect(payment.voided).toBe(true);
         expect(employees[0].loans[0].payments).toHaveLength(1);
     });
+
+    // Incidente 2026-11-16: cerrar → deshacer → volver a cerrar con otro
+    // monto de préstamo (modo personalizado, interés acumulado, abono
+    // intermedio…) lanzaba "Conflicto de identidad en el pago de Préstamo"
+    // porque el pago anulado del primer cierre conserva el mismo id.
+    test.each([
+        ['same amount', 100],
+        ['different amount', 60]
+    ])('undo then re-close (%s) succeeds without identity conflict', (_label, secondAmount) => {
+        const employees = [employee({ withLoan: true })];
+        const first = buildPayrollClosureDraft({
+            employees,
+            rows: [row({ withLoan: true })],
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            closedAt: 100,
+            closedBy: 'operator'
+        });
+        applyPayrollClosureEffects(employees, first, { now: 100 });
+        const undone = undoPayrollClosureEffects(employees, first.closure, { now: 110, voidedBy: 'operator' });
+        expect(employees[0].loans[0].payments[0].voided).toBe(true);
+
+        const secondRow = row({ withLoan: true });
+        secondRow._loans = secondAmount;
+        secondRow.monto = 1100 - secondAmount;
+        secondRow._loanDetails[0] = {
+            ...secondRow._loanDetails[0],
+            selectedAmount: secondAmount,
+            selectedCharges: [{ kind: 'lump', amount: 100, dueDate: '2026-08-01' }]
+        };
+        const second = buildPayrollClosureDraft({
+            employees,
+            rows: [secondRow],
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            closedAt: 200,
+            closedBy: 'operator',
+            supersedesId: undone.closure.id
+        });
+
+        expect(() => applyPayrollClosureEffects(employees, second, { now: 200 })).not.toThrow();
+        const live = employees[0].loans[0].payments.filter(p => !p.voided);
+        expect(live).toHaveLength(1);
+        expect(live[0].amount).toBe(secondAmount);
+        expect(live[0].payrollClosureId).toBe(second.closure.id);
+    });
 });

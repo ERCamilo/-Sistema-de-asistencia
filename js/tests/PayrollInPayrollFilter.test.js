@@ -65,10 +65,10 @@ test('excluded staff remain available to restore while totals use included staff
     host.innerHTML = renderPayrollReviewTable({ rows: [], displayRows: [source], sourceRows: [source], allowEmployeeExclusion: true, excludedIds: ['e'] });
     expect(host.querySelector('[data-payroll-action="toggle-payroll-review-employee"]').checked).toBe(false);
     expect(host.querySelector('.is-payroll-excluded').textContent).toContain('Excluido de esta nómina');
-    expect(host.querySelector('[data-payroll-total-days]').textContent).toBe('0');
+    expect(host.querySelector('[data-payroll-total-pay-days]').textContent).toBe('0');
     expect(host.querySelector('tfoot').textContent).toContain('0 empleados');
     expect(host.querySelector('tfoot .is-net').textContent).toBe('$0.00');
-    expect(host.querySelector('[data-payroll-worked-days]').textContent).toBe('0.5');
+    expect(host.querySelector('[data-payroll-payment-days]').textContent).toBe('0.5');
 });
 
 test.each([8, 6])('calculation detail shows daily rates and worked days for a %s-hour workday without changing money', hoursPerDay => {
@@ -79,7 +79,7 @@ test.each([8, 6])('calculation detail shows daily rates and worked days for a %s
     Object.assign(source, { _brutoOriginal: 20700, _bruto: 20700, monto: 20700 });
     const before = JSON.stringify(source);
     const host = document.createElement('div');
-    host.innerHTML = renderPayrollReviewTable({ rows: [source], sourceRows: [source], hoursPerDay });
+    host.innerHTML = renderPayrollReviewTable({ rows: [source], sourceRows: [source], hoursPerDay, expanded: new Set(['e|calculation']) });
     const details = host.querySelectorAll('.payroll-breakdown-details__item');
     expect(details[0].textContent).toContain(hoursPerDay === 8 ? 'Tarifa: $900.00/día' : 'Tarifa: $675.00/día');
     expect(details[0].textContent).toContain(hoursPerDay === 8 ? 'Ordinarios: 4 días ($3,600.00)' : 'Ordinarios: 5.333 días ($3,600.00)');
@@ -94,10 +94,10 @@ test.each([8, 6])('calculation detail shows daily rates and worked days for a %s
 
 test('the daily detail separates fractions of regular, overtime, holiday and rest work', () => {
     const source = row([part('p1', 4, 1425, { regularAmount: 400, overtimeHours: 2, overtimeRate: 150, overtimeAmount: 300,
-        holidayHours: 2, holidayAmount: 400, restDayHours: 2, restDayAmount: 325 })]);
+        holidayHours: 2, holidayRate: 200, holidayAmount: 400, restDayHours: 2, restDayRate: 162.5, restDayAmount: 325 })]);
     Object.assign(source, { _brutoOriginal: 1425, _bruto: 1425, monto: 1425 });
     const host = document.createElement('div');
-    host.innerHTML = renderPayrollReviewTable({ rows: [source], sourceRows: [source], hoursPerDay: 8 });
+    host.innerHTML = renderPayrollReviewTable({ rows: [source], sourceRows: [source], hoursPerDay: 8, expanded: new Set(['e|calculation']) });
     const detail = host.querySelector('.payroll-breakdown-details__body');
     expect(detail.textContent).toContain('Ordinarios: 0.5 días ($400.00)');
     expect(detail.textContent).toContain('Extra (x1.5): 0.25 días equiv.');
@@ -105,5 +105,5 @@ test('the daily detail separates fractions of regular, overtime, holiday and res
     expect(detail.textContent).toContain('Feriado: 0.25 días');
     expect(detail.textContent).toContain('Descanso: 0.25 días');
     expect(detail.querySelectorAll('.is-holiday')).toHaveLength(2);
-    expect(host.querySelector('[data-payroll-worked-days]').textContent).toBe('1');
+    expect(host.querySelector('[data-payroll-payment-days]').textContent).toBe('1.781');
 });

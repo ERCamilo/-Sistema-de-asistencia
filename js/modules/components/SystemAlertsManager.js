@@ -2,6 +2,24 @@ import { analyzeConflicts, saveApplicationData } from '../services/PersistenceSe
 import { state } from '../core/AppState.js';
 import { Modal } from './Modal.js';
 import icons from '../ui/IconSystem.js';
+import { isProjectsEnabled, isProjectDuplicatesEnabled } from '../config/FeatureFlags.js';
+import { buildProjectPairReviews } from '../features/projects/ProjectDuplicateReview.js';
+import { projectStore } from '../features/projects/ProjectStore.js';
+import { protectedProjectIds } from '../features/projects/ProjectUsage.js';
+
+// Obras repetidas: se recalcula como mucho cada 30 s en los repintados (los eventos del catálogo fuerzan).
+const PROJECT_HEALTH_THROTTLE_MS = 30_000;
+const PROJECT_HEALTH_DEBOUNCE_MS = 400;
+const PROJECT_HEALTH_EVENTS = ['projects:setup-changed', 'projects:created', 'app:ready'];
+
+async function loadProjectHealthData() {
+    return {
+        projects: await projectStore.listAll(),
+        employees: state.employees || [],
+        attendance: state.attendance || {},
+        defaultProjectId: protectedProjectIds().defaultProjectId
+    };
+}
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-alerts-action)
@@ -12,6 +30,11 @@ const _ALERTS_ACTION_MAP = {
     'start-maintenance-from-alert': () => {
         if (window._systemAlerts?.currentModal) window._systemAlerts.currentModal.close();
         window.startMaintenanceWizard?.();
+    },
+    // Al cerrar la pantalla se recalcula: lo que se fusionó o descartó ya no cuenta.
+    'show-project-duplicates': () => {
+        const alerts = window._systemAlerts;
+        window.openProjectDuplicatesScreen?.({ onClose: () => { void alerts?.refreshProjectHealth(); } });
     },
     'ignore-temporarily': () => window._systemAlerts?.ignoreTemporarily(),
     'ignore-permanently': () => window._systemAlerts?.ignorePermanently()
@@ -32,9 +55,55 @@ if (!_alertsDelegationAttached) {
 }
 
 export class SystemAlertsManager {
-    constructor() {
+    constructor({ projectDuplicates = {} } = {}) {
         this.sessionIgnored = false;
         this.currentConflicts = 0;
+        this.projectPairs = 0;
+        this._projectHealth = {
+            isEnabled: projectDuplicates.isEnabled || (() => isProjectsEnabled() && isProjectDuplicatesEnabled()),
+            load: projectDuplicates.load || loadProjectHealthData,
+            now: projectDuplicates.now || Date.now,
+            seq: 0, last: -Infinity, timer: null
+        };
+        this._onProjectEvent = () => {
+            clearTimeout(this._projectHealth.timer);
+            this._projectHealth.timer = setTimeout(() => { void this.refreshProjectHealth(); }, PROJECT_HEALTH_DEBOUNCE_MS);
+        };
+        if (typeof window !== 'undefined') PROJECT_HEALTH_EVENTS.forEach(name => window.addEventListener(name, this._onProjectEvent));
+    }
+
+    /** Quita los oyentes (solo para pruebas: en la app hay una única instancia). */
+    dispose() {
+        clearTimeout(this._projectHealth.timer);
+        if (typeof window !== 'undefined') PROJECT_HEALTH_EVENTS.forEach(name => window.removeEventListener(name, this._onProjectEvent));
+    }
+
+    /** Recalcula solo si pasó el tiempo mínimo; pensado para llamarse en cada repintado. */
+    scheduleProjectHealth() {
+        const health = this._projectHealth;
+        if (health.now() - health.last < PROJECT_HEALTH_THROTTLE_MS) return Promise.resolve(null);
+        return this.refreshProjectHealth();
+    }
+
+    /**
+     * Cuenta los pares de obras que parecen la misma. Nunca lanza: ante un fallo, cero.
+     * Repinta solo si la cuenta cambió; un resultado viejo no pisa a uno más nuevo.
+     */
+    async refreshProjectHealth() {
+        const health = this._projectHealth;
+        const seq = ++health.seq;
+        health.last = health.now();
+        let count = 0;
+        try {
+            if (health.isEnabled()) count = buildProjectPairReviews(await health.load()).length;
+        } catch (error) {
+            console.warn('Obras repetidas: no se pudo comparar:', error?.message || error);
+        }
+        if (seq !== health.seq) return this.projectPairs;
+        const changed = count !== this.projectPairs;
+        this.projectPairs = count;
+        if (changed) this.triggerUIUpdate();
+        return count;
     }
 
     /**
@@ -51,6 +120,8 @@ export class SystemAlertsManager {
             this.currentConflicts = 0;
         }
         
+        try { void this.scheduleProjectHealth(); } catch (_) { /* nunca rompe el repintado */ }
+
         return prevConflicts !== this.currentConflicts;
     }
 
@@ -69,6 +140,22 @@ export class SystemAlertsManager {
      * Devuelve el HTML del botón de alerta para inyectar en el Header.
      */
     renderAlertButton() {
+        return this.renderEmployeeAlertButton() + this.renderProjectAlertButton();
+    }
+
+    /** Aviso de obras repetidas: mismo estilo que el de empleados, abre «Obras repetidas». */
+    renderProjectAlertButton() {
+        const count = this.projectPairs;
+        if (!count || !this._projectHealth.isEnabled()) return '';
+        return `
+            <button class="header-icon-btn warning-alert project-dup-alert" type="button" data-alerts-action="show-project-duplicates" aria-label="Obras repetidas: ${count} ${count === 1 ? 'posible' : 'posibles'}">
+                ${icons.get('layers', { size: 20 }) || '🗂️'}
+                <span class="project-dup-badge">${count}</span>
+            </button>
+        `;
+    }
+
+    renderEmployeeAlertButton() {
         if (!this.shouldShowDuplicateAlert()) return '';
 
         return `
