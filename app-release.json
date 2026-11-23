@@ -1,6 +1,15 @@
 {
-  "version": "1.7.152",
+  "version": "1.7.155",
   "changelog": [
+    {
+      "version": "1.7.155",
+      "date": "2026-11-23",
+      "title": "Protección ante descargas incompletas de catálogos",
+      "items": [
+        "Las listas de empleados, puestos y líderes conservan los registros que faltan de una respuesta parcial, vacía o de caché, en lugar de asumir una eliminación.",
+        "Las bajas explícitas de empleados siguen requiriendo evidencia; esta mitigación no implementa todavía el protocolo duradero de eliminaciones entre dispositivos."
+      ]
+    },
     {
       "version": "1.7.152",
       "date": "2026-11-23",
