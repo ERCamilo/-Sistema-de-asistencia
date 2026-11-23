@@ -11,6 +11,16 @@
       ]
     },
     {
+      "version": "1.7.152",
+      "date": "2026-11-23",
+      "title": "Multiobra muestra resultados y pendientes accionables",
+      "items": [
+        "Al terminar la reparación Multiobra se muestra el resultado persistente con problemas pendientes y opción de continuar o salir.",
+        "Cada pendiente incluye icono, prioridad, motivo, recomendación y acceso al paso de revisión; posponer o archivar requiere confirmar sus consecuencias.",
+        "Los diagnósticos y reportes .log distinguen referencias no disponibles, historiales protegidos y fallos de lectura sin revelar datos privados."
+      ]
+    },
+    {
       "version": "1.7.151",
       "date": "2026-11-22",
       "title": "Menos obras repetidas",
