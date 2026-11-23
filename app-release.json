@@ -1,6 +1,239 @@
 {
-  "version": "1.7.128",
+  "version": "1.7.151",
   "changelog": [
+    {
+      "version": "1.7.151",
+      "date": "2026-11-22",
+      "title": "Menos obras repetidas",
+      "items": [
+        "Al crear una obra se revisa primero lo que creaste en tus otros dispositivos, para que no se repita. Sin conexión te avisa que no pudo revisarlo.",
+        "El formulario de nueva obra muestra las obras que ya tienes y te avisa si el nombre ya existe.",
+        "Prepara la fusión de dos obras que en realidad son la misma: pasa el personal, la asistencia, los préstamos y las cajas chicas a una sola obra, con copia de seguridad previa.",
+        "La fusión todavía no se muestra: se activará en una próxima versión."
+      ]
+    },
+    {
+      "version": "1.7.150",
+      "date": "2026-11-18",
+      "title": "Notas de empleados más seguras",
+      "items": [
+        "Guardar o eliminar notas sincroniza el día correspondiente.",
+        "Marcar asistencia conserva la nota y los cambios de horas se sincronizan por separado.",
+        "Puedes cargar notas anteriores y añadir una nueva sin sobrescribir el texto existente."
+      ]
+    },
+    {
+      "version": "1.7.149",
+      "date": "2026-11-16",
+      "title": "Notas y abonos por voz",
+      "items": [
+        "Los borradores de notas usan marcos azules sobre fondo oscuro y los abonos una tarjeta verde, con el estilo de los préstamos por voz.",
+        "Voz prepara notas de empleados y abonos de préstamos en los formularios habituales, para revisar y guardar.",
+        "Puedes cambiar de empleado conservando los datos; las notas se añaden a las ya guardadas para ese día.",
+        "Los abonos conservan el reparto actual de interés y capital; una grabación ya utilizada no se registra de nuevo."
+      ]
+    },
+    {
+      "version": "1.7.148",
+      "date": "2026-11-16",
+      "title": "Pronunciaciones compartidas más claras",
+      "items": [
+        "Voz muestra el nombre y número de las otras personas que comparten una pronunciación.",
+        "Los avisos al editar y guardar coincidencias incluyen nombres reales y variantes, conservando la selección manual.",
+        "Los avisos también detectan nombres con guion y nombres en otro orden."
+      ]
+    },
+    {
+      "version": "1.7.147",
+      "date": "2026-11-16",
+      "title": "Primera cuota por voz",
+      "items": [
+        "En el préstamo por voz en cuotas eliges en qué nómina se cobra la primera cuota."
+      ]
+    },
+    {
+      "version": "1.7.146",
+      "date": "2026-11-16",
+      "title": "Préstamos programados para una nómina",
+      "items": [
+        "Al registrar un préstamo de pago único eliges en cuál de las próximas 8 nóminas se cobra; en cuotas, en qué nómina va la primera cuota.",
+        "Nómina muestra los préstamos programados para más adelante con la etiqueta «Programado», sin marcarlos ni incluirlos en los cobros masivos. Puedes marcarlos a mano para adelantar el cobro."
+      ]
+    },
+    {
+      "version": "1.7.145",
+      "date": "2026-11-16",
+      "title": "Respaldos grandes y cierres de nómina",
+      "items": [
+        "Los respaldos automáticos de cuentas con mucho historial vuelven a guardarse en la nube, sin errores de conexión ni esperas de varios minutos.",
+        "Puedes volver a cerrar una nómina después de deshacerla aunque el saldo de un préstamo haya cambiado entretanto."
+      ]
+    },
+    {
+      "version": "1.7.144",
+      "date": "2026-11-16",
+      "title": "Nómina compacta y envíos a SplitX",
+      "items": [
+        "La tabla y los controles de revisión aprovechan mejor el espacio en el celular.",
+        "Compartir conserva la espera ampliada y los reintentos de envío a SplitX en conexiones lentas."
+      ]
+    },
+    {
+      "version": "1.7.143",
+      "date": "2026-11-15",
+      "title": "Controles de nómina más claros",
+      "items": [
+        "Líder, Incluir, Filtros y Compartir quedan alineados en una barra compacta. La selección manual se muestra como interruptor en un panel desplegable."
+      ]
+    },
+    {
+      "version": "1.7.142",
+      "date": "2026-11-14",
+      "title": "Filas de nómina más compactas",
+      "items": [
+        "La tabla móvil aprovecha mejor el ancho y reduce el espacio entre empleados, conservando los nombres y controles táctiles."
+      ]
+    },
+    {
+      "version": "1.7.141",
+      "date": "2026-11-14",
+      "title": "Revisión de nómina más despejada",
+      "items": [
+        "Días de pago incluye los factores ya calculados de horas extra, descanso y festivos. Se conserva el conteo real de asistencia.",
+        "Los filtros adicionales se pliegan y Compartir reúne las opciones originales de exportación.",
+        "En móvil se retiran los accesos auxiliares y la barra inferior; la navegación sigue disponible en los cinco pasos superiores."
+      ]
+    },
+    {
+      "version": "1.7.140",
+      "date": "2026-11-14",
+      "title": "Nómina móvil más compacta",
+      "items": [
+        "La ficha conserva las iniciales del empleado al deslizar y se reducen los márgenes laterales.",
+        "El neto despliega su cálculo con chevrón y contador; se elimina la columna separada de desglose.",
+        "Incluir pasa a ser un desplegable al lado del filtro de líder, con las mismas opciones de trabajo."
+      ]
+    },
+    {
+      "version": "1.7.139",
+      "date": "2026-11-15",
+      "title": "Envío a SplitX más confiable",
+      "items": [
+        "Enviar a SplitX espera hasta un minuto a que SplitX termine de cargar, para que no se abra con la nómina anterior en conexiones lentas.",
+        "Si SplitX vuelve a pedir la nómina (al recargarlo o con «Pedir de nuevo»), se reenvía sin repetir la importación.",
+        "El aviso de confirmación llega aunque tardes en elegir reemplazar o agregar en SplitX."
+      ]
+    },
+    {
+      "version": "1.7.138",
+      "date": "2026-11-13",
+      "title": "Exportar nómina desde el celular",
+      "items": [
+        "El resumen de nómina por obra se puede desplegar desde el celular.",
+        "Resumen y exportar ofrece SplitX, PDF, copiar JSON y descargar JSON en todos los pasos, con los filtros y validaciones existentes."
+      ]
+    },
+    {
+      "version": "1.7.137",
+      "date": "2026-11-13",
+      "title": "Estados de préstamos separados",
+      "items": [
+        "El paso 4 de nómina muestra las advertencias en una columna Estado, separada del nombre del empleado.",
+        "En celular, cada advertencia tiene su propia fila; los empleados sin advertencias conservan la tarjeta compacta."
+      ]
+    },
+    {
+      "version": "1.7.136",
+      "date": "2026-11-13",
+      "title": "Préstamos de nómina ordenados",
+      "items": [
+        "El paso 4 de nómina ordena los empleados por número de ficha.",
+        "Busca por nombre o número y filtra el listado por líder que paga, posición y cobros seleccionados.",
+        "Los filtros conservan los cobros, los totales y las ediciones. Quita los filtros para usar acciones en grupo sin afectar empleados ocultos.",
+        "En celular, Atrás y Continuar quedan fijos sobre la navegación y se adaptan al teclado, sin ocultar el final del contenido."
+      ]
+    },
+    {
+      "version": "1.7.135",
+      "date": "2026-11-13",
+      "title": "SplitX: importes compatibles",
+      "items": [
+        "Aplica la corrección de importes a centavos al copiar, descargar o enviar la nómina a SplitX.",
+        "Las sesiones de la versión de prueba anterior reciben el aviso de actualización. Después de actualizar, vuelve a generar el JSON para usar la corrección.",
+        "Se conservan los valores originales y se avisa si redondear cada pago produce una diferencia en el total para efectivo."
+      ]
+    },
+    {
+      "version": "1.7.134",
+      "date": "2026-11-13",
+      "title": "Nómina por pagador y días trabajados",
+      "items": [
+        "Al elegir un líder, «En nómina» muestra por defecto los tramos que paga, incluidos puestos de otros equipos y registros antiguos.",
+        "El resumen y el detalle de cálculo muestran días y tarifas diarias; los extras se identifican por separado.",
+        "Los empleados pausados conservan en nómina el trabajo realizado durante el período; las asistencias eliminadas quedan fuera.",
+        "Desmarca empleados de un reporte sin desactivarlos ni modificar sus asistencias. Las exclusiones se separan por obra, período y líder.",
+        "La exportación a SplitX respeta el filtro y los empleados incluidos, conservando los descuentos entre líderes fuera de los pagos individuales.",
+        "Los importes para SplitX se expresan a centavos como se muestran por empleado en SA; el JSON conserva el cálculo original y se avisa si difiere el total por redondeo."
+      ]
+    },
+    {
+      "version": "1.7.133",
+      "date": "2026-11-12",
+      "title": "Confirmaciones NFC más claras",
+      "items": [
+        "El lector muestra cuatro estados visuales persistentes con iconos: tarjeta disponible, asociación confirmada, tarjeta del mismo empleado y tarjeta ocupada por otro.",
+        "El éxito solo aparece tras confirmación válida del servidor; el editor preserva el borrador y no duplica solicitudes.",
+        "Se unifica el icono NFC regular en Ajustes, editor y lector; los mensajes y botones son accesibles en móvil y escritorio."
+      ]
+    },
+    {
+      "version": "1.7.132",
+      "date": "2026-11-12",
+      "title": "Posiciones de préstamo en Excel",
+      "items": [
+        "Elige primero al exportar si los puestos de préstamo van en filas separadas o en la fila principal del empleado.",
+        "Identifica el trabajo prestado con celdas amarillas y notas con los puestos, las horas y el líder al que se descuenta.",
+        "Consulta los días negativos por fecha en el apartado de descuentos del líder, conservando un solo ajuste monetario."
+      ]
+    },
+    {
+      "version": "1.7.131",
+      "date": "2026-11-11",
+      "title": "Líder visible en cada tramo de nómina",
+      "items": [
+        "El desglose de nómina muestra a qué equipo pertenece cada tramo y quién lo paga cuando es otro líder.",
+        "Los días de un mismo puesto y líder se muestran en una sola línea.",
+        "El editor del empleado avisa si hay días del período con un líder anterior y permite pasarlos al actual, para todo el período o desde una fecha."
+      ]
+    },
+    {
+      "version": "1.7.130",
+      "date": "2026-11-10",
+      "title": "Nómina y reportes con el mismo pago para todos",
+      "items": [
+        "Los filtros de puestos respetan el equipo y el pagador guardados en cada tramo de trabajo.",
+        "Los líderes anteriores del período siguen disponibles aunque cambie la asignación del empleado.",
+        "La selección de empleados, los totales y las exportaciones conservan el mismo filtro sin duplicar salarios.",
+        "Los saldos completos entre líderes se identifican al consultar un reporte parcial.",
+        "Un cambio de tarifa o de factor se aplica a todo el período abierto, igual para todos los empleados, y un aviso indica desde qué fecha rige.",
+        "El día libre se paga con el factor del líder; el del puesto solo se usa si el líder no define el suyo.",
+        "El reporte de días valora feriados, días libres y jornadas repartidas entre dos puestos igual que la nómina.",
+        "Al cambiar el líder de un puesto o de un empleado se elige si vale para todo el período abierto o desde una fecha; los días anteriores quedan con el líder anterior."
+      ]
+    },
+    {
+      "version": "1.7.129",
+      "date": "2026-11-08",
+      "title": "Líder y pagador por empleado",
+      "items": [
+        "Cada puesto propone su líder y permite cambiarlo solo para ese empleado.",
+        "Equipo y pagador comparten una fila compacta, con ayuda y controles táctiles.",
+        "Las posiciones de préstamo distinguen el equipo del líder que paga el salario completo.",
+        "La nómina separa el descuento opcional del líder de los salarios, préstamos y ajustes personales.",
+        "Las asistencias conservan sus condiciones y los reportes muestran el reparto sin duplicar pagos.",
+        "Los días y horas de cada puesto se cargan desde el período de la obra, con estado de carga y reintento."
+      ]
+    },
     {
       "version": "1.7.128",
       "date": "2026-11-07",

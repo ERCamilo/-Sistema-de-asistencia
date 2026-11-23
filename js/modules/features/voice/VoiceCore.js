@@ -1,3 +1,5 @@
+import { validVoiceDate } from './VoiceActionDrafts.js';
+
 export { normalizeVoiceName, resolveVoiceEmployees } from './VoiceMatching.js';
 
 export const VOICE_LIMITS = Object.freeze({ maxBytes: 10 * 1024 * 1024, maxDurationMs: 60000 });
@@ -15,7 +17,7 @@ export function isVoiceEndpointAllowed(value, origin = globalThis.location?.orig
     } catch (_) { return false; }
 }
 export const LOAN_FIELDS = ['principal', 'interestRate', 'interestIncluded', 'installmentMode', 'installmentCount', 'installmentFrequencyWeeks', 'startDate', 'concept'];
-const INTENTS = ['buscar_empleado', 'crear_prestamo', 'registrar_gasto_caja_chica', 'abrir_asistencia', 'abrir_prestamos', 'desconocida'];
+const INTENTS = ['crear_nota', 'registrar_abono', 'buscar_empleado', 'crear_prestamo', 'registrar_gasto_caja_chica', 'abrir_asistencia', 'abrir_prestamos', 'desconocida'];
 export function createVoiceContext(date = new Date(), timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
     const parts = new Intl.DateTimeFormat('en', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
     const get = key => parts.find(x => x.type === key).value;
@@ -70,7 +72,24 @@ export function readVoiceResponse(data, requestId) {
             extracted[field] = value;
         }
     }
-    return { transcript: r.transcript, intent: r.intent, employee: { spokenName: r.employee.spokenName, spokenNumber: r.employee.spokenNumber }, loan, ...(pettyCash ? { pettyCash } : {}), ...(extracted ? { extracted } : {}), needsReview: r.needsReview, issues: r.issues.map(x => ({ code: x.code.slice(0, 100), field: x.field, message: x.message.slice(0, 1000) })) };
+    if (['crear_nota', 'registrar_abono'].includes(r.intent) && (r.loan != null || r.pettyCash != null || r.intent === 'crear_nota' && r.payment != null || r.intent === 'registrar_abono' && r.note != null)) invalid();
+    const actions = {};
+    for (const [key, fields] of Object.entries({ note: ['text', 'date'], payment: ['amount', 'date', 'note', 'spokenLoanNumber', 'channel', 'payrollDate'] })) {
+        if (r[key] == null) {
+            if (r.intent === (key === 'note' ? 'crear_nota' : 'registrar_abono')) invalid();
+            continue;
+        }
+        if (typeof r[key] !== 'object' || Array.isArray(r[key]) || Object.keys(r[key]).some(k => !fields.includes(k))) invalid();
+        actions[key] = {};
+        for (const field of fields) {
+            const value = r[key][field] ?? null;
+            if (field === 'amount' ? value !== null && (typeof value !== 'number' || !Number.isFinite(value)) : !nullableString(value)) invalid();
+            if (['date', 'payrollDate'].includes(field) && value !== null && !validVoiceDate(value)) invalid();
+            if (field === 'channel' && value !== null && !['payroll', 'cash', 'transfer'].includes(value)) invalid();
+            actions[key][field] = value;
+        }
+    }
+    return { ...actions, transcript: r.transcript, intent: r.intent, employee: { spokenName: r.employee.spokenName, spokenNumber: r.employee.spokenNumber }, loan, ...(pettyCash ? { pettyCash } : {}), ...(extracted ? { extracted } : {}), needsReview: r.needsReview, issues: r.issues.map(x => ({ code: x.code.slice(0, 100), field: x.field, message: x.message.slice(0, 1000) })) };
 }
 
 export const voiceHardBlocked = result => !!result?.issues?.some(x => /NEGAT|MULTIPLE_ACTIONS/.test(x.code));

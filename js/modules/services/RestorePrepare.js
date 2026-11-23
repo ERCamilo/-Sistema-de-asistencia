@@ -1,3 +1,4 @@
+import { captureAttendancePositionAssignments } from '../features/employees/EmployeePositionAssignments.js';
 /**
  * 🧰 RestorePrepare.js — prepara un snapshot para que la restauración GANE.
  *
@@ -49,7 +50,13 @@ export function prepareRestoredState(snapshotState, { now = Date.now() } = {}) {
     const dates = new Set();
     Object.entries(src.attendance || {}).forEach(([key, rec]) => {
         if (!rec || typeof rec !== 'object') return;
-        attendance[key] = stampAttendanceWrite(rec, now);
+        const legacyDate = /\d{4}-\d{2}-\d{2}$/.exec(key)?.[0];
+        const reference = { ...rec, date: rec.date || legacyDate,
+            employeeId: rec.employeeId || (legacyDate ? key.slice(0, -11) : null) };
+        const captured = captureAttendancePositionAssignments(reference,
+            { ...src, attendance: { [`${reference.employeeId}-${reference.date}`]: reference } }, now);
+        attendance[key] = stampAttendanceWrite(captured.positionAssignments
+            ? { ...rec, positionAssignments: captured.positionAssignments } : rec, now);
         // Registros legacy sin `date`: derivar del sufijo de la clave
         // (emp-YYYY-MM-DD o emp_YYYY-MM-DD), como AttendanceCleanup y
         // syncHistory. Sin esto ese día queda fuera de dateKeys y jamás

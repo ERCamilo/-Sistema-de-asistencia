@@ -55,3 +55,10 @@ test('duplicate cancellation and an account change during confirmation preserve 
     await expect(registerNewAccountLoan('a', draft(), { period: '2026-10-24', voiceRequestId: 'r-2', confirmDuplicate: async () => { window.currentUser = { uid: 'other' }; return true; } })).rejects.toThrow('Cambió');
     expect(state.employees[0].loans).toHaveLength(1);
 });
+test('a voice installment loan starts its first installment in the chosen payroll', async () => {
+    const installments = { ...draft(), installmentMode: 'installments', installmentCount: 3, installmentFrequencyWeeks: 3 };
+    const loan = await registerNewAccountLoan('a', installments, { period: '2026-10-24', voiceRequestId: 'r-inst' });
+    expect(loan.firstDueDate).toBe('2026-10-24');
+    expect(loan.installments.map(i => i.dueDate)).toEqual(['2026-10-24', '2026-11-14', '2026-12-05']);
+    expect(loan.dueDate).toBeUndefined();
+});

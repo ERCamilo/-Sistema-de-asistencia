@@ -18,7 +18,7 @@
 // JD#3: incluidos bonuses/deductions (montos) y email (PII), antes omitidos.
 // JD2#5: positionSalaryModes revela el esquema salarial por puesto.
 export const EMPLOYEE_SENSITIVE_FIELDS = [
-    'salary', 'dailyRate', 'customSalary', 'positionSalaries', 'positionSalaryModes',
+    'salary', 'dailyRate', 'customSalary', 'positionSalaries', 'positionSalaryModes', 'positionAssignments',
     'loans', 'advances', 'bonuses', 'deductions',
     'phone', 'email', 'rnc', 'cedula'
 ];
@@ -62,6 +62,9 @@ export function redactSensitiveBackup(data) {
         ...data,
         employees: redactArray(data.employees, EMPLOYEE_SENSITIVE_FIELDS),
         positions: redactArray(data.positions, POSITION_SENSITIVE_FIELDS),
-        leaders: redactArray(data.leaders, LEADER_SENSITIVE_FIELDS)
+        leaders: redactArray(data.leaders, LEADER_SENSITIVE_FIELDS),
+        ...(data.attendance && typeof data.attendance === 'object' ? {
+            attendance: Object.fromEntries(Object.entries(data.attendance).map(([key, record]) => [key, stripFields(record, ['positionAssignments'])]))
+        } : {})
     };
 }

@@ -1,8 +1,10 @@
 import { projectSetupService } from './ProjectSetupService.js';
 import { mountProjectOnboarding } from './ProjectOnboarding.js';
 import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
+import { findProjectNameConflict } from './ProjectNames.js';
 
 const CREATE_MODAL_ID = 'project-create-modal';
+const MAX_EXISTING_SHOWN = 6;
 let detachProjectCreateA11y = null;
 const ICONS = Object.freeze({
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
@@ -13,6 +15,18 @@ function esc(value) {
     return String(value ?? '').replace(/[&<>'"]/g, ch => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
     }[ch]));
+}
+
+/**
+ * Aviso al crear una obra. Si no se pudo revisar el catálogo de otros dispositivos
+ * (sin conexión) y hay sesión, se avisa que la obra podría repetirse allí.
+ */
+export function announceProjectCreated(result, { currentUser = window.currentUser } = {}) {
+    window.showNotification?.(`Proyecto creado: ${result.project?.name || ''}`, 'success');
+    if (result.catalogChecked === false && currentUser) {
+        window.showNotification?.('No se pudieron revisar tus otras obras (sin conexión). Si esta obra ya existe en otro dispositivo, te avisaremos al sincronizar.', 'info');
+    }
+    window.dispatchEvent(new CustomEvent('projects:created', { detail: { project: result.project } }));
 }
 
 export function renderProjectCreateFormHTML() {
@@ -28,6 +42,7 @@ export function renderProjectCreateFormHTML() {
                     <label for="project-create-name-input">Nombre del proyecto</label>
                     <input id="project-create-name-input" type="text" data-project-create-name maxlength="80" placeholder="Ej. Torre Mirador, Obra Las Acacias" autocomplete="off">
                     <div class="project-create-meta"><span>Máximo 80 caracteres</span><span data-project-create-char-count>0/80</span></div>
+                    <div class="project-help project-create-existing" data-project-create-existing aria-live="polite" hidden></div>
                 </div>
                 <div class="project-status-line" data-project-create-status aria-live="polite"></div>
                 <div class="project-actions" style="justify-content:flex-end">
@@ -53,7 +68,34 @@ export function mountProjectCreateForm(container, {
     const submitBtn = container.querySelector('[data-project-create-submit]');
     const cancelIconBtn = container.querySelector('[data-project-create-cancel]');
     const cancelTextBtn = container.querySelector('[data-project-create-cancel-btn]');
+    const existingEl = container.querySelector('[data-project-create-existing]');
     let isSubmitting = false;
+    let existing = [];
+
+    /** «¿Ya existe?»: lista las obras actuales y avisa si el nombre escrito ya está en uso. */
+    function renderExisting() {
+        if (!existingEl) return;
+        const names = existing.map(project => String(project?.name ?? '')).filter(Boolean);
+        const conflict = nameInput?.value ? findProjectNameConflict(nameInput.value, existing) : null;
+        existingEl.className = `project-help project-create-existing${conflict ? ' is-error' : ''}`;
+        if (conflict) {
+            existingEl.innerHTML = `Ya existe «${esc(conflict.name)}». Elige otro nombre.`;
+            existingEl.hidden = false;
+        } else if (names.length) {
+            const shown = names.slice(0, MAX_EXISTING_SHOWN).map(esc).join(', ');
+            const more = names.length - MAX_EXISTING_SHOWN;
+            existingEl.innerHTML = `<strong>Ya tienes:</strong> ${shown}${more > 0 ? ` y ${more} más` : ''}. Si es una de estas, no la crees otra vez.`;
+            existingEl.hidden = false;
+        } else {
+            existingEl.innerHTML = '';
+            existingEl.hidden = true;
+        }
+    }
+    async function loadExisting() {
+        try { existing = (await setupService.store?.listAll?.()) || []; } catch (_) { existing = []; }
+        renderExisting();
+    }
+    void loadExisting();
 
     function updateCharCount() {
         const len = nameInput ? nameInput.value.length : 0;
@@ -89,8 +131,8 @@ export function mountProjectCreateForm(container, {
             const result = await setupService.createEmptyProject({ name: rawValue });
             if (nameInput) nameInput.value = '';
             updateCharCount();
-            window.showNotification?.(`Proyecto creado: ${result.project?.name || ''}`, 'success');
-            window.dispatchEvent(new CustomEvent('projects:created', { detail: { project: result.project } }));
+            announceProjectCreated(result);
+            void loadExisting();
             onSuccess?.(result.project, result.state);
         } catch (error) {
             setStatus(`<strong>Error:</strong> ${esc(error?.message || error)}`, true);
@@ -103,7 +145,7 @@ export function mountProjectCreateForm(container, {
         }
     }
 
-    nameInput?.addEventListener('input', () => { updateCharCount(); clearStatus(); });
+    nameInput?.addEventListener('input', () => { updateCharCount(); clearStatus(); renderExisting(); });
     cancelIconBtn?.addEventListener('click', handleCancel);
     cancelTextBtn?.addEventListener('click', handleCancel);
     form?.addEventListener('submit', handleSubmit);

@@ -106,6 +106,11 @@ describe('PayrollLoansDesktop', () => {
 
         expect(host.querySelectorAll('.payroll-loan-group.is-warning-zero')).toHaveLength(1);
         expect(host.querySelectorAll('.payroll-loan-group.is-warning-negative')).toHaveLength(1);
+        for (const group of host.querySelectorAll('.payroll-loan-group.has-status')) {
+            expect(group.querySelector('.payroll-loan-group__employee .payroll-status')).toBeNull();
+            expect(group.querySelector('summary > .payroll-loan-group__status .payroll-status')).not.toBeNull();
+        }
+        expect(host.querySelector('.payroll-loans-table__columns').textContent).toContain('Estado');
         expect(host.querySelector('.payroll-loans-warning-counts').textContent)
             .toMatch(/1 negativo[\s\S]+1 en cero tras cobro/);
         expect(host.querySelectorAll('.payroll-loans-warning-counts .payroll-status svg').length).toBeGreaterThanOrEqual(3);

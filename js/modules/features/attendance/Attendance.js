@@ -9,6 +9,7 @@ export class Attendance {
         this.selectedPosition = data.selectedPosition || null;
         this.multiPosition = data.multiPosition || false;
         this.positionHours = data.positionHours || [];
+        if (data.positionAssignments) this.positionAssignments = data.positionAssignments;
         this.notes = data.notes || '';
         this.deviceId = data.deviceId || null;
         // Fase 1 (U1a): frescura por-registro. `updatedAt` sobrevive el
@@ -76,6 +77,7 @@ export class Attendance {
             selectedPosition: this.selectedPosition,
             multiPosition: this.multiPosition,
             positionHours: this.positionHours,
+            ...(this.positionAssignments ? { positionAssignments: this.positionAssignments } : {}),
             notes: this.notes,
             // Fase 1 (U1a): persistir/subir la frescura y el tombstone. El
             // null explícito de deletedAt importa — Firestore distingue

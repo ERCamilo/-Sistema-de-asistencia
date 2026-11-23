@@ -1477,3 +1477,8 @@
 .project-action-symbol[data-action="reopen"] { color: var(--good); }
 @keyframes project-action-enter { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .project-action-symbol { animation: none; } }
+
+/* «¿Ya existe?» en el formulario de creación de obras */
+.project-create-existing { margin-top: 8px; font-size: 12.5px; line-height: 1.45; color: var(--text-dim); overflow-wrap: anywhere; }
+.project-create-existing[hidden] { display: none; }
+.project-create-existing.is-error { color: var(--bad); }

@@ -1,3 +1,6 @@
+import { prepareEmployeePositionAssignments, assignmentConfigurationChanged, changedAssignmentPositions } from '../../features/employees/EmployeePositionAssignments.js';
+import { askLeaderChangeStart, leaderChangeDateRange } from '../../features/employees/LeaderChangeDateDialog.js';
+import { countLeaderChangeDays, planEmployeeLeaderChange, leaderChangeEffectiveAt } from '../../features/employees/LeaderChangeFromDate.js';
 import { VoiceNameEntry } from '../../features/voice/VoiceNameEnrollmentUI.js';
 import { NfcEmployeeEntry } from '../../features/nfc/NfcViews.js';
 import { getActivePayrollSettings } from '../../features/payroll/ActivePayrollSettings.js';
@@ -9,6 +12,7 @@ import { swapEmployeeNumbers } from '../../services/PersistenceService.js';
 import { mergeDuplicateEmployees, purgeMergedEmployeesFromLocalStore } from '../../features/employees/EmployeeDuplicateService.js';
 import { EmployeeEditorDraft, readEmployeeForm } from '../../features/employees/EmployeeEditorDraft.js';
 import { eventBus } from '../../core/Events.js';
+import { notifyPayRateChange, payRateChanged } from '../../features/payroll/PayRateChangeNotice.js';
 import { collectPositionDays, reassignPositionDays } from '../../services/AttendancePositionAudit.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
@@ -202,7 +206,11 @@ export class EmployeeModal {
             toggleBtn.querySelector('span:nth-child(2)').textContent = `${showOptionalFields ? 'Ocultar' : 'Mostrar'} campos opcionales`;
         });
 
-        attachEmployeePositionEditor({ root: body, state, employee: emp, regularHours });
+        attachEmployeePositionEditor({ root: body, state, employee: emp, regularHours,
+            readState: getState,
+            ensureAttendanceRange: typeof context?.services?.ensureAttendanceRange === 'function'
+                ? (start, end) => context.services.ensureAttendanceRange(start, end) : undefined
+        });
 
         // Input de número (remediar el estilo si el usuario escribe)
         const numInput = body.querySelector('#empNumber');
@@ -238,7 +246,7 @@ export class EmployeeModal {
         return modal;
     }
 
-    static save(modalInstance, existingEmp, { confirmedVersion } = {}) {
+    static save(modalInstance, existingEmp, { confirmedVersion, leaderChangeFrom } = {}) {
         const el = modalInstance.element;
         // F1.4: alcance activo para sello de nacimiento y detección de duplicados.
         const scope = peekEntityScope();
@@ -263,13 +271,36 @@ export class EmployeeModal {
                         window.showAlert('Llegaron más cambios. Revisa el aviso y vuelve a guardar.', 'warning');
                         return;
                     }
-                    EmployeeModal.save(modalInstance, existingEmp, { confirmedVersion: plan.version });
+                    EmployeeModal.save(modalInstance, existingEmp, { confirmedVersion: plan.version, leaderChangeFrom });
                 }
             });
             return;
         }
         const { number, name, hireDate, phone, email, notes,
-            positions: selectedPositions, positionSalaries, positionSalaryModes } = plan.fields;
+            positions: selectedPositions, positionSalaries, positionSalaryModes, positionAssignments: requestedAssignments } = plan.fields;
+        // Cambio de líder o pagador individual con días ya registrados en el
+        // período abierto: se pregunta desde cuándo vale antes de tocar nada.
+        const employeeBefore = draft?.currentEmployee(state) || existingEmp;
+        const leaderChangePositions = existingEmp
+            ? changedAssignmentPositions(employeeBefore, requestedAssignments, state.positions).filter(id => selectedPositions.includes(id)) : [];
+        if (leaderChangePositions.length > 0 && leaderChangeFrom === undefined) {
+            const days = countLeaderChangeDays(state, { positionIds: leaderChangePositions,
+                periodStart: leaderChangeDateRange(state).periodStart, employeeId: employeeBefore.id });
+            if (days > 0) {
+                if (modalInstance._leaderChangeQuestionOpen) return;
+                modalInstance._leaderChangeQuestionOpen = true;
+                askLeaderChangeStart(state, { subject: name || employeeBefore.name, days }).then(fromDate => {
+                    modalInstance._leaderChangeQuestionOpen = false;
+                    if (fromDate && el.isConnected) EmployeeModal.save(modalInstance, existingEmp, { confirmedVersion, leaderChangeFrom: fromDate });
+                });
+                return;
+            }
+        }
+        let positionAssignments;
+        try {
+            positionAssignments = prepareEmployeePositionAssignments(employeeBefore, requestedAssignments, { ...state, settings: getActivePayrollSettings(state), assignmentScope: scope },
+                leaderChangeFrom ? leaderChangeEffectiveAt(leaderChangeFrom) : Date.now(), positionSalaries);
+        } catch (error) { return window.showAlert(error.message, 'error'); }
 
         if (!number) return window.showAlert('El número de empleado es obligatorio', 'error');
         if (!name) return window.showAlert('El nombre es obligatorio', 'error');
@@ -291,6 +322,7 @@ export class EmployeeModal {
         // que TODOS los caminos de guardado (normal, intercambio, fusión) las
         // apliquen exactamente una vez, dentro de applyFields.
         let _reassignDecisions = [];
+        let _payChanged = false;
         const _reassignTouchedDates = [];
 
         // Aplica los campos del formulario al empleado (existente o nuevo) con
@@ -307,12 +339,16 @@ export class EmployeeModal {
                 const posChanged = positionsChanged(
                     empToEdit.positions, selectedPositions,
                     empToEdit.positionSalaries, positionSalaries
-                );
+                ) || assignmentConfigurationChanged(empToEdit.positionAssignments, positionAssignments);
+                // Una tarifa personal nueva alcanza los días ya registrados del período abierto: se avisa.
+                _payChanged = selectedPositions.some(positionId =>
+                    payRateChanged(empToEdit.positionSalaries?.[positionId], positionSalaries?.[positionId]));
                 empToEdit.number = numberToUse;
                 empToEdit.name = name;
                 empToEdit.positions = selectedPositions;
                 empToEdit.positionSalaries = positionSalaries;
                 empToEdit.positionSalaryModes = positionSalaryModes;
+                if (Object.keys(positionAssignments).length) empToEdit.positionAssignments = positionAssignments;
                 empToEdit.hireDate = hireDate;
                 empToEdit.phone = phone;
                 empToEdit.email = email;
@@ -327,6 +363,19 @@ export class EmployeeModal {
                 // posición elegida, dentro de batchSetState y con rebuild del
                 // índice (mismo contrato que el purge de historial). Las
                 // fechas tocadas se acumulan para subirlas por el canal daily.
+                if (leaderChangeFrom && leaderChangePositions.length > 0) {
+                    // Los días desde la fecha elegida pasan al nuevo equipo y
+                    // suben por el canal diario en el mismo guardado.
+                    const teamPlan = planEmployeeLeaderChange({ ...state, settings: getActivePayrollSettings(state) },
+                        { employeeId: empToEdit.id, positionIds: leaderChangePositions, fromDate: leaderChangeFrom });
+                    if (teamPlan.dateKeys.length > 0) {
+                        stateManager.batchSetState(() => {
+                            Object.assign(state.attendance, teamPlan.records);
+                            buildAttendanceIndex();
+                        });
+                        _reassignTouchedDates.push(...teamPlan.dateKeys);
+                    }
+                }
                 if (_reassignDecisions.length > 0) {
                     stateManager.batchSetState(() => {
                         for (const d of _reassignDecisions) {
@@ -344,7 +393,7 @@ export class EmployeeModal {
             const nowNew = Date.now();
             state.employees.push({
                 id: newId, key: newId, number: numberToUse, name,
-                positions: selectedPositions, positionSalaries, positionSalaryModes, active: true,
+                positions: selectedPositions, positionSalaries, positionSalaryModes, positionAssignments, active: true,
                 hireDate, phone, email, notes,
                 statusHistory: [{ date: hireDate, active: true, timestamp: nowNew }],
                 // Empleado nuevo: sus puestos se asignan por primera vez ahora,
@@ -373,6 +422,7 @@ export class EmployeeModal {
             context.saveToLocalStorage(Object.keys(opts).length > 0 ? opts : undefined);
             context.render();
             modalInstance.close();
+            if (_payChanged) notifyPayRateChange(state, { subject: `Tarifa personal de ${name}` });
         };
 
         const continueSave = () => {

@@ -21,3 +21,18 @@ test('voice note retains the recording date and timezone through retries with an
     expect(voiceLoanNote(record)).toBe('voice - el 09/10/2026 a las 21:30');
     expect(voiceLoanNote(record, ' Herramientas ')).toBe('voice - el 09/10/2026 a las 21:30 - Herramientas');
 });
+
+test('el modal de voz ofrece elegir la nómina de la primera cuota en préstamos en cuotas', async () => {
+    const { VoiceLoanView } = await import('../modules/features/voice/VoiceLoanView.js');
+    const periods = [{ payDate: '2099-01-10', label: 'Nómina A' }, { payDate: '2099-01-24', label: 'Nómina B' }];
+    const ui = {
+        record: { result: { issues: [], intent: 'crear_prestamo' }, draft: { principal: 100, interestRate: 0, installmentCount: 2, installmentMode: 'installments', dueDate: '2099-01-24', concept: '' }, transcript: '', mention: {}, createdAt: Date.now(), context: {} },
+        selected: () => ({ id: 'e1', name: 'Ana', loans: [] }),
+        adapter: { getLoanDefaults: () => ({ periods }), getPositions: () => [] },
+        busy: false, loanReady: () => true, effectiveResult: () => null
+    };
+    let html = '';
+    try { html = VoiceLoanView(ui, (id, label) => `<button>${label}</button>`); } catch (e) { html = String(e); }
+    expect(html).toContain('Primera cuota');
+    expect(html).toContain('Nómina B');
+});

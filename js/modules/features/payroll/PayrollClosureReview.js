@@ -107,6 +107,7 @@ function samePayload(left, right) {
     }
     const payload = closure => JSON.stringify({
         totals: closure.totals || {},
+        leaderAdjustments: closure.leaderAdjustments || [],
         rows: (closure.rows || []).map(row => ({
             employeeId: text(row.employeeId),
             gross: money(row.gross),

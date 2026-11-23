@@ -655,3 +655,13 @@
     .header-p2p-ring { transition: none; }
     .header-p2p-indicator[data-p2p-state="transferring"] .header-p2p-ring { animation: none; }
 }
+
+/* Aviso de «Obras repetidas» (SystemAlertsManager): insignia con el número de pares sospechosos */
+.header-icon-btn.project-dup-alert { position: relative; }
+.project-dup-badge {
+    position: absolute; right: 3px; top: 3px; min-width: 19px; height: 19px; padding: 0 5px;
+    border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+    background: var(--accent, #22d3ee); color: var(--on-accent, #04202a);
+    border: 2px solid var(--bg, #0f172a); font-size: 10px; line-height: 1; font-weight: 800;
+    font-variant-numeric: tabular-nums; box-sizing: border-box;
+}
