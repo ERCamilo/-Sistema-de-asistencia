@@ -2,6 +2,7 @@ import { Modal } from '../../components/Modal.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
 import { peekEntityScope, entityInScope } from '../../features/projects/ProjectContext.js';
 import icons from '../../ui/IconSystem.js';
+import { notifyPayRateChange, payRateChanged } from '../../features/payroll/PayRateChangeNotice.js';
 
 export class LeaderModal {
     static open(leaderId = null) {
@@ -144,9 +145,12 @@ export class LeaderModal {
         // El toast lo emite SaveOutcomeNotifier con el resultado REAL del
         // guardado (verde local+nube / amarillo solo-local / rojo).
         let announce = null;
+        let payChanged = false;
         if (existingLdr) {
             const ldrToEdit = state.leaders.find(l => l.id === existingLdr.id);
             if (ldrToEdit) {
+                // El factor nuevo alcanza los días libres ya registrados del período abierto: se avisa.
+                payChanged = payRateChanged(ldrToEdit.restDayFactor, restDayFactor);
                 ldrToEdit.number = number;
                 ldrToEdit.name = name;
                 ldrToEdit.phone = phone;
@@ -179,5 +183,6 @@ export class LeaderModal {
         context.saveToLocalStorage(announce ? { announce } : undefined);
         context.render();
         modalInstance.close();
+        if (payChanged) notifyPayRateChange(state, { subject: `Días libres del líder «${name}»` });
     }
 }

@@ -11,6 +11,12 @@
 
 import { stampBirthProject } from '../attendance/AttendanceRecordWriter.js';
 
+// Legacy tombstones may carry stale text. A versioned note has its own
+// lifecycle and survives removal of the attendance record's hours.
+export function noteCanBeEdited(record) {
+    return record.deletedAt == null || Number.isFinite(record.noteUpdatedAt);
+}
+
 /**
  * Insert or update a note for an employee on a given date.
  *
@@ -38,7 +44,9 @@ export function upsertNote(state, employeeId, dateKey, text, opts = {}) {
     const key = `${employeeId}-${dateKey}`;
     // F1.5: una nota que NACE con registro mínimo también nace project-aware;
     // un registro preexistente conserva su propio dueño (jamás re-etiquetado).
-    const existing = state.attendance[key] || stampBirthProject({
+    const previous = state.attendance[key];
+    if (previous && !noteCanBeEdited(previous)) return null;
+    const existing = previous ? { ...previous } : stampBirthProject({
         employeeId,
         date: dateKey,
         present: false,
@@ -48,16 +56,13 @@ export function upsertNote(state, employeeId, dateKey, text, opts = {}) {
         selectedPosition: emp.positions?.[0] || null,
         multiPosition: false,
         positionHours: [],
-        notes: ''
+        updatedAt: -1
     });
 
-    if (!existing.selectedPosition && emp.positions?.[0]) {
-        existing.selectedPosition = emp.positions[0];
-    }
-
+    if (opts.voiceSource) existing.voiceNoteRequests = [...(existing.voiceNoteRequests || []), { ...opts.voiceSource }];
     existing.notes = trimmed;
+    existing.noteUpdatedAt = Math.max(Date.now(), (previous?.noteUpdatedAt || 0) + 1);
     existing._isDirty = true;
-    existing.updatedAt = Date.now();
     state.attendance[key] = existing;
 
     return existing;
@@ -76,12 +81,14 @@ export function clearNote(state, employeeId, dateKey) {
     if (!employeeId || !dateKey) return false;
     const key = `${employeeId}-${dateKey}`;
     const att = state.attendance[key];
-    if (!att) return false;
+    if (!att || !noteCanBeEdited(att)) return false;
 
-    att.notes = '';
-    att.updatedAt = Date.now();
-    att._isDirty = true;
-    state.attendance[key] = att;
+    state.attendance[key] = {
+        ...att,
+        notes: '',
+        noteUpdatedAt: Math.max(Date.now(), (att.noteUpdatedAt || 0) + 1),
+        _isDirty: true
+    };
     return true;
 }
 
@@ -92,7 +99,7 @@ export function clearNote(state, employeeId, dateKey) {
 export function listNotes(state, employeeId = null) {
     const records = Object.values(state.attendance || {})
         // Fase 1 (U2c): un tombstone no debe mostrar su nota vieja.
-        .filter(att => att.deletedAt == null && att.notes && att.notes.trim().length > 0);
+        .filter(att => noteCanBeEdited(att) && typeof att.notes === 'string' && att.notes.trim());
 
     const filtered = employeeId
         ? records.filter(r => r.employeeId === employeeId)

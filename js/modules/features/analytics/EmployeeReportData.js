@@ -24,15 +24,23 @@ import { resolveEmployeePositionTerms } from '../employees/EmployeePositionAssig
  */
 
 import { getDateKey, wasEmployeeActiveInRange } from '../../utils/DateUtils.js';
-import { resolveRestDayFactor } from '../payroll/PayrollFactors.js';
+import { resolveRestDayFactor, resolveWorkRestDayFactor } from '../payroll/PayrollFactors.js';
 
 /** ¿El registro (vivo y presente) referencia la posición? */
 function recordReferencesPosition(att, positionId) {
     if (!att || att.present !== true) return false;
-    if (att.multiPosition && Array.isArray(att.positionHours)) {
-        return att.positionHours.some(ph => ph && ph.positionId === positionId);
-    }
-    return att.selectedPosition === positionId;
+    const parts = splitHours(att);
+    if (parts) return parts.some(ph => ph && String(ph.positionId ?? att.selectedPosition) === String(positionId));
+    return att.selectedPosition != null && String(att.selectedPosition) === String(positionId);
+}
+
+/**
+ * Igual que la nómina: si el registro trae horas por puesto, mandan esas
+ * horas, tenga o no la marca multiPosition; si la lista está vacía, vale el
+ * puesto seleccionado.
+ */
+function splitHours(att) {
+    return Array.isArray(att?.positionHours) && att.positionHours.length > 0 ? att.positionHours : null;
 }
 
 /**
@@ -96,24 +104,28 @@ export function buildEmployeeReportData({
                 const record = att[`${emp.id}-${dateKey}`];
                 if (record && record.present) {
                     let dayValue = 0;
-                    if (record.multiPosition && record.positionHours) {
-                        const posHours = record.positionHours.find(ph => ph.positionId === position.id);
-                        if (posHours) dayValue = (posHours.hours || 0) / regularHours;
+                    const parts = splitHours(record);
+                    if (parts) {
+                        const fallback = record.selectedPosition || (emp.positions || [])[0];
+                        dayValue = parts.filter(ph => ph && String(ph.positionId || fallback) === String(position.id))
+                            .reduce((sum, ph) => sum + (Number(ph.hours) || 0), 0) / regularHours;
                     } else {
                         const selectedPos = record.selectedPosition || (emp.positions || [])[0];
-                        if (selectedPos !== position.id) return;
+                        if (String(selectedPos) !== String(position.id)) return;
                         dayValue = (record.hoursWorked || 0) / regularHours;
                     }
 
+                    // Quién trabajó para quién queda como se registró; el valor del día
+                    // sigue la configuración vigente, igual que la nómina del período abierto.
                     const hasTerms = emp.positionAssignments?.[position.id] || record.positionAssignments?.[position.id];
                     const terms = hasTerms ? resolveEmployeePositionTerms(emp, position, { ...record, date: record.date || dateKey }, { settings: { ...settings, holidayFactor, regularHoursPerDay: regularHours }, leaders: allLeaders }) : null;
-                    const isHoliday = terms?.dayKind ? terms.dayKind === 'holiday' : day.isHoliday || record.isHoliday;
-                    const isRestDay = terms?.dayKind ? terms.dayKind === 'rest' : !(terms?.workingDays || workingDays).includes(day.date.getDay());
+                    const isHoliday = day.isHoliday || record.isHoliday;
+                    const isRestDay = !workingDays.includes(day.date.getDay());
 
                     if (isHoliday) {
-                        dayValue *= (terms?.holidayFactor ?? holidayFactor ?? 1);
+                        dayValue *= (holidayFactor ?? 1);
                     } else if (isRestDay) {
-                        dayValue *= (terms?.restDayFactor ?? resolvedFactor ?? 1);
+                        dayValue *= ((terms ? resolveWorkRestDayFactor(position, terms, allLeaders, effectiveSettings) : resolvedFactor) ?? 1);
                     }
 
                     if (!isNaN(dayValue)) { dayValues[dateKey] = dayValue; total += dayValue; }

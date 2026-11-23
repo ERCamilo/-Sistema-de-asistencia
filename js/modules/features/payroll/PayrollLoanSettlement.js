@@ -124,6 +124,32 @@ function chargeIdentity(periodStart, periodEnd, employeeId, loanId, charge, inde
     return [periodStart, periodEnd, employeeId, loanId, kind, sequence].map(text).join(':');
 }
 
+/**
+ * Deterministic payment id for a payroll charge. The base id depends only on
+ * the charge identity (period + employee + loan + kind/seq), NOT on the
+ * amount. If a previous closure for that identity was undone (payment voided)
+ * and the amount changed since (e.g. an external abono lowered the lump
+ * balance), restoring the old voided payment would be wrong and reusing its
+ * id raised "Conflicto de identidad". In that case derive a revision id
+ * (`-r2`, `-r3`, ...) that is still deterministic for the current state.
+ * Live (non-voided) mismatches keep the base id so preflight still blocks.
+ */
+function resolvePayrollPaymentId(loan, idempotencyKey, amount, chargeKeys) {
+    const base = `PAYROLL-${stableToken(idempotencyKey)}`;
+    const payments = loan?.payments || [];
+    const sameKeys = (payment) => JSON.stringify((payment.payrollChargeKeys || []).map(text)) ===
+        JSON.stringify((chargeKeys || []).map(text));
+    const reusable = (payment) => !payment.voided ||
+        (text(payment.payrollIdempotencyKey) === text(idempotencyKey) &&
+            money(payment.amount) === money(amount) && sameKeys(payment));
+    for (let revision = 1; revision < 1000; revision++) {
+        const candidate = revision === 1 ? base : `${base}-r${revision}`;
+        const existing = payments.find(payment => text(payment.id) === candidate);
+        if (!existing || reusable(existing)) return candidate;
+    }
+    throw new Error('No se pudo asignar un identificador de pago de Nómina');
+}
+
 function paymentEntries(employees) {
     const entries = [];
     for (const employee of (employees || [])) {
@@ -273,7 +299,7 @@ export function buildPayrollLoanSettlementBatch({
                 text(periodStart), text(periodEnd), employeeId, loanId, charge, index
             ));
             const idempotencyKey = chargeKeys.join('|');
-            const paymentId = `PAYROLL-${stableToken(idempotencyKey)}`;
+            const paymentId = resolvePayrollPaymentId(loan, idempotencyKey, selectedAmount, chargeKeys);
             const item = {
                 employeeId,
                 employeeName: text(employee.name || row._employeeName),

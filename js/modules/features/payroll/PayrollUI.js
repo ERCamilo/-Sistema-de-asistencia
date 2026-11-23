@@ -27,7 +27,10 @@ import {
 } from './PayrollLoans.js';
 import { buildSplitXExport } from './PayrollSplitXExport.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
-import { getPayrollReviewEmployeeSelection, filterPayrollReviewEmployees, renderPayrollReviewEmployeeFilter } from './PayrollReviewEmployees.js';
+import { handlePayrollLoanListFilter, resetPayrollLoanListFilters } from './PayrollLoanListFilters.js';
+import { getPayrollReviewEmployeeSelection, filterPayrollReviewEmployees, renderPayrollReviewEmployeeFilter,
+    getPayrollReviewExclusions, payrollReviewExclusionKey, isPayrollReviewPartial } from './PayrollReviewEmployees.js';
+import { payrollWorkedDays, formatPayrollDays } from './PayrollWorkDays.js';
 import { parsePayrollLoanAmount } from './PayrollLoanAmount.js';
 import { payrollPreviewInputKey } from './PayrollPreviewInputs.js';
 import { DEFAULT_PAYROLL_LOAN_PERCENTAGE, getPayrollLoanSalaryAmounts, getPayrollLoanEquivalentPercentage, buildPayrollLoanSalarySelection } from './PayrollLoanSalary.js';
@@ -200,6 +203,8 @@ let payrollHistoryState = {
 let payrollHistoryLoadToken = 0;
 // Montos desplegados en la vista previa ("empleado|categoría"); solo pantalla.
 const payrollReviewExpanded = new Set();
+let payrollReviewFiltersExpanded = false;
+let payrollShareModal = null;
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-payroll-action)
@@ -254,9 +259,13 @@ const _ACTION_MAP = {
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
     },
     'toggle-payroll-review-detail': (key) => window.PayrollUI?.togglePayrollReviewDetail?.(key),
+    'toggle-payroll-review-filters': () => togglePayrollReviewFilters(),
+    'open-payroll-share': () => openPayrollShare(),
     'clear-payroll-leader-filter': () => window.PayrollUI?.setLeaderFilter?.('all'),
     'set-payroll-leader-hours-scope': (scope) => window.PayrollUI?.setLeaderHoursScope?.(scope),
     'toggle-payroll-review-employee-filter': (_id, target) => window.PayrollUI?.togglePayrollReviewEmployeeFilter?.(target.checked),
+    'toggle-payroll-review-employee': (id, target) => window.PayrollUI?.togglePayrollReviewEmployee?.(id, target.checked),
+    'reset-payroll-review-exclusions': () => window.PayrollUI?.resetPayrollReviewExclusions?.(),
     'open-payroll-review-employees': () => window.PayrollUI?.openPayrollReviewEmployees?.(),
     'toggle-payroll-paid': (_id, target) => window.PayrollUI?.togglePayrollPaidConfirmation?.(target.checked),
     'toggle-payroll-preview-category': (category, target) => window.PayrollUI?.togglePayrollPreviewCategory?.(
@@ -337,6 +346,7 @@ const _ACTION_MAP = {
 };
 
 function _handlePayrollClick(e) {
+    if (handlePayrollLoanListFilter(e)) return;
     const summary = e.target.closest('[data-payroll-leader-details]');
     if (summary) {
         e.preventDefault();
@@ -458,6 +468,9 @@ function _handlePayrollAdjustmentInput(e) {
 let _payrollDelegationAttached = false;
 
 export function init(ctx) {
+    payrollShareModal?.close(); payrollShareModal = null;
+    payrollReviewFiltersExpanded = false;
+    resetPayrollLoanListFilters();
     unsubscribeRuntimeInvalidation?.();
     payrollLoanAmountDrafts.clear();
     payrollLoanPercentageDrafts.clear();
@@ -465,6 +478,7 @@ export function init(ctx) {
     payrollService = ctx.services.payroll;
     payrollRuntime = ctx.services.payrollRuntime || null;
     unsubscribeRuntimeInvalidation = payrollRuntime?.subscribeInvalidation?.(change => {
+        payrollShareModal?.close(); payrollShareModal = null;
         if (change?.reason === 'config-changed') {
             context?.render?.();
             return;
@@ -506,6 +520,8 @@ export function init(ctx) {
         document.addEventListener('input', _handlePayrollAdjustmentInput);
         document.addEventListener('input', _handlePayrollLoanPercentageInput);
         document.addEventListener('change', _handlePayrollLoanPercentageInput);
+        document.addEventListener('input', handlePayrollLoanListFilter);
+        document.addEventListener('change', handlePayrollLoanListFilter);
         document.addEventListener('toggle', event => rememberPayrollLeaderAdjustmentExpansion(event.target), true);
         document.addEventListener('change', _handlePayrollAdjustmentInput);
         _payrollDelegationAttached = true;
@@ -516,8 +532,106 @@ function getState() {
     return context.state;
 }
 
+function renderPayrollMobileSummary({ expanded, periodStart, periodEnd, employeeCount, total, invalid, zero }) {
+    return `<button type="button" class="payroll-guide-summary__mobile-toggle"
+                    data-payroll-action="toggle-payroll-mobile-summary"
+                    aria-expanded="${expanded}"
+                    aria-label="${expanded ? 'Ocultar' : 'Mostrar'} resumen y opciones de exportación">
+        <span class="payroll-guide-summary__mobile-meta">
+            <strong>${formatDateShort(periodStart)} – ${formatDateShort(periodEnd)}</strong>
+            <small>${employeeCount} empleados</small>
+        </span>
+        <span class="payroll-guide-summary__mobile-total"><small>Total neto</small><strong>${formatCurrency(total)}</strong></span>
+        <span class="payroll-guide-summary__mobile-state ${invalid ? 'is-invalid' : zero ? 'is-warning' : 'is-valid'}">
+            <i aria-hidden="true"></i>${invalid || zero ? 'Revisar' : 'Listo'}
+        </span>
+        <span class="payroll-guide-summary__mobile-label">${expanded ? 'Ocultar' : 'Resumen y exportar'}
+            ${icons.get(expanded ? 'chevron-up' : 'chevron-down', { size: 15 })}
+        </span>
+    </button>`;
+}
+
 function getSummaryAmountClass(amount, nonZeroClass) {
     return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
+}
+
+function renderPayrollLeaderFilters(leaders, leaderId, hoursScope, selectId) {
+    if (!leaders.length) return '';
+    const active = leaders.find(leader => String(leader.id) === String(leaderId));
+    return `<div class="payroll-review-filter-fields">
+        <label><span>Líder</span><select id="${selectId}" name="leaderFilter" aria-label="Filtrar por líder" onchange="PayrollUI.setLeaderFilter(this.value)">
+            <option value="all" ${!active ? 'selected' : ''}>Todos</option>
+            ${leaders.map(leader => `<option value="${escapeHTML(String(leader.id))}" ${String(leader.id) === String(leaderId) ? 'selected' : ''}>${escapeHTML(leader.name || 'Líder')}</option>`).join('')}
+        </select></label>
+        ${active ? `<label><span>Incluir</span><select data-payroll-hours-scope name="leaderHoursScope" aria-label="Trabajo incluido en la nómina" onchange="PayrollUI.setLeaderHoursScope(this.value)">
+            ${[['payroll', 'En nómina'], ['all', 'Todos sus puestos'], ['leader', `Solo puestos de ${active.name || 'este líder'}`]].map(([value, label]) => `<option value="${value}" ${normalizeLeaderHoursScope(hoursScope) === value ? 'selected' : ''}>${escapeHTML(label)}</option>`).join('')}
+        </select></label>` : ''}
+    </div>`;
+}
+
+const payrollShareSymbol = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M5 13v7h14v-7"/></svg>`;
+
+function renderPayrollReviewControls({ selection, leaderId, count, total, invalid }) {
+    const active = selection.enabled || selection.excludedIds?.length;
+    return `<div class="payroll-review-secondary-controls">
+        <button type="button" class="payroll-review-filter-toggle ${active ? 'is-active' : ''}" data-payroll-action="toggle-payroll-review-filters" aria-expanded="${payrollReviewFiltersExpanded}" aria-controls="payroll-review-extra-filters" aria-label="${active ? 'Filtros activos' : 'Filtros'}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6m8 4v6"/></svg><span>Filtros</span>${active ? '<i class="payroll-review-filter-dot" aria-hidden="true"></i>' : ''} <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="${payrollReviewFiltersExpanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'}"/></svg></button>
+        <button type="button" class="payroll-review-share" data-payroll-action="open-payroll-share" ${invalid ? 'disabled aria-disabled="true"' : ''}>${payrollShareSymbol} Compartir</button>
+    </div>
+    <div id="payroll-review-extra-filters" class="payroll-review-extra-filters" ${payrollReviewFiltersExpanded ? '' : 'hidden'}>
+        ${leaderId && leaderId !== 'all' ? `<span class="payroll-review-filter-chip" role="status"><span>${count} de ${total} empleados</span>
+            <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></span>` : ''}
+        ${renderPayrollReviewEmployeeFilter(selection)}
+    </div>`;
+}
+
+export function togglePayrollReviewFilters() {
+    payrollReviewFiltersExpanded = !payrollReviewFiltersExpanded;
+    context.render();
+    document.querySelector('[data-payroll-action="toggle-payroll-review-filters"]')?.focus({ preventScroll: true });
+}
+
+export function openPayrollShare() {
+    const snapshot = () => {
+        const rows = getEffectiveExportRows();
+        if (!rows) return null;
+        const state = getState(), view = getScopedPayrollView();
+        return JSON.stringify([view?.enabled ? view.projectId : 'legacy', view?.period || [state.exportConfig.periodStart, state.exportConfig.periodEnd],
+            state.exportConfig.leaderFilter, state.exportConfig.leaderHoursScope, rows, payrollLeaderAdjustmentView(view)]);
+    };
+    const rows = getEffectiveExportRows();
+    if (!rows) return;
+    if ((!rows.length && !payrollLeaderAdjustmentView(getScopedPayrollView()).length) || getInvalidPayrollLoanRows(rows).length) {
+        window.showNotification?.(!rows.length ? 'No hay empleados incluidos para compartir.' : 'Revisa los pagos negativos antes de compartir.', 'warning');
+        return;
+    }
+    const captured = snapshot();
+    const symbol = path => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+    const actions = [
+        ['splitx', 'Abrir en SplitX', symbol('M14 3h7v7m-1-6L10 14M10 3H3v18h18v-7'), sendToSplitX],
+        ['copy', 'Copiar JSON', symbol('M8 8h12v12H8zM16 8V4H4v12h4'), copyExportJSON],
+        ['pdf', 'Exportar PDF', symbol('M14 2H5v20h14V7l-5-5v5h5M8 12h8m-8 4h8'), exportPayrollPDF],
+        ['download', 'Descargar JSON', symbol('M12 3v12m-4-4 4 4 4-4M5 17v4h14v-4'), downloadExportJSON]
+    ];
+    payrollShareModal?.close();
+    const modal = new Modal({ title: 'Compartir nómina', size: 'small',
+        content: `<div class="payroll-share-actions">${actions.map(([id, label, icon]) => `<button type="button" data-payroll-share-export="${id}" ${!rows.length && id !== 'pdf' ? 'disabled' : ''}>${icon}<span>${label}</span></button>`).join('')}</div><p class="payroll-share-error" role="alert" hidden></p>`,
+        onClose: () => { if (payrollShareModal === modal) payrollShareModal = null; }
+    });
+    payrollShareModal = modal;
+    modal.open();
+    modal.element.addEventListener('click', event => {
+        const button = event.target.closest('[data-payroll-share-export]');
+        if (!button || !modal.isOpen) return;
+        if (snapshot() !== captured) {
+            const error = modal.element.querySelector('.payroll-share-error');
+            error.textContent = 'Cambió la nómina. Cierra y vuelve a abrir Compartir.'; error.hidden = false;
+            return;
+        }
+        const action = actions.find(([id]) => id === button.dataset.payrollShareExport);
+        if (!action) return;
+        modal.close();
+        action[3](); // Within the user gesture: preserve clipboard/popup activation.
+    });
 }
 
 function payrollPeriodKey(periodStart, periodEnd, projectId = null) {
@@ -732,7 +846,7 @@ function registrationStepDetail(view) {
     return `${view.summary.count} ${view.summary.count === 1 ? 'abono anotado' : 'abonos anotados'}`;
 }
 
-/** Líderes con posiciones en la obra de la nómina (para el filtro). */
+/** Líderes de la obra y del trabajo histórico del período (para el filtro). */
 function getScopedPayrollLeaders(view, state = getState()) {
     const activePid = view?.projectId ? String(view.projectId).trim() : null;
     const scope = activePid ? { ...captureEntityProjectScope(), enabled: true, projectId: activePid } : null;
@@ -748,8 +862,25 @@ function getScopedPayrollLeaders(view, state = getState()) {
             if (assignment.isLoanPosition && assignment.payerLeaderId) leaderIds.add(String(assignment.payerLeaderId));
         }
     }
-    return (state?.leaders || [])
-        .filter(leader => leader && leader.active !== false && leaderIds.has(String(leader.id)))
+    const periodLeaders = new Map();
+    if (view?.status === 'ready' && !view.previewStale) {
+        for (const row of view.previewRows || []) {
+            for (const part of row._positionBreakdown || []) {
+                if (part.assignmentSchemaVersion !== 1) continue;
+                for (const [id, name] of [[part.workLeaderId, part.workLeaderName], [part.payerLeaderId, part.payerLeaderName]]) {
+                    if (id == null || id === '') continue;
+                    leaderIds.add(String(id));
+                    periodLeaders.set(String(id), { id: String(id), name: name || 'Líder del período', active: false });
+                }
+            }
+        }
+    }
+    const available = new Map(periodLeaders);
+    for (const leader of state?.leaders || []) {
+        if (!leader || scope && !entityInScope(leader, scope) || !leaderIds.has(String(leader.id))) continue;
+        if (leader.active !== false || periodLeaders.has(String(leader.id))) available.set(String(leader.id), leader);
+    }
+    return [...available.values()]
         .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'es'));
 }
 
@@ -782,10 +913,11 @@ function getScopedReviewRows(view = null, state = getState(), { byLeader = true,
 }
 
 function payrollReviewEmployeeSelection(view, state = getState()) {
-    return getPayrollReviewEmployeeSelection(state.exportConfig.payrollReviewEmployees, {
-        projectId: view?.projectId, period: view?.period,
-        employees: getScopedProjectEmployees(view?.projectId, state)
-    });
+    const scoped = Boolean(view?.enabled);
+    const selectionContext = { ...reviewExclusionContext(view, state),
+        employees: scoped ? getScopedProjectEmployees(view.projectId, state) : state.employees };
+    return { ...getPayrollReviewEmployeeSelection(state.exportConfig.payrollReviewEmployees, selectionContext),
+        excludedIds: getPayrollReviewExclusions(state.exportConfig.payrollReviewEmployeeExclusions, selectionContext) };
 }
 
 function payrollLeaderAdjustmentView(view = null, state = getState(), { all = false } = {}) {
@@ -805,7 +937,7 @@ function payrollLeaderAdjustmentView(view = null, state = getState(), { all = fa
 export function togglePayrollLeaderAdjustment(target) {
     rememberPayrollLeaderAdjustmentExpansion(target.closest('.payroll-leader-adjustment')?.querySelector('details'));
     const state = getState(), view = getScopedPayrollView();
-    if (view?.enabled && payrollReviewEmployeeSelection(view, state).enabled) return;
+    if (isPayrollReviewPartial(payrollReviewEmployeeSelection(view, state))) return;
     const group = payrollLeaderAdjustmentView(view, state)[Number(target.dataset.payrollLeaderAdjustment)];
     if (!group) return;
     stateManager.setState({ exportConfig: { ...state.exportConfig,
@@ -945,6 +1077,7 @@ function ScopedPayrollTab(view) {
 
     const state = getState();
     const exportConfig = state?.exportConfig || {};
+    const mobileSummaryExpanded = Boolean(exportConfig.payrollMobileSummaryExpanded);
     const guideSteps = ['period', 'deductions', 'bonuses', 'loans', 'review'];
     const guideStep = guideSteps.includes(exportConfig.payrollGuideStep)
         ? exportConfig.payrollGuideStep
@@ -957,7 +1090,7 @@ function ScopedPayrollTab(view) {
     const configuredPeriod = resolvePayrollPeriod(view.config.payPeriod, new Date());
     const activePreset = view.preset || (period.periodStart === configuredPeriod.periodStart && period.periodEnd === configuredPeriod.periodEnd ? 'payPeriod' : (exportConfig.activePreset || null));
     const rows = getScopedReviewRows(view, state);
-    const sourceRows = getScopedReviewRows(view, state, { withInclusion: false });
+    const sourceRows = getScopedReviewRows(view, state, { withInclusion: false, withEmployeeSelection: false });
     const allRowsCount = getScopedReviewRows(view, state, { byLeader: false }).length;
     const leaderAdjustments = payrollLeaderAdjustmentView(view, state);
     const leaders = getScopedPayrollLeaders(view, state);
@@ -966,12 +1099,15 @@ function ScopedPayrollTab(view) {
     const leaderHoursScope = normalizeLeaderHoursScope(exportConfig.leaderHoursScope);
     const previewInclusion = getPayrollPreviewInclusion(exportConfig.payrollPreviewInclusion);
     const reviewEmployeeSelection = payrollReviewEmployeeSelection(view, state);
+    const displayRows = filterPayrollReviewEmployees(getScopedReviewRows(view, state, { withEmployeeSelection: false }),
+        { ...reviewEmployeeSelection, excludedIds: [] });
     const totalAmount = rows.reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
     const grossAmount = rows.reduce((sum, row) => sum + (Number(row._brutoOriginal) || 0), 0);
     const bonusAmount = rows.reduce((sum, row) => sum + (Number(row._bonuses) || 0), 0);
     const deductionAmount = rows.reduce((sum, row) => sum + (Number(row._deductions) || 0), 0);
     const loanAmount = rows.reduce((sum, row) => sum + (Number(row._loans) || 0), 0);
-    const totalHours = rows.reduce((sum, row) => sum + (Number(row._totalHours) || 0), 0);
+    const dayHours = view.config?.regularHoursPerDay || 8;
+    const totalDays = rows.reduce((sum, row) => sum + payrollWorkedDays(row, dayHours), 0);
     const isStepCollapsed = (id) => (exportConfig.collapsedSteps || []).includes(id);
 
     const getReviewNet = (row) => Math.round((((Number(row?.monto) || 0) + Number.EPSILON) * 100)) / 100;
@@ -1125,13 +1261,17 @@ function ScopedPayrollTab(view) {
                         ${guideStep === 'loans' && activeRegistration ? renderPayrollRegistrationLoans(activeRegistration) : ''}
                         ${guideStep === 'loans' && !activeRegistration ? renderPayrollLoansDesktop({
                             employees: scopedEmployees,
+                            positions: state.positions || [],
+                            leaders: state.leaders || [],
+                            filterKey: JSON.stringify([view.projectId, period.periodStart, period.periodEnd, leaderFilter]),
                             selection: exportConfig.payrollLoanSelection || [],
                             payrollRows: getScopedReviewRows(view, state, { withEmployeeSelection: false }),
                             expandedEmployeeIds: exportConfig.payrollLoanExpandedEmployees || [],
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
                             percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
                             bulkEnabled: previewInclusion.loans,
-                            periodEnd: period.periodEnd
+                            periodEnd: period.periodEnd,
+                            periodStart: period.periodStart
                         }) : ''}
                     </section>
 
@@ -1139,50 +1279,12 @@ function ScopedPayrollTab(view) {
                     <section class="payroll-guide-panel payroll-guide-panel--review" ${guideStep === 'review' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
                             <h3>Vista previa · ${rows.length} empleados</h3>
-                            <p>Revisá los cálculos y desglose de horas para la obra ${escapeHTML(view.projectId)}.</p>
+                            <p>Revisa los días e importes incluidos en esta nómina.</p>
                         </div>
                         <div class="payroll-review-card">
                             <div class="payroll-review-toolbar">
-                                ${leaders.length > 0 ? `
-                                    <label class="payroll-review-leader" for="payroll-scoped-leader-filter">
-                                        ${icons.get('personnel', { size: 15 })}
-                                        <span>Líder</span>
-                                        <select id="payroll-scoped-leader-filter" name="leaderFilter" onchange="PayrollUI.setLeaderFilter(this.value)">
-                                            <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos</option>
-                                            ${leaders.map(leader => `<option value="${escapeHTML(String(leader.id))}" ${leaderFilter === String(leader.id) ? 'selected' : ''}>${escapeHTML(leader.name || 'Líder')}</option>`).join('')}
-                                        </select>
-                                    </label>
-                                ` : ''}
-                                ${activeLeader ? `
-                                    <div class="payroll-review-hours-scope" role="group" aria-label="Horas que se incluyen de cada empleado">
-                                        <span>Horas</span>
-                                        <button type="button"
-                                                data-payroll-action="set-payroll-leader-hours-scope"
-                                                data-value="${LEADER_HOURS_SCOPES.ALL}"
-                                                aria-pressed="${leaderHoursScope === LEADER_HOURS_SCOPES.ALL}"
-                                                title="Cada empleado del líder entra con las horas y días de todos sus puestos">
-                                            Todos sus puestos
-                                        </button>
-                                        <button type="button"
-                                                data-payroll-action="set-payroll-leader-hours-scope"
-                                                data-value="${LEADER_HOURS_SCOPES.LEADER}"
-                                                aria-pressed="${leaderHoursScope === LEADER_HOURS_SCOPES.LEADER}"
-                                                title="Solo las horas y días en puestos de ${escapeHTML(activeLeader.name || 'este líder')}; quien no trabajó en ellos queda fuera">
-                                            Solo puestos de ${escapeHTML(activeLeader.name || 'este líder')}
-                                        </button>
-                                    </div>
-                                    <span class="payroll-review-filter-chip" role="status">
-                                        ${rows.length} de ${allRowsCount} empleados
-                                        <button type="button" data-payroll-action="clear-payroll-leader-filter" aria-label="Quitar filtro de líder">${icons.get('close', { size: 12 })}</button>
-                                    </span>
-                                ` : ''}
-                                ${renderPayrollReviewEmployeeFilter(reviewEmployeeSelection)}
-                                <button type="button"
-                                        data-payroll-action="export-payroll-pdf"
-                                        class="payroll-btn-secondary payroll-review-toolbar__pdf"
-                                        ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
-                                    ${icons.get('file-pdf', { size: 14 })} Exportar PDF
-                                </button>
+                                ${renderPayrollLeaderFilters(leaders, leaderFilter, leaderHoursScope, 'payroll-scoped-leader-filter')}
+                                ${renderPayrollReviewControls({ selection: reviewEmployeeSelection, leaderId: leaderFilter, count: rows.length, total: allRowsCount, invalid: hasInvalidNetRows })}
                             </div>
                             ${hasInvalidNetRows ? `
                                 <div role="alert" class="payroll-review-alert">
@@ -1191,17 +1293,27 @@ function ScopedPayrollTab(view) {
                             ` : ''}
                             ${renderPayrollReviewTable({
                                 rows,
+                                displayRows,
+                                excludedIds: reviewEmployeeSelection.excludedIds,
+                                allowEmployeeExclusion: true,
+                                hoursPerDay: dayHours,
+                                dayFactors: view.config,
                                 sourceRows,
+                                positions: state.positions || [],
+                                leaders: state.leaders || [],
                                 inclusion: previewInclusion,
                                 expanded: payrollReviewExpanded,
-                                emptyMessage: reviewEmployeeSelection.enabled
+                                emptyMessage: isPayrollReviewPartial(reviewEmployeeSelection)
                                     ? 'Ningún empleado seleccionado tiene trabajo en este filtro. Cambia los empleados o el líder.'
                                     : activeLeader
                                     ? `Ningún empleado de ${activeLeader.name || 'este líder'} tiene asistencia en el período.`
                                     : 'No hay registros de asistencia para esta obra en el período seleccionado.'
                             })}
 
-                            ${renderPayrollLeaderAdjustments(leaderAdjustments, { partial: reviewEmployeeSelection.enabled })}
+                            ${renderPayrollLeaderAdjustments(leaderAdjustments, {
+                                partial: isPayrollReviewPartial(reviewEmployeeSelection),
+                                hoursFiltered: Boolean(activeLeader) && leaderHoursScope === LEADER_HOURS_SCOPES.LEADER
+                            })}
 
                             ${guideStep === 'review' && activeRegistration ? renderPayrollRegistrationActions({
                                 registration: activeRegistration.registration,
@@ -1236,7 +1348,9 @@ function ScopedPayrollTab(view) {
                 </main>
 
                 <!-- Resumen lateral -->
-                <aside class="payroll-guide-summary" aria-label="Resumen de nómina de la obra">
+                <aside class="payroll-guide-summary ${mobileSummaryExpanded ? 'is-mobile-expanded' : ''}" aria-label="Resumen de nómina de la obra">
+                    ${renderPayrollMobileSummary({ expanded: mobileSummaryExpanded, periodStart: period.periodStart, periodEnd: period.periodEnd,
+                        employeeCount: rows.length, total: totalAmount, invalid: hasInvalidNetRows, zero: invalidNetRows.length === 0 && rows.some(row => getReviewNet(row) === 0) })}
                     <div class="payroll-guide-summary__details">
                         <div class="payroll-guide-summary__header">
                             <span>Resumen de nómina</span>
@@ -1244,11 +1358,11 @@ function ScopedPayrollTab(view) {
                         </div>
                         <dl class="payroll-guide-summary__values">
                             <div class="payroll-guide-summary__employee-count"><dt>${activeLeader ? `Líder: ${escapeHTML(activeLeader.name || '')}` : 'Empleados de obra'}</dt><dd>${rows.length}</dd></div>
-                            <div><dt>Horas totales</dt><dd>${totalHours}h</dd></div>
+                            <div><dt>Días trabajados</dt><dd>${formatPayrollDays(totalDays)}</dd></div>
                             <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
-                            <div><dt>Deducciones</dt><dd style="${deductionAmount > 0 ? 'color: #ef4444;' : 'color: #64748b;'}">${deductionAmount > 0 ? `-${formatCurrency(deductionAmount)}` : '$0.00'}</dd></div>
-                            <div><dt>Bonificaciones</dt><dd style="${bonusAmount > 0 ? 'color: #10b981;' : 'color: #64748b;'}">${bonusAmount > 0 ? `+${formatCurrency(bonusAmount)}` : '$0.00'}</dd></div>
-                            <div><dt>Préstamos${activeRegistration ? ' · ya anotados' : ''}</dt><dd style="${loanAmount > 0 ? 'color: #f59e0b;' : 'color: #64748b;'}">${loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Deducciones</dt><dd style="${deductionAmount > 0 ? 'color: #ef4444;' : 'color: #94a3b8;'}">${deductionAmount > 0 ? `-${formatCurrency(deductionAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Bonificaciones</dt><dd style="${bonusAmount > 0 ? 'color: #10b981;' : 'color: #94a3b8;'}">${bonusAmount > 0 ? `+${formatCurrency(bonusAmount)}` : '$0.00'}</dd></div>
+                            <div><dt>Préstamos${activeRegistration ? ' · ya anotados' : ''}</dt><dd style="${loanAmount > 0 ? 'color: #f59e0b;' : 'color: #94a3b8;'}">${loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00'}</dd></div>
                             <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                         </dl>
                         <div class="payroll-guide-summary__validation is-valid">
@@ -1260,7 +1374,7 @@ function ScopedPayrollTab(view) {
                             excess: activeRegistration.excess,
                             variant: 'summary'
                         }) : ''}
-                        <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
+                        <div class="payroll-guide-summary__actions">
                             <button type="button"
                                     data-payroll-action="send-to-splitx"
                                     ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
@@ -1530,15 +1644,11 @@ function PayrollGeneratorTab() {
     const bonusAmount = exportData.reduce((sum, item) => sum + (Number(item._bonuses) || 0), 0);
     const deductionAmount = exportData.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
     const loanAmount = exportData.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
-    const isVisibleReviewAmount = value => Math.abs(Number(value) || 0) >= 0.005;
     const previewCategoryTotals = {
         bonuses: state.exportConfig.bonuses?.length || 0,
         deductions: state.exportConfig.deductions?.length || 0,
         loans: loanSummary.selectedCount
     };
-    const showBonusColumn = previewCategoryTotals.bonuses > 0;
-    const showDeductionColumn = previewCategoryTotals.deductions > 0;
-    const showLoanColumn = previewCategoryTotals.loans > 0;
     const previewInclusion = getPayrollPreviewInclusion(state.exportConfig.payrollPreviewInclusion);
     const previewCategoryCounts = getPayrollPreviewCategoryCounts(previewCategoryTotals, previewInclusion);
     const deductionDetails = summarizeAdjustmentDetails(
@@ -1808,13 +1918,17 @@ function PayrollGeneratorTab() {
 
                         ${activeRegistration ? renderPayrollRegistrationLoans(activeRegistration) : `${renderPayrollLoansDesktop({
                             employees: filteredPayrollEmployees,
+                            positions: state.positions || [],
+                            leaders: state.leaders || [],
+                            filterKey: JSON.stringify(['legacy', state.exportConfig.periodStart, state.exportConfig.periodEnd, state.exportConfig.leaderFilter || 'all']),
                             selection: state.exportConfig.payrollLoanSelection || [],
                             payrollRows: exportData,
                             expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || [],
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
                             percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
                             bulkEnabled: previewInclusion.loans,
-                            periodEnd: state.exportConfig.periodEnd
+                            periodEnd: state.exportConfig.periodEnd,
+                            periodStart: state.exportConfig.periodStart
                         })}`}
                     </section>
 
@@ -1835,25 +1949,9 @@ function PayrollGeneratorTab() {
                 </div>
                 
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-                    <div style="display: flex; gap: 8px; align-items: center; max-width: 60%;">
-                        <label for="payroll-leader-filter" style="font-size: 0.75rem; color: #94a3b8; margin-right: 4px;">Líder:</label>
-                        <select id="payroll-leader-filter" name="leaderFilter" aria-label="Filtrar por líder" onchange="PayrollUI.setLeaderFilter(this.value)" class="form-input" style="padding: 6px 12px; font-size: 0.875rem; border-color: #334155; background: #0f172a; color: #f1f5f9; border-radius: 6px; cursor: pointer; outline: none;">
-                            <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos</option>
-                            ${leaders.map(ldr => `
-                                <option value="${ldr.id}" ${leaderFilter === ldr.id ? 'selected' : ''}>${ldr.name}</option>
-                            `).join('')}
-                        </select>
-                    </div>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <button type="button"
-                                data-payroll-action="export-payroll-pdf"
-                                class="payroll-btn-secondary"
-                                style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;"
-                                ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
-                            ${icons.get('file-pdf', { size: 14 })} Exportar PDF
-                        </button>
-                    </div>
+                    <div class="payroll-review-toolbar">
+                    ${renderPayrollLeaderFilters(leaders, leaderFilter, state.exportConfig.leaderHoursScope, 'payroll-leader-filter')}
+                    ${renderPayrollReviewControls({ selection: payrollReviewEmployeeSelection(null, state), leaderId: leaderFilter, count: exportData.length, total: payrollReviewFiltersExpanded ? generateExportData({ byLeader: false, withEmployeeSelection: false }).length : exportData.length, invalid: hasInvalidNetRows })}
                 </div>
 
                 ${hasInvalidNetRows ? `
@@ -1866,49 +1964,20 @@ function PayrollGeneratorTab() {
                     </div>
                 ` : ''}
 
-                <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina" tabindex="0">
-                    <table class="payroll-review-table">
-                        <thead>
-                            <tr>
-                                <th class="payroll-review-table__number">#</th>
-                                <th class="payroll-review-table__employee">EMPLEADO</th>
-                                <th>BRUTO</th>
-                                ${showBonusColumn || !previewInclusion.bonuses ? `<th class="is-bonus payroll-review-table__toggle-heading"><label><input type="checkbox" data-payroll-action="toggle-payroll-preview-category" data-value="bonuses" ${previewInclusion.bonuses ? 'checked' : ''} aria-label="Incluir bonificaciones en la vista previa"> <span>BONIFIC.</span><small>${previewCategoryCounts.bonuses.active}/${previewCategoryCounts.bonuses.total}</small></label></th>` : ''}
-                                ${showDeductionColumn || !previewInclusion.deductions ? `<th class="is-deduction payroll-review-table__toggle-heading"><label><input type="checkbox" data-payroll-action="toggle-payroll-preview-category" data-value="deductions" ${previewInclusion.deductions ? 'checked' : ''} aria-label="Incluir deducciones en la vista previa"> <span>DEDUCCIONES</span><small>${previewCategoryCounts.deductions.active}/${previewCategoryCounts.deductions.total}</small></label></th>` : ''}
-                                ${showLoanColumn || !previewInclusion.loans ? `<th class="is-loan payroll-review-table__toggle-heading"><label><input type="checkbox" data-payroll-action="toggle-payroll-preview-category" data-value="loans" ${previewInclusion.loans ? 'checked' : ''} aria-label="Incluir préstamos en la vista previa"> <span>PRÉSTAMOS</span><small>${previewCategoryCounts.loans.active}/${previewCategoryCounts.loans.total}</small></label></th>` : ''}
-                                <th>NETO</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${exportData.map((emp, idx) => `
-                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${getReviewNet(emp) < 0 ? 'is-invalid' : ''}">
-                                    <td class="payroll-review-table__number">${escapeHTML(String(emp._number || emp.id))}</td>
-                                    <td class="payroll-review-table__employee">
-                                        ${escapeHTML(emp._employeeName)}
-                                        ${getReviewNet(emp) < 0 ? `<span>Pago negativo: ajusta los descuentos antes de continuar</span>` : getReviewNet(emp) === 0 ? `<span>Pago en cero: puedes continuar, pero revísalo antes de aceptar</span>` : ''}
-                                    </td>
-                                    <td class="payroll-review-table__amount">${formatCurrency(emp._brutoOriginal)}</td>
-                                    ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>` : ''}
-                                    ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>` : ''}
-                                    ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount ${isVisibleReviewAmount(emp._loans) ? 'is-loan' : 'is-empty'}">${isVisibleReviewAmount(emp._loans) ? `−${formatCurrency(emp._loans)}` : '—'}</td>` : ''}
-                                    <td class="payroll-review-table__amount is-net ${getReviewNet(emp) < 0 ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                        <tfoot>
-                            <tr>
-                                <td colspan="2">Totales</td>
-                                <td class="payroll-review-table__amount">${formatCurrency(grossAmount)}</td>
-                                ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(bonusAmount)}</td>` : ''}
-                                ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(deductionAmount)}</td>` : ''}
-                                ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount is-loan">−${formatCurrency(loanAmount)}</td>` : ''}
-                                <td class="payroll-review-table__amount is-net">${formatCurrency(totalAmount)}</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
+                ${renderPayrollReviewTable({
+                    rows: exportData, displayRows: generateExportData({ withEmployeeSelection: false }),
+                    sourceRows: generateExportData({ withEmployeeSelection: false, withInclusion: false }),
+                    excludedIds: payrollReviewEmployeeSelection(null, state).excludedIds,
+                    allowEmployeeExclusion: true, hoursPerDay: state.settings.regularHoursPerDay || 8, dayFactors: state.settings,
+                    positions: state.positions, leaders: state.leaders, inclusion: previewInclusion,
+                    categoryCounts: previewCategoryCounts,
+                    expanded: payrollReviewExpanded, emptyMessage: 'No hay empleados incluidos en esta nómina.'
+                })}
 
-                ${renderPayrollLeaderAdjustments(leaderAdjustments)}
+                ${renderPayrollLeaderAdjustments(leaderAdjustments, {
+                    partial: isPayrollReviewPartial(payrollReviewEmployeeSelection(null, state)),
+                    hoursFiltered: leaderFilter !== 'all' && normalizeLeaderHoursScope(state.exportConfig.leaderHoursScope) === LEADER_HOURS_SCOPES.LEADER
+                })}
 
                 ${activeRegistration ? renderPayrollRegistrationActions({
                     registration: activeRegistration.registration,
@@ -1943,28 +2012,9 @@ function PayrollGeneratorTab() {
                 </main>
 
                 <aside class="payroll-guide-summary ${mobileSummaryExpanded ? 'is-mobile-expanded' : ''}" aria-label="Resumen de nómina">
-                    <button type="button"
-                            class="payroll-guide-summary__mobile-toggle"
-                            data-payroll-action="toggle-payroll-mobile-summary"
-                            aria-expanded="${mobileSummaryExpanded}"
-                            aria-label="${mobileSummaryExpanded ? 'Ocultar' : 'Mostrar'} resumen completo de nómina">
-                        <span class="payroll-guide-summary__mobile-meta">
-                            <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
-                            <small>${exportData.length} empleados</small>
-                        </span>
-                        <span class="payroll-guide-summary__mobile-total">
-                            <small>Total neto</small>
-                            <strong>${formatCurrency(totalAmount)}</strong>
-                        </span>
-                        <span class="payroll-guide-summary__mobile-state ${hasInvalidNetRows ? 'is-invalid' : hasZeroNetRows ? 'is-warning' : 'is-valid'}">
-                            <i aria-hidden="true"></i>
-                            ${hasInvalidNetRows || hasZeroNetRows ? 'Revisar' : 'Listo'}
-                        </span>
-                        <span class="payroll-guide-summary__mobile-label">
-                            ${mobileSummaryExpanded ? 'Ocultar' : 'Resumen'}
-                            ${icons.get(mobileSummaryExpanded ? 'chevron-up' : 'chevron-down', { size: 15 })}
-                        </span>
-                    </button>
+                    ${renderPayrollMobileSummary({ expanded: mobileSummaryExpanded, periodStart: state.exportConfig.periodStart,
+                        periodEnd: state.exportConfig.periodEnd, employeeCount: exportData.length, total: totalAmount,
+                        invalid: hasInvalidNetRows, zero: hasZeroNetRows })}
                     <div class="payroll-guide-summary__details">
                         <div class="payroll-guide-summary__header">
                             <span>Resumen de nómina</span>
@@ -2025,7 +2075,7 @@ function PayrollGeneratorTab() {
                             excess: activeRegistration.excess,
                             variant: 'summary'
                         }) : ''}
-                        <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
+                        <div class="payroll-guide-summary__actions">
                         <button type="button"
                                 data-payroll-action="send-to-splitx"
                                 ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
@@ -2096,7 +2146,7 @@ function renderAdjustmentSummaryDetails(summary, kind) {
     `;
 }
 
-function generateExportData({ byLeader = true } = {}) {
+function generateExportData({ byLeader = true, withEmployeeSelection = true, withInclusion = true } = {}) {
     // Cálculo legacy: con obras activas lanzaría LegacyPayrollUnavailableError.
     // Las filas de la obra salen de getScopedReviewRows().
     if (isProjectsEnabled()) return [];
@@ -2159,10 +2209,10 @@ function generateExportData({ byLeader = true } = {}) {
         registration ? [] : (state.exportConfig.payrollLoanSelection || []),
         periodEnd
     );
-    const previewRows = applyPayrollPreviewInclusion(
+    const previewRows = withInclusion ? applyPayrollPreviewInclusion(
         sourceRows,
         state.exportConfig.payrollPreviewInclusion
-    );
+    ) : sourceRows;
     const rows = filterPayablePayrollPreviewRows(previewRows)
         // Keep selected-loan rows even when their resulting payment is invalid,
         // and keep applied adjustment rows so the UI can show zero/negative
@@ -2176,8 +2226,10 @@ function generateExportData({ byLeader = true } = {}) {
         .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
     const effective = registration ? applyRegistrationLoans(rows,
         collectRegistrationPayments(state.employees, periodStart, periodEnd), registration.loanMode) : rows;
-    return byLeader ? filterPayrollRowsByLeader(effective, { leaderId: state.exportConfig.leaderFilter,
-        positions: state.positions, employees: state.employees, hoursScope: state.exportConfig.leaderHoursScope }) : effective;
+    if (!byLeader) return effective;
+    const byPayer = filterPayrollRowsByLeader(effective, { leaderId: state.exportConfig.leaderFilter,
+        positions: state.positions, employees: state.employees, hoursScope: state.exportConfig.leaderHoursScope });
+    return withEmployeeSelection ? filterPayrollReviewEmployees(byPayer, payrollReviewEmployeeSelection(null, state)) : byPayer;
 }
 
 function adjustmentKindLabel(kind) {
@@ -3520,7 +3572,7 @@ export function addPayrollLoansToExport() {
     const effectivePeriodEnd = (isProjectsEnabled() && scopedView?.period?.periodEnd)
         ? scopedView.period.periodEnd
         : state.exportConfig.periodEnd;
-    const selection = buildPayrollLoanSelection(eligibleEmployees, effectivePeriodEnd);
+    const selection = buildPayrollLoanSelection(eligibleEmployees, effectivePeriodEnd, getEffectivePayrollPeriodStart(state));
     stateManager.batchSetState(() => {
         state.exportConfig.payrollLoanSelection = selection;
     });
@@ -3589,7 +3641,46 @@ export function setLeaderHoursScope(scope) {
 export function setLeaderFilter(leaderId) {
     const state = getState();
     stateManager.batchSetState(() => {
+        if (String(state.exportConfig.leaderFilter || 'all') !== String(leaderId || 'all')) {
+            state.exportConfig.leaderHoursScope = LEADER_HOURS_SCOPES.PAYROLL;
+        }
         state.exportConfig.leaderFilter = leaderId || 'all';
+        state.exportConfig.payrollPaidConfirmation = null;
+    });
+    context.render();
+}
+
+function reviewExclusionContext(view, state) {
+    return { projectId: view?.enabled ? view.projectId : 'legacy',
+        period: view?.enabled ? view.period : { periodStart: state.exportConfig.periodStart, periodEnd: state.exportConfig.periodEnd },
+        leaderId: view?.enabled ? getScopedLeaderFilter(view, state) : state.exportConfig.leaderFilter };
+}
+
+export function togglePayrollReviewEmployee(employeeId, included) {
+    const state = getState(), view = getScopedPayrollView();
+    if (payrollPreviewBlocker(view)) return false;
+    const candidates = view?.enabled ? getScopedReviewRows(view, state, { withEmployeeSelection: false })
+        : generateExportData({ withEmployeeSelection: false });
+    const id = String(employeeId);
+    if (!candidates.some(row => String(row._employeeId) === id)) return false;
+    const key = payrollReviewExclusionKey(reviewExclusionContext(view, state));
+    const excluded = new Set(payrollReviewEmployeeSelection(view, state).excludedIds);
+    if (included) excluded.delete(id); else excluded.add(id);
+    stateManager.batchSetState(() => {
+        state.exportConfig.payrollReviewEmployeeExclusions = { ...(state.exportConfig.payrollReviewEmployeeExclusions || {}), [key]: [...excluded] };
+        state.exportConfig.payrollPaidConfirmation = null;
+    });
+    context.render();
+    [...document.querySelectorAll('[data-payroll-action="toggle-payroll-review-employee"]')]
+        .find(input => input.dataset.id === id)?.focus({ preventScroll: true });
+    return true;
+}
+
+export function resetPayrollReviewExclusions() {
+    const state = getState(), view = getScopedPayrollView();
+    const key = payrollReviewExclusionKey(reviewExclusionContext(view, state));
+    stateManager.batchSetState(() => {
+        state.exportConfig.payrollReviewEmployeeExclusions = { ...(state.exportConfig.payrollReviewEmployeeExclusions || {}), [key]: [] };
         state.exportConfig.payrollPaidConfirmation = null;
     });
     context.render();
@@ -3647,10 +3738,21 @@ export async function openPayrollReviewEmployees() {
 /** Despliega o pliega el detalle de una categoría de un empleado en la vista previa. */
 export function togglePayrollReviewDetail(key) {
     const value = String(key || '');
-    if (!/^.+\|(bonuses|deductions|loans)$/.test(value)) return;
+    if (!/^.+\|(bonuses|deductions|loans|calculation)$/.test(value)) return;
+    const findButton = () => [...document.querySelectorAll('[data-payroll-action="toggle-payroll-review-detail"]')].find(button => button.dataset.value === value);
+    const previousButton = findButton(), previousWrapper = previousButton?.closest('.responsive-table-wrapper');
+    const scrollLeft = previousWrapper?.scrollLeft || 0;
+    const atEnd = previousWrapper && Math.abs(scrollLeft - (previousWrapper.scrollWidth - previousWrapper.clientWidth)) < 2;
+    const anchor = previousButton && previousWrapper ? previousButton.getBoundingClientRect().left - previousWrapper.getBoundingClientRect().left : null;
     if (payrollReviewExpanded.has(value)) payrollReviewExpanded.delete(value);
     else payrollReviewExpanded.add(value);
     context.render();
+    const button = findButton(), wrapper = button?.closest('.responsive-table-wrapper');
+    if (wrapper) {
+        wrapper.scrollLeft = atEnd ? wrapper.scrollWidth : scrollLeft;
+        if (!atEnd && anchor !== null) wrapper.scrollLeft += button.getBoundingClientRect().left - wrapper.getBoundingClientRect().left - anchor;
+    }
+    button?.focus({ preventScroll: true });
 }
 
 export function togglePayrollPreviewCategory(category, checked) {
@@ -3772,6 +3874,12 @@ function getSplitXExportData() {
                 end: view?.enabled ? view.period?.periodEnd : state.exportConfig?.periodEnd
             },
             currency: state.settings?.currency || 'DOP',
+            payrollFilter: {
+                leaderId: view?.enabled ? getScopedLeaderFilter(view, state) : String(state.exportConfig.leaderFilter || 'all'),
+                mode: normalizeLeaderHoursScope(state.exportConfig.leaderHoursScope),
+                partial: isPayrollReviewPartial(payrollReviewEmployeeSelection(view, state)),
+                excludedEmployeeCount: payrollReviewEmployeeSelection(view, state).excludedIds.length
+            },
             companyName: state.settings?.companyName,
             regularHoursPerDay: view?.enabled ? view.config?.regularHoursPerDay : state.settings?.regularHoursPerDay,
             projectId, projectName: view?.projectName,
@@ -3907,12 +4015,12 @@ export async function exportPayrollPDF() {
             doc.setTextColor(15, 23, 42);
             const pdfHoursScope = normalizeLeaderHoursScope(state?.exportConfig?.leaderHoursScope) === LEADER_HOURS_SCOPES.LEADER
                 ? ' · solo horas en sus puestos'
-                : ' · horas de todos los puestos';
+                : normalizeLeaderHoursScope(state?.exportConfig?.leaderHoursScope) === LEADER_HOURS_SCOPES.PAYROLL ? ' · en nómina' : ' · horas de todos los puestos';
             doc.text(`Líder: ${pdfLeader.name || ''}${pdfHoursScope}`, 14, yPosition + 5);
             doc.setFont('helvetica', 'normal');
             yPosition += 5;
         }
-        if (scopedView?.enabled && payrollReviewEmployeeSelection(scopedView, state).enabled) {
+        if (isPayrollReviewPartial(payrollReviewEmployeeSelection(scopedView, state))) {
             doc.text(`Empleados seleccionados: ${previewRows.length}`, 14, yPosition + 5);
             yPosition += 5;
         }
@@ -4040,7 +4148,8 @@ export async function exportPayrollPDF() {
 
         if (leaderAdjustments.length) {
             doc.autoTable({ startY: (doc.lastAutoTable?.finalY || yPosition) + 8,
-                head: scopedView?.enabled && payrollReviewEmployeeSelection(scopedView, state).enabled
+                head: (isPayrollReviewPartial(payrollReviewEmployeeSelection(scopedView, state)))
+                    || normalizeLeaderHoursScope(state.exportConfig.leaderHoursScope) === LEADER_HOURS_SCOPES.LEADER
                     ? [['Líder (período completo)', 'Subtotal completo', 'Ajuste del período', 'Saldo completo']]
                     : [['Líder', 'Subtotal empleados', 'Ajuste personal', 'Saldo del líder']],
                 body: leaderAdjustments.map(group => [group.leaderName, formatCurrency(group.subtotal),
@@ -4060,6 +4169,14 @@ export async function exportPayrollPDF() {
         }
     }
 }
+
+/** Tiempos del envío a SplitX (exportados para las pruebas). */
+export const SPLITX_HANDSHAKE = Object.freeze({
+    pingIntervalMs: 800,
+    pingWindowMs: 60000,       // cuánto se espera a que SplitX cargue y responda READY
+    ackWindowMs: 10 * 60000,   // cuánto se espera la confirmación (el usuario puede tardar en decidir)
+    resendMinGapMs: 3000       // un READY posterior a esto, sin confirmación, provoca reenvío
+});
 
 export function sendToSplitX(targetUrl) {
     const data = getSplitXExportData();
@@ -4104,27 +4221,53 @@ export function sendToSplitX(targetUrl) {
         return null;
     }
 
+    // Fase 1: PING cada 800 ms hasta READY (SplitX puede tardar en cargar con conexión lenta).
+    // Fase 2: tras enviar, se espera la confirmación mientras el usuario decide en SplitX
+    // (reemplazar / agregar). Si SplitX vuelve a pedir (recarga o "Pedir de nuevo") sin
+    // haber confirmado, se reenvía la misma nómina con el mismo transferId (SplitX deduplica).
+    const { pingIntervalMs, pingWindowMs, ackWindowMs, resendMinGapMs } = SPLITX_HANDSHAKE;
     let payloadSent = false;
+    let lastSentAt = 0;
     let handshakeCompleted = false;
-    let timeoutId = null;
+    let pingTimeoutId = null;
+    let ackTimeoutId = null;
     let retryInterval = null;
 
+    const stopPinging = () => {
+        if (retryInterval) clearInterval(retryInterval);
+        if (pingTimeoutId) clearTimeout(pingTimeoutId);
+        retryInterval = null;
+        pingTimeoutId = null;
+    };
+
     const sendPayload = () => {
-        if (payloadSent || handshakeCompleted) return;
+        if (handshakeCompleted) return false;
+        const now = Date.now();
+        // READY repetidos seguidos (respuesta al PING + aviso al cargar) no duplican el envío.
+        if (payloadSent && now - lastSentAt < resendMinGapMs) return false;
+        const isResend = payloadSent;
         payloadSent = true;
-        if (retryInterval) {
-            clearInterval(retryInterval);
-            retryInterval = null;
-        }
+        lastSentAt = now;
+        stopPinging();
         try {
             targetWindow.postMessage(payload, targetOrigin);
         } catch (err) {
             console.error('Error enviando payload a SplitX:', err);
         }
+        if (!ackTimeoutId) ackTimeoutId = setTimeout(cleanup, ackWindowMs);
+        if (window.showNotification) {
+            window.showNotification(isResend ? '🔁 SplitX pidió la nómina de nuevo; reenviando...' : '🔄 Transfiriendo datos a SplitX...', 'info');
+        }
+        return true;
     };
 
     const sendPing = () => {
         if (payloadSent || handshakeCompleted) return;
+        if (targetWindow.closed) {
+            // El usuario cerró SplitX: no tiene sentido seguir ni avisar que "no cargó".
+            cleanup();
+            return;
+        }
         try {
             targetWindow.postMessage({
                 type: 'SPLITX_PING',
@@ -4137,6 +4280,12 @@ export function sendToSplitX(targetUrl) {
         }
     };
 
+    const finish = (message, type) => {
+        handshakeCompleted = true;
+        cleanup();
+        if (window.showNotification) window.showNotification(message, type);
+    };
+
     const messageHandler = (event) => {
         // Validación estricta de origen y ventana de origen
         if (event.origin !== targetOrigin) return;
@@ -4145,60 +4294,39 @@ export function sendToSplitX(targetUrl) {
 
         if (event.data.type === 'SPLITX_READY') {
             sendPayload();
-            if (window.showNotification) {
-                window.showNotification('🔄 Transfiriendo datos a SplitX...', 'info');
-            }
         } else if (event.data.type === 'SPLITX_IMPORT_SUCCESS') {
             if (event.data.transferId !== transferId) return;
-            handshakeCompleted = true;
-            cleanup();
-            if (window.showNotification) {
-                window.showNotification(`✅ ${event.data.count || data.length} colaboradores cargados en SplitX`, 'success');
-            }
+            finish(`✅ ${event.data.count || data.length} colaboradores cargados en SplitX`, 'success');
         } else if (event.data.type === 'SPLITX_IMPORT_ERROR') {
             if (event.data.transferId !== transferId) return;
-            handshakeCompleted = true;
-            cleanup();
-            if (window.showNotification) {
-                window.showNotification(`❌ Error en SplitX: ${event.data.error || 'Desconocido'}`, 'error');
-            }
+            finish(`❌ Error en SplitX: ${event.data.error || 'Desconocido'}`, 'error');
         } else if (event.data.type === 'SPLITX_IMPORT_CANCELLED') {
             if (event.data.transferId !== transferId) return;
-            handshakeCompleted = true;
-            cleanup();
-            if (window.showNotification) {
-                window.showNotification('ℹ️ Importación cancelada en SplitX', 'info');
-            }
+            finish('ℹ️ Importación cancelada en SplitX', 'info');
         }
     };
 
     const cleanup = () => {
-        if (timeoutId) clearTimeout(timeoutId);
-        if (retryInterval) clearInterval(retryInterval);
+        stopPinging();
+        if (ackTimeoutId) clearTimeout(ackTimeoutId);
+        ackTimeoutId = null;
         window.removeEventListener('message', messageHandler);
     };
 
     window.addEventListener('message', messageHandler);
 
-    // Enviar PING inicial y reintentar cada 800ms hasta recibir READY (sin enviar nómina a ciegas)
+    // Enviar PING inicial y reintentar hasta recibir READY (sin enviar nómina a ciegas)
     sendPing();
-    retryInterval = setInterval(() => {
-        if (handshakeCompleted || payloadSent) {
-            clearInterval(retryInterval);
-            retryInterval = null;
-            return;
-        }
-        sendPing();
-    }, 800);
+    retryInterval = setInterval(sendPing, pingIntervalMs);
 
-    timeoutId = setTimeout(() => {
-        if (!handshakeCompleted) {
+    pingTimeoutId = setTimeout(() => {
+        if (!payloadSent && !handshakeCompleted) {
             cleanup();
             if (window.showNotification) {
                 window.showNotification('⚠️ Si SplitX no cargó automáticamente, puedes usar el botón "Copiar JSON".', 'warning');
             }
         }
-    }, 10000);
+    }, pingWindowMs);
 
     return targetWindow;
 }
@@ -4264,7 +4392,7 @@ export function setPayrollLoansSalaryBulk(kind) {
             exportConfig: { ...state.exportConfig, leaderFilter: leader } }, period.periodStart, period.periodEnd);
     }
     const affectedIds = new Set(employees.map(employee => String(employee.id)));
-    const selection = buildPayrollLoanSalarySelection(employees, rows, period.periodEnd, kind);
+    const selection = buildPayrollLoanSalarySelection(employees, rows, period.periodEnd, kind, period.periodStart);
     const preserved = (state.exportConfig.payrollLoanSelection || []).filter(item => !affectedIds.has(String(item.employeeId)));
     for (const id of affectedIds) {
         payrollLoanAmountDrafts.delete(id);
@@ -4272,6 +4400,20 @@ export function setPayrollLoansSalaryBulk(kind) {
     }
     updatePayrollLoanSelection([...preserved, ...selection]);
     return true;
+}
+
+function getEffectivePayrollPeriodStart(state) {
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    return (isProjectsEnabled() && scopedView?.period?.periodStart)
+        ? scopedView.period.periodStart
+        : state.exportConfig.periodStart;
+}
+
+/** Préstamos que se marcan solos: los de esta nómina; si todos están programados para después, todos. */
+function autoMarkPayrollLoans(employee, state) {
+    const eligible = getEligiblePayrollLoans(employee, getEffectivePayrollPeriodEnd(state), getEffectivePayrollPeriodStart(state));
+    const due = eligible.filter(loan => !loan.scheduledLater);
+    return due.length > 0 ? due : eligible;
 }
 
 function getEffectivePayrollPeriodEnd(state) {
@@ -4285,8 +4427,7 @@ export function toggleEmployeePayrollLoans(employeeId) {
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
     if (!employee) return;
-    const periodEnd = getEffectivePayrollPeriodEnd(state);
-    const eligibleLoans = getEligiblePayrollLoans(employee, periodEnd);
+    const eligibleLoans = autoMarkPayrollLoans(employee, state);
     const current = (state.exportConfig.payrollLoanSelection || [])
         .find(item => String(item.employeeId) === String(employee.id));
     const selectedCounts = new Map(
@@ -4303,7 +4444,7 @@ export function toggleEmployeePayrollLoans(employeeId) {
         employee.id,
         complete ? [] : eligibleLoans.map(loan => ({
             loanId: loan.loanId,
-            chargeCount: Math.max(1, Number(selectedCounts.get(String(loan.loanId))) || loan.defaultChargeCount)
+            chargeCount: Math.max(1, Number(selectedCounts.get(String(loan.loanId))) || loan.defaultChargeCount || 1)
         })),
         { mode: PAYROLL_LOAN_MODE.ALL }
     ));
@@ -4322,8 +4463,7 @@ export function setPayrollLoanModeFor(employeeId, mode, amount = null) {
     let selection = state.exportConfig.payrollLoanSelection || [];
     const current = selection.find(item => String(item.employeeId) === String(employee.id));
     if (!current || !(current.loans || current.loanIds || []).length) {
-        const periodEnd = getEffectivePayrollPeriodEnd(state);
-        selection = setEmployeePayrollLoans(selection, employee.id, getEligiblePayrollLoans(employee, periodEnd)
+        selection = setEmployeePayrollLoans(selection, employee.id, autoMarkPayrollLoans(employee, state)
             .map(loan => ({ loanId: loan.loanId, chargeCount: Math.max(1, loan.defaultChargeCount) })));
     }
     let next = setPayrollLoanMode(selection, employee.id, mode, amount);
@@ -4365,8 +4505,8 @@ export function setPayrollLoanSalaryAmount(employeeId, kind, percentage = DEFAUL
     let selection = state.exportConfig.payrollLoanSelection || [];
     const selected = selection.find(item => String(item.employeeId) === String(employeeId));
     if (!(selected?.loans || selected?.loanIds || []).length) {
-        selection = setEmployeePayrollLoans(selection, employeeId, getEligiblePayrollLoans(employee, periodEnd)
-            .map(loan => ({ loanId: loan.loanId, chargeCount: loan.defaultChargeCount })));
+        selection = setEmployeePayrollLoans(selection, employeeId, autoMarkPayrollLoans(employee, state)
+            .map(loan => ({ loanId: loan.loanId, chargeCount: Math.max(1, loan.defaultChargeCount) })));
     }
     const debt = resolvePayrollLoanSelection([employee], selection, periodEnd)[0]?.fullTotal || 0;
     const amounts = getPayrollLoanSalaryAmounts(row, debt, kind === 'available' ? 100 : percentage);
@@ -4497,7 +4637,7 @@ function currentPayrollClosureState({ activeClosures = null, historyReady = null
     if (isScoped && getScopedLeaderFilter(scopedView, state) !== 'all' || !isScoped && leaderAdjustments.length && state.exportConfig.leaderFilter && state.exportConfig.leaderFilter !== 'all') {
         gate = { ...gate, enabled: false, reason: 'leader-filtered' };
     }
-    if (isScoped && payrollReviewEmployeeSelection(scopedView, state).enabled) {
+    if (isPayrollReviewPartial(payrollReviewEmployeeSelection(scopedView, state))) {
         gate = { ...gate, enabled: false, reason: 'employee-filtered' };
     }
     return { state, rows, leaderAdjustments, fingerprint, activeClosures: cache.items, gate, isScoped, projectId, periodStart, periodEnd };
@@ -4993,7 +5133,7 @@ export async function openPayrollClosure() {
         context?.render?.();
         return;
     }
-    if (scopedView?.enabled && payrollReviewEmployeeSelection(scopedView).enabled) {
+    if (isPayrollReviewPartial(payrollReviewEmployeeSelection(scopedView))) {
         window.showNotification?.(payrollClosureBlockerMessage({ reason: 'employee-filtered' }), 'warning');
         return;
     }

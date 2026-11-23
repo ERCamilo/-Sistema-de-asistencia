@@ -2,7 +2,7 @@ import { confirmProjectAction } from './ProjectActionDialog.js';
 import { PROJECT_STATUS } from './Project.js';
 import { projectDeletionPolicy } from './ProjectDeletionPolicy.js';
 import { projectSetupService } from './ProjectSetupService.js';
-import { mountProjectCreateForm, openProjectCreateModal, closeProjectCreateModal } from './ProjectCreateUI.js';
+import { mountProjectCreateForm, openProjectCreateModal, closeProjectCreateModal, announceProjectCreated } from './ProjectCreateUI.js';
 import { attachProjectDialogA11y } from './ProjectDialogA11y.js';
 import { mountProjectOnboarding } from './ProjectOnboarding.js';
 import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
@@ -432,8 +432,7 @@ export async function openProjectListModal({ setupService = projectSetupService,
                     const rawValue = nameInput?.value ?? '';
                     try {
                         const result = await setupService.createEmptyProject({ name: rawValue });
-                        window.showNotification?.(`Proyecto creado: ${result.project?.name || ''}`, 'success');
-                        window.dispatchEvent(new CustomEvent('projects:created', { detail: { project: result.project } }));
+                        announceProjectCreated(result);
                         await handleCreateSuccess(result.project, result.state);
                     } catch (error) {
                         window.showNotification?.(String(error?.message || error), 'error');

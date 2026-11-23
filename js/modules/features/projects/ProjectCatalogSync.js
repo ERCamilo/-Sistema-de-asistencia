@@ -42,7 +42,7 @@ import { readProjectUsageData, summarizeProjectUsage, protectDeletedProjects } f
 import { isDetachedRestoreSyncBlocked } from "../../services/DetachedRestoreGuard.js";
 import { state } from '../../core/AppState.js';
 
-const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'deletionRequestedAt', 'notSameAs'];
+const CATALOG_FIELDS = ['id', 'name', 'status', 'createdAt', 'updatedAt', 'closedAt', 'archivedAt', 'schemaVersion', 'deletedAt', 'deletionRequestedAt', 'notSameAs', 'mergedIntoId'];
 const PAYROLL_CONFIG_STORE = 'projectPayrollConfigs';
 
 let _lastDuplicates = [];
@@ -329,8 +329,67 @@ function announceChange(detail) {
     } catch (_) { /* sin UI */ }
 }
 
+const ADOPT_RETRY_MS = 5 * 60 * 1000;
+// Tras un intento fallido no se repite el motor en cada actualización en vivo del catálogo.
+const adoptBackoff = new WeakMap();
+
+async function defaultAdoptMerged({ sourceId, targetId }) {
+    const { applyOwnershipRepair, REPAIR_ACTION } = await import('./ProjectOwnershipRepairService.js');
+    return applyOwnershipRepair({ action: REPAIR_ACTION.MERGE_PROJECT, sourceProjectId: sourceId, targetProjectId: targetId, adopt: true });
+}
+
+/**
+ * Un dispositivo atrasado adopta una fusión hecha en otro: lo que aún tenga bajo
+ * la obra retirada (`mergedIntoId`) pasa a la obra destino. Si no se puede (cierres,
+ * cambios sin guardar…), la obra queda visible y señalada por la protección de
+ * borrados y no se pierde nada. Devuelve los ids adoptados.
+ */
+async function adoptMergedProjects(rows, remoteById, { idb, adoptMerged, verify }) {
+    const adopted = [];
+    const byId = new Map((rows || []).map(row => [trimId(row?.id), row]));
+    for (const row of rows || []) {
+        verify();
+        const source = trimId(row?.id);
+        const target = trimId(row?.mergedIntoId);
+        const retired = row?.deletedAt != null || Boolean(row?.metadata?.deletionConflict);
+        if (!source || !target || source === target || !retired) continue;
+        const destination = byId.get(target);
+        if (!destination || destination.deletedAt != null || (destination.status && destination.status !== 'active')) continue;
+        const waits = adoptBackoff.get(idb) || new Map();
+        adoptBackoff.set(idb, waits);
+        if (Date.now() < (waits.get(source) || 0)) continue;
+        if (!(await projectHasLocalData(source, { idb }))) continue;
+        try {
+            const result = await adoptMerged({ sourceId: source, targetId: target });
+            if (!['OK', 'NO_OP'].includes(result?.status)) { waits.set(source, Date.now() + ADOPT_RETRY_MS); continue; }
+        } catch (error) {
+            console.warn(`⚠️ Obras: no se pudo adoptar la fusión de ${source}:`, error?.message || error);
+            waits.set(source, Date.now() + ADOPT_RETRY_MS);
+            continue;
+        }
+        waits.delete(source);
+        const remote = remoteById.get(source);
+        if (row.deletedAt == null && remote?.deletedAt != null) {
+            // La protección de borrados la había dejado visible: ya está vacía, vuelve la lápida remota.
+            await mutateProjectCatalog(idb, current => {
+                const found = current.find(item => item.id === source);
+                if (!found || found.deletedAt != null) return { writes: [], result: null };
+                const restored = { ...found, deletedAt: remote.deletedAt, updatedAt: Math.max(Number(found.updatedAt) || 0, Number(remote.updatedAt) || 0) };
+                if (restored.metadata) {
+                    restored.metadata = { ...restored.metadata };
+                    delete restored.metadata.deletionConflict;
+                    if (!Object.keys(restored.metadata).length) delete restored.metadata;
+                }
+                return { writes: [restored], result: restored };
+            });
+        }
+        adopted.push(source);
+    }
+    return adopted;
+}
+
 async function applyRemoteCatalog(uid, remoteList, {
-    idb = indexedDBService, writeDoc = setDoc, valid = () => true
+    idb = indexedDBService, writeDoc = setDoc, valid = () => true, adoptMerged = defaultAdoptMerged
 } = {}) {
     const verify = () => { if (!valid()) throw OBSOLETE_SYNC; };
     verify();
@@ -395,10 +454,13 @@ async function applyRemoteCatalog(uid, remoteList, {
             console.warn(`⚠️ Obras: no se pudo publicar «${project.name}» en la nube:`, error?.message || error);
         }
     }
-    const finalList = await idb.getAll('projects');
+    let finalList = await idb.getAll('projects');
+    verify();
+    const remoteById = new Map(remoteList.map(remote => [trimId(remote?.id), remote]));
+    const adopted = await adoptMergedProjects(finalList, remoteById, { idb, adoptMerged, verify });
+    if (adopted.length) finalList = await idb.getAll('projects');
     verify();
     // Configuración de nómina por obra.
-    const remoteById = new Map(remoteList.map(remote => [trimId(remote?.id), remote]));
     const excluded = new Set(excludeIds);
     let configsReceived = 0;
     let configsPublished = 0;
@@ -453,17 +515,17 @@ async function applyRemoteCatalog(uid, remoteList, {
     if ((finalList || []).some(row => row.deletedAt == null && row.metadata?.nameConflict)) {
         try { window.dispatchEvent(new CustomEvent(PROJECT_NAME_CONFLICT_EVENT)); } catch (_) { /* sin UI */ }
     }
-    if (plan.changed.length || removed.length) {
-        announceChange({ received: plan.storeLocal.map(project => project.id), removed });
+    if (plan.changed.length || removed.length || adopted.length) {
+        announceChange({ received: plan.storeLocal.map(project => project.id), removed, adopted });
     }
-    return { received: plan.storeLocal.length, published, removed, configsReceived, configsPublished, duplicates: getCatalogNameDuplicates() };
+    return { received: plan.storeLocal.length, published, removed, adopted, configsReceived, configsPublished, duplicates: getCatalogNameDuplicates() };
 }
 
 /**
  * Descarga el catálogo de la nube, lo une con el local y publica lo que falte.
  * Devuelve null si no aplica (flag OFF, sin sesión o sin red).
  */
-export async function syncProjectCatalog({ uid = currentUid(), idb = indexedDBService, readDocs = getDocs, writeDoc = setDoc } = {}) {
+export async function syncProjectCatalog({ uid = currentUid(), idb = indexedDBService, readDocs = getDocs, writeDoc = setDoc, adoptMerged } = {}) {
     if (!isProjectsEnabled() || !uid || isDetachedRestoreSyncBlocked()) return null;
     const generation = _sessionGeneration;
     if (!sessionValid(uid, generation)) return null;
@@ -475,7 +537,7 @@ export async function syncProjectCatalog({ uid = currentUid(), idb = indexedDBSe
             snapshot.forEach(item => remoteList.push({ ...item.data(), id: item.id }));
             const valid = () => sessionValid(uid, generation);
             if (!valid()) return null;
-            return await applyRemoteCatalog(uid, remoteList, { idb, writeDoc, valid });
+            return await applyRemoteCatalog(uid, remoteList, { idb, writeDoc, valid, ...(adoptMerged ? { adoptMerged } : {}) });
         } catch (error) {
             if (error === OBSOLETE_SYNC) return null;
             console.warn('⚠️ Obras: sincronización del catálogo no disponible:', error?.message || error);

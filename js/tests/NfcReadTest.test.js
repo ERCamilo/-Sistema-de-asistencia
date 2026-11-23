@@ -99,3 +99,14 @@ test('only extracts serial and NDEF record types, and the entry is an explicit r
     const html = SettingsNfcReadTestCard(); expect(html).toContain('test-nfc-read');
     expect(html).toContain('no asocia empleados ni envía');
 });
+
+test('settings and shared NFC dialog use the standard regular NFC icon', () => {
+    const markup = SettingsNfcReadTestCard();
+    expect(markup).toContain('data-icon="nfc"');
+    expect(markup).toContain('aria-hidden="true"');
+    expect(markup).toContain('Probar lectura NFC');
+    expect(ui.dialog.querySelector('header [data-icon="nfc"]')).not.toBeNull();
+    const svg = ui.dialog.querySelector('header [data-icon="nfc"]');
+    expect(svg.querySelectorAll('path')).toHaveLength(4);
+    expect(svg.querySelector('rect')).toBeNull();
+});

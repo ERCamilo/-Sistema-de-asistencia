@@ -53,14 +53,15 @@ export function buildPayrollLeaderAdjustments(rows = [], options = {}) {
         .sort((a, b) => a.leaderId.localeCompare(b.leaderId));
 }
 
-export function renderPayrollLeaderAdjustments(groups = [], { partial = false, readOnly = false } = {}) {
+export function renderPayrollLeaderAdjustments(groups = [], { partial = false, readOnly = false, hoursFiltered = false } = {}) {
     return groups.map((group, index) => `<section class="payroll-leader-adjustment" aria-label="Ajuste del líder ${escapeHTML(group.leaderName)}">
         <div class="payroll-leader-adjustment__heading"><label><input type="checkbox" ${readOnly ? '' : `data-payroll-leader-adjustment="${index}" data-payroll-action="toggle-leader-adjustment"`} ${group.enabled ? 'checked' : ''} ${partial || readOnly ? 'disabled' : ''}>Aplicar descuento</label><strong>${escapeHTML(group.leaderName)}</strong></div>
         <details data-payroll-leader-adjustment-key="${escapeAttr(group.key)}" ${expandedGroups.has(group.key) ? 'open' : ''}><summary data-payroll-leader-details><span>Personal pagado por otros líderes <small>${group.entries.length} tramo(s) · ${group.enabled ? 'Aplicado' : 'Desactivado'}</small></span><strong>−${cash(group.enabled ? group.amount : 0)}</strong><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
         ${group.entries.map(entry => `<article><strong>${escapeHTML(entry.employeeName)} · #${escapeHTML(entry.employeeNumber)}</strong><span>${escapeHTML(entry.positionName)} · paga ${escapeHTML(entry.payerLeaderName)}</span><span>${workExpression(entry)} · Total ${cash(entry.amount)}</span></article>`).join('')}
         <p>Solo lectura. Sin descuentos personales, bonificaciones ni cobros de préstamos.</p></details>
-        <div class="payroll-leader-adjustment__balance"><span>Subtotal de empleados ${cash(group.subtotal)}</span><strong>Saldo del líder ${group.balance < 0 ? '−' : ''}${cash(Math.abs(group.balance))}</strong></div>
+        <div class="payroll-leader-adjustment__balance"><span>${partial || hoursFiltered ? 'Subtotal completo' : 'Subtotal de empleados'} ${cash(group.subtotal)}</span><strong>${partial || hoursFiltered ? 'Saldo completo' : 'Saldo del líder'} ${group.balance < 0 ? '−' : ''}${cash(Math.abs(group.balance))}</strong></div>
         ${partial ? '<p>Resumen completo del líder. Quita el filtro de empleados para cambiar el ajuste.</p>' : ''}
+        ${hoursFiltered && !partial ? '<p>Resumen completo del líder. El filtro de puestos solo limita la tabla de empleados.</p>' : ''}
     </section>`).join('');
 }
 

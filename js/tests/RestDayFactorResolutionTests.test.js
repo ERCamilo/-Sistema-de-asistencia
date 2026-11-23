@@ -3,13 +3,19 @@ import { PayrollService } from '../modules/features/payroll/PayrollService.js';
 import { buildEmployeeReportData } from '../modules/features/analytics/EmployeeReportData.js';
 
 describe('RestDayFactor Resolution & Payroll Integration', () => {
-    describe('resolveRestDayFactor hierarchy (Position > Leader > Global)', () => {
-        test('Position override wins over Leader and Global', () => {
+    describe('resolveRestDayFactor hierarchy (Leader > Position > Global)', () => {
+        // Decisión del usuario (2026-11-10): el día libre se paga con lo que paga el líder.
+        test('Leader wins over Position and Global', () => {
             const position = { restDayFactor: 2.0 };
             const leader = { restDayFactor: 1.75 };
             const settings = { restDayFactor: 1.5 };
 
-            expect(resolveRestDayFactor(position, leader, settings)).toBe(2.0);
+            expect(resolveRestDayFactor(position, leader, settings)).toBe(1.75);
+        });
+
+        test('Position applies only when the Leader defines none', () => {
+            expect(resolveRestDayFactor({ restDayFactor: 2.0 }, { restDayFactor: null }, { restDayFactor: 1.5 })).toBe(2.0);
+            expect(resolveRestDayFactor({ restDayFactor: 2.0 }, null, { restDayFactor: 1.5 })).toBe(2.0);
         });
 
         test('Leader override wins over Global when Position has no factor', () => {
@@ -51,7 +57,7 @@ describe('RestDayFactor Resolution & Payroll Integration', () => {
                         hourlyRate: 100,
                         workingDays: [1, 2, 3, 4, 5], // Lunes a Viernes (0=Dom, 6=Sáb son días libres)
                         leaderId: 'ldr-1',
-                        restDayFactor: 2.0 // Override a 2.0x
+                        restDayFactor: 2.0 // El puesto solo aplica si el líder no define el suyo
                     }
                 ],
                 leaders: [
@@ -88,11 +94,11 @@ describe('RestDayFactor Resolution & Payroll Integration', () => {
             const b = payroll.breakdown[0];
             expect(b.regularHours).toBe(8);
             expect(b.restDayHours).toBe(8);
-            expect(b.restDayFactor).toBe(2.0); // Override de posición
-            expect(b.restDayRate).toBe(200);   // 100 * 2.0
-            expect(b.restDayAmount).toBe(1600); // 8h * 200
+            expect(b.restDayFactor).toBe(1.75); // Manda el líder (Carlos)
+            expect(b.restDayRate).toBe(175);    // 100 * 1.75
+            expect(b.restDayAmount).toBe(1400); // 8h * 175
             expect(b.regularAmount).toBe(800);  // 8h * 100
-            expect(payroll.bruto).toBe(2400);   // 1600 + 800
+            expect(payroll.bruto).toBe(2200);   // 1400 + 800
         });
 
         test('holiday takes precedence over rest day', () => {
@@ -210,11 +216,40 @@ describe('RestDayFactor Resolution & Payroll Integration', () => {
 
             const fullHtml = EmployeeRow(state.employees[0]);
             expect(fullHtml).toContain('attendance-status-pill is-rest-day');
-            expect(fullHtml).toContain('Día libre (2x)');
+            expect(fullHtml).toContain('Día libre (1.75x)');
 
             const compactHtml = EmployeeRowCompact(state.employees[0]);
             expect(compactHtml).toContain('attendance-status-pill is-rest-day');
-            expect(compactHtml).toContain('Día libre (2x)');
+            expect(compactHtml).toContain('Día libre (1.75x)');
+        });
+
+        // Revisión externa del PR #366: la tarjeta debe mostrar el mismo factor que paga la nómina.
+        test('a day worked before the employee changed leader shows the factor payroll pays for it', async () => {
+            const { state } = AppStateModule;
+            const { EmployeeRow, EmployeeRowCompact } = AttendanceUIModule;
+            const { prepareEmployeePositionAssignments, captureAttendancePositionAssignments } = await import('../modules/features/employees/EmployeePositionAssignments.js');
+            const { PayrollService } = await import('../modules/features/payroll/PayrollService.js');
+            const start = new Date('2026-08-17T08:00:00').getTime();
+            state.selectedDate = new Date('2026-08-23T12:00:00'); // Domingo
+            state.settings = { holidays: [], regularHoursPerDay: 8, restDayFactor: 1.5, overtimeFactor: 1, holidayFactor: 2 };
+            state.positions = [{ id: 'pos-1', name: 'Pintor', hourlyRate: 100, workingDays: [1, 2, 3, 4, 5], leaderId: 'ldr-2' }];
+            state.leaders = [{ id: 'ldr-1', name: 'Luis', restDayFactor: 3 }, { id: 'ldr-2', name: 'Marcos', restDayFactor: 2 }];
+            const employee = { id: 'emp-card-2', number: '011', name: 'Juan', active: true, positions: ['pos-1'] };
+            const plain = () => JSON.parse(JSON.stringify({ positions: state.positions, leaders: state.leaders, settings: state.settings, employees: [employee], attendance: {} }));
+            employee.positionAssignments = prepareEmployeePositionAssignments(employee, { 'pos-1': { workLeaderId: 'ldr-1' } }, plain(), start);
+            const worked = new Date('2026-08-23T18:00:00').getTime();
+            const record = captureAttendancePositionAssignments({ employeeId: employee.id, date: '2026-08-23', present: true, hoursWorked: 8,
+                selectedPosition: 'pos-1', createdAt: worked, updatedAt: worked }, plain(), worked);
+            // Días después pasa al equipo de Marcos (2x).
+            employee.positionAssignments = prepareEmployeePositionAssignments(employee, { 'pos-1': { workLeaderId: 'ldr-2' } }, plain(), new Date('2026-08-26T08:00:00').getTime());
+            state.employees = [employee];
+            state.attendance = { 'emp-card-2-2026-08-23': record };
+
+            const paid = new PayrollService(plain.call(null) && { ...plain(), attendance: { 'emp-card-2-2026-08-23': record } })
+                .calculateEmployeePayroll(employee.id, '2026-08-23', '2026-08-23', [], [], []);
+            expect(paid.breakdown[0].restDayFactor).toBe(3);
+            expect(EmployeeRow(state.employees[0])).toContain('Día libre (3x)');
+            expect(EmployeeRowCompact(state.employees[0])).toContain('Día libre (3x)');
         });
 
         test('does not render rest day pill on normal working day', () => {

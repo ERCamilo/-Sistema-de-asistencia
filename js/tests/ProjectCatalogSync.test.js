@@ -224,3 +224,139 @@ describe('configuración de nómina por obra entre dispositivos', () => {
         });
     });
 });
+
+describe('fusión de obras entre dispositivos (mergedIntoId)', () => {
+    const tombstone = (id, into, extra = {}) => project(id, 'Edificio Sur', 9, { deletedAt: 9, mergedIntoId: into, ...extra });
+    let db, written;
+    beforeEach(async () => {
+        localStorage.clear();
+        setProjectsEnabled(true);
+        db = new IndexedDBService('catalog-merge-' + Math.random());
+        await db.init();
+        written = [];
+    });
+    afterEach(() => { try { db.db.close(); } catch (_) { /* ignore */ } localStorage.clear(); });
+    const writeDoc = async (ref, data) => { written.push(data); };
+    const sync = (remote, adoptMerged) => syncProjectCatalog({ uid: 'u1', idb: db, writeDoc, adoptMerged, readDocs: async () => snapshotOf(remote) });
+    const moveToA = jest.fn(async () => {
+        await db.update('employees', { id: 'e1', name: 'Ana', projectId: 'A' });
+        return { status: 'OK' };
+    });
+    beforeEach(() => moveToA.mockClear());
+
+    test('mergedIntoId viaja en el documento y se conserva al recibirlo', () => {
+        expect(planCatalogMerge([], [tombstone('B', 'A')]).storeLocal[0]).toMatchObject({ deletedAt: 9, mergedIntoId: 'A' });
+        expect(planCatalogMerge([project('B', 'Edificio Sur', 1)], [tombstone('B', 'A')]).storeLocal[0]).toMatchObject({ deletedAt: 9, mergedIntoId: 'A' });
+        expect(planCatalogMerge([tombstone('B', 'A')], []).publish[0]).toMatchObject({ mergedIntoId: 'A' });
+    });
+
+    test('un dispositivo atrasado adopta la fusión: sus datos pasan a la obra destino y la lápida queda', async () => {
+        await db.update('projects', project('A', 'Torre Norte', 1));
+        await db.update('projects', project('B', 'Edificio Sur', 1));
+        await db.update('employees', { id: 'e1', name: 'Ana', projectId: 'B' });
+
+        const result = await sync([project('A', 'Torre Norte', 1), tombstone('B', 'A')], moveToA);
+
+        expect(moveToA).toHaveBeenCalledTimes(1);
+        expect(moveToA).toHaveBeenCalledWith({ sourceId: 'B', targetId: 'A' });
+        expect(result.adopted).toEqual(['B']);
+        expect((await db.get('employees', 'e1')).projectId).toBe('A');
+        const row = await db.get('projects', 'B');
+        expect(row).toMatchObject({ deletedAt: 9, mergedIntoId: 'A', updatedAt: 9 });
+        expect(row.metadata?.deletionConflict).toBeUndefined();
+        expect(written.filter(doc => doc.id === 'B')).toEqual([]);
+    });
+
+    test('recibe la obra destino y la fusión en la misma sincronización', async () => {
+        await db.update('projects', project('B', 'Edificio Sur', 1));
+        await db.update('employees', { id: 'e1', name: 'Ana', projectId: 'B' });
+        const result = await sync([project('A', 'Torre Norte', 1), tombstone('B', 'A')], moveToA);
+        expect(result.adopted).toEqual(['B']);
+        expect(await db.get('projects', 'A')).toMatchObject({ name: 'Torre Norte' });
+    });
+
+    test('sin datos locales en la obra retirada no hay nada que adoptar', async () => {
+        await db.update('projects', project('A', 'Torre Norte', 1));
+        await db.update('projects', project('B', 'Edificio Sur', 1));
+        const result = await sync([project('A', 'Torre Norte', 1), tombstone('B', 'A')], moveToA);
+        expect(moveToA).not.toHaveBeenCalled();
+        expect(result.adopted).toEqual([]);
+        expect(await db.get('projects', 'B')).toMatchObject({ deletedAt: 9, mergedIntoId: 'A' });
+    });
+
+    test('si la fusión no se puede aplicar, la obra queda visible y señalada, sin perder datos', async () => {
+        await db.update('projects', project('A', 'Torre Norte', 1));
+        await db.update('projects', project('B', 'Edificio Sur', 1));
+        await db.update('employees', { id: 'e1', name: 'Ana', projectId: 'B' });
+        const blocked = jest.fn(async () => ({ status: 'CONFLICT' }));
+        const result = await sync([project('A', 'Torre Norte', 1), tombstone('B', 'A')], blocked);
+        expect(result.adopted).toEqual([]);
+        expect((await db.get('employees', 'e1')).projectId).toBe('B');
+        const row = await db.get('projects', 'B');
+        expect(row.deletedAt).toBeUndefined();
+        expect(row.metadata.deletionConflict).toBeTruthy();
+    });
+
+    test('un fallo al adoptar no rompe la sincronización', async () => {
+        await db.update('projects', project('A', 'Torre Norte', 1));
+        await db.update('projects', project('B', 'Edificio Sur', 1));
+        await db.update('employees', { id: 'e1', name: 'Ana', projectId: 'B' });
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const boom = jest.fn(async () => { throw new Error('idb'); });
+        const result = await sync([project('A', 'Torre Norte', 1), tombstone('B', 'A')], boom);
+        expect(result).not.toBeNull();
+        expect(result.adopted).toEqual([]);
+        expect((await db.get('employees', 'e1')).projectId).toBe('B');
+        console.warn.mockRestore();
+    });
+
+    test('no adopta hacia una obra que aquí no existe, está retirada o no está activa', async () => {
+        await db.update('projects', project('B', 'Edificio Sur', 1));
+        await db.update('employees', { id: 'e1', name: 'Ana', projectId: 'B' });
+        await sync([tombstone('B', 'A')], moveToA);
+        expect(moveToA).not.toHaveBeenCalled();
+        await sync([tombstone('B', 'A'), tombstone('A', 'C', { name: 'Torre' })], moveToA);
+        expect(moveToA).not.toHaveBeenCalled();
+    });
+
+    test('si la adopción se bloquea, no reintenta el motor en cada sincronización sino pasados 5 minutos', async () => {
+        await db.update('projects', project('A', 'Torre Norte', 1));
+        await db.update('projects', project('B', 'Edificio Sur', 1));
+        await db.update('employees', { id: 'e1', name: 'Ana', projectId: 'B' });
+        const blocked = jest.fn(async () => ({ status: 'CONFLICT' }));
+        const remote = [project('A', 'Torre Norte', 1), tombstone('B', 'A')];
+        const now = jest.spyOn(Date, 'now');
+        try {
+            now.mockReturnValue(1_000_000);
+            await sync(remote, blocked);
+            await sync(remote, blocked);
+            expect(blocked).toHaveBeenCalledTimes(1);
+            now.mockReturnValue(1_000_000 + 4 * 60 * 1000);
+            await sync(remote, blocked);
+            expect(blocked).toHaveBeenCalledTimes(1);
+            now.mockReturnValue(1_000_000 + 5 * 60 * 1000 + 1);
+            await sync(remote, blocked);
+            expect(blocked).toHaveBeenCalledTimes(2);
+        } finally {
+            now.mockRestore();
+        }
+    });
+
+    test('tras una adopción correcta no hay enfriamiento: si vuelven datos, se adoptan', async () => {
+        await db.update('projects', project('A', 'Torre Norte', 1));
+        await db.update('projects', project('B', 'Edificio Sur', 1));
+        await db.update('employees', { id: 'e1', name: 'Ana', projectId: 'B' });
+        const remote = [project('A', 'Torre Norte', 1), tombstone('B', 'A')];
+        await sync(remote, moveToA);
+        await db.update('employees', { id: 'e2', name: 'Luis', projectId: 'B' });
+        await sync(remote, moveToA);
+        expect(moveToA).toHaveBeenCalledTimes(2);
+    });
+
+    test('una lápida que se apunta a sí misma se ignora', async () => {
+        await db.update('projects', project('B', 'Edificio Sur', 1));
+        await db.update('employees', { id: 'e1', name: 'Ana', projectId: 'B' });
+        await sync([tombstone('B', 'B')], moveToA);
+        expect(moveToA).not.toHaveBeenCalled();
+    });
+});

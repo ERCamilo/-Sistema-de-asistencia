@@ -410,12 +410,16 @@ describe('PayrollScopedGeneratorFocal — Multi-project Generator Parity & Safet
 
         test('switching step to review renders preview plus operational close controls', () => {
             PayrollUI.setPayrollGuideStep('review');
+            const initial = document.createElement('div'); initial.innerHTML = PayrollUI.PayrollTab();
+            if (initial.querySelector('[data-value="EMP-A-12|calculation"]').getAttribute('aria-expanded') === 'false') PayrollUI.togglePayrollReviewDetail('EMP-A-12|calculation');
             const html = PayrollUI.PayrollTab();
 
             expect(html).toContain('payroll-review-table');
             expect(html).toContain('Juan Perez');
-            expect(html).toContain('10h');
-            expect(html).toContain('(8h reg + 2h extra)');
+            const host = document.createElement('div'); host.innerHTML = html;
+            expect(host.querySelector('[data-payroll-payment-days]').textContent).toBe('1.375');
+            expect(host.querySelector('.payroll-review-table__hours-split')).toBeNull();
+            expect(host.querySelector('.payroll-breakdown-details__body').textContent).toContain('Ordinarios: 1 día');
             expect(html).toContain('$1,100.00');
             expect(html).toContain('payroll-breakdown-details');
             expect(html).toContain('data-payroll-action="toggle-payroll-paid"');
@@ -435,6 +439,9 @@ describe('PayrollScopedGeneratorFocal — Multi-project Generator Parity & Safet
             });
             PayrollUI.setPayrollGuideStep('review');
 
+            const initial = document.createElement('div'); initial.innerHTML = PayrollUI.PayrollTab();
+            if (initial.querySelector('[data-value="EMP-A-12|calculation"]').getAttribute('aria-expanded') === 'false') PayrollUI.togglePayrollReviewDetail('EMP-A-12|calculation');
+
             const html = PayrollUI.PayrollTab();
 
             // Summary sidebar
@@ -447,9 +454,9 @@ describe('PayrollScopedGeneratorFocal — Multi-project Generator Parity & Safet
 
             // Breakdown details
             expect(html).toContain('Albañil Obra A');
-            expect(html).toContain('Tarifa: $100.00/h');
-            expect(html).toContain('Reg: 8h ($800.00)');
-            expect(html).toContain('Extra (x1.5): 2h');
+            expect(html).toContain('Tarifa: $800.00/día');
+            expect(html).toContain('Ordinarios: 1 día ($800.00)');
+            expect(html).toContain('Extra (x1.5): 0.25 días equiv.');
             expect(html).toContain('$300.00');
         });
     });
