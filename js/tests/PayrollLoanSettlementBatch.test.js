@@ -285,4 +285,49 @@ describe('Payroll loan settlement batches', () => {
         })).toThrow(/otro cierre/i);
         expect(loan.payments[0].voided).toBe(false);
     });
+
+    // Incidente 2026-11-16 ("Conflicto de identidad en el pago de Préstamo"):
+    // una Nómina se cerró, se deshizo (pago anulado) y el monto del cargo
+    // cambió (abono externo). La identidad del cargo (período+préstamo+tipo)
+    // es la misma, así que el paymentId determinista chocaba con el pago
+    // ANULADO de otro monto y el cierre quedaba bloqueado para siempre.
+    test('re-closing after undo with a changed charge amount creates a fresh payment instead of a conflict', () => {
+        const emp = employee('emp-9', 'Luis Mora');
+        const loan = createLoan(emp, {
+            principal: 1000,
+            interestRate: 0,
+            startDate: '2026-08-02',
+            concept: 'Préstamo',
+            installmentMode: 'single'
+        });
+        const firstBatch = buildBatch([emp], [payrollRow(emp, loan)]);
+        applyPayrollLoanSettlementBatch([emp], firstBatch, { now: 100_100 });
+        undoPayrollLoanSettlementBatch([emp], firstBatch.id, { now: 100_200 });
+        expect(loan.payments[0].voided).toBe(true);
+
+        recordPayment(emp, loan.id, { amount: 200, date: '2026-08-10', note: 'Abono externo' });
+        const secondBatch = buildBatch([emp], [payrollRow(emp, loan)], 200_000);
+
+        expect(secondBatch.items[0].amount).toBe(800);
+        expect(secondBatch.items[0].paymentId).not.toBe(firstBatch.items[0].paymentId);
+        const result = applyPayrollLoanSettlementBatch([emp], secondBatch, { now: 200_100 });
+        expect(result.createdCount).toBe(1);
+        const old = loan.payments.find(p => p.id === firstBatch.items[0].paymentId);
+        expect(old).toMatchObject({ voided: true, amount: 1000 });
+        expect(getBalance(loan)).toBe(0);
+
+        // Replay of the same batch stays idempotent.
+        const replay = applyPayrollLoanSettlementBatch([emp], secondBatch, { now: 200_200 });
+        expect(replay.createdCount).toBe(0);
+    });
+
+    test('a live (non-voided) payment with a different amount still blocks as a real conflict', () => {
+        const emp = employee('emp-9', 'Luis Mora');
+        const loan = installmentLoan(emp);
+        const batch = buildBatch([emp], [payrollRow(emp, loan)]);
+        applyPayrollLoanSettlementBatch([emp], batch, { now: 100_100 });
+        loan.payments[0].amount = 999;
+        expect(() => applyPayrollLoanSettlementBatch([emp], batch, { now: 100_200 }))
+            .toThrow(/Conflicto de identidad/);
+    });
 });

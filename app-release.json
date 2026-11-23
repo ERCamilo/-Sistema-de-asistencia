@@ -1,13 +1,81 @@
 {
-  "version": "1.7.145",
+  "version": "1.7.153",
   "changelog": [
+    {
+      "version": "1.7.153",
+      "date": "2026-11-23",
+      "title": "Imprimir cierres históricos de nómina",
+      "items": [
+        "Desde el historial se pueden imprimir cierres o guardarlos como PDF, con importes históricos sin recalcular la nómina actual.",
+        "La impresión respeta el filtro de líder, distingue cierres anulados e incluye ajustes entre líderes y saldos negativos con formato A4 horizontal."
+      ]
+    },
+    {
+      "version": "1.7.151",
+      "date": "2026-11-22",
+      "title": "Menos obras repetidas",
+      "items": [
+        "Al crear una obra se revisa primero lo que creaste en tus otros dispositivos, para que no se repita. Sin conexión te avisa que no pudo revisarlo.",
+        "El formulario de nueva obra muestra las obras que ya tienes y te avisa si el nombre ya existe.",
+        "Prepara la fusión de dos obras que en realidad son la misma: pasa el personal, la asistencia, los préstamos y las cajas chicas a una sola obra, con copia de seguridad previa.",
+        "La fusión todavía no se muestra: se activará en una próxima versión."
+      ]
+    },
+    {
+      "version": "1.7.150",
+      "date": "2026-11-18",
+      "title": "Notas de empleados más seguras",
+      "items": [
+        "Guardar o eliminar notas sincroniza el día correspondiente.",
+        "Marcar asistencia conserva la nota y los cambios de horas se sincronizan por separado.",
+        "Puedes cargar notas anteriores y añadir una nueva sin sobrescribir el texto existente."
+      ]
+    },
+    {
+      "version": "1.7.149",
+      "date": "2026-11-16",
+      "title": "Notas y abonos por voz",
+      "items": [
+        "Los borradores de notas usan marcos azules sobre fondo oscuro y los abonos una tarjeta verde, con el estilo de los préstamos por voz.",
+        "Voz prepara notas de empleados y abonos de préstamos en los formularios habituales, para revisar y guardar.",
+        "Puedes cambiar de empleado conservando los datos; las notas se añaden a las ya guardadas para ese día.",
+        "Los abonos conservan el reparto actual de interés y capital; una grabación ya utilizada no se registra de nuevo."
+      ]
+    },
+    {
+      "version": "1.7.148",
+      "date": "2026-11-16",
+      "title": "Pronunciaciones compartidas más claras",
+      "items": [
+        "Voz muestra el nombre y número de las otras personas que comparten una pronunciación.",
+        "Los avisos al editar y guardar coincidencias incluyen nombres reales y variantes, conservando la selección manual.",
+        "Los avisos también detectan nombres con guion y nombres en otro orden."
+      ]
+    },
+    {
+      "version": "1.7.147",
+      "date": "2026-11-16",
+      "title": "Primera cuota por voz",
+      "items": [
+        "En el préstamo por voz en cuotas eliges en qué nómina se cobra la primera cuota."
+      ]
+    },
+    {
+      "version": "1.7.146",
+      "date": "2026-11-16",
+      "title": "Préstamos programados para una nómina",
+      "items": [
+        "Al registrar un préstamo de pago único eliges en cuál de las próximas 8 nóminas se cobra; en cuotas, en qué nómina va la primera cuota.",
+        "Nómina muestra los préstamos programados para más adelante con la etiqueta «Programado», sin marcarlos ni incluirlos en los cobros masivos. Puedes marcarlos a mano para adelantar el cobro."
+      ]
+    },
     {
       "version": "1.7.145",
       "date": "2026-11-16",
-      "title": "Imprimir cierres de nómina",
+      "title": "Respaldos grandes y cierres de nómina",
       "items": [
-        "El detalle del historial incluye Imprimir, con opción de guardar como PDF desde el navegador.",
-        "El reporte respeta el líder histórico seleccionado y usa los importes guardados, sin simulaciones ni nuevos cálculos de nómina."
+        "Los respaldos automáticos de cuentas con mucho historial vuelven a guardarse en la nube, sin errores de conexión ni esperas de varios minutos.",
+        "Puedes volver a cerrar una nómina después de deshacerla aunque el saldo de un préstamo haya cambiado entretanto."
       ]
     },
     {

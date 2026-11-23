@@ -946,6 +946,12 @@
     line-height: 1.15;
 }
 
+/* Préstamo programado para una nómina posterior: visible, sin marcar. */
+.payroll-loan-child__concept small.payroll-loan-child__scheduled {
+    color: #f6c453;
+    font-weight: 700;
+}
+
 .payroll-loan-child > span:not(.payroll-loan-child__concept) {
     color: #aeb7bf;
     font-size: 0.66rem;

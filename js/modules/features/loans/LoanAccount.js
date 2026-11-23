@@ -296,7 +296,7 @@ function paymentParams(params, part, txId, origin) {
         accountTxId: txId,
         allocation: { interest: part.interest, capital: part.capital }
     };
-    for (const field of ['recordedAt', 'source', 'channel', 'payrollPeriodStart', 'payrollPeriodEnd', 'payrollClosureId']) {
+    for (const field of ['voiceRequestId', 'voiceActorUid', 'recordedAt', 'source', 'channel', 'payrollPeriodStart', 'payrollPeriodEnd', 'payrollClosureId']) {
         if (params[field] != null) out[field] = params[field];
     }
     return out;
@@ -580,7 +580,8 @@ export function editLoan(emp, loanId, changes = {}, options = {}) {
         loan.installments = generateInstallmentSchedule({
             principal: loan.principal, interestRate: loan.interestRate, interestIncluded: !!loan.interestIncluded,
             startDate: loan.startDate, count: (loan.installments || []).length || 2,
-            frequencyWeeks: Number(loan.installmentFrequencyWeeks || 2)
+            frequencyWeeks: Number(loan.installmentFrequencyWeeks || 2),
+            firstDueDate: loan.firstDueDate || null
         });
     }
     refreshStatus(loan, options.by || null, now);

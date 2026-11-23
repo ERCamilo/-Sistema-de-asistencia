@@ -1272,7 +1272,8 @@ function ScopedPayrollTab(view) {
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
                             percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
                             bulkEnabled: previewInclusion.loans,
-                            periodEnd: period.periodEnd
+                            periodEnd: period.periodEnd,
+                            periodStart: period.periodStart
                         }) : ''}
                     </section>
 
@@ -1928,7 +1929,8 @@ function PayrollGeneratorTab() {
                             customAmountDrafts: Object.fromEntries(payrollLoanAmountDrafts),
                             percentageDrafts: Object.fromEntries(payrollLoanPercentageDrafts),
                             bulkEnabled: previewInclusion.loans,
-                            periodEnd: state.exportConfig.periodEnd
+                            periodEnd: state.exportConfig.periodEnd,
+                            periodStart: state.exportConfig.periodStart
                         })}`}
                     </section>
 
@@ -3572,7 +3574,7 @@ export function addPayrollLoansToExport() {
     const effectivePeriodEnd = (isProjectsEnabled() && scopedView?.period?.periodEnd)
         ? scopedView.period.periodEnd
         : state.exportConfig.periodEnd;
-    const selection = buildPayrollLoanSelection(eligibleEmployees, effectivePeriodEnd);
+    const selection = buildPayrollLoanSelection(eligibleEmployees, effectivePeriodEnd, getEffectivePayrollPeriodStart(state));
     stateManager.batchSetState(() => {
         state.exportConfig.payrollLoanSelection = selection;
     });
@@ -4392,7 +4394,7 @@ export function setPayrollLoansSalaryBulk(kind) {
             exportConfig: { ...state.exportConfig, leaderFilter: leader } }, period.periodStart, period.periodEnd);
     }
     const affectedIds = new Set(employees.map(employee => String(employee.id)));
-    const selection = buildPayrollLoanSalarySelection(employees, rows, period.periodEnd, kind);
+    const selection = buildPayrollLoanSalarySelection(employees, rows, period.periodEnd, kind, period.periodStart);
     const preserved = (state.exportConfig.payrollLoanSelection || []).filter(item => !affectedIds.has(String(item.employeeId)));
     for (const id of affectedIds) {
         payrollLoanAmountDrafts.delete(id);
@@ -4400,6 +4402,20 @@ export function setPayrollLoansSalaryBulk(kind) {
     }
     updatePayrollLoanSelection([...preserved, ...selection]);
     return true;
+}
+
+function getEffectivePayrollPeriodStart(state) {
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    return (isProjectsEnabled() && scopedView?.period?.periodStart)
+        ? scopedView.period.periodStart
+        : state.exportConfig.periodStart;
+}
+
+/** Préstamos que se marcan solos: los de esta nómina; si todos están programados para después, todos. */
+function autoMarkPayrollLoans(employee, state) {
+    const eligible = getEligiblePayrollLoans(employee, getEffectivePayrollPeriodEnd(state), getEffectivePayrollPeriodStart(state));
+    const due = eligible.filter(loan => !loan.scheduledLater);
+    return due.length > 0 ? due : eligible;
 }
 
 function getEffectivePayrollPeriodEnd(state) {
@@ -4413,8 +4429,7 @@ export function toggleEmployeePayrollLoans(employeeId) {
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
     if (!employee) return;
-    const periodEnd = getEffectivePayrollPeriodEnd(state);
-    const eligibleLoans = getEligiblePayrollLoans(employee, periodEnd);
+    const eligibleLoans = autoMarkPayrollLoans(employee, state);
     const current = (state.exportConfig.payrollLoanSelection || [])
         .find(item => String(item.employeeId) === String(employee.id));
     const selectedCounts = new Map(
@@ -4431,7 +4446,7 @@ export function toggleEmployeePayrollLoans(employeeId) {
         employee.id,
         complete ? [] : eligibleLoans.map(loan => ({
             loanId: loan.loanId,
-            chargeCount: Math.max(1, Number(selectedCounts.get(String(loan.loanId))) || loan.defaultChargeCount)
+            chargeCount: Math.max(1, Number(selectedCounts.get(String(loan.loanId))) || loan.defaultChargeCount || 1)
         })),
         { mode: PAYROLL_LOAN_MODE.ALL }
     ));
@@ -4450,8 +4465,7 @@ export function setPayrollLoanModeFor(employeeId, mode, amount = null) {
     let selection = state.exportConfig.payrollLoanSelection || [];
     const current = selection.find(item => String(item.employeeId) === String(employee.id));
     if (!current || !(current.loans || current.loanIds || []).length) {
-        const periodEnd = getEffectivePayrollPeriodEnd(state);
-        selection = setEmployeePayrollLoans(selection, employee.id, getEligiblePayrollLoans(employee, periodEnd)
+        selection = setEmployeePayrollLoans(selection, employee.id, autoMarkPayrollLoans(employee, state)
             .map(loan => ({ loanId: loan.loanId, chargeCount: Math.max(1, loan.defaultChargeCount) })));
     }
     let next = setPayrollLoanMode(selection, employee.id, mode, amount);
@@ -4493,8 +4507,8 @@ export function setPayrollLoanSalaryAmount(employeeId, kind, percentage = DEFAUL
     let selection = state.exportConfig.payrollLoanSelection || [];
     const selected = selection.find(item => String(item.employeeId) === String(employeeId));
     if (!(selected?.loans || selected?.loanIds || []).length) {
-        selection = setEmployeePayrollLoans(selection, employeeId, getEligiblePayrollLoans(employee, periodEnd)
-            .map(loan => ({ loanId: loan.loanId, chargeCount: loan.defaultChargeCount })));
+        selection = setEmployeePayrollLoans(selection, employeeId, autoMarkPayrollLoans(employee, state)
+            .map(loan => ({ loanId: loan.loanId, chargeCount: Math.max(1, loan.defaultChargeCount) })));
     }
     const debt = resolvePayrollLoanSelection([employee], selection, periodEnd)[0]?.fullTotal || 0;
     const amounts = getPayrollLoanSalaryAmounts(row, debt, kind === 'available' ? 100 : percentage);

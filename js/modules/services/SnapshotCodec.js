@@ -78,4 +78,37 @@ export async function gunzipFromBase64(b64) {
     return new TextDecoder().decode(bytes);
 }
 
-export default { supportsGzipCodec, gzipToBase64, gunzipFromBase64 };
+/**
+ * Trocea un string en partes de como máximo `chunkSize` caracteres.
+ * Se usa cuando incluso el base64 comprimido excede el límite de un doc
+ * de Firestore (incidente 2026-11-16: estado de ~16MB).
+ */
+export function splitIntoChunks(str, chunkSize) {
+    const size = Number(chunkSize);
+    if (!Number.isFinite(size) || size <= 0) {
+        throw new Error('splitIntoChunks: chunkSize debe ser > 0');
+    }
+    const text = String(str ?? '');
+    const parts = [];
+    for (let i = 0; i < text.length; i += size) parts.push(text.slice(i, i + size));
+    return parts;
+}
+
+/** Inversa de splitIntoChunks. Lanza si falta algún trozo. */
+export function joinChunks(parts) {
+    if (!Array.isArray(parts)) throw new Error('joinChunks: se esperaba un arreglo');
+    parts.forEach((p, i) => {
+        if (typeof p !== 'string') throw new Error(`joinChunks: falta el trozo ${i}`);
+    });
+    return parts.join('');
+}
+
+/** Id del documento-trozo `index` de un snapshot (hermano en la colección). */
+export function chunkDocId(snapshotId, index) {
+    return `${snapshotId}__chunk_${index}`;
+}
+
+export default {
+    supportsGzipCodec, gzipToBase64, gunzipFromBase64,
+    splitIntoChunks, joinChunks, chunkDocId
+};

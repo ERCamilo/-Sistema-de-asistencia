@@ -80,7 +80,7 @@ function renderSelectionControl({ checked, mixed = false, employeeId, loanId = n
     `;
 }
 
-export function buildPayrollLoansDesktopModel(employees = [], selection = [], payrollRows = [], periodEnd = null) {
+export function buildPayrollLoansDesktopModel(employees = [], selection = [], payrollRows = [], periodEnd = null, periodStart = null) {
     const resolvedByEmployee = new Map(
         resolvePayrollLoanSelection(employees, selection, periodEnd).map(item => [
             String(item.employeeId),
@@ -93,7 +93,7 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
     const groups = [];
 
     for (const employee of (employees || [])) {
-        const eligibleLoans = getEligiblePayrollLoans(employee, periodEnd);
+        const eligibleLoans = getEligiblePayrollLoans(employee, periodEnd, periodStart);
         if (eligibleLoans.length === 0) continue;
         const selectedLoansById = resolvedByEmployee.get(String(employee.id)) || new Map();
         const loanById = new Map((employee.loans || []).map(loan => [String(loan.id), loan]));
@@ -188,6 +188,9 @@ function renderLoanRow(group, loan) {
         ? `Cuota ${firstOption.installmentSeq} de ${totalInstallments}`
         : firstOption?.kind === 'balance-adjustment' ? 'Ajuste de saldo' : 'Pago único';
     const dueLabel = firstOption?.dueDate ? ` · ${formatDateShort(firstOption.dueDate)}` : '';
+    const scheduledBadge = loan.scheduledLater && loan.scheduledPayDate
+        ? `<small class="payroll-loan-child__scheduled" title="Programado para una nómina posterior; márcalo si quieres adelantar el cobro">Programado · nómina del ${safe(formatDateShort(loan.scheduledPayDate))}</small>`
+        : '';
     const selectedLabel = isInstallments
         ? `${loan.selectedChargeCount} de ${loan.maxChargeCount} seleccionadas`
         : (loan.selected ? 'Pago incluido' : 'Pago no incluido');
@@ -222,6 +225,7 @@ function renderLoanRow(group, loan) {
                 <strong>${safe(conceptLabel)}</strong>
                 ${migrated ? '<small>(migrado)</small>' : ''}
                 <small>${safe(modeLabel)}${safe(dueLabel)}</small>
+                ${scheduledBadge}
             </span>
             <span class="payroll-loan-child__interest">${formatCurrency(loan.pendingInterest)}</span>
             <span class="payroll-loan-child__capital">${formatCurrency(loan.pendingCapital)}</span>
@@ -383,11 +387,12 @@ export function renderPayrollLoansDesktop({
     percentageDrafts = {},
     bulkEnabled = true,
     periodEnd = null,
+    periodStart = null,
     positions = [],
     leaders = [],
     filterKey = ''
 } = {}) {
-    const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd);
+    const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd, periodStart);
     const expandedIds = new Set((expandedEmployeeIds || []).map(String));
     const summary = model.summary;
     const list = buildPayrollLoanList(model.groups, { employees, payrollRows, positions, leaders, filterKey });
