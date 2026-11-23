@@ -31,6 +31,12 @@ jest.mock('../../../../js/modules/ui/IconSystem.js', () => ({ __esModule: true, 
 jest.mock('../../../../js/modules/core/AppState.js', () => ({
     state: { employees: [], positions: [], leaders: [], attendance: {} }
 }));
+// The current payroll import graph exposes legacy browser helpers during module loading.
+// Supply the Node-only global before importing IndexedDBService; Firestore remains
+// the real SDK/emulator and all transactional assertions are unchanged.
+if (!globalThis.window) globalThis.window = globalThis;
+if (!globalThis.window.addEventListener) globalThis.window.addEventListener = () => {};
+if (!globalThis.window.removeEventListener) globalThis.window.removeEventListener = () => {};
 require('fake-indexeddb/auto');
 const { IndexedDBService } = require('../../../../js/modules/services/IndexedDBService.js');
 const { createDefaultConfig } = require('../../../../js/modules/features/payroll/ProjectPayrollConfig.js');
