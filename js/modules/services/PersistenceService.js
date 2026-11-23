@@ -1811,6 +1811,7 @@ export async function validateDataIntegrity() {
     stateManager.batchSetState(() => {
         Object.entries(state.attendance).forEach(([key, att]) => {
             if (att.deletedAt != null && (now - att.deletedAt) > TOMBSTONE_RETENTION_MS) {
+                if (Number.isFinite(att.noteUpdatedAt)) return; // La nota tiene su propio ciclo de vida.
                 if (unconfirmedDateKeys.has(att.date)) return; // subida sin confirmar — no compactar todavía
                 delete state.attendance[key];
                 compactedTombstones++;
@@ -2523,6 +2524,10 @@ export function mergeEmployees(masterId, duplicateId) {
             const merged = { ...duplicate.positionSalaries, ...ms };
             master.positionSalaries = merged;
         }
+
+        if (duplicate.positionAssignments) master.positionAssignments = {
+            ...duplicate.positionAssignments, ...(master.positionAssignments || {})
+        };
 
         // 5. Completar campos del maestro si están vacíos
         ['phone', 'email', 'entryDate', 'salary', 'dailyRate'].forEach(field => {

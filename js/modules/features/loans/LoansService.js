@@ -296,7 +296,8 @@ export function createLoan(emp, params, options = {}) {
             interestIncluded: !!params.interestIncluded,
             startDate: params.startDate,
             count: Number(params.installmentCount),
-            frequencyWeeks: Number(params.installmentFrequencyWeeks)
+            frequencyWeeks: Number(params.installmentFrequencyWeeks),
+            firstDueDate: params.firstDueDate || null
         })
         : [];
 
@@ -314,6 +315,9 @@ export function createLoan(emp, params, options = {}) {
         installmentMode: mode,
         installmentFrequencyWeeks: Number(params.installmentFrequencyWeeks || 2),
         installments,
+        ...(mode === INSTALLMENT_MODE.INSTALLMENTS && ISO_DAY_RE.test(String(params.firstDueDate || ''))
+            ? { firstDueDate: params.firstDueDate }
+            : {}),
         payments: [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -326,18 +330,26 @@ export function createLoan(emp, params, options = {}) {
 }
 
 /** Generate an installment schedule. Exported for testing & UI preview. */
-export function generateInstallmentSchedule({ principal, interestRate, interestIncluded, startDate, count, frequencyWeeks }) {
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * `firstDueDate` (opcional, YYYY-MM-DD): día de pago de la nómina en que se
+ * cobra la primera cuota; las siguientes van cada `frequencyWeeks` semanas
+ * desde ahí. Sin él, la primera cuota vence `frequencyWeeks` después del inicio.
+ */
+export function generateInstallmentSchedule({ principal, interestRate, interestIncluded, startDate, count, frequencyWeeks, firstDueDate = null }) {
     const totalDue = principal + (interestIncluded ? 0 : (principal * interestRate / 100));
     // Use floor on the per-installment amount and put the remainder in the
     // last installment so the sum exactly equals totalDue (no rounding drift).
     const perInstallment = round2(Math.floor((totalDue / count) * 100) / 100);
     const installments = [];
     let allocated = 0;
-    const start = new Date(startDate + 'T00:00:00');
+    const scheduled = ISO_DAY_RE.test(String(firstDueDate || ''));
+    const start = new Date((scheduled ? firstDueDate : startDate) + 'T00:00:00Z');
 
     for (let i = 0; i < count; i++) {
         const dueDate = new Date(start);
-        dueDate.setDate(dueDate.getDate() + (i + 1) * 7 * frequencyWeeks);
+        dueDate.setUTCDate(dueDate.getUTCDate() + (scheduled ? i : i + 1) * 7 * frequencyWeeks);
 
         const isLast = i === count - 1;
         const amount = isLast ? round2(totalDue - allocated) : perInstallment;
@@ -389,6 +401,8 @@ export function recordPayment(emp, loanId, params, options = {}) {
         voided: false,
         voidedAt: null
     };
+    if (params.voiceRequestId) payment.voiceRequestId = String(params.voiceRequestId);
+    if (params.voiceActorUid) payment.voiceActorUid = String(params.voiceActorUid);
     if (params.source) payment.source = String(params.source);
     // Cuenta de préstamos: de dónde vino el abono y cómo se repartió al registrarlo.
     if (params.origin) payment.origin = String(params.origin);

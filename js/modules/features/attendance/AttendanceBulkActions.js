@@ -1,4 +1,4 @@
-import { stampAttendanceWrite, tombstoneAttendanceWrite } from './AttendanceRecordWriter.js';
+import { attendanceNoteFields, stampAttendanceWrite, tombstoneAttendanceWrite } from './AttendanceRecordWriter.js';
 
 function cloneAttendanceRecord(record) {
     if (!record) return null;
@@ -41,7 +41,7 @@ export function buildMarkVisiblePresentPlan({
                 selectedPosition: employee.positions?.[0] || null,
                 multiPosition: false,
                 positionHours: [],
-                notes: ''
+                ...attendanceNoteFields(previous)
             }, now)
         }];
     });

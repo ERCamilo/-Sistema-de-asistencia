@@ -67,7 +67,7 @@ import { openVoiceAttendanceEmployee } from './modules/features/voice/VoiceAtten
 import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
 import { getAccountSummary as voiceAccountSummary } from './modules/features/loans/LoanAccount.js';
 import { selectLoansEmployee as selectVoiceLoansEmployee } from './modules/features/loans/LoansController.js';
-import { registerNewAccountLoan, laUseClassicView, laSetTab } from './modules/features/loans/LoanAccountController.js';
+import { openVoiceAccountPaymentDraft, registerNewAccountLoan, laUseClassicView, laSetTab } from './modules/features/loans/LoanAccountController.js';
 import { getAccountPayPeriods } from './modules/features/loans/LoanAccountView.js';
 import { previousVoiceInterest } from './modules/features/voice/VoiceLoanDraft.js';
 import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
@@ -128,7 +128,7 @@ import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
-import { stampAttendanceWrite, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
+import { stampAttendanceWrite as stampBaseAttendanceWrite, attendanceNoteFields, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
 import {
     buildBulkUndoPlan,
     buildClearVisibleAttendancePlan,
@@ -210,7 +210,7 @@ import { VoicePettyCashUI } from './modules/features/voice/VoicePettyCashUI.js';
 import { initBottomNav, watchMicPermission } from './modules/ui/navigation/BottomNav.js';
 import { chooseBottomNav } from './modules/ui/navigation/LegacyBottomNav.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
-import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
+import { upsertNote, clearNote, openVoiceNoteDraft, NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import {
     prepareRestoreProjectSurface,
@@ -286,6 +286,15 @@ function armApplyingFlagWatchdog() {
     }, _APPLYING_FLAG_WATCHDOG_MS);
 }
 window.armApplyingFlagWatchdog = armApplyingFlagWatchdog;
+
+import { captureAttendancePositionAssignments } from './modules/features/employees/EmployeePositionAssignments.js';
+import { notifyPayRateChange, payRateChanged } from './modules/features/payroll/PayRateChangeNotice.js';
+function stampAttendanceWrite(record, now = Date.now()) {
+    return stampBaseAttendanceWrite(captureAttendancePositionAssignments(record, {
+        employees: state.employees, positions: state.positions, leaders: state.leaders, attendance: state.attendance,
+        settings: getActivePayrollSettings(state)
+    }, now), now);
+}
 
 // ============================================
 // 🎯 EVENT DELEGATION MAESTRO (app.js)
@@ -1306,6 +1315,14 @@ const voiceMvp = new VoiceMvpUI({
         });
         if (state.activeTab === 'settings') guardSettingsDraftOnLeave({ onProceed: proceed });
         else proceed();
+    },
+    onNoteDraft: (employeeId, context) => openVoiceNoteDraft(employeeId, context),
+    onPaymentDraft: (employeeId, context) => {
+        if (state.loansLedger?.account?.modal || state.loansLedger?.showAddForm) throw Error('Cierra el formulario de préstamos abierto antes de revisar el abono de voz.');
+        context.guard();
+        selectVoiceLoansEmployee(employeeId); laUseClassicView(false); laSetTab('loans');
+        window.openCuentasPorCobrar();
+        openVoiceAccountPaymentDraft(employeeId, context);
     },
     onLoans: employeeId => { selectVoiceLoansEmployee(employeeId); window.openCuentasPorCobrar(); },
     onLoan: async (employeeId, draft, context) => {
@@ -2551,7 +2568,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             selectedPosition: selectedPos,
             multiPosition: false,
             positionHours: [],
-            notes: ''
+            ...attendanceNoteFields(att)
         });
 
         // Limpiar selección temporal después de usarla
@@ -2564,9 +2581,15 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             null,
             `Asistencia de ${emp.name}`,
             () => {
-                state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
-                invalidateEmployeeStats(empId);
-                buildAttendanceIndex(getDateKey(date));
+                stateManager.batchSetState(() => {
+                    if (previousAtt) {
+                        state.attendance[key] = stampAttendanceWrite(previousAtt);
+                    } else {
+                        state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
+                    }
+                    invalidateEmployeeStats(empId);
+                    buildAttendanceIndex(getDateKey(date));
+                });
             }
         );
     }
@@ -3766,7 +3789,7 @@ window.handleWeekCheck = (empId, dateStr, event, element) => {
             overtimeHours: 0,
             isHoliday: isDayHoliday(date, getActivePayrollSettings(state).holidays),
             useTempPosition: false,
-            notes: '',
+            ...attendanceNoteFields(state.attendance[key]),
             multiPosition: emp.positions?.length > 1,
             positionHours: emp.positions?.length > 0 ?
                 [{ positionId: emp.positions[0], hours: hours }] :
@@ -5029,37 +5052,14 @@ window.saveQuickNoteFromDetail = (empId) => {
     if (!emp) return;
     // F1 R02: fail closed — empleado/registro de otra obra nunca se mutan.
     if (!entityInScope(emp)) return;
-    if (state.attendance[key] && !entityInScope(state.attendance[key])) return;
+    if (state.attendance[key] && (!entityInScope(state.attendance[key]) || state.attendance[key].deletedAt != null)) return;
 
     // ⚡ Fase 4 Paso 5: el upsert/clear + la coherencia van en batchSetState → 1 repintado
     // (antes: el del set-trap + el manual del final). Notas NO son financieras, pero la
     // coherencia se mantiene uniforme (un upsert puede CREAR el registro → debe indexarse).
     stateManager.batchSetState(() => {
-        if (!text) {
-            // Empty textarea = clear the note (if any existed).
-            if (state.attendance[key]) {
-                state.attendance[key].notes = '';
-                state.attendance[key].updatedAt = Date.now();
-                state.attendance[key]._isDirty = true;
-            }
-        } else {
-            const existing = state.attendance[key] || {
-                employeeId: empId,
-                date: dateKey,
-                present: false,
-                hoursWorked: 0,
-                overtimeHours: 0,
-                isHoliday: false,
-                // F1 R02: posición por defecto dentro de la obra activa.
-                selectedPosition: (emp.positions || []).find(pid =>
-                    (state.positions || []).some(p => p.id === pid && entityInScope(p))) || null,                multiPosition: false,
-                positionHours: [],
-                notes: ''
-            };
-            existing.notes = text;
-            existing._isDirty = true;
-            state.attendance[key] = stampAttendanceWrite(existing); // U1b: choke point (antes updatedAt a mano)
-        }
+        if (text) upsertNote(state, empId, dateKey, text);
+        else clearNote(state, empId, dateKey);
         invalidateEmployeeStats(empId);
         buildAttendanceIndex(dateKey);
     });
@@ -5067,7 +5067,7 @@ window.saveQuickNoteFromDetail = (empId) => {
     // El repintado lo agenda batchSetState al cerrar; se suelta la llamada manual.
     // Toast honesto con el resultado real del guardado (local/nube).
     const _noteLabel = text ? 'Nota guardada' : 'Nota eliminada';
-    if (typeof saveApplicationData === 'function') saveApplicationData({ announce: _noteLabel });
+    if (typeof saveApplicationData === 'function') saveApplicationData({ dateKey, announce: _noteLabel });
 };
 
 // Click delegation and responsive employee-detail routing live below.
@@ -6187,6 +6187,11 @@ window.saveSettings = function () {
     ]) {
         if (element) element.value = String(value);
     }
+    // Un factor nuevo alcanza los días ya registrados del período abierto: se avisa al guardar.
+    const payInForce = getActivePayrollSettings(state);
+    const payFactorsChanged = payRateChanged(payInForce.overtimeFactor, overtimeFactor)
+        || payRateChanged(payInForce.holidayFactor, holidayFactor)
+        || payRateChanged(state.settings.restDayFactor, restDayFactor);
     const scopedConfigSave = projectsEnabled
         ? payrollUIRuntime.updateConfig(config => ({
             ...config,
@@ -6239,6 +6244,7 @@ window.saveSettings = function () {
         return scopedConfigSave.then(() => {
             saveApplicationData({ announce: 'Configuración guardada' });
             render();
+            if (payFactorsChanged) notifyPayRateChange(state, { subject: 'Factores de pago' });
         }).catch(error => {
             logError(error, 'guardar configuración del proyecto');
             showSettingsFormError('No se pudieron guardar los ajustes del proyecto. Revisa los campos pendientes y vuelve a guardar.', document, settingsSaveScope);
@@ -6247,6 +6253,7 @@ window.saveSettings = function () {
     // Toast honesto: verde solo si de verdad se guardó (local + nube).
     saveApplicationData({ announce: 'Configuración guardada' });
     render();
+    if (payFactorsChanged) notifyPayRateChange(state, { subject: 'Factores de pago' });
 };
 
 // ============================================

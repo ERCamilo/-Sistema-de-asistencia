@@ -57,6 +57,7 @@ export class Employee {
         // ⚡ Aditivo: modo de carga por puesto { positionId: 'hourly' | 'daily' }. Solo
         // afecta cómo se muestra/edita; positionSalaries sigue guardando por hora.
         this.positionSalaryModes = data.positionSalaryModes || {};
+        if (data.positionAssignments) this.positionAssignments = data.positionAssignments;
         this.customWorkingDays = data.customWorkingDays || {}; // { positionId: [1,2,3,4,5] }
         this.notes = data.notes || '';
         this.advances = data.advances || [];
@@ -132,6 +133,7 @@ export class Employee {
 
     toJSON() {
         const json = {
+            ...(this.positionAssignments ? { positionAssignments: this.positionAssignments } : {}),
             id: this.id,
             key: this.key,
             number: this.number,

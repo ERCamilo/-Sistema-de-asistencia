@@ -119,7 +119,7 @@
 .vs-alias-row .vs-icon-button{width:40px;min-width:40px}
 .vs-alias-row .vs-icon-button svg{width:18px;height:18px}
 .vs-alias-row .vs-delete-button{color:#f4b9b9}
-.vs-shared{display:inline-flex;padding:3px 6px;border-radius:6px;background:var(--warn);color:#382500;font-size:9px;font-weight:750;margin-top:4px;vertical-align:middle}
+.vs-shared{display:inline-block;max-width:100%;overflow-wrap:anywhere;padding:4px 7px;border-radius:6px;background:var(--warn);color:#382500;font-size:11px;line-height:1.4;font-weight:700;margin-top:4px;vertical-align:middle}
 .vs-secondary-wide{display:flex;justify-content:center;gap:8px;align-items:center;width:100%;background:transparent;color:var(--accent);font-weight:650;font-size:12px;margin-top:15px}
 .vs-field-label{display:block;font-size:12px;font-weight:650;color:var(--dim);margin:4px 0 9px}
 .vs-text-field{width:100%;min-height:52px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);padding:12px 14px;font-size:18px;font-weight:650;color:var(--text)}

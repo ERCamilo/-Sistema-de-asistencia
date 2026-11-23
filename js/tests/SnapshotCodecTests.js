@@ -15,7 +15,10 @@
 
 import fs from 'fs';
 import path from 'path';
-import { supportsGzipCodec, gzipToBase64, gunzipFromBase64 } from '../modules/services/SnapshotCodec.js';
+import {
+    supportsGzipCodec, gzipToBase64, gunzipFromBase64,
+    splitIntoChunks, joinChunks, chunkDocId
+} from '../modules/services/SnapshotCodec.js';
 
 const FB_SRC = fs.readFileSync(
     path.resolve(__dirname, '../modules/services/FirebaseService.js'), 'utf8'
@@ -95,6 +98,68 @@ testRunner.addSuite('Snapshots grandes — contrato: comprimir antes que Storage
         const body = FB_SRC.slice(idx, idx + 2500);
         testRunner.assert(body.includes('gunzipFromBase64('),
             'el snapshot comprimido debe descomprimirse al leer');
+    }
+
+});
+
+// Incidente 2026-11-16: un estado de ~16MB comprimía a >800KB, caía al
+// bucket de Storage (no aprovisionado → preflight CORS fallido) y el backup
+// automático moría tras ~2 min de reintentos. Ahora el base64 comprimido se
+// reparte en documentos-trozo hermanos dentro de la misma colección.
+testRunner.addSuite('Snapshots enormes — troceado en Firestore (sin Storage)', {
+
+    'splitIntoChunks respeta el tamaño máximo y joinChunks reconstruye EXACTO'() {
+        const original = 'abcdefghij'.repeat(1000) + 'XYZ';
+        const parts = splitIntoChunks(original, 777);
+        testRunner.assert(parts.length === Math.ceil(original.length / 777), 'número de trozos correcto');
+        testRunner.assert(parts.every(p => p.length <= 777), 'ningún trozo excede el máximo');
+        testRunner.assertEquals(joinChunks(parts), original, 'la unión debe ser sin pérdida');
+    },
+
+    'splitIntoChunks rechaza tamaños inválidos y maneja string vacío'() {
+        let threw = false;
+        try { splitIntoChunks('abc', 0); } catch (e) { threw = true; }
+        testRunner.assert(threw, 'chunkSize 0 debe lanzar');
+        testRunner.assertEquals(splitIntoChunks('', 10).length, 0, 'string vacío → sin trozos');
+    },
+
+    'joinChunks falla si falta un trozo (no restaurar datos corruptos)'() {
+        let threw = false;
+        try { joinChunks(['a', undefined, 'c']); } catch (e) { threw = true; }
+        testRunner.assert(threw, 'un trozo faltante debe lanzar');
+    },
+
+    'chunkDocId es determinista y distinto del id del snapshot'() {
+        testRunner.assertEquals(chunkDocId('snapshot_1', 0), 'snapshot_1__chunk_0');
+        testRunner.assert(chunkDocId('snapshot_1', 1) !== 'snapshot_1', 'no debe pisar el doc principal');
+    },
+
+    async 'round-trip completo: gzip → trozos → unión → gunzip'() {
+        ensureStreamPolyfills();
+        const original = buildBigStateString();
+        const b64 = await gzipToBase64(original);
+        const parts = splitIntoChunks(b64, 1000);
+        testRunner.assert(parts.length > 1, 'el ejemplo debe necesitar varios trozos');
+        testRunner.assertEquals(await gunzipFromBase64(joinChunks(parts)), original);
+    },
+
+    'createSnapshot ya NO sube a Storage y usa el encoding troceado'() {
+        const idx = FB_SRC.indexOf('async createSnapshot');
+        const body = FB_SRC.slice(idx, idx + 6000);
+        testRunner.assert(!body.includes('uploadString('),
+            'el bucket de Storage no existe: subir ahí solo produce CORS + reintentos');
+        testRunner.assert(body.includes("'gzip-base64-chunked'"), 'debe declarar el encoding troceado');
+        testRunner.assert(body.includes('splitIntoChunks('), 'debe trocear el base64 grande');
+    },
+
+    'getSnapshot y deleteSnapshot entienden los trozos'() {
+        const g = FB_SRC.indexOf('async getSnapshot');
+        const gBody = FB_SRC.slice(g, g + 3500);
+        testRunner.assert(gBody.includes("'gzip-base64-chunked'") && gBody.includes('joinChunks('),
+            'getSnapshot debe reunir los trozos');
+        const d = FB_SRC.indexOf('async deleteSnapshot(');
+        const dBody = FB_SRC.slice(d, d + 2500);
+        testRunner.assert(dBody.includes('chunkDocId('), 'deleteSnapshot debe borrar los trozos');
     }
 
 });

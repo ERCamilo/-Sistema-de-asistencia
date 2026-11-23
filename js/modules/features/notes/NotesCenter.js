@@ -8,6 +8,8 @@
  *     all notes for that employee, newest first, with a "+ Nueva nota" CTA.
  */
 
+import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
+import { listNotes } from './NotesService.js';
 import { state } from '../../core/AppState.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
 import icons from '../../ui/IconSystem.js';
@@ -19,11 +21,10 @@ export function NotesCenter() {
     // Group every attendance record that has a non-empty note by employee.
     // Solo notas de la obra activa (asistencia y empleado de esa obra).
     const scope = peekEntityScope();
-    const attendanceItems = Object.values(state.attendance || {});
+    const attendanceItems = listNotes(state);
     const notesByEmployee = new Map();
 
     attendanceItems.forEach(att => {
-        if (att.deletedAt != null) return; // Fase 1 (U2c): un día borrado no muestra su nota vieja
         if (!entityInScope(att, scope)) return;
         const note = (att.notes || '').trim();
         if (!note) return;
@@ -34,11 +35,6 @@ export function NotesCenter() {
             date: att.date,
             note
         });
-    });
-
-    // Sort notes within each employee, newest first.
-    notesByEmployee.forEach(list => {
-        list.sort((a, b) => b.date.localeCompare(a.date));
     });
 
     // Sort employees by most recent note date, then by number for ties.
@@ -57,7 +53,7 @@ export function NotesCenter() {
         });
 
     const selectedId = state.notesCenterEmployeeId;
-    const selectedEmp = selectedId ? state.employees.find(e => e.id === selectedId) : null;
+    const selectedEmp = selectedId ? state.employees.find(e => e.id === selectedId && entityInScope(e, scope)) : null;
     const selectedNotes = selectedId ? (notesByEmployee.get(selectedId) || []) : [];
 
     return `
@@ -74,10 +70,10 @@ export function NotesCenter() {
                     `}
                     <div style="flex:1;">
                         <div style="font-weight:700; color:#f1f5f9;">
-                            ${selectedEmp ? `${selectedEmp.name}` : 'Notas de empleados'}
+                            ${selectedEmp ? `${escapeHTML(selectedEmp.name)}` : 'Notas de empleados'}
                         </div>
                         <div style="font-size:0.75rem; color:#94a3b8;">
-                            ${selectedEmp ? `#${selectedEmp.number || ''}` : 'Solo empleados con notas'}
+                            ${selectedEmp ? `#${escapeHTML(selectedEmp.number || '')}` : 'Empleados con notas disponibles'}
                         </div>
                     </div>
                     <button type="button" data-app-fn="closeNotesCenter" aria-label="Cerrar"
@@ -87,17 +83,18 @@ export function NotesCenter() {
                 </div>
 
                 <div style="flex: 1; overflow-y: auto; padding: 16px; background: #0b1220;">
+                    <button type="button" class="btn btn-secondary" data-app-fn="loadNotesHistory" style="margin-bottom: 12px;">Cargar historial de notas</button>
                     ${!selectedEmp ? `
                         ${employeesWithNotes.length === 0 ? `
                             <div style="text-align:center; padding: 60px 20px; color:#94a3b8;">
                                 <div style="font-size:3rem; margin-bottom:16px; opacity:0.4;">${icons.get('message')}</div>
-                                <div style="font-size:1rem;">Aún no hay notas guardadas</div>
+                                <div style="font-size:1rem;">No hay notas en el historial cargado</div>
                             </div>
                         ` : employeesWithNotes.map(emp => {
         const lastNote = (notesByEmployee.get(emp.id) || [])[0];
         const preview = lastNote ? (lastNote.note.length > 60 ? `${lastNote.note.slice(0, 60)}...` : lastNote.note) : '';
         return `
-                                <button type="button" data-app-fn="selectNotesEmployee" data-arg="${emp.id}"
+                                <button type="button" data-app-fn="selectNotesEmployee" data-arg="${escapeAttr(emp.id)}"
                                         style="width: 100%;
                                                text-align: left;
                                                padding: 12px 14px;
@@ -109,15 +106,15 @@ export function NotesCenter() {
                                                margin-bottom: 10px;">
                                     <div style="display:flex; align-items:center; gap:10px;">
                                         <div style="width:36px; height:36px; border-radius:12px; background:#111827; display:flex; align-items:center; justify-content:center; font-weight:700; color:#06b6d4;">
-                                            ${emp.number || ''}
+                                            ${escapeHTML(emp.number || '')}
                                         </div>
                                         <div style="flex:1;">
-                                            <div style="font-weight:700;">${emp.name}</div>
+                                            <div style="font-weight:700;">${escapeHTML(emp.name)}</div>
                                             <div style="font-size:0.75rem; color:#94a3b8;">${lastNote ? formatDateShort(lastNote.date) : ''}</div>
                                         </div>
                                     </div>
                                     <div style="font-size:0.8rem; color:#cbd5e1; margin-top:8px;">
-                                        ${preview}
+                                        ${escapeHTML(preview)}
                                     </div>
                                 </button>
                             `;
@@ -132,25 +129,25 @@ export function NotesCenter() {
                             <div style="text-align:center; color:#64748b; font-size:0.75rem; margin: 10px 0;">
                                 ${formatDateShort(note.date)}
                             </div>
-                            <div role="button" tabindex="0" data-app-fn="openNoteEditor" data-arg="${selectedEmp.id}" data-arg2="${note.date}"
-                                 style="max-width: 90%;
+                            <button type="button" data-app-fn="openNoteEditor" data-arg="${escapeAttr(selectedEmp.id)}" data-arg2="${escapeAttr(note.date)}"
+                                 style="display: block; text-align: left; overflow-wrap: anywhere; max-width: 90%;
                                         background: #111827;
                                         border: 1px solid #1f2a44;
                                         color: #e2e8f0;
                                         border-radius: 18px;
                                         padding: 12px 14px;
                                         margin-bottom: 10px;">
-                                <div style="white-space: pre-wrap; font-size: 0.9rem; line-height: 1.4;">
-                                    ${note.note}
-                                </div>
-                            </div>
+                                <span style="white-space: pre-wrap; font-size: 0.9rem; line-height: 1.4;">
+                                    ${escapeHTML(note.note)}
+                                </span>
+                            </button>
                         `).join('')}
                     `}
                 </div>
 
                 ${selectedEmp ? `
                     <div style="padding: 14px 16px; border-top: 1px solid #1f2a44; background: #0f172a;">
-                        <button type="button" data-app-fn="openNewNote" data-arg="${selectedEmp.id}"
+                        <button type="button" data-app-fn="openNewNote" data-arg="${escapeAttr(selectedEmp.id)}"
                                 style="width: 100%;
                                        padding: 12px 14px;
                                        background: linear-gradient(135deg, #06b6d4, #10b981);

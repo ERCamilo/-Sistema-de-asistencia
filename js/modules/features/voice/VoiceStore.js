@@ -37,6 +37,7 @@ export class VoiceStore {
                 try {
                     const current = get.result;
                     if (current && current.projectKey !== record.projectKey) throw Error('Esta grabación pertenece a otra obra.');
+                    if (current?.completedAction && current.completedAction !== record.completedAction) throw Error('Esta grabación ya tiene una operación registrada.');
                     if (current?.completedLoanId && current.completedLoanId !== record.completedLoanId) throw Error('Esta grabación ya registró un préstamo.');
                     if (current?.completedCashId && current.completedCashId !== record.completedCashId) throw Error('Esta grabación ya registró un gasto.');
                     if (current?.completedLoanId && current.audioDiscardedAt && record.audio) throw Error('El audio ya fue eliminado. Graba una instrucción nueva.');
@@ -96,7 +97,7 @@ export class VoiceStore {
     }
     finishProcessing(record, owner, update, options = {}) {
         return this.updateRecording(record.uid, record.projectKey, record.requestId, current => {
-            if (current.processingLease?.owner !== owner || !current.audio || current.completedLoanId || current.completedCashId || current.cashDraft?.pendingMovement) return null;
+            if (current.processingLease?.owner !== owner || !current.audio || current.completedAction || current.completedLoanId || current.completedCashId || current.cashDraft?.pendingMovement) return null;
             const next = update(current); delete next.processingLease; return next;
         }, options);
     }

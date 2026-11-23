@@ -29,3 +29,24 @@ La prueba no escribe en la tarjeta, no guarda lecturas en localStorage/IndexedDB
 - La lectura física y la igualdad del UID con el ESP32 requieren el teléfono y las tarjetas reales; ninguna prueba automática aquí sustituye esa verificación.
 
 El usuario ya confirmó que su Samsung y el ESP32 entregan el mismo UID salvo separadores. El siguiente paso al entrar desde el sitio principal es activar las asociaciones en ese dominio y comprobar la consulta con el registro existente, siguiendo el contrato y la guía vinculados arriba. Otras combinaciones de teléfono/tarjeta siguen necesitando una prueba física.
+
+Siguiente paso: si la misma tarjeta entrega el mismo UID en ambos dispositivos, diseñar el contrato de asociación SA → webhook. Si no, evaluar tarjetas NDEF compatibles, Android nativo o registro desde el ESP32 antes de implementar asociaciones.
+
+## Evidencia visual de la issue #328 (28 de octubre de 2026)
+
+La mejora de la issue #328 incorpora bloques de estado persistentes en el modal compartido. La prueba automatizada `npm run test:nfc-read` utiliza el editor real y respuestas **simuladas y correlacionadas** del webhook; no contacta a n8n ni lee tarjetas físicas.
+
+- Se generan capturas `nfc-confirmed-<ancho>.png`, `nfc-same-owner-<ancho>.png` y `nfc-other-owner-<ancho>.png`, así como `nfc-enrollment-<ancho>.png` para la tarjeta disponible. Anchos: 320, 390, 768 y 1440 px.
+- Se comprueban texto, SVG decorativo, región de estado accesible, ausencia de desbordamiento, visibilidad de los controles y ausencia de guardados cuando la tarjeta ya pertenece al mismo empleado o a otro.
+- La asociación solo aparece como confirmada tras una respuesta válida del webhook simulado. Un error HTTP o una respuesta sin confirmar no genera éxito visual; los reintentos conservan el identificador y los datos de solicitud.
+- La comprobación Axe de WCAG 2 A/AA y 2.1 AA se ejecuta para los cuatro estados y todos los anchos mencionados. Se corrigió el contraste del texto secundario en el aviso ámbar.
+- Las comprobaciones reales de consulta, registro y conflictos se documentan separadamente en la issue #326 y en el PR #315. Esta evidencia de Chromium **no constituye por sí sola** una nueva prueba física ni de persistencia del webhook.
+
+Comando de reproducción en un entorno con dependencias instaladas:
+```bash
+CHROMIUM_PATH=/ruta/a/chromium NFC_TEST_ARTIFACT_DIR=/tmp/sa-nfc-328-review npm run test:nfc-read
+```
+
+## Iconografía NFC (issue #328)
+
+El botón de lectura en Ajustes → Pruebas, el botón de asociación del editor de empleados y el encabezado del diálogo reutilizan el mismo icono NFC regular SVG de Lucide, sin fuentes ni descargas de iconos en tiempo de ejecución. El icono es decorativo y conserva texto visible que describe cada acción. Chromium verifica su presencia en las tres ubicaciones y los tamaños de 320, 390, 768 y 1440 px.

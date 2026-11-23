@@ -1,0 +1,412 @@
+#!/usr/bin/env node
+// Shipped payroll UI and postMessage sender with fictional data and no external requests.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const http = require('node:http');
+const ROOT = path.resolve(__dirname, '..');
+const output = process.env.PAYROLL_FILTER_ARTIFACT_DIR || '/tmp/sa-payroll-in-payroll';
+const styles = [...fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').matchAll(/<link rel="stylesheet" href="(css\/[^\"]+)"/g)].map(match => `<link rel="stylesheet" href="/${match[1]}">`).join('');
+const names = fs.readFileSync(path.join(ROOT, 'js/modules/data/firebase.js'), 'utf8').match(/export\s*\{([\s\S]*?)\}/)[1].replace(/\/\/[^\n]*/g, '').split(',').map(name => name.trim()).filter(Boolean);
+const firebase = names.map(name => name === 'auth' ? 'export const auth={currentUser:null};' : `export const ${name}=()=>{};`).join('\n');
+const fixture = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nómina por pagador</title>${styles}<style>body{margin:0}#screen{max-width:1100px;margin:auto}</style></head><body><main id="screen"></main><iframe hidden title="Destino simulado de SplitX"></iframe><script type="module">
+import {state,stateManager} from '/js/modules/core/AppState.js';
+import * as UI from '/js/modules/features/payroll/PayrollUI.js';
+import {ProjectPayrollUIRuntime} from '/js/modules/features/payroll/ProjectPayrollUIRuntime.js';
+import {capturePayrollProjectContext} from '/js/modules/features/payroll/PayrollProjectContext.js';
+import {setProjectsEnabled} from '/js/modules/config/FeatureFlags.js';
+import {PayrollService} from '/js/modules/features/payroll/PayrollService.js';
+import {replaceEntityScope} from '/js/modules/features/projects/EntityProjectScope.js';
+const config={projectId:'P',updatedAt:1,schemaVersion:1,regularHoursPerDay:8,overtimeFactor:1.5,holidayFactor:2,holidays:[],payPeriod:{periodStart:'2026-11-01',periodLength:15,payDay:'2026-11-16'},payrollDefaults:{version:2,bonuses:[],deductions:[]}};
+stateManager.setState({settings:{...state.settings,...config},employees:[
+ {id:'juan',number:'113',name:'Juan Ejemplo',projectId:'P',active:false,positions:['p1','p2'],positionAssignments:{p2:{isLoanPosition:true,workLeaderId:'L2',payerLeaderId:'L1'}},loans:[]},
+ {id:'rosa',number:'114',name:'Rosa Ejemplo',projectId:'P',active:true,positions:['p3'],loans:[]},
+ {id:'pedro',number:'115',name:'Pedro Ejemplo',projectId:'P',active:true,positions:['p1'],loans:[]}],
+ positions:[{id:'p1',name:'Albañil',projectId:'P',leaderId:'L1',hourlyRate:100,workingDays:[0,1,2,3,4,5,6]},
+ {id:'p2',name:'Electricista',projectId:'P',leaderId:'L2',hourlyRate:150,workingDays:[0,1,2,3,4,5,6]},
+ {id:'p3',name:'Ayudante',projectId:'P',leaderId:'L2',hourlyRate:50,workingDays:[0,1,2,3,4,5,6]}],
+ leaders:[{id:'L1',name:'Luis',active:true,projectId:'P'},{id:'L2',name:'Marcos',active:true,projectId:'P'}],
+ attendance:{'juan-2026-11-09':{employeeId:'juan',projectId:'P',date:'2026-11-09',present:true,hoursWorked:8,overtimeHours:2,selectedPosition:'p1',positionHours:[{positionId:'p1',hours:4},{positionId:'p2',hours:4,overtimeHours:2}]},
+ 'rosa-2026-11-09':{employeeId:'rosa',projectId:'P',date:'2026-11-09',present:true,hoursWorked:8,selectedPosition:'p3'},
+ 'pedro-2026-11-09':{employeeId:'pedro',projectId:'P',date:'2026-11-09',present:true,hoursWorked:8,selectedPosition:'p1'}},
+ exportConfig:{leaderFilter:'all',bonuses:[],deductions:[],rememberedGlobalsHydrated:true},payrollViewMode:'generator'},{silent:true});
+setProjectsEnabled(true);replaceEntityScope({enabled:true,projectId:'P',defaultProjectId:'P'});
+const runtime=new ProjectPayrollUIRuntime({state,configStore:{getConfig:async()=>config},projectContext:{subscribe:()=>()=>{}},captureContext:s=>capturePayrollProjectContext(s)});
+window.PayrollUI=UI;window.paint=()=>document.getElementById('screen').innerHTML=UI.PayrollTab();window.auditState=state;
+window.notifications=[];window.showNotification=(message,type)=>notifications.push({message,type});
+UI.init({state,services:{payroll:{},payrollRuntime:runtime},render:paint});
+Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copied=JSON.parse(text);}}});
+window.getExport=async()=>{UI.copyExportJSON();await Promise.resolve();return window.copied;};
+window.getMessageExport=(fromSummary=false)=>{const target=document.querySelector('iframe').contentWindow,messages=[];target.postMessage=payload=>messages.push(payload);window.open=()=>target;
+ if(fromSummary)document.querySelector('.payroll-guide-summary [data-payroll-action="send-to-splitx"]').click();else UI.sendToSplitX();window.dispatchEvent(new MessageEvent('message',{origin:'https://splitx.erlin.do',source:target,data:{type:'SPLITX_READY'}}));
+ const payload=messages.find(message=>message.type==='SPLITX_IMPORT_PAYROLL');
+ if(payload)window.dispatchEvent(new MessageEvent('message',{origin:'https://splitx.erlin.do',source:target,data:{type:'SPLITX_IMPORT_SUCCESS',transferId:payload.transferId,count:payload.employees.length}}));return payload;};
+window.changePeriod=async date=>{await UI.refreshScopedPayrollPreview({periodStart:date,periodEnd:date});UI.setPayrollGuideStep('review');paint();};
+window.enterLegacy=()=>{setProjectsEnabled(false);replaceEntityScope({enabled:false});UI.init({state,services:{payroll:new PayrollService(state)},render:paint});
+ state.exportConfig.periodStart='2026-11-09';state.exportConfig.periodEnd='2026-11-09';state.exportConfig.leaderFilter='all';UI.setPayrollGuideStep('loans');paint();};
+await changePeriod('2026-11-09');UI.setLeaderFilter('L1');paint();window.ready=true;
+</script></body></html>`;
+const server = http.createServer((req, res) => {
+    const name = new URL(req.url, 'http://fixture').pathname;
+    if (name === '/fixture') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(fixture); return; }
+    if (name === '/js/modules/data/firebase.js') { res.setHeader('Content-Type', 'text/javascript'); res.end(firebase); return; }
+    const file = path.resolve(ROOT, '.' + name);
+    if (!file.startsWith(ROOT + path.sep)) { res.writeHead(403).end(); return; }
+    fs.readFile(file, (error, body) => { if (error) { res.writeHead(404).end(); return; }
+        res.setHeader('Content-Type', { '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' }[path.extname(file)] || 'application/octet-stream'); res.end(body); });
+});
+(async () => {
+    fs.mkdirSync(output, { recursive: true }); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    let browser;
+    try {
+        const { default: puppeteer } = await import('puppeteer-core');
+        browser = await puppeteer.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+        for (const width of [320, 390, 1280]) {
+            const context = await browser.createBrowserContext(), page = await context.newPage(), errors = [];
+            page.on('pageerror', error => errors.push(error.message));
+            await page.setViewport({ width, height: 1000 }); await page.setRequestInterception(true);
+            const origin = `http://127.0.0.1:${server.address().port}`;
+            page.on('request', request => request.url().startsWith(origin) || request.url() === 'about:blank' ? request.continue() : request.abort());
+            await page.goto(origin + '/fixture'); await page.waitForFunction(() => window.ready);
+            assert.equal(await page.$eval('[data-payroll-hours-scope]', el => el.value), 'payroll');
+            if (width < 901) {
+                assert.equal(await page.$eval('.payroll-review-filter-fields', root => {
+                    const [leader, scope] = [...root.children].map(label => label.getBoundingClientRect());
+                    return Math.abs(leader.top - scope.top) < 2 && scope.left > leader.right;
+                }), true, 'leader and included-work filters share a row');
+            }
+            if (width < 901) {
+                const compact = await page.$eval('.payroll-review-table', table => {
+                    const row = table.querySelector('.payroll-review-table__row');
+                    const employee = row.querySelector('.payroll-review-table__employee');
+                    const label = employee.querySelector('label');
+                    return { height: row.getBoundingClientRect().height, employee: employee.getBoundingClientRect().width,
+                        target: label.getBoundingClientRect().height, textFits: label.scrollWidth <= label.clientWidth,
+                        width: table.getBoundingClientRect().width };
+                });
+                assert.ok(compact.height <= 56 && compact.target >= 44 && compact.employee <= 166 && compact.textFits,
+                    `${width}px: compact rows without squeezing the touch target or clipping the name: ${JSON.stringify(compact)}`);
+                await page.$eval('.payroll-review-table-view', node => node.scrollIntoView({block:'start',behavior:'instant'}));
+                await page.screenshot({ path: path.join(output, `review-compact-${width}.png`) });
+                console.log(`${width}px compact geometry: ${JSON.stringify(compact)}`);
+            }
+            let exported = await page.evaluate(() => getExport());
+            assert.deepEqual(exported.map(row => row.sourceEmployeeId), ['juan', 'pedro']);
+            assert.equal(exported[0].monto, 1450); assert.equal(exported[0].workDays.worked, 1);
+            assert.equal(exported[0].workDays.overtime, 0.25);
+            if (width < 901) {
+                await page.click('.payroll-guide-summary__mobile-toggle');
+                await page.evaluate(() => paint()); // fixture has no app-wide reactive render subscription
+                assert.equal(await page.$eval('.payroll-guide-summary__mobile-toggle', node => node.getAttribute('aria-expanded')), 'true');
+                for (const step of ['period', 'deductions', 'bonuses', 'loans', 'review']) {
+                    await page.evaluate(value => { PayrollUI.setPayrollGuideStep(value); paint(); }, step);
+                    const actions = await page.$$eval('.payroll-guide-summary__actions button', buttons => buttons.map(button => {
+                        const box = button.getBoundingClientRect();
+                        return { action: button.dataset.payrollAction, visible: box.height >= 44 && box.width > 0,
+                            fits: box.left >= 0 && box.right <= innerWidth && button.scrollWidth <= button.clientWidth, disabled: button.disabled };
+                    }));
+                    assert.deepEqual(actions.map(action => action.action), ['send-to-splitx', 'export-payroll-pdf', 'copy-export-json', 'download-export-json']);
+                    assert.ok(actions.every(action => action.visible && action.fits && !action.disabled), `${width}/${step}: ${JSON.stringify(actions)}`);
+                }
+                await page.$eval('.payroll-guide-summary [data-payroll-action="copy-export-json"]', node => node.click());
+                assert.deepEqual(await page.evaluate(() => window.copied), exported);
+                assert.deepEqual((await page.evaluate(() => getMessageExport(true))).employees, exported);
+                const downloaded = await page.evaluate(async () => {
+                    const create = URL.createObjectURL, revoke = URL.revokeObjectURL, click = HTMLAnchorElement.prototype.click;
+                    let blob, file;
+                    URL.createObjectURL = value => { blob = value; return 'blob:fixture'; };
+                    URL.revokeObjectURL = () => {};
+                    HTMLAnchorElement.prototype.click = function () { file = this.download; };
+                    try {
+                        document.querySelector('.payroll-guide-summary [data-payroll-action="download-export-json"]').click();
+                        return { file, rows: JSON.parse(await blob.text()) };
+                    } finally { URL.createObjectURL = create; URL.revokeObjectURL = revoke; HTMLAnchorElement.prototype.click = click; }
+                });
+                assert.ok(downloaded.file.endsWith('.json')); assert.deepEqual(downloaded.rows, exported);
+                if (width === 390) {
+                    await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
+                    const violations = await page.evaluate(async () => (await axe.run('.payroll-guide-summary', { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map(violation => ({ id: violation.id, nodes: violation.nodes.map(node => ({ target: node.target, reason: node.failureSummary })) })));
+                    assert.deepEqual(violations, []);
+                }
+                await page.screenshot({ path: path.join(output, `summary-exports-${width}.png`), fullPage: true });
+                await page.$eval('.payroll-guide-summary__mobile-toggle', node => node.click()); await page.evaluate(() => paint());
+                assert.equal(await page.$eval('.payroll-guide-summary__mobile-toggle', node => node.getAttribute('aria-expanded')), 'false');
+            }
+            assert.equal(await page.evaluate(() => auditState.employees.find(employee => employee.id === 'juan').active), false);
+            assert.equal(await page.$eval('[data-payroll-total-pay-days]', el => el.textContent), '2.375');
+            assert.equal(await page.$eval('[data-payroll-payment-days]', el => el.textContent), '1.375');
+            assert.equal(await page.$eval('.payroll-review-extra-filters', el => el.hidden), true);
+            const shareButton = '[data-payroll-action="open-payroll-share"]';
+            const openShare = async () => {
+                await page.$eval(shareButton, node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+                await page.click(shareButton);
+                await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-modal-container]')).opacity === '1');
+            };
+            const closeShare = async () => {
+                await page.keyboard.press('Escape');
+                await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
+            };
+            await openShare();
+            assert.deepEqual(await page.$$eval('[data-payroll-share-export]', nodes => nodes.map(node => node.dataset.payrollShareExport)), ['splitx', 'copy', 'pdf', 'download']);
+            if (width === 390) {
+                await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
+                assert.deepEqual(await page.evaluate(async () => (await axe.run('[data-modal-overlay]', { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.map(v => ({id:v.id, reason:v.nodes.map(n=>n.failureSummary)}))), []);
+                await page.screenshot({ path: path.join(output, 'review-share-390.png') });
+            }
+            await page.click('[data-payroll-share-export="copy"]');
+            await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
+            assert.deepEqual(await page.evaluate(() => copied), exported);
+            await openShare();
+            const downloadFromShare = await page.evaluate(async () => {
+                const create = URL.createObjectURL, revoke = URL.revokeObjectURL, click = HTMLAnchorElement.prototype.click;
+                let blob, file;
+                URL.createObjectURL = value => { blob = value; return 'blob:fixture'; };
+                URL.revokeObjectURL = () => {};
+                HTMLAnchorElement.prototype.click = function () { file = this.download; };
+                try { document.querySelector('[data-payroll-share-export="download"]').click(); return { file, rows: JSON.parse(await blob.text()) }; }
+                finally { URL.createObjectURL = create; URL.revokeObjectURL = revoke; HTMLAnchorElement.prototype.click = click; }
+            });
+            assert.deepEqual(downloadFromShare.rows, exported); assert.ok(downloadFromShare.file.endsWith('.json'));
+            await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
+            await openShare();
+            const sharedMessage = await page.evaluate(() => {
+                const target=document.querySelector('iframe').contentWindow, messages=[];
+                target.postMessage=payload=>messages.push(payload); window.open=()=>target;
+                document.querySelector('[data-payroll-share-export="splitx"]').click();
+                dispatchEvent(new MessageEvent('message',{origin:'https://splitx.erlin.do',source:target,data:{type:'SPLITX_READY'}}));
+                const payload=messages.find(message=>message.type==='SPLITX_IMPORT_PAYROLL');
+                if(payload)dispatchEvent(new MessageEvent('message',{origin:'https://splitx.erlin.do',source:target,data:{type:'SPLITX_IMPORT_SUCCESS',transferId:payload.transferId,count:payload.employees.length}}));
+                return payload;
+            });
+            assert.deepEqual(sharedMessage.employees, exported);
+            await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
+            await openShare();
+            await page.evaluate(() => {
+                const doc = { internal: { pageSize: { getWidth: () => 210, getHeight: () => 297 }, getNumberOfPages: () => 1 },
+                    setFillColor() {}, rect() {}, setFontSize() {}, setFont() {}, setTextColor() {}, text() {},
+                    autoTable() {}, lastAutoTable: { finalY: 60 }, save(file) { window.pdfSaved = file; } };
+                const jsPDF = function () { return doc; }; jsPDF.API = { autoTable() {} }; window.jspdf = { jsPDF };
+            });
+            await page.click('[data-payroll-share-export="pdf"]');
+            await page.waitForFunction(() => window.pdfSaved);
+            await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
+            await openShare();
+            await page.evaluate(() => { window.previousCopy = copied; copied = null; auditState.exportConfig.leaderHoursScope='all'; });
+            await page.click('[data-payroll-share-export="copy"]');
+            assert.match(await page.$eval('.payroll-share-error', el => el.textContent), /Cambió la nómina/);
+            assert.equal(await page.evaluate(() => copied), null);
+            await closeShare();
+            await page.evaluate(() => { auditState.exportConfig.leaderHoursScope='payroll'; copied=previousCopy; });
+            await page.click('[data-payroll-action="toggle-payroll-review-filters"]');
+            if (width === 390) {
+                await page.$eval('.payroll-review-secondary-controls', node => node.scrollIntoView({ block: 'start', behavior: 'instant' }));
+                await page.screenshot({ path: path.join(output, 'review-filters-390.png') });
+            }
+            await page.click('[data-payroll-action="toggle-payroll-review-filters"]');
+
+            const netButton = '[data-payroll-action="toggle-payroll-review-detail"][data-value="juan|calculation"]';
+            const detail = '[data-payroll-calculation-row="juan"]';
+            await page.$eval(netButton, el => el.click());
+            assert.match(await page.$eval(detail, el => el.textContent), /Tarifa: \$800\.00\/día/);
+            assert.match(await page.$eval(detail, el => el.textContent), /Ordinarios: 0\.5 días/);
+            assert.match(await page.$eval(detail, el => el.textContent), /Extra \(x1\.5\): 0\.25 días equiv\./);
+            await page.$eval(netButton, el => el.click());
+            assert.equal(await page.$(detail), null);
+            assert.equal(await page.$$eval('.payroll-review-table thead th', cells => cells.some(cell => cell.textContent === 'DESGLOSE')), false);
+            const before = await page.evaluate(() => JSON.stringify({ attendance: auditState.attendance, employees: auditState.employees }));
+            await page.$eval('[data-payroll-action="toggle-payroll-review-employee"][data-id="juan"]', node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+            await page.click('[data-payroll-action="toggle-payroll-review-employee"][data-id="juan"]');
+            assert.equal(await page.$eval('[data-id="juan"][type="checkbox"]', el => el.checked), false);
+            assert.equal(await page.evaluate(() => document.activeElement.dataset.id), 'juan');
+            assert.equal(await page.$eval('[data-payroll-total-pay-days]', el => el.textContent), '1');
+            assert.equal(await page.$$eval('.payroll-review-secondary-controls button', buttons => buttons.every(button => {
+                const box = button.getBoundingClientRect();
+                return box.height >= 44 && box.left >= 0 && box.right <= innerWidth && button.scrollWidth <= button.clientWidth;
+            })), true, 'filter and share controls remain readable and touchable with active filters');
+
+            exported = await page.evaluate(() => getExport());
+            assert.deepEqual(exported.map(row => row.sourceEmployeeId), ['pedro']); assert.equal(exported[0].monto, 800);
+            assert.equal(exported[0].exportContext.payrollFilter.excludedEmployeeCount, 1);
+            const message = await page.evaluate(() => getMessageExport()); assert.deepEqual(message.employees, exported);
+            if (width === 390) {
+                await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
+                const violations = await page.evaluate(async () => (await axe.run('.payroll-review-card', { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations
+                    .map(violation => ({ id: violation.id, nodes: violation.nodes.map(node => node.target) })));
+                assert.deepEqual(violations, []);
+            }
+            fs.writeFileSync(path.join(output, 'splitx-filtered.json'), JSON.stringify(message, null, 2));
+            if (process.env.SPLITX_REPO_ROOT) {
+                const { createSplitXBridge } = require(path.join(process.env.SPLITX_REPO_ROOT, 'js/SplitXBridge.js'));
+                const { createImporter } = require(path.join(process.env.SPLITX_REPO_ROOT, 'js/SplitXImport.js'));
+                const sheetFields = require(path.join(process.env.SPLITX_REPO_ROOT, 'js/SplitXSheetFields.js'));
+                const { normalizeImportedEmployee } = createImporter({ sheetFields, parseNumber: Number });
+                const state = { employees: [] }, replies = [];
+                const bridge = createSplitXBridge({ getState: () => state, setState: next => Object.assign(state, next), normalizeEmployee: normalizeImportedEmployee, windowRef: null });
+                await bridge.handleMessage({ origin: 'https://asistencia.erlin.do', source: { postMessage: reply => replies.push(reply) }, data: message });
+                assert.deepEqual(state.employees.map(employee => employee.sourceEmployeeId), exported.map(employee => employee.sourceEmployeeId));
+                assert.deepEqual(state.employees.map(employee => employee.amount), exported.map(employee => employee.monto));
+                assert.equal(replies.at(-1).type, 'SPLITX_IMPORT_SUCCESS');
+            }
+            assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+            await page.screenshot({ path: path.join(output, `payroll-${width}.png`), fullPage: true });
+            await page.select('#payroll-scoped-leader-filter', 'L2');
+            exported = await page.evaluate(() => getExport()); assert.deepEqual(exported.map(row => row.sourceEmployeeId), ['rosa']);
+            assert.match(await page.$eval('.payroll-leader-adjustment', el => el.textContent), /Juan Ejemplo/);
+            assert.match(await page.$eval('.payroll-leader-adjustment__balance', el => el.textContent), /−\$650/);
+            await page.select('[data-payroll-hours-scope]', 'all');
+            const allScope = await page.evaluate(() => getExport());
+            assert.deepEqual(allScope.map(row => row.sourceEmployeeId), ['rosa'], 'configured positions retain their recorded payer in the existing all mode');
+            assert.equal(allScope[0].exportContext.payrollFilter.mode, 'all');
+            await page.select('[data-payroll-hours-scope]', 'payroll');
+            assert.deepEqual((await page.evaluate(() => getExport())).map(row => row.sourceEmployeeId), ['rosa']);
+            await page.select('[data-payroll-hours-scope]', 'leader');
+            assert.deepEqual((await page.evaluate(() => getExport())).map(row => row.sourceEmployeeId), ['rosa']);
+            if (width === 1280) {
+                await page.evaluate(async () => {
+                    window.previousAttendance = auditState.attendance; window.previousEmployees = auditState.employees;
+                    auditState.attendance = { ...auditState.attendance };
+                    auditState.employees = auditState.employees.filter(employee => employee.id !== 'rosa');
+                    delete auditState.attendance['rosa-2026-11-09'];
+                    await changePeriod('2026-11-09'); PayrollUI.setLeaderFilter('L2'); paint();
+                });
+                assert.deepEqual(await page.evaluate(() => getExport()), []);
+                await openShare();
+                assert.deepEqual(await page.$$eval('[data-payroll-share-export]', buttons => buttons.map(button => [button.dataset.payrollShareExport, button.disabled])),
+                    [['splitx', true], ['copy', true], ['pdf', false], ['download', true]], 'a leader with only loan-position debits can still export the original PDF report');
+                await closeShare();
+                await page.evaluate(async () => { auditState.attendance = previousAttendance; auditState.employees = previousEmployees; await changePeriod('2026-11-09'); PayrollUI.setLeaderFilter('L2'); paint(); });
+            }
+            await page.select('#payroll-scoped-leader-filter', 'L1');
+            assert.equal(await page.$eval('[data-id="juan"][type="checkbox"]', el => el.checked), false);
+            await page.evaluate(() => changePeriod('2026-11-10'));
+            assert.equal(await page.$('.payroll-review-exclusions-reset'), null);
+            await page.evaluate(() => changePeriod('2026-11-09'));
+            assert.equal(await page.$eval('[data-id="juan"][type="checkbox"]', el => el.checked), false);
+            await page.click('[data-payroll-action="toggle-payroll-review-filters"]');
+            await page.click('[data-payroll-action="reset-payroll-review-exclusions"]');
+            assert.equal(await page.$eval('[data-id="juan"][type="checkbox"]', el => el.checked), true);
+            assert.equal(await page.evaluate(() => JSON.stringify({ attendance: auditState.attendance, employees: auditState.employees })), before);
+            await page.click('[data-payroll-action="toggle-payroll-review-filters"]');
+            if (width < 901) {
+                await page.$eval('.payroll-review-table__row', row => row.scrollIntoView({ block: 'center', behavior: 'instant' }));
+                const netVisible = await page.$eval('.payroll-review-table', table => {
+                    const wrapper = table.closest('.responsive-table-wrapper');
+                    wrapper.scrollLeft = wrapper.scrollWidth;
+                    const cell = table.querySelector('tbody .payroll-review-table__amount.is-net');
+                    const c = cell.getBoundingClientRect(), w = wrapper.getBoundingClientRect();
+                    const x = Math.max(w.left + 1, c.left) + (Math.min(w.right - 1, c.right) - Math.max(w.left + 1, c.left)) / 2;
+                    const hit = document.elementFromPoint(x, c.top + c.height / 2);
+                    return { visible: cell.contains(hit), scrollable: wrapper.scrollLeft > 0 };
+                });
+                assert.ok(netVisible.visible && netVisible.scrollable, `${width}px: net pay must be readable after horizontal scrolling: ${JSON.stringify(netVisible)}`);
+                await page.$eval('.payroll-review-table', table => { table.closest('.responsive-table-wrapper').scrollLeft = 0; });
+                const exportBeforeScroll = await page.evaluate(() => getExport());
+                await page.evaluate(() => { window.reviewTableNode = document.querySelector('.payroll-review-table'); });
+                await page.$eval('.responsive-table-wrapper', node => { node.scrollLeft = node.scrollWidth; });
+                const numberFits = await page.$eval('.payroll-review-table', table => {
+                    const n = table.querySelector('tbody .payroll-review-table__number').getBoundingClientRect();
+                    const w = table.closest('.responsive-table-wrapper').getBoundingClientRect();
+                    return Math.abs(n.left - w.left) <= 2 && n.width <= w.width * .25;
+                });
+                assert.equal(numberFits, true, 'only a compact employee number remains fixed');
+                assert.equal(await page.$eval('.payroll-review-table tbody .payroll-review-table__initials', node => node.textContent), 'JE');
+                assert.equal(await page.evaluate(() => reviewTableNode === document.querySelector('.payroll-review-table')), true, 'navigation must not recreate editable rows');
+                assert.deepEqual(await page.evaluate(() => getExport()), exportBeforeScroll);
+                await page.focus(netButton);
+                await page.keyboard.press('Enter');
+                assert.equal(await page.$eval(netButton, node => node.getAttribute('aria-expanded')), 'true');
+                assert.equal(await page.$eval(netButton, button => {
+                    const b = button.getBoundingClientRect(), w = button.closest('.responsive-table-wrapper').getBoundingClientRect();
+                    return b.left >= w.left + 44 && b.right <= w.right;
+                }), true, 'the full net amount and its control stay visible when expanding the card');
+                assert.equal(await page.$eval(detail + ' .payroll-review-detail__group', node => {
+                    const box = node.getBoundingClientRect(), parent = node.closest('.responsive-table-wrapper').getBoundingClientRect();
+                    return box.left >= parent.left && box.right <= parent.right;
+                }), true, 'calculation card fits the visible area');
+                assert.deepEqual(await page.evaluate(() => getExport()), exportBeforeScroll);
+                await page.screenshot({ path: path.join(output, `review-amounts-${width}.png`) });
+                await page.$eval(netButton, node => node.click());
+                await page.$eval('.responsive-table-wrapper', node => { node.scrollLeft = 0; });
+                await page.waitForFunction(() => document.querySelector('.payroll-review-table').closest('.responsive-table-wrapper').scrollLeft < 1);
+
+                assert.deepEqual(await page.evaluate(() => getExport()), exportBeforeScroll);
+                assert.equal(await page.evaluate(() => JSON.stringify({ attendance: auditState.attendance, employees: auditState.employees })), before);
+            }
+            // Step 4 filters are presentation-only and must retain cash selections,
+            // draft inputs and the same DOM while typing, including on a phone.
+            await page.evaluate(async () => {
+                const numbers = { juan: '010', rosa: '002', pedro: '001' };
+                auditState.employees.forEach(employee => {
+                    employee.number = numbers[employee.id];
+                    employee.loans = [{ id: `loan-${employee.id}`, principal: 50, interestRate: 20, interestIncluded: false,
+                        status: 'active', payments: [], refinancings: [] }];
+                });
+                await PayrollUI.refreshScopedPayrollPreview({periodStart:'2026-11-09',periodEnd:'2026-11-09'});
+                PayrollUI.setLeaderFilter('all'); PayrollUI.setPayrollLoansSalaryBulk('available'); PayrollUI.setPayrollGuideStep('loans'); paint();
+            });
+            const visibleLoans = () => page.$$eval('.payroll-loan-group:not([hidden])', rows => rows.map(row => row.dataset.employeeId));
+            const clickLoanControl = async selector => {
+                // Keep the control above the mobile wizard's fixed footer, as
+                // a person scrolling the list would do before tapping it.
+                await page.$eval(selector, node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+                await page.click(selector);
+            };
+            assert.deepEqual(await visibleLoans(), ['pedro', 'rosa', 'juan'], await page.evaluate(() => JSON.stringify({
+                screen: document.getElementById('screen').textContent.slice(0, 1200), guide: auditState.exportConfig.payrollGuideStep,
+                loans: auditState.employees.map(employee => ({ id: employee.id, loans: employee.loans })), notifications
+            })));
+            const loanSelection = await page.evaluate(() => JSON.stringify(auditState.exportConfig.payrollLoanSelection));
+            const loanExport = await page.evaluate(() => getExport());
+            await page.select('[data-payroll-loan-filter="leader"]', 'L1');
+            assert.deepEqual(await visibleLoans(), ['pedro', 'juan']);
+            await page.select('[data-payroll-loan-filter="position"]', 'p2');
+            assert.deepEqual(await visibleLoans(), ['juan']);
+            await page.select('[data-payroll-loan-filter="leader"]', 'L2');
+            assert.deepEqual(await visibleLoans(), []);
+            assert.equal(await page.$eval('[data-payroll-loan-list-empty]', node => !node.hidden), true);
+            assert.deepEqual(await page.evaluate(() => getExport()), loanExport);
+            assert.equal(await page.evaluate(() => JSON.stringify(auditState.exportConfig.payrollLoanSelection)), loanSelection);
+            await clickLoanControl('[data-payroll-loan-filter-clear]');
+            await page.evaluate(() => { window.loanSearchNode = document.querySelector('[data-payroll-loan-filter="query"]'); });
+            await page.type('[data-payroll-loan-filter="query"]', 'Juan');
+            await page.screenshot({ path: path.join(output, `payroll-loan-search-${width}.png`), fullPage: true });
+            assert.deepEqual(await visibleLoans(), ['juan'], await page.$$eval('[data-payroll-loan-filter]', controls => JSON.stringify(controls.map(control => [control.dataset.payrollLoanFilter, control.value]))));
+            assert.equal(await page.evaluate(() => loanSearchNode === document.activeElement), true);
+            assert.equal(await page.$eval('[data-payroll-action="clear-payroll-loans"]', node => node.disabled), true);
+            // A loan selection intentionally changes through the existing action;
+            // its rerender must preserve the visual filters and other employees.
+            await clickLoanControl('[data-payroll-action="toggle-payroll-loan-employee"][data-id="juan"]');
+            assert.equal(await page.$eval('[data-payroll-loan-filter="query"]', node => node.value), 'Juan');
+            assert.deepEqual(await visibleLoans(), ['juan']);
+            assert.equal(await page.$eval('[data-payroll-loan-list-count]', node => node.textContent.includes('2 con cobros seleccionados fuera del filtro')), true);
+            await clickLoanControl('[data-payroll-loan-filter-clear]');
+            assert.deepEqual(await visibleLoans(), ['pedro', 'rosa', 'juan']);
+            assert.equal(await page.$eval('.payroll-guide-navigation', node => getComputedStyle(node).display === 'none'), width < 901);
+            assert.equal(await page.$$eval('.payroll-guide-steps button', buttons => buttons.length), 5);
+            if (width === 390) {
+                const violations = await page.evaluate(async () => (await axe.run('.payroll-loan-list-filters', { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations
+                    .map(violation => ({ id: violation.id, nodes: violation.nodes.map(node => node.target) })));
+                assert.deepEqual(violations, []);
+            }
+            assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+            await page.screenshot({ path: path.join(output, `payroll-loan-filters-${width}.png`), fullPage: true });
+            if (width < 901) {
+                await page.evaluate(() => enterLegacy());
+                await page.$eval('.payroll-guide-summary__mobile-toggle', node => node.click()); await page.evaluate(() => paint());
+                assert.equal(await page.$eval('.payroll-guide-summary__mobile-toggle', node => node.getAttribute('aria-expanded')), 'true');
+                assert.equal(await page.$$eval('.payroll-guide-summary__actions button', buttons => buttons.length === 4
+                    && buttons.every(button => button.getBoundingClientRect().height >= 44 && !button.disabled)), true, 'legacy payroll has the same mobile export controls before the review step');
+                const expected = await page.evaluate(() => getExport());
+                await page.$eval('.payroll-guide-summary [data-payroll-action="copy-export-json"]', node => node.click());
+                assert.deepEqual(await page.evaluate(() => window.copied), expected);
+                await page.evaluate(() => { PayrollUI.setPayrollGuideStep('review'); paint(); });
+                await openShare();
+                await page.click('[data-payroll-share-export="copy"]');
+                await page.waitForFunction(() => !document.querySelector('[data-modal-overlay]'));
+                assert.deepEqual(await page.evaluate(() => copied), expected, 'legacy share reuses the same filtered export');
+            }
+            assert.deepEqual(errors, []); await context.close();
+            console.log(`PASS ${width}px: payer filter, days, exclusions, SplitX parity, step 4 ordering/filters and compact mobile navigation`);
+        }
+    } finally { await browser?.close(); server.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });
