@@ -1,6 +1,15 @@
 {
-  "version": "1.7.152",
+  "version": "1.7.153",
   "changelog": [
+    {
+      "version": "1.7.153",
+      "date": "2026-11-23",
+      "title": "Imprimir cierres históricos de nómina",
+      "items": [
+        "Desde el historial se pueden imprimir cierres o guardarlos como PDF, con importes históricos sin recalcular la nómina actual.",
+        "La impresión respeta el filtro de líder, distingue cierres anulados e incluye ajustes entre líderes y saldos negativos con formato A4 horizontal."
+      ]
+    },
     {
       "version": "1.7.152",
       "date": "2026-11-23",
