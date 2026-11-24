@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.1123.162238'
+const CACHE_VERSION = '2026.1123.170427'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // Grafo completo de módulos de arranque, generado por scripts/sw-precache.cjs

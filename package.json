@@ -33,6 +33,7 @@
     "test:employee-position-leaders": "node scripts/check-employee-position-leaders.cjs",
     "test:app-updates": "node scripts/check-app-updates.cjs",
     "test:release": "node scripts/release-manifest.cjs --check --release",
-    "test:voice-actions": "node scripts/check-voice-notes-payments.cjs"
+    "test:voice-actions": "node scripts/check-voice-notes-payments.cjs",
+    "test:payroll-history-print": "node scripts/check-payroll-history-print.cjs"
   }
 }
