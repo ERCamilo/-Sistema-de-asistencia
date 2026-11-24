@@ -21,6 +21,8 @@ import {
     periodsOfProject, movementsOfPeriod, saldoProyectoFlat
 } from './PettyCashCalc.js';
 import { PettyCashRepository } from '../../services/PettyCashRepository.js';
+import { cameraItemData } from './PettyCashCameraData.js';
+import { cameraProfile, receiptCameraEnabled } from './PettyCashCameraProfile.js';
 import { PettyCashLiveSyncCoordinator } from '../../services/PettyCashLiveSyncCoordinator.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { PettyCashStore } from './PettyCashStore.js';
@@ -234,14 +236,16 @@ export async function prepareReceiptCapture(file) {
     const originalBlob = cloneOriginalReceipt(file);
     if (!originalBlob) throw new Error('Comprobante inválido.');
     await requestPersistentReceiptStorage();
-    const preview = await createReceiptPreview(file);
+    // Versión de la cámara (2.0 por defecto, 2.1 en Pruebas): tamaño de la vista previa y de lo que lee el lector.
+    const profile = cameraProfile(state.settings);
+    const preview = await createReceiptPreview(file, { preview: profile.preview, ocrMaxWidth: profile.ocrMaxWidth });
     const prepared = preview.processingDataUrl
         ? {
             fileDataUrl: preview.processingDataUrl,
             mimeType: 'image/jpeg',
             fileName: file?.name || 'factura.jpg'
         }
-        : await prepareReceiptForOcr(file);
+        : await prepareReceiptForOcr(file, { maxWidth: profile.ocrMaxWidth });
     return {
         originalBlob,
         processingDataUrl: prepared.fileDataUrl,
@@ -252,7 +256,8 @@ export async function prepareReceiptCapture(file) {
         originalSize: Number(file?.size) || Number(originalBlob.size) || 0,
         originalLastModified: Number(file?.lastModified) || null,
         receiptKind: isPdf ? 'pdf' : 'image',
-        pageCount: preview.pageCount
+        pageCount: preview.pageCount,
+        ocrMaxWidth: profile.ocrMaxWidth
     };
 }
 
@@ -271,6 +276,7 @@ async function saveLocalReceiptCapture(txId, capture, metadata = {}) {
             originalLastModified: capture.originalLastModified,
             receiptKind: capture.receiptKind,
             pageCount: capture.pageCount,
+            ...(capture.ocrMaxWidth ? { ocrMaxWidth: capture.ocrMaxWidth } : {}),
             ...metadata
         }
     );
@@ -591,12 +597,7 @@ export async function cameraItemsState(ids = [], { listJobs = () => indexedDBSer
         const movement = d.movements.find(m => m.id === id) || null;
         const job = byId.get(id) || (movement && Number(movement.amount) ? { ocrStatus: 'extracted' } : {});
         const review = receiptReviewState(job, movement, { period, movements: periodMovements, ...projectFiscal(projectOfMovement(movement, period)) });
-        const data = movement ? {
-            paidTo: movement.paidTo || null,
-            ncf: movement.ncf || null,
-            total: Number(movement.amount) ? rd(movement.amount) : null,
-            category: movement.category || null
-        } : {};
+        const data = cameraItemData(movement, { money: rd });
         return [id, { ...review, data }];
     }));
 }
@@ -645,6 +646,7 @@ function receiptCamera() {
             return { id: movement.id, previewUrl: capture.previewDataUrl };
         },
         getItemsState: (ids) => cameraItemsState(ids),
+        profile: () => cameraProfile(state.settings),
         autoCrop: () => state.settings?.receiptAutoCrop === true,
         straighten: () => state.settings?.receiptStraighten === true,
         onFix: (id, fix) => applyReceiptFix(id, fix),
@@ -1301,7 +1303,7 @@ function _periodPanel(period, top = '') {
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" data-app-fn="pcOpenForm" data-arg="reposicion" style="background:#22c55e;color:#062;border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;">+ Reposición</button>
                 <button type="button" data-app-fn="pcOpenForm" data-arg="gasto" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;">− Gasto</button>
-                ${state.settings?.newReceiptCamera === true ? `
+                ${receiptCameraEnabled(state.settings) ? `
                 <button type="button" data-app-fn="pcOpenCamera" title="Tomar varias fotos seguidas" style="background:#8b5cf6;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">
                     ${icons.get('camera', { size: 16 })} Cámara
                 </button>` : `
@@ -1422,7 +1424,7 @@ function _periodPanelNew(period, { movs, visibleMovs, duplicatesByMovement, acti
     return screenHTML({
         period: { label: period.label, cerrada },
         summary: { ...summary, projectTotal: periodsOfProject(d.periods, period.projectId).length > 1 ? saldoProyectoFlat(d.movements, period.projectId) : null },
-        cameraMode: state.settings?.newReceiptCamera === true ? 'camera' : 'native',
+        cameraMode: receiptCameraEnabled(state.settings) ? 'camera' : 'native',
         items: page.items.map((movement) => byId.get(movement.id)),
         counts, filter, reviewFirst: d.reviewFirst !== false,
         selectedId: editMov?.id || null,
@@ -2656,7 +2658,7 @@ export function registerPettyCashGlobals() {
                 if (found.dataUrl) {
                     prepared = { fileDataUrl: found.dataUrl, mimeType: found.type, fileName: found.name || 'factura.jpg' };
                 } else {
-                    prepared = await prepareReceiptForOcr(found.blob);
+                    prepared = await prepareReceiptForOcr(found.blob, { maxWidth: cameraProfile(state.settings).ocrMaxWidth });
                     prepared.fileName = found.name || prepared.fileName;
                 }
             } catch {

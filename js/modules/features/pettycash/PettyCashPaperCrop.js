@@ -17,7 +17,7 @@
  *
  * Probado en js/tests/PettyCashPaperCrop.test.js.
  */
-export const PAPER_MARGIN = 0.06;          // margen alrededor del papel, como fracción de su tamaño
+export const PAPER_MARGIN = 0.06;          // margen alrededor del papel, como fracción de su tamaño (la cámara 2.1 pasa 0.03)
 export const PAPER_SIZE = 240;             // ancho de la copia que se analiza
 const MIN_SEPARATION = 60;                 // diferencia de gris mínima entre papel y fondo
 const MIN_AREA = 0.12;                     // el papel debe ocupar al menos esto del cuadro
@@ -136,7 +136,7 @@ export function brightBlobs(g, width, height, threshold) {
  * @param {{data:Uint8ClampedArray|number[], width:number, height:number}} image RGBA
  * @returns {{x0:number, y0:number, x1:number, y1:number}|null} rectángulo (0–1) o null si no hay que recortar
  */
-export function detectPaper(image) {
+export function detectPaper(image, { margin = PAPER_MARGIN } = {}) {
     const base = paperThreshold(image);
     if (!base) return null;
     const { g, width, height, threshold } = base;
@@ -150,8 +150,8 @@ export function detectPaper(image) {
     if (area < MIN_AREA || area > MAX_AREA) return null;
     if (blobs.count / (boxW * boxH) < MIN_FILL) return null;
 
-    const mx = boxW * PAPER_MARGIN;
-    const my = boxH * PAPER_MARGIN;
+    const mx = boxW * margin;
+    const my = boxH * margin;
     const rect = {
         x0: Math.max(0, (x0 - mx) / width), y0: Math.max(0, (y0 - my) / height),
         x1: Math.min(1, (x1 + 1 + mx) / width), y1: Math.min(1, (y1 + 1 + my) / height)
@@ -164,7 +164,7 @@ export function detectPaper(image) {
  * Recorte de una toma de la cámara al papel, sin consumirla (dibuja una copia pequeña).
  * @returns {{crop:{sx:number, sy:number, sw:number, sh:number}, area:number}|null}
  */
-export function cropShotToPaper(shot, { doc = globalThis.document } = {}) {
+export function cropShotToPaper(shot, { doc = globalThis.document, margin = PAPER_MARGIN } = {}) {
     const source = shot?.source;
     const crop = shot?.crop;
     if (!source || !crop || !doc || typeof source === 'string' || source instanceof Blob) return null;
@@ -176,7 +176,7 @@ export function cropShotToPaper(shot, { doc = globalThis.document } = {}) {
     const ctx = canvas.getContext?.('2d');
     if (!ctx?.getImageData) return null;
     ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, w, h);
-    const rect = detectPaper(ctx.getImageData(0, 0, w, h));
+    const rect = detectPaper(ctx.getImageData(0, 0, w, h), { margin });
     if (!rect) return null;
     const sx = crop.sx + Math.round(rect.x0 * crop.sw);
     const sy = crop.sy + Math.round(rect.y0 * crop.sh);

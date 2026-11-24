@@ -57,8 +57,9 @@ export const SAMPLE_WIDTH = 72;
 export const V_SCALE = 3;
 /** Pasadas de suavizado vertical (toleran inclinación y movimiento de la mano). */
 export const SMOOTH_PASSES = 2;
-// El lector recibe hasta 1600 px de ancho: más no ayuda y pesa más.
-const MAX_STITCH_WIDTH = 1600;
+// Ancho de la factura larga unida (cámara 2.0; la 2.1 pide 1800 px para más detalle). El tope
+// de 12 MP de abajo protege la memoria del teléfono.
+export const MAX_STITCH_WIDTH = 1600;
 const MAX_STITCH_PIXELS = 12_000_000;
 
 /**
@@ -436,7 +437,7 @@ export function liveAlignment(doc, video, band) {
  * `hints[i]`: dónde vio la guía en vivo el final de la parte i al tomar la
  * i+1 (fracción de la altura), o null.
  */
-export async function stitchParts(doc, bitmaps, { quality = 0.9, onInfo = null, hints = [] } = {}) {
+export async function stitchParts(doc, bitmaps, { quality = 0.9, onInfo = null, hints = [], maxWidth = MAX_STITCH_WIDTH } = {}) {
     if (!bitmaps.length) throw new Error('No hay partes para unir');
     const sizes = bitmaps.map(sizeOf);
     const overlaps = [];
@@ -454,7 +455,7 @@ export async function stitchParts(doc, bitmaps, { quality = 0.9, onInfo = null, 
     onInfo?.({ found: overlaps.filter(Boolean).length, total: overlaps.length });
     const plan = planStitch(sizes.map(s => s.h), overlaps, { band: Math.round(sizes[1]?.h * OVERLAP_FRACTION || 0) });
     // Todas las partes vienen de la misma cámara; se limita el ancho y el área total.
-    const scale = Math.min(1, MAX_STITCH_WIDTH / sizes[0].w, Math.sqrt(MAX_STITCH_PIXELS / (sizes[0].w * plan.height)));
+    const scale = Math.min(1, maxWidth / sizes[0].w, Math.sqrt(MAX_STITCH_PIXELS / (sizes[0].w * plan.height)));
     const canvas = makeCanvas(doc, sizes[0].w * scale, plan.height * scale);
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#fff';

@@ -17,8 +17,9 @@
  */
 import { paperThreshold, brightBlobs, PAPER_MIN_AREA, PAPER_MAX_AREA, PAPER_SIZE } from './PettyCashPaperCrop.js';
 
-export const STRAIGHTEN_MARGIN = 0.05;        // margen por lado, como fracción del tamaño del papel
+export const STRAIGHTEN_MARGIN = 0.05;        // margen por lado (cámara 2.0; la 2.1 pasa 0.025), como fracción del tamaño del papel
 export const STRAIGHTEN_MAX_SIDE = 3000;      // lado largo máximo de la imagen enderezada (el mismo de la foto normal: enderezar no debe bajar la resolución)
+export const STRAIGHTEN_MAX_PIXELS = Infinity;   // y sus megapíxeles (la cámara 2.1 pasa los suyos)
 export const MAX_SKEW_DEG = 40;               // más inclinado que esto no se toca
 export const STRAIGHT_SKEW_DEG = 3;           // menos que esto (y sin perspectiva) cuenta como recto
 export const STRAIGHT_PERSPECTIVE = 1.06;     // relación entre lados opuestos para considerarlos paralelos
@@ -80,13 +81,14 @@ export function expandQuad(corners, margin) {
     return corners.map(([x, y]) => [cx + (x - cx) * k, cy + (y - cy) * k]);
 }
 
-/** Tamaño de la imagen enderezada: los lados más largos de cada par, sin pasar de `maxSide`. */
-export function quadOutputSize(corners, maxSide = STRAIGHTEN_MAX_SIDE) {
+/** Tamaño de la imagen enderezada: los lados más largos de cada par, sin pasar de `maxSide` ni de `maxPixels`. */
+export function quadOutputSize(corners, maxSide = STRAIGHTEN_MAX_SIDE, maxPixels = STRAIGHTEN_MAX_PIXELS) {
     const [tl, tr, br, bl] = corners;
     let w = Math.max(dist(tl, tr), dist(bl, br));
     let h = Math.max(dist(tl, bl), dist(tr, br));
     const longest = Math.max(w, h);
     if (longest > maxSide) { const k = maxSide / longest; w *= k; h *= k; }
+    if (w * h > maxPixels) { const k = Math.sqrt(maxPixels / (w * h)); return { w: Math.max(1, Math.floor(w * k)), h: Math.max(1, Math.floor(h * k)) }; }
     return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
 }
 
@@ -136,7 +138,7 @@ const interiorAngle = (prev, at, next) => {
  * @returns {{corners:number[][], skewDeg:number, perspective:number, straight:boolean, area:number, fill:number}|{reason:string}}
  *   corners: TL, TR, BR, BL normalizadas (0–1) sobre la imagen analizada.
  */
-export function analyzeQuad(image) {
+export function analyzeQuad(image, { margin = STRAIGHTEN_MARGIN } = {}) {
     const base = paperThreshold(image);
     if (!base) return { reason: 'no-paper' };
     const { g, width, height, threshold } = base;
@@ -172,7 +174,7 @@ export function analyzeQuad(image) {
     if (skewDeg > MAX_SKEW_DEG) return { reason: 'skew' };
 
     // Un papel con los lados curvos se saldría del cuadrilátero y al enderezarlo se cortaría: no se toca.
-    const grown = expandQuad(pts.map(([x, y]) => [x / width, y / height]), STRAIGHTEN_MARGIN).map(([x, y]) => [x * width, y * height]);
+    const grown = expandQuad(pts.map(([x, y]) => [x / width, y / height]), margin).map(([x, y]) => [x * width, y * height]);
     let outside = 0;
     for (let p = 0; p < total; p++) {
         if (!blob.mask[p]) continue;
@@ -258,7 +260,7 @@ export async function warpImageAsync(src, corners, outW, outH, { rowsPerChunk = 
  *   en fracción (0–1) de ESE recorte (pueden pasar un poco de 0–1 por el margen). Null si no hay
  *   que enderezar.
  */
-export function straightenShotToPaper(shot, { doc = globalThis.document, onDecline = () => {} } = {}) {
+export function straightenShotToPaper(shot, { doc = globalThis.document, onDecline = () => {}, margin = STRAIGHTEN_MARGIN } = {}) {
     const source = shot?.source;
     const crop = shot?.crop;
     if (!source || !crop || !doc || typeof source === 'string' || source instanceof Blob) return null;
@@ -270,11 +272,11 @@ export function straightenShotToPaper(shot, { doc = globalThis.document, onDecli
     const ctx = canvas.getContext?.('2d');
     if (!ctx?.getImageData) return null;
     ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, w, h);
-    const found = analyzeQuad(ctx.getImageData(0, 0, w, h));
+    const found = analyzeQuad(ctx.getImageData(0, 0, w, h), { margin });
     if (found.reason) { onDecline(found.reason); return null; }
     if (found.straight) { onDecline('straight'); return null; }
 
-    const grown = expandQuad(found.corners, STRAIGHTEN_MARGIN);
+    const grown = expandQuad(found.corners, margin);
     const xs = grown.map((c) => c[0]); const ys = grown.map((c) => c[1]);
     const clamp01 = (v) => Math.max(0, Math.min(1, v));
     const bx0 = clamp01(Math.min(...xs)); const by0 = clamp01(Math.min(...ys));
@@ -299,12 +301,12 @@ export function straightenShotToPaper(shot, { doc = globalThis.document, onDecli
  * @param {number[][]} quad esquinas en fracción (0–1) del lienzo
  * @returns {Promise<HTMLCanvasElement|null>} lienzo nuevo, o null si no se pudo (el original queda intacto)
  */
-export async function straightenCanvas(canvas, quad, { doc = globalThis.document, maxSide = STRAIGHTEN_MAX_SIDE, rowsPerChunk, yieldFn } = {}) {
+export async function straightenCanvas(canvas, quad, { doc = globalThis.document, maxSide = STRAIGHTEN_MAX_SIDE, maxPixels = STRAIGHTEN_MAX_PIXELS, rowsPerChunk, yieldFn } = {}) {
     if (!canvas || !Array.isArray(quad) || quad.length !== 4 || !doc) return null;
     const ctx = canvas.getContext?.('2d');
     if (!ctx?.getImageData) return null;
     const corners = quad.map(([x, y]) => [x * canvas.width, y * canvas.height]);
-    const { w, h } = quadOutputSize(corners, maxSide);
+    const { w, h } = quadOutputSize(corners, maxSide, maxPixels);
     if (!homography([[0, 0], [w, 0], [w, h], [0, h]], corners)) return null;
     const src = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const pixels = await warpImageAsync(src, corners, w, h, { rowsPerChunk, yieldFn });

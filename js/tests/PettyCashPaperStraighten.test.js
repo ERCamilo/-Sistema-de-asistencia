@@ -239,6 +239,17 @@ describe('expandQuad y tamaño de salida', () => {
         expect(STRAIGHTEN_MARGIN).toBeGreaterThan(0);
         expect(STRAIGHTEN_MARGIN).toBeLessThanOrEqual(0.1);
     });
+    test('por defecto (cámara 2.0): margen de 5 % y 3000 px de lado largo, como siempre', () => {
+        expect(STRAIGHTEN_MARGIN).toBe(0.05);
+        expect(STRAIGHTEN_MAX_SIDE).toBe(3000);
+    });
+    test('cámara 2.1: el tope también es de megapíxeles: una factura normal no baja a 3000 px', () => {
+        const normal = quadOutputSize([[0, 0], [2250, 0], [2250, 4000], [0, 4000]], 4096, 8_400_000);
+        expect(normal.w * normal.h).toBeLessThanOrEqual(8_400_000);
+        expect(normal.w).toBeGreaterThan(2100);
+        const narrow = quadOutputSize([[0, 0], [1100, 0], [1100, 3700], [0, 3700]], 4096, 8_400_000);
+        expect(narrow).toEqual({ w: 1100, h: 3700 });
+    });
 });
 
 describe('warpImage', () => {
@@ -334,6 +345,13 @@ describe('straightenShotToPaper', () => {
         quad.forEach(([x, y]) => { expect(x).toBeGreaterThan(-0.2); expect(x).toBeLessThan(1.2); expect(y).toBeGreaterThan(-0.2); expect(y).toBeLessThan(1.2); });
         expect(out.skewDeg).toBeGreaterThan(9);
         expect(shot.source.close).not.toHaveBeenCalled();
+    });
+    test('cámara 2.1: con su margen (2.5 %) el recorte deja menos mesa alrededor', () => {
+        const a = shotWith(rotatedPaper(12));
+        const b = shotWith(rotatedPaper(12));
+        const wide = straightenShotToPaper(a.shot, { doc: a.doc });
+        const tight = straightenShotToPaper(b.shot, { doc: b.doc, margin: 0.025 });
+        expect(tight.crop.sw * tight.crop.sh).toBeLessThan(wide.crop.sw * wide.crop.sh);
     });
     test('papel recto, sin papel o toma ilegible: null (no se remuestrea) y se avisa por qué', () => {
         const a = shotWith(rotatedPaper(0));

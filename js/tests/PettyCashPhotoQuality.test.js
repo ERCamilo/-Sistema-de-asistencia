@@ -3,7 +3,7 @@
  * la letra pequeña (montos y totales mal leídos): ahora se manda más grande y
  * con más calidad, sin agrandar nunca una foto chica.
  */
-import { compressImage, OCR_MAX_WIDTH, OCR_QUALITY } from '../modules/features/pettycash/PettyCashPhoto.js';
+import { compressImage, prepareReceiptForOcr, OCR_MAX_WIDTH, OCR_QUALITY } from '../modules/features/pettycash/PettyCashPhoto.js';
 
 const setup = (width, height) => {
     const calls = { draw: null, toDataURL: null, size: null };
@@ -20,7 +20,7 @@ const setup = (width, height) => {
 afterEach(() => { jest.restoreAllMocks(); delete global.createImageBitmap; });
 
 describe('compressImage (lo que ve el lector)', () => {
-    test('los valores por defecto son 2400 px y calidad 0.9', () => {
+    test('los valores por defecto son 2400 px y calidad 0.9 (la cámara 2.1 pide 2800)', () => {
         expect(OCR_MAX_WIDTH).toBe(2400);
         expect(OCR_QUALITY).toBe(0.9);
     });
@@ -30,6 +30,20 @@ describe('compressImage (lo que ve el lector)', () => {
         expect(url.startsWith('data:image/jpeg')).toBe(true);
         expect(calls.size).toEqual([2400, 3200]);
         expect(calls.toDataURL).toEqual(['image/jpeg', 0.9]);
+    });
+    test('cámara 2.1: hasta 2800 px, y su foto normal (≈2170 × 3860) llega entera al lector', async () => {
+        let calls = setup(3500, 4000);
+        await compressImage(new Blob(['x'], { type: 'image/webp' }), 2800);
+        expect(calls.size).toEqual([2800, 3200]);
+        jest.restoreAllMocks();
+        calls = setup(2173, 3863);
+        await compressImage(new Blob(['x'], { type: 'image/webp' }), 2800);
+        expect(calls.size).toEqual([2173, 3863]);
+    });
+    test('prepareReceiptForOcr acepta el ancho de la cámara 2.1', async () => {
+        const calls = setup(3500, 4000);
+        await prepareReceiptForOcr(new File(['x'], 'f.webp', { type: 'image/webp' }), { maxWidth: 2800 });
+        expect(calls.size).toEqual([2800, 3200]);
     });
     test('una foto más chica no se agranda', async () => {
         const calls = setup(1200, 1600);
