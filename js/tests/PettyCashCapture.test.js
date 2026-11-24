@@ -4,6 +4,7 @@
  * y guardada en WebP (más liviano a la misma calidad) con respaldo a JPEG.
  */
 import { photoCrop, fitLongSide, fitPhoto, encodeImage, capturePhoto, takeShot, renderShot, photoFromShot, extensionFor, MAX_PHOTO_LONG_SIDE, MAX_PHOTO_PIXELS, PHOTO_QUALITY } from '../modules/features/pettycash/PettyCashCapture.js';
+import { CAMERA_V21 } from '../modules/features/pettycash/PettyCashCameraProfile.js';
 
 describe('photoCrop: la foto del sensor se recorta a la forma del visor', () => {
     test('misma forma: se usa completa', () => {
@@ -23,26 +24,29 @@ describe('photoCrop: la foto del sensor se recorta a la forma del visor', () => 
     });
 });
 
-describe('fitPhoto (límite por megapíxeles, no por el lado largo)', () => {
-    test('una factura normal del sensor se queda en ~8 MP en lugar de bajar a 3000 px de alto', () => {
-        const { w, h } = fitPhoto(2250, 4000);
-        expect(w * h).toBeLessThanOrEqual(MAX_PHOTO_PIXELS);
-        expect(w * h).toBeGreaterThan(MAX_PHOTO_PIXELS * 0.98);
+describe('fitPhoto: cámara 2.0 (por defecto) y 2.1 (límite por megapíxeles)', () => {
+    const V21 = [CAMERA_V21.photo.maxLongSide, CAMERA_V21.photo.maxPixels];
+    test('por defecto (2.0): lado largo de 3000 px y calidad 0.9, como siempre', () => {
+        expect(MAX_PHOTO_LONG_SIDE).toBe(3000);
+        expect(MAX_PHOTO_PIXELS).toBe(Infinity);
+        expect(PHOTO_QUALITY).toBe(0.9);
+        expect(fitPhoto(2250, 4000)).toEqual(fitLongSide(2250, 4000, 3000));
+        expect(fitPhoto(1100, 3700)).toEqual({ w: 892, h: 3000 });
+    });
+    test('2.1: una factura normal del sensor se queda en ~8 MP en lugar de bajar a 3000 px de alto', () => {
+        const { w, h } = fitPhoto(2250, 4000, ...V21);
+        expect(w * h).toBeLessThanOrEqual(V21[1]);
+        expect(w * h).toBeGreaterThan(V21[1] * 0.98);
         expect(w / h).toBeCloseTo(2250 / 4000, 2);
-        expect(w).toBeGreaterThan(2100);                      // antes: 1688 px de ancho
+        expect(w).toBeGreaterThan(2100);                      // con 2.0: 1688 px de ancho
     });
-    test('una factura larga y angosta conserva su ancho (antes se encogía a 3000 px de alto)', () => {
-        expect(fitPhoto(1100, 3700)).toEqual({ w: 1100, h: 3700 });
+    test('2.1: una factura larga y angosta conserva su ancho', () => {
+        expect(fitPhoto(1100, 3700, ...V21)).toEqual({ w: 1100, h: 3700 });
     });
-    test('tampoco pasa del lado largo máximo, y nunca agranda', () => {
-        const tall = fitPhoto(800, 6000);
-        expect(Math.max(tall.w, tall.h)).toBe(MAX_PHOTO_LONG_SIDE);
-        expect(fitPhoto(1080, 1920)).toEqual({ w: 1080, h: 1920 });
-    });
-    test('los límites: 4096 px de lado largo, 8.4 MP y WebP a 0.86 (más píxeles con el mismo peso)', () => {
-        expect(MAX_PHOTO_LONG_SIDE).toBe(4096);
-        expect(MAX_PHOTO_PIXELS).toBe(8_400_000);
-        expect(PHOTO_QUALITY).toBe(0.86);
+    test('2.1: tampoco pasa del lado largo máximo, y nunca agranda', () => {
+        const tall = fitPhoto(800, 6000, ...V21);
+        expect(Math.max(tall.w, tall.h)).toBe(4096);
+        expect(fitPhoto(1080, 1920, ...V21)).toEqual({ w: 1080, h: 1920 });
     });
 });
 
@@ -109,8 +113,6 @@ describe('capturePhoto', () => {
         expect(blob.type).toBe('image/webp');
         const canvas = canvases.at(-1);
         expect(Math.max(canvas.width, canvas.height)).toBeLessThanOrEqual(MAX_PHOTO_LONG_SIDE);
-        expect(canvas.width * canvas.height).toBeLessThanOrEqual(MAX_PHOTO_PIXELS);
-        expect(canvas.width).toBeGreaterThan(2100);
         expect(canvas.width / canvas.height).toBeCloseTo(1080 / 1920, 2);
         const draw = canvas.calls.find(c => c.length === 9);
         expect(draw.slice(1, 5)).toEqual([375, 0, 2250, 4000]);
@@ -165,6 +167,14 @@ describe('photoFromShot: de la toma a la foto que se guarda', () => {
         ...over
     });
 
+    test('cámara 2.1: dibuja, endereza y guarda con sus límites y su calidad', async () => {
+        const quad = [[0, 0], [1, 0], [1, 1], [0, 1]];
+        const d = deps();
+        await photoFromShot({ source: {}, crop: {}, quad }, { ...d, photo: CAMERA_V21.photo });
+        expect(d.render).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ maxLongSide: 4096, maxPixels: 8_400_000 }));
+        expect(d.straightenCanvasFn).toHaveBeenCalledWith(canvas, quad, expect.objectContaining({ maxSide: 4096, maxPixels: 8_400_000 }));
+        expect(d.encode).toHaveBeenCalledWith(straight, 0.86);
+    });
     test('un archivo ya hecho (galería) pasa tal cual', async () => {
         const file = blobOf('file');
         const d = deps();
@@ -182,7 +192,7 @@ describe('photoFromShot: de la toma a la foto que se guarda', () => {
         const quad = [[0, 0], [1, 0], [1, 1], [0, 1]];
         const d = deps();
         await photoFromShot({ source: {}, crop: {}, quad }, d);
-        expect(d.straightenCanvasFn).toHaveBeenCalledWith(canvas, quad, expect.objectContaining({ doc: d.doc, maxSide: MAX_PHOTO_LONG_SIDE, maxPixels: MAX_PHOTO_PIXELS }));
+        expect(d.straightenCanvasFn).toHaveBeenCalledWith(canvas, quad, expect.objectContaining({ doc: d.doc, maxSide: MAX_PHOTO_LONG_SIDE }));
         expect(d.encode).toHaveBeenCalledWith(straight);
     });
     test('si enderezar falla o no devuelve nada, se guarda el recorte tal cual (nunca se pierde la foto)', async () => {

@@ -16,13 +16,13 @@
 import { straightenCanvas } from './PettyCashPaperStraighten.js';
 
 /**
- * Tamaño máximo de la foto guardada: hasta 8.4 MP y 4096 px de lado largo. Antes se limitaba
- * solo el lado largo a 3000 px, y una factura larga y angosta quedaba con muy poco ancho (letra
- * pequeña ilegible). Con WebP a 0.86 una foto de 8.4 MP pesa lo mismo que una de 6.75 MP a 0.9.
+ * Tamaño máximo de la foto guardada (cámara 2.0): 3000 px de lado largo (≈ 6–7 MP en una factura
+ * vertical). La cámara 2.1 (PettyCashCameraProfile.js) limita por megapíxeles: 8.4 MP y 4096 px,
+ * para que una factura larga y angosta conserve su ancho, con WebP a 0.86 para que pese lo mismo.
  */
-export const MAX_PHOTO_LONG_SIDE = 4096;
-export const MAX_PHOTO_PIXELS = 8_400_000;
-export const PHOTO_QUALITY = 0.86;
+export const MAX_PHOTO_LONG_SIDE = 3000;
+export const MAX_PHOTO_PIXELS = Infinity;
+export const PHOTO_QUALITY = 0.9;
 const TAKE_PHOTO_TIMEOUT_MS = 2500;
 
 /** Recorte centrado de la foto a la forma del visor; null si la orientación no coincide. */
@@ -46,8 +46,10 @@ export function fitLongSide(w, h, max) {
 
 /** Tamaño reducido para no pasar de `maxPixels` ni de `maxLongSide` (nunca agranda). */
 export function fitPhoto(w, h, maxLongSide = MAX_PHOTO_LONG_SIDE, maxPixels = MAX_PHOTO_PIXELS) {
-    const k = Math.min(1, maxLongSide / Math.max(w, h), Math.sqrt(maxPixels / (w * h)));
-    return k >= 1 ? { w: Math.round(w), h: Math.round(h) } : { w: Math.floor(w * k), h: Math.floor(h * k) };
+    const byPixels = Math.sqrt(maxPixels / (w * h));
+    const k = Math.min(1, maxLongSide / Math.max(w, h), byPixels);
+    // Si manda el tope de megapíxeles se redondea hacia abajo, para no pasarlo por unos píxeles.
+    return k === byPixels && k < 1 ? { w: Math.floor(w * k), h: Math.floor(h * k) } : { w: Math.round(w * k), h: Math.round(h * k) };
 }
 
 export const extensionFor = (type) => (type === 'image/webp' ? 'webp' : type === 'image/png' ? 'png' : 'jpg');
@@ -120,16 +122,19 @@ export function renderShot(shot, { doc = globalThis.document, makeCanvas = () =>
  * devuelve nada, se guarda el recorte tal cual: nunca se pierde la foto por esto.
  * Una foto ya hecha (galería) pasa sin tocar.
  */
-export async function photoFromShot(shot, { doc = globalThis.document, render = renderShot, encode = encodeImage, straightenCanvasFn = straightenCanvas } = {}) {
+export async function photoFromShot(shot, { doc = globalThis.document, render = renderShot, encode = encodeImage, straightenCanvasFn = straightenCanvas, photo = null } = {}) {
     if (shot instanceof Blob) return shot;
-    const canvas = render(shot, { doc });
+    // Sin `photo` (cámara 2.0) todo queda como siempre; la 2.1 pasa sus límites y su calidad.
+    const canvas = photo ? render(shot, { doc, maxLongSide: photo.maxLongSide, maxPixels: photo.maxPixels }) : render(shot, { doc });
+    const save = (c) => (photo ? encode(c, photo.quality) : encode(c));
     if (Array.isArray(shot.quad)) {
         try {
-            const straight = await straightenCanvasFn(canvas, shot.quad, { doc, maxSide: MAX_PHOTO_LONG_SIDE, maxPixels: MAX_PHOTO_PIXELS });
-            if (straight) return encode(straight);
+            const limits = photo ? { maxSide: photo.maxLongSide, maxPixels: photo.maxPixels } : { maxSide: MAX_PHOTO_LONG_SIDE };
+            const straight = await straightenCanvasFn(canvas, shot.quad, { doc, ...limits });
+            if (straight) return save(straight);
         } catch (_) { /* se guarda el recorte sin enderezar */ }
     }
-    return encode(canvas);
+    return save(canvas);
 }
 
 /** Toma, recorta y guarda en WebP (o JPEG) en un solo paso. */

@@ -228,6 +228,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/pettycash/PettyCashCamera.js",
     "./js/modules/features/pettycash/PettyCashCameraData.js",
     "./js/modules/features/pettycash/PettyCashCameraDiagnostics.js",
+    "./js/modules/features/pettycash/PettyCashCameraProfile.js",
     "./js/modules/features/pettycash/PettyCashCapture.js",
     "./js/modules/features/pettycash/PettyCashCornerEditor.js",
     "./js/modules/features/pettycash/PettyCashCorners.js",

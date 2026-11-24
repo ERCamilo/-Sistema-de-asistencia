@@ -115,11 +115,11 @@ describe('periodo cerrado y formularios', () => {
         window.pcOpenForm('gasto');
         expect(document.getElementById('pc-amount')).not.toBeNull();
     });
-    test('la cámara nueva o la del sistema según el interruptor de Tests', () => {
+    test('la cámara de la app por defecto; la del sistema si se apaga en Tests', () => {
         seed(); paint();
-        expect(document.querySelector('[data-pcn-cta] input[capture]')).not.toBeNull();
-        state.settings.newReceiptCamera = true; paint();
         expect(document.querySelector('[data-pcn-cta]').dataset.appFn).toBe('pcOpenCamera');
+        state.settings.newReceiptCamera = false; paint();
+        expect(document.querySelector('[data-pcn-cta] input[capture]')).not.toBeNull();
     });
 });
 

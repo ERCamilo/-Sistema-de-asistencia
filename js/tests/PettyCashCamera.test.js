@@ -4,6 +4,7 @@
  * Visor en vivo, disparador, pila de fotos con su estado, bandeja compacta y
  * vista previa por foto. Las fotos entran a la misma cola de caja chica.
  */
+import { CAMERA_V21 } from '../modules/features/pettycash/PettyCashCameraProfile.js';
 import { createReceiptCamera, CAMERA_POLL_MS, RECEIVED_MS, ALIGN_POLL_MS, RESOLVED_ADVANCE_MS, summarizeCameraItems, highlightBox, FOCUS_SETTLE_MS } from '../modules/features/pettycash/PettyCashCamera.js';
 
 function setup(overrides = {}) {
@@ -460,7 +461,7 @@ describe('Cámara de facturas', () => {
     });
 
     test('vista rápida: botones de fecha, total y NCF que llevan a su lugar en la foto, y más datos', async () => {
-        const { camera, states } = setup();
+        const { camera, states } = setup({ profile: () => CAMERA_V21 });
         await camera.open();
         $('[data-pcam-shutter]').click(); await flush();
         states.set('m1', { state: 'ok', issues: [], data: {
@@ -497,8 +498,27 @@ describe('Cámara de facturas', () => {
         camera.close();
     });
 
-    test('vista rápida sin datos leídos todavía: no muestra botones vacíos', async () => {
+    test('cámara 2.0 (por defecto): la vista previa muestra comercio, NCF, total y categoría, sin botones', async () => {
         const { camera, states } = setup();
+        await camera.open();
+        $('[data-pcam-shutter]').click(); await flush();
+        states.set('m1', { state: 'ok', issues: [], data: {
+            paidTo: 'Ferretería Sol', date: '2026-11-10', ncf: 'B0100000123', total: 'RD$ 590.00', rncEmisor: '131246796', itbis: 'RD$ 90.00', category: 'Materiales',
+            boxes: { total: [880, 100, 910, 900] }
+        } });
+        await camera.refresh();
+        camera.openPreview(0);
+        expect(document.querySelectorAll('[data-pcam-jump]')).toHaveLength(0);
+        const sheet = $('[data-pcam-sheet]').textContent;
+        expect(sheet).toContain('Ferretería Sol');
+        expect(sheet).toContain('B0100000123');
+        expect(sheet).toContain('RD$ 590.00');
+        expect(sheet).not.toContain('131246796');
+        camera.close();
+    });
+
+    test('vista rápida sin datos leídos todavía: no muestra botones vacíos', async () => {
+        const { camera, states } = setup({ profile: () => CAMERA_V21 });
         await camera.open();
         $('[data-pcam-shutter]').click(); await flush();
         states.set('m1', { state: 'ok', issues: [], data: {} });
@@ -630,6 +650,19 @@ describe('Cámara de facturas', () => {
         expect(file.type).toBe('image/webp');
         expect(file.name).toMatch(/\.webp$/);
         camera.close();
+    });
+
+    test('factura larga: la unión sale a 1600 px con la cámara 2.0 y a 1800 px con la 2.1', async () => {
+        for (const [over, width] of [[{}, 1600], [{ profile: () => CAMERA_V21 }, 1800]]) {
+            const { camera, deps } = setup(over);
+            await camera.open();
+            $('[data-pcam-long]').click();
+            $('[data-pcam-shutter]').click(); await flush();
+            $('[data-pcam-shutter]').click(); await flush();
+            $('[data-pcam-done]').click(); await flush(); await flush();
+            expect(deps.stitch).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ maxWidth: width }));
+            camera.close();
+        }
     });
 
     test('factura larga: las partes no entran a la cola hasta "Unir"; luego entra una sola foto', async () => {
@@ -974,11 +1007,20 @@ describe('Cámara de facturas: enfoque', () => {
         track.getCapabilities = () => ({ focusMode: ['continuous', 'single-shot'], torch: true });
         const { camera } = setup({ track });
         await camera.open();
-        const wanted = expect.objectContaining({ facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1920 }, aspectRatio: { ideal: 4 / 3 } });
+        const wanted = expect.objectContaining({ facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 } });
         expect(applyConstraints).toHaveBeenCalledWith(wanted);
         applyConstraints.mockClear();
         $('[data-pcam-torch]').click(); await flush();
         expect(applyConstraints).toHaveBeenCalledWith(wanted);
+    });
+
+    test('cámara 2.1: pide video de 2560 × 1920 y lo conserva al enfocar', async () => {
+        const { applyConstraints, track } = withFocus(['continuous', 'single-shot']);
+        const { camera, deps } = setup({ track, profile: () => CAMERA_V21 });
+        await camera.open();
+        expect(deps.mediaDevices.getUserMedia).toHaveBeenCalledWith(expect.objectContaining({ video: expect.objectContaining({ width: { ideal: 2560 }, height: { ideal: 1920 } }) }));
+        expect(applyConstraints).toHaveBeenCalledWith(expect.objectContaining({ width: { ideal: 2560 }, height: { ideal: 1920 } }));
+        camera.close();
     });
 
     test('si no lo permite (o no sabe decirlo) no falla ni pide nada', async () => {
@@ -1036,10 +1078,39 @@ describe('Cámara de facturas: enfoque', () => {
         expect($('[data-pcam-focus-ring]')?.hidden ?? true).toBe(true);
     });
 
+    test('cámara 2.0 (por defecto): enfoca y dispara como siempre (sin punto de interés continuo, sin medir luz, sin esperar)', async () => {
+        const applyConstraints = jest.fn().mockResolvedValue();
+        const track = { getCapabilities: () => ({ focusMode: ['continuous'], exposureMode: ['continuous'] }), getSettings: () => ({ pointsOfInterest: [] }), applyConstraints };
+        const { camera, deps } = setup({ track });
+        await camera.open();
+        const frame = $('[data-pcam-frame]');
+        frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
+        applyConstraints.mockClear();
+        tap(frame, 50, 100);
+        await flush();
+        expect(applyConstraints).not.toHaveBeenCalled();
+        expect($('[data-pcam-focus-ring]')?.hidden ?? true).toBe(true);
+        camera.close();
+        const two = withFocus(['continuous', 'single-shot']);
+        two.track.getCapabilities = () => ({ focusMode: ['continuous', 'single-shot'], exposureMode: ['continuous'] });
+        const second = setup({ track: two.track });
+        await second.camera.open();
+        const f2 = $('[data-pcam-frame]');
+        f2.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
+        two.applyConstraints.mockClear();
+        tap(f2, 100, 200);
+        await flush();
+        expect(two.applyConstraints).toHaveBeenCalledWith(expect.objectContaining({ advanced: [{ focusMode: 'single-shot', pointsOfInterest: [{ x: 0.5, y: 0.5 }] }] }));
+        $('[data-pcam-shutter]').click();
+        await flush();
+        expect(second.deps.grabFrame).toHaveBeenCalledTimes(1);
+        second.camera.close();
+    });
+
     test('sin enfoque de un toque pero con punto de interés: enfoca de forma continua en ese punto y muestra el aro', async () => {
         const applyConstraints = jest.fn().mockResolvedValue();
         const track = { getCapabilities: () => ({ focusMode: ['continuous'] }), getSettings: () => ({ focusMode: 'continuous', pointsOfInterest: [] }), applyConstraints };
-        const { camera } = setup({ track });
+        const { camera } = setup({ track, profile: () => CAMERA_V21 });
         await camera.open();
         const frame = $('[data-pcam-frame]');
         frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
@@ -1054,7 +1125,7 @@ describe('Cámara de facturas: enfoque', () => {
     test('si el teléfono mide la luz por zonas, también la mide donde se tocó (el papel no sale quemado)', async () => {
         const applyConstraints = jest.fn().mockResolvedValue();
         const track = { getCapabilities: () => ({ focusMode: ['continuous', 'single-shot'], exposureMode: ['manual', 'continuous'] }), applyConstraints };
-        const { camera } = setup({ track });
+        const { camera } = setup({ track, profile: () => CAMERA_V21 });
         await camera.open();
         const frame = $('[data-pcam-frame]');
         frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });
@@ -1068,7 +1139,7 @@ describe('Cámara de facturas: enfoque', () => {
     test('disparar justo después de tocar espera a que termine de enfocar', async () => {
         jest.useFakeTimers();
         const { applyConstraints, track } = withFocus(['continuous', 'single-shot']);
-        const { camera, deps } = setup({ track });
+        const { camera, deps } = setup({ track, profile: () => CAMERA_V21 });
         await camera.open();
         const frame = $('[data-pcam-frame]');
         frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400 });

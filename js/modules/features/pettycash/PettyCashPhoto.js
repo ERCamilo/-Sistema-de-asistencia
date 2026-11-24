@@ -44,11 +44,11 @@ export function receiptStoragePath(uid, txId) {
 }
 
 /**
- * Lo que se manda al lector: hasta 2800 px de ancho y calidad 0.9 (la foto normal de la
- * cámara, ≈ 2170 px de ancho, llega entera). Con 1600 px y 0.82 la letra pequeña (montos,
+ * Lo que se manda al lector: 2400 px de ancho y calidad 0.9 (la cámara 2.1 pide 2800, para que
+ * su foto normal, ≈ 2170 × 3860, llegue entera). Con 1600 px y 0.82 la letra pequeña (montos,
  * totales) se leía mal. Nunca se agranda una foto chica.
  */
-export const OCR_MAX_WIDTH = 2800;
+export const OCR_MAX_WIDTH = 2400;
 export const OCR_QUALITY = 0.9;
 const OCR_MAX_DATA_URL_CHARS = 9_000_000;
 
@@ -126,7 +126,7 @@ export async function createPdfThumbnail(file, maxDim = 480) {
     }
 }
 
-export async function prepareReceiptForOcr(file) {
+export async function prepareReceiptForOcr(file, { maxWidth = OCR_MAX_WIDTH } = {}) {
     const { mimeType, kind } = validateReceiptFile(file);
     if (kind === 'pdf') {
         return {
@@ -136,22 +136,23 @@ export async function prepareReceiptForOcr(file) {
         };
     }
     return {
-        fileDataUrl: await compressImage(file),
+        fileDataUrl: await compressImage(file, maxWidth),
         mimeType: 'image/jpeg',
         fileName: file?.name || 'factura.jpg'
     };
 }
 
-/** Vista previa guardada en el teléfono (lista, pila de la cámara, respaldo sin la original). */
-export const PREVIEW_MAX_DIM = 720;
-export const PREVIEW_QUALITY = 0.7;
+/** Vista previa guardada en el teléfono (lista, pila de la cámara, respaldo sin la original). La cámara 2.1 pide 720 px en WebP. */
+export const PREVIEW_MAX_DIM = 480;
+export const PREVIEW_QUALITY = 0.5;
 
-export async function createReceiptPreview(file) {
+export async function createReceiptPreview(file, { preview = null, ocrMaxWidth = OCR_MAX_WIDTH } = {}) {
     const { kind } = validateReceiptFile(file);
     if (kind === 'pdf') return createPdfThumbnail(file);
-    const processingDataUrl = await compressImage(file);
+    const processingDataUrl = await compressImage(file, ocrMaxWidth);
+    const { maxDim = PREVIEW_MAX_DIM, quality = PREVIEW_QUALITY, webp = false } = preview || {};
     return {
-        previewDataUrl: await downscaleDataUrl(processingDataUrl, PREVIEW_MAX_DIM, PREVIEW_QUALITY),
+        previewDataUrl: await downscaleDataUrl(processingDataUrl, maxDim, quality, { webp }),
         pageCount: 1,
         processingDataUrl
     };
@@ -217,7 +218,7 @@ export function receiptThumbnailScale(width, height, maxDim = 480) {
  * devuelve el original — mejor no podar que perder la única copia.
  * @returns {Promise<string>} data URL reducido (o el original ante fallo)
  */
-export async function downscaleDataUrl(dataUrl, maxDim = 480, quality = 0.5) {
+export async function downscaleDataUrl(dataUrl, maxDim = 480, quality = 0.5, { webp = false } = {}) {
     if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return dataUrl;
     try {
         if (typeof document === 'undefined' || typeof Image === 'undefined') return dataUrl;
@@ -233,9 +234,12 @@ export async function downscaleDataUrl(dataUrl, maxDim = 480, quality = 0.5) {
         canvas.width = Math.round((img.naturalWidth || img.width) * scale);
         canvas.height = Math.round((img.naturalHeight || img.height) * scale);
         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        // WebP pesa bastante menos a la misma calidad; si el navegador no lo codifica, JPEG.
-        const webp = canvas.toDataURL('image/webp', quality);
-        return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', quality);
+        // WebP (cámara 2.1) pesa bastante menos a la misma calidad; si el navegador no lo codifica, JPEG.
+        if (webp) {
+            const out = canvas.toDataURL('image/webp', quality);
+            if (out.startsWith('data:image/webp')) return out;
+        }
+        return canvas.toDataURL('image/jpeg', quality);
     } catch (_) {
         return dataUrl;
     }

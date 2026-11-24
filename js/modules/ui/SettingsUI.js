@@ -317,6 +317,7 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'voiceFeedback',
     'voiceReviewBeforeSend',
     'newReceiptCamera',
+    'receiptCamera21',
     'receiptAutoCrop',
     'receiptStraighten',
     'newPettyCashScreen',

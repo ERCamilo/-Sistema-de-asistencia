@@ -187,7 +187,7 @@ describe('locateOverlap (al unir): dónde quedó el final de la parte anterior',
 });
 
 describe('ancho de la factura larga unida', () => {
-    test('sale hasta 1800 px de ancho (antes 1600): más detalle para el lector sin pasar de 12 MP', () => {
-        expect(MAX_STITCH_WIDTH).toBe(1800);
+    test('por defecto (cámara 2.0) sale hasta 1600 px de ancho; la 2.1 pide 1800', () => {
+        expect(MAX_STITCH_WIDTH).toBe(1600);
     });
 });
