@@ -1,10 +1,36 @@
 export const VOICE_AUDIO_BUDGET = 50 * 1024 * 1024;
 export const VOICE_DAY = 24 * 60 * 60 * 1000;
-export function voiceRetentionPolicy(settings = {}) {
-    const days = Number(settings.voiceAudioRetentionDays ?? 5);
-    return { keep: settings.voiceKeepLoanAudio !== false, days: Number.isInteger(days) ? Math.min(5, Math.max(1, days)) : 5 };
+export const VOICE_RETENTION_DEFAULT_DAYS = 1;
+export const VOICE_RETENTION_MAX_DAYS = 31;
+export const VOICE_RETENTION_DAY_OPTIONS = [1, 5, 7, 15, 31];
+export const VOICE_RETENTION_OPTIONS = [0, ...VOICE_RETENTION_DAY_OPTIONS];
+const VOICE_RETENTION_LEGACY_DAY_MAP = new Map([[2, 5], [3, 5], [4, 5]]);
+
+export function isValidVoiceRetentionDays(days) {
+    return Number.isInteger(days) && VOICE_RETENTION_DAY_OPTIONS.includes(days);
 }
-export function voiceAudioExpiry(record, policy = { keep: true, days: 5 }) {
+export function isValidVoiceRetentionChoice(days) {
+    return Number.isInteger(days) && VOICE_RETENTION_OPTIONS.includes(days);
+}
+export function voiceRetentionParts(days) {
+    if (days === 0) return { primary: 'No', secondary: 'guardar' };
+    if (days === 1) return { primary: '1', secondary: 'día' };
+    if (days === 7) return { primary: '1', secondary: 'semana' };
+    return { primary: String(days), secondary: 'días' };
+}
+export function voiceRetentionLabel(days) {
+    const { primary, secondary } = voiceRetentionParts(days);
+    return `${primary} ${secondary}`;
+}
+export function voiceRetentionPolicy(settings = {}) {
+    const raw = settings?.voiceAudioRetentionDays;
+    const parsed = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+    const days = isValidVoiceRetentionDays(parsed)
+        ? parsed
+        : (VOICE_RETENTION_LEGACY_DAY_MAP.get(parsed) ?? VOICE_RETENTION_DEFAULT_DAYS);
+    return { keep: settings?.voiceKeepLoanAudio !== false, days };
+}
+export function voiceAudioExpiry(record, policy = { keep: true, days: VOICE_RETENTION_DEFAULT_DAYS }) {
     if (!record.completedLoanId) return Number.isFinite(Number(record.createdAt)) ? Number(record.createdAt) + VOICE_DAY : 0;
     const registeredAt = Number(record.registeredAt || record.createdAt);
     if (!Number.isFinite(registeredAt)) return 0;

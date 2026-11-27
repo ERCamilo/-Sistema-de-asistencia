@@ -94,11 +94,16 @@ test('removing a draft requires confirmation and only removes its own audio and 
 });
 test('retention reduction is explicit and increasing it cannot recover deleted recordings',async()=>{
     const {settings,employees}=await fixture();const original=JSON.stringify(employees);
-    await ui.action('retention');await ui.action('retention-days','1');expect(ui.view).toBe('confirm');
-    await ui.action('back');expect(settings.voiceAudioRetentionDays).toBe(5);
+    await ui.action('retention');
+    expect([...ui.dialog.querySelectorAll('[data-vs-action=retention-days]')].map(b=>b.dataset.value)).toEqual(['0','1','5','7','15','31']);
+    expect(ui.dialog.querySelector('[data-vs-action=retention-days][data-value="7"]').textContent).toContain('semana');
+    await ui.action('retention-days','7');expect(settings.voiceAudioRetentionDays).toBe('7');expect(ui.retentionText()).toBe('1 semana');
+    await ui.action('retention-days','31');expect(settings.voiceAudioRetentionDays).toBe('31');expect(ui.retentionText()).toBe('31 días');
+    await ui.action('retention-days','1');expect(ui.view).toBe('confirm');
+    await ui.action('back');expect(settings.voiceAudioRetentionDays).toBe('31');
     await ui.action('retention-days','1');await ui.action('confirm');
     expect(settings.voiceAudioRetentionDays).toBe('1');expect((await store.get('u','loan')).audio).toBeUndefined();
-    await ui.action('retention-days','5');expect((await store.get('u','loan')).audio).toBeUndefined();expect(JSON.stringify(employees)).toBe(original);
+    await ui.action('retention-days','15');expect((await store.get('u','loan')).audio).toBeUndefined();expect(JSON.stringify(employees)).toBe(original);
 });
 test('changing session invalidates a pending decision and clears all displayed names',async()=>{
     const {setUser}=await fixture();await ui.action('aliases');await ui.action('person','e');await ui.action('remove-alias','carlo');

@@ -71,8 +71,8 @@ test('lectura bloqueada termina en error; la respuesta tardía no sobrescribe un
 });
 test('un cambio de retención vuelve a consultar y conserva el aviso de poco espacio', async () => {
     const { settings, backing, render } = fixture({ mount: true, store: { storageStatus: jest.fn().mockResolvedValue({ bytes: 1, count: 1, low: true }) } });
-    await flush(); settings.voiceAudioRetentionDays = 2; render(); await flush();
-    expect(backing.maintain).toHaveBeenLastCalledWith('one', { keep: true, days: 2 });
+    await flush(); settings.voiceAudioRetentionDays = 7; render(); await flush();
+    expect(backing.maintain).toHaveBeenLastCalledWith('one', { keep: true, days: 7 });
     expect(document.querySelector('[data-voice-storage-warning]').hidden).toBe(false);
 });
 test('una API sin cifras disponibles ofrece reintento, sin afirmar cero', async () => {

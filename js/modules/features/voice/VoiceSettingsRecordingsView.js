@@ -3,6 +3,7 @@ import { formatCurrency } from '../../utils/Formatters.js';
 import { voiceRecordingInfo, voiceBytes } from './VoiceSettingsData.js';
 import { vsArrow, vsDate, vsIcon, vsIdentity, vsWave } from './VoiceSettingsViewUtils.js';
 import { voiceHasPendingWork, voiceProcessingStatus } from './VoicePending.js';
+import { VOICE_RETENTION_OPTIONS, voiceRetentionParts } from './VoiceRetention.js';
 
 function pendingActions(ui, record, available) {
     if (!available || record.completedAction || record.completedLoanId || record.completedCashId || record.purpose === 'name-example') return '';
@@ -30,6 +31,7 @@ export function VoiceSettingsAudioView(ui) {
     return `${employee?vsIdentity(ui,employee):'<span class="vs-draft-chip">'+(record.completedLoanId?'Grabación de préstamo':'Borrador sin confirmar')+'</span>'}<div class="vs-audio-summary"><strong>${loan?formatCurrency(loan.principal):'Instrucción'}</strong><small>${record.completedLoanId?'Préstamo registrado':'Pendiente'}</small></div><div class="vs-player">${vsWave()}<div class="vs-player-controls"><button type="button" class="vs-player-toggle" data-vs-action="play" aria-label="Reproducir audio" aria-pressed="false">${vsIcon('play')}</button><input type="range" data-vs-seek min="0" max="${Math.max(1,(record.durationMs||0)/1000)}" step=".1" value="0" aria-label="Posición del audio"><span class="vs-time" data-vs-time>0:00</span></div><audio data-vs-audio src="${escapeAttr(ui.audioURL||'')}" preload="metadata"></audio></div><p class="vs-audio-caption">${escapeHTML(record.transcript||record.result?.transcript||'')}<br>${escapeHTML(vsDate(record.createdAt,record.context?.timeZone))}</p><p class="vs-footnote" data-vs-expiry>${vsIcon('clock')}${voiceExpiryText(info.expiresAt)}</p>${pendingActions(ui,record,info.available)}${loan?'<button type="button" class="vs-secondary-wide" data-vs-action="open-loan">Abrir préstamo '+vsIcon('arrow')+'</button>':''}`;
 }
 export function VoiceSettingsRetentionView(ui) {
-    const policy=ui.policy();
-    return `<p class="vs-help">Tiempo desde el registro del préstamo.</p><div class="vs-retention-grid">${[0,1,2,3,4,5].map(days=>`<button type="button" class="vs-choice" data-vs-action="retention-days" data-value="${days}" aria-pressed="${(policy.keep?policy.days:0)===days}" ${ui.busy?'disabled':''}><strong>${days||'No'}</strong><small>${days?days===1?'día':'días':'guardar'}</small></button>`).join('')}</div><p class="vs-help">Eliminar audio conserva el préstamo.<br>Los borradores duran hasta 24 horas.</p>`;
+    const policy = ui.policy();
+    const active = policy.keep ? policy.days : 0;
+    return `<p class="vs-help">Tiempo desde el registro del préstamo.</p><div class="vs-retention-grid">${VOICE_RETENTION_OPTIONS.map(days => { const { primary, secondary } = voiceRetentionParts(days); return `<button type="button" class="vs-choice" data-vs-action="retention-days" data-value="${days}" aria-pressed="${active === days}" ${ui.busy ? 'disabled' : ''}><strong>${primary}</strong><small>${secondary}</small></button>`; }).join('')}</div><p class="vs-help">Eliminar audio conserva el préstamo.<br>Los borradores duran hasta 24 horas.</p>`;
 }

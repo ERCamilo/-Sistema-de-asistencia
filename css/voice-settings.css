@@ -256,3 +256,23 @@
 .vs-pending-actions details{font-size:12px;color:var(--text);overflow-wrap:anywhere}
 .vs-pending-actions details p{white-space:pre-wrap;margin:8px 0;line-height:1.5}
 .vs-pending-actions>small{font-size:11px;color:var(--dim)}
+
+/* One-time upgrade prompt for new voice audio retention limits */
+.vru-body{display:flex;flex-direction:column;gap:12px;color:#e2e8f0;font-size:13px;line-height:1.55}
+.vru-body p{margin:0}
+.vru-current{padding:10px 12px;border-radius:10px;background:rgba(34,211,238,.09);border:1px solid rgba(34,211,238,.24);color:#e2e8f0}
+.vru-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.vru-choice{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:74px;padding:10px 6px;border-radius:12px;border:1px solid #2a3a50;background:#131d2e;color:#f4f6fa;cursor:pointer;font:inherit;transition:background .15s ease,border-color .15s ease,color .15s ease}
+.vru-choice:hover{background:#1e2d44;border-color:#4b6480}
+.vru-choice:focus-visible{outline:2px solid #22d3ee;outline-offset:2px}
+.vru-choice strong{font-family:'IBM Plex Mono',monospace;font-size:19px;line-height:1.1}
+.vru-choice small{font-size:11px;color:#afbdcf}
+.vru-choice[aria-pressed=true]{background:#22d3ee;border-color:#22d3ee;color:#05232d}
+.vru-choice[aria-pressed=true] small{color:#0b3a47}
+.vru-default-badge{margin-top:3px;padding:1px 6px;border-radius:999px;font-size:9px;font-weight:700;letter-spacing:.02em;background:rgba(34,211,238,.18);color:#67e8f9}
+.vru-choice[aria-pressed=true] .vru-default-badge{background:rgba(5,35,45,.16);color:#05232d}
+.vru-warning{padding:10px 12px;border-radius:10px;background:#3b3012;border:1px solid rgba(250,204,21,.35);color:#fef3c7;font-size:12px;line-height:1.5}
+.vru-warning[hidden]{display:none}
+.vru-footnote{font-size:11px;color:#94a3b8}
+@media(max-width:420px){.vru-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+

@@ -9,7 +9,7 @@ import { VoiceEmployeeView } from './VoiceEmployeeView.js';
 import { VoiceAliasView, needsVoiceAliasPrompt } from './VoiceAliasView.js';
 import { pickAutomaticVoiceMatch } from './VoiceMatching.js';
 import { VoiceAudioView } from './VoiceAudioView.js';
-import { voiceRetentionPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET } from './VoiceRetention.js';
+import { voiceRetentionPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET, VOICE_RETENTION_OPTIONS, isValidVoiceRetentionChoice, voiceRetentionParts } from './VoiceRetention.js';
 import { VoiceStore } from './VoiceStore.js';
 import { VoiceRecorder } from './VoiceRecorder.js';
 import { voiceAudioNeedsReview } from './VoiceAudioQuality.js';
@@ -633,7 +633,7 @@ export class VoiceMvpUI {
         if (action === 'retention') {
             if (this.busy || this.recording || this.view !== 'storage') return;
             const days = Number(id), identity = this.identity(true);
-            if (!Number.isInteger(days) || days < 0 || days > 5 || !this.adapter.setAudioRetention) return;
+            if (!isValidVoiceRetentionChoice(days) || !this.adapter.setAudioRetention) return;
             if (days === 0 && !await this.confirmInline('¿Dejar de guardar y eliminar los audios de préstamos?')) return;
             if (this.identity(true).uid !== identity.uid) throw Error('Cambió la cuenta.');
             this.adapter.setAudioRetention(days); await this.maintenance(); this.render(); return;
@@ -886,10 +886,10 @@ export class VoiceMvpUI {
             loan: () => VoiceLoanView(this, button),
             playback: () => `${voiceEmployeeCard(selected, '', this.adapter.getPositions?.() || [])}${voicePlayer(this,button)}<p class="voice-expiry">${voiceIcon('clock')} Hasta ${escapeHTML(new Date(record.audioExpiresAt).toLocaleDateString('es-DO', {day:'numeric',month:'short',timeZone:record.context?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone}))}</p>`,
             storage: () => {
-                const settings = this.adapter.getSettings?.() || {};
-                const selectedDays = settings.voiceKeepLoanAudio === false ? 0 : Number(settings.voiceAudioRetentionDays || 5);
+                const policy = voiceRetentionPolicy(this.adapter.getSettings?.());
+                const selectedDays = policy.keep ? policy.days : 0;
                 const bytes = this.storage?.bytes || 0;
-                return `<div class="voice-retention" role="group" aria-label="Conservación de audio">${[0,1,2,3,4,5].map(days => button('retention', days ? `${days}<span>${days === 1 ? 'día' : 'días'}</span>` : 'No<span>guardar</span>', !this.adapter.setAudioRetention,String(days)).replace('<button ',`<button aria-pressed="${selectedDays === days}" `)).join('')}</div><div class="voice-storage-meter"><label for="voice-storage-meter">${this.storage ? `${(bytes/1048576).toFixed(1)} / 50 MiB` : 'Espacio no disponible'}</label><meter id="voice-storage-meter" min="0" max="50" value="${Math.min(50,bytes/1048576)}">${bytes}</meter></div>${button('clear-audio',`${voiceIcon('trash')} Eliminar audios`)}`;
+                return `<div class="voice-retention" role="group" aria-label="Conservación de audio">${VOICE_RETENTION_OPTIONS.map(days => { const { primary, secondary } = voiceRetentionParts(days); return button('retention', `${primary}<span>${secondary}</span>`, !this.adapter.setAudioRetention, String(days)).replace('<button ', `<button aria-pressed="${selectedDays === days}" `); }).join('')}</div><div class="voice-storage-meter"><label for="voice-storage-meter">${this.storage ? `${(bytes/1048576).toFixed(1)} / 50 MiB` : 'Espacio no disponible'}</label><meter id="voice-storage-meter" min="0" max="50" value="${Math.min(50,bytes/1048576)}">${bytes}</meter></div>${button('clear-audio',`${voiceIcon('trash')} Eliminar audios`)}`;
             }
         };
         const markup = `<p role="status">${escapeHTML(this.messageError || record?.error || record?.pendingResult || this.busy ? this.message : '')}</p>${this.storage?.low ? '<section class="voice-review" role="alert">Queda poco espacio para audios. Revisa Ajustes → General → Voz → Grabaciones.</section>' : ''}${views[view]()}`;
