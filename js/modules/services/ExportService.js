@@ -1,3 +1,4 @@
+import { visibleNoteText } from '../features/notes/NoteCardState.js';
 /**
  * 📤 ExportService.js - Motor de Exportación de Datos (CSV/JSON)
  * Parte de la Fase 6: Infraestructura de Sistema (Alpha Refactorizer)
@@ -142,7 +143,7 @@ export class ExportService {
                     Horas: a.hoursWorked || 0,
                     HorasExtra: a.overtimeHours || 0,
                     Festivo: a.isHoliday ? 'Sí' : 'No',
-                    Notas: a.notes || ''
+                    Notas: visibleNoteText(a)
                 };
             });
 

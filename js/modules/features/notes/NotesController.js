@@ -17,11 +17,159 @@ import { ensureAllAttendanceHistory, ensureAttendanceRange, saveApplicationData 
 import { render } from '../../core/RenderManager.js';
 import { entityInScope, peekEntityScope } from '../projects/ProjectContext.js';
 import { assertVoiceFormContext, hasVoiceSource, validVoiceDate } from '../voice/VoiceActionDrafts.js';
+import { readNoteCard, updateNoteCard } from './NoteCardState.js';
+import { notesEmployees, readNotesCards } from './NotesCenterModel.js';
 import { upsertNote, clearNote, noteCanBeEdited } from './NotesService.js';
 
 let voiceNoteContext = null;
 let editor = null;
 let saving = false;
+let center;
+const EMPTY_CENTER = { folder: 'active', search: '', searching: false, selected: null, choosing: false, undo: null };
+
+export function notesCenterView() {
+    const scope = notesScopeKey();
+    if (!center || center.scope !== scope) center = { ...EMPTY_CENTER, scope };
+    return center;
+}
+
+function findCard(key) {
+    return readNotesCards(state).find(card => card.key === key);
+}
+
+function updateNotesView(patch) {
+    Object.assign(notesCenterView(), patch);
+    render();
+}
+
+function persistCard(card, change) {
+    const { record } = card;
+    const key = `${record.employeeId}-${record.date}`;
+    // Initialize a legacy note revision on first use so attendance edits
+    // on other devices cannot erase the note while filing it.
+    const changed = updateNoteCard({
+        ...record, noteUpdatedAt: record.noteUpdatedAt ?? Math.max(0, record.updatedAt || 0)
+    }, change);
+    stateManager.batchSetState(() => {
+        state.attendance[key] = { ...changed, _isDirty: true };
+        invalidateEmployeeStats(record.employeeId);
+        buildAttendanceIndex(record.date);
+    });
+    // Leave the prior text intact even if the device can't persist the filing.
+    Promise.resolve(saveApplicationData({ dateKey: record.date, immediate: true })).then(result => {
+        if (result?.localOk === false) notifyVoiceNote('No se pudo guardar el estado de la nota. Revisa el almacenamiento y vuelve a intentarlo.');
+    }).catch(() => notifyVoiceNote('No se pudo guardar el estado de la nota.'));
+    return changed.noteCard;
+}
+
+export function actOnNoteCard(key, action) {
+    if (!state.showNotesCenter) return;
+    const card = findCard(key);
+    if (!card) return;
+    const view = notesCenterView();
+    if (action === 'open') { updateNotesView({ selected: key }); return; }
+    if (action === 'edit' && card.folder !== 'trash') {
+        openNoteEditor(card.record.employeeId, card.record.date);
+        return;
+    }
+    const previous = readNoteCard(card.record);
+    const changes = {
+        pin: { pinned: !card.pinned },
+        archive: { folder: 'archive', pinned: false },
+        trash: { folder: 'trash', pinned: false },
+        restore: { folder: 'active', pinned: false }
+    };
+    const change = Object.hasOwn(changes, action) ? changes[action] : null;
+    if (!change || action === 'pin' && card.folder !== 'active' ||
+        action === 'archive' && card.folder !== 'active' ||
+        action === 'trash' && card.folder === 'trash' ||
+        action === 'restore' && card.folder === 'active') return;
+    const revision = persistCard(card, change);
+    view.undo = { key, previous, revision, message: {
+        pin: card.pinned ? 'Nota desfijada' : 'Nota fijada',
+        archive: 'Nota archivada', trash: 'Nota en papelera', restore: 'Nota restaurada'
+    }[action] };
+    if (change.folder && view.selected === key) view.selected = null;
+    render();
+}
+
+export function undoNoteCard() {
+    if (!state.showNotesCenter) return;
+    const view = notesCenterView();
+    const undo = view.undo;
+    view.undo = null;
+    const card = undo && findCard(undo.key);
+    if (card && card.updatedAt === undo.revision.updatedAt &&
+        card.folder === undo.revision.folder && card.pinned === undo.revision.pinned) {
+        persistCard(card, undo.previous);
+    }
+    render();
+}
+
+function registerNotesCenterActions() {
+    Object.assign(window, {
+        actOnNoteCard,
+        undoNoteCard,
+        notesBackToInbox: () => updateNotesView({ selected: null, choosing: false }),
+        notesChooseEmployee: () => updateNotesView({ choosing: true }),
+        notesCreateForEmployee: employeeId => {
+            if (!state.showNotesCenter || !notesCenterView().choosing) return;
+            const employee = notesEmployees(state).find(item => String(item.id) === String(employeeId));
+            if (!employee) return;
+            updateNotesView({ choosing: false });
+            openNewNote(employee.id);
+        },
+        notesChooseFolder: folder => {
+            if (['active', 'archive', 'trash'].includes(folder)) updateNotesView({ folder, selected: null, search: '' });
+        },
+        notesToggleSearch: () => {
+            const searching = !notesCenterView().searching;
+            updateNotesView({ searching, search: '' });
+            if (searching) requestAnimationFrame(() => document.querySelector('#notes-search')?.focus());
+        },
+        notesChangeSearch: value => updateNotesView({ search: String(value).slice(0, 200) }),
+        notesDismissFeedback: () => updateNotesView({ undo: null })
+    });
+    registerNoteSwipes();
+}
+
+// Reveal a button rather than filing on release. Vertical scroll and
+// keyboard access to the same command remain available through the menu.
+let swipesRegistered = false;
+function registerNoteSwipes() {
+    if (swipesRegistered) return;
+    swipesRegistered = true;
+    let gesture;
+    let ignoreClickUntil = 0;
+    document.addEventListener('pointerdown', event => {
+        const row = event.target.closest?.('[data-note-swipe]');
+        if (row && event.isPrimary && event.button === 0 && !event.target.closest('summary')) {
+            gesture = { row, x: event.clientX, y: event.clientY, id: event.pointerId };
+        }
+    });
+    document.addEventListener('pointerup', event => {
+        if (!gesture || gesture.id !== event.pointerId) return;
+        const { row, x, y } = gesture;
+        gesture = null;
+        const dx = event.clientX - x;
+        const dy = event.clientY - y;
+        if (!row.isConnected || Math.abs(dx) < 36 || Math.abs(dx) <= Math.abs(dy) * 1.4) return;
+        for (const item of row.closest('.notes-center').querySelectorAll('[data-note-swipe]')) {
+            const reveal = item === row && dx < 0;
+            item.classList.toggle('is-revealed', reveal);
+            item.querySelector('.notes-center__swipe-action').hidden = !reveal;
+        }
+        ignoreClickUntil = Date.now() + 140;
+    });
+    document.addEventListener('pointercancel', () => { gesture = null; });
+    document.addEventListener('click', event => {
+        if (Date.now() < ignoreClickUntil && event.target.closest?.('.notes-center__card-open')) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }
+    }, true);
+}
+
 
 function notesScopeKey() {
     return JSON.stringify([window.currentUser?.uid ?? null, peekEntityScope()]);
@@ -35,6 +183,7 @@ function noteTarget(employeeId, date, scopeKey = notesScopeKey()) {
     if (scopeKey !== notesScopeKey() || !employee || !entityInScope(employee, scope) || row && !entityInScope(row, scope)) {
         throw Error('La nota no pertenece a la cuenta u obra activa.');
     }
+    if (row && readNoteCard(row).folder === 'trash') throw Error('Restaura la nota desde la papelera antes de editar ese día.');
     if (row && !noteCanBeEdited(row)) throw Error('La asistencia de ese día fue eliminada. Revisa el registro antes de guardar una nota.');
     return row;
 }
@@ -70,6 +219,7 @@ export async function loadNotesHistory() {
 }
 
 export function openNotesCenter() {
+    center = { ...EMPTY_CENTER, scope: notesScopeKey() };
     stateManager.batchSetState(() => {
         state.showNotesCenter = true;
         if (!state.notesCenterEmployeeId) {
@@ -81,6 +231,7 @@ export function openNotesCenter() {
 }
 
 export function closeNotesCenter() {
+    center = null;
     changeVoiceNoteDraft();
     editor = null;
     voiceNoteContext = null;
@@ -308,6 +459,7 @@ export function deleteNoteModal() {
  */
 export function registerLegacyGlobals() {
     if (typeof window === 'undefined') return;
+    registerNotesCenterActions();
     window.changeVoiceNoteEmployee = changeVoiceNoteEmployee;
     window.loadNotesHistory = loadNotesHistory;
     window.openNotesCenter = openNotesCenter;
