@@ -1,3 +1,4 @@
+import { visibleNoteText } from '../notes/NoteCardState.js';
 import {
     getDateKey,
     parseDate,
@@ -139,7 +140,7 @@ export function buildAttendanceCardPeriodMetrics({
     const deficitHours = Math.max(0, scheduledHours - creditedRegularHours);
     const deficitDays = Math.max(0, scheduledDays - workedDays);
     const selectedRecord = attendance[`${employee.id}-${selectedKey}`];
-    const selectedDayNote = typeof selectedRecord?.notes === 'string' ? selectedRecord.notes.trim() : '';
+    const selectedDayNote = visibleNoteText(selectedRecord).trim();
 
     return {
         ...range,

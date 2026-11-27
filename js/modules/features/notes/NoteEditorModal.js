@@ -86,16 +86,6 @@ export function NoteEditorModal() {
                                    cursor: pointer;">
                         Guardar
                     </button>
-                    <button type="button" data-app-fn="deleteNoteModal" ${state.noteModalEditing ? '' : 'hidden'}
-                            style="padding: 10px 12px;
-                                   background: #1e293b;
-                                   border: 1px solid #ef4444;
-                                   border-radius: 10px;
-                                   color: #ef4444;
-                                   font-weight: 700;
-                                   cursor: pointer;">
-                        Eliminar
-                    </button>
                     <button type="button" data-app-fn="closeNoteModal"
                             style="flex: 1;
                                    padding: 10px 12px;

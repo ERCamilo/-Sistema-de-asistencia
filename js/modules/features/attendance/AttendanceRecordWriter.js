@@ -96,11 +96,12 @@ export function tombstoneAttendanceWrite(record, now = Date.now()) {
 export function attendanceNoteFields(record) {
     if (!record || !entityInScope(record)) return { notes: '' };
     if (record.deletedAt != null && !Number.isFinite(record.noteUpdatedAt)) return { notes: '' };
-    const { notes = '', noteUpdatedAt, voiceNoteRequests } = record;
+    const { notes = '', noteUpdatedAt, voiceNoteRequests, noteCard } = record;
     return {
         notes,
         ...(Number.isFinite(noteUpdatedAt) ? { noteUpdatedAt } : {}),
-        ...(voiceNoteRequests ? { voiceNoteRequests } : {})
+        ...(voiceNoteRequests ? { voiceNoteRequests } : {}),
+        ...(noteCard ? { noteCard } : {})
     };
 }
 
