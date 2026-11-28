@@ -1,6 +1,16 @@
 {
-  "version": "1.7.156",
+  "version": "1.7.157",
   "changelog": [
+    {
+      "version": "1.7.157",
+      "date": "2026-11-28",
+      "title": "Verificación remota de configuraciones Multiobra",
+      "items": [
+        "Antes de recuperar una configuración huérfana, comprueba en Firebase si su obra original existe, tiene un alias o fue eliminada explícitamente.",
+        "La recuperación se bloquea si el origen no pudo verificarse o la obra todavía existe.",
+        "El diagnóstico .log incluye códigos de verificación anónimos sin divulgar identificadores personales."
+      ]
+    },
     {
       "version": "1.7.156",
       "date": "2026-11-27",

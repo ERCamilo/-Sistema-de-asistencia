@@ -305,6 +305,7 @@ self.SW_PRECACHE_MANIFEST = [
     "./js/modules/features/projects/ProjectOwnershipReconciliation.js",
     "./js/modules/features/projects/ProjectOwnershipRepairService.js",
     "./js/modules/features/projects/ProjectPairDismissals.js",
+    "./js/modules/features/projects/ProjectPayrollConfigOrigin.js",
     "./js/modules/features/projects/ProjectReconciliationUI.js",
     "./js/modules/features/projects/ProjectRegistry.js",
     "./js/modules/features/projects/ProjectSetupService.js",
