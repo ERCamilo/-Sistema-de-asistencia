@@ -2,7 +2,7 @@ import { escapeHTML } from '../../utils/Sanitize.js';
 import { voiceCanProcess, voiceHasPendingWork } from './VoicePending.js';
 import { DOMDiff } from '../../utils/DOMDiff.js';
 import { normalizeVoiceName, voiceAutoMatchLevel } from './VoiceMatching.js';
-import { voiceRetentionPolicy } from './VoiceRetention.js';
+import { voiceRetentionPolicy, voiceRetentionLabel, isValidVoiceRetentionChoice } from './VoiceRetention.js';
 import { voiceAliasCollisions, voiceRecordingInfo, voiceProjectKey, voiceBytes } from './VoiceSettingsData.js';
 import { VoiceSettingsConfigView } from './VoiceSettingsConfigView.js';
 import { VoiceSettingsAliasesView, VoiceSettingsPersonView, VoiceSettingsAliasEditView } from './VoiceSettingsAliasesView.js';
@@ -157,7 +157,7 @@ export class VoiceSettingsUI {
         });
     }
     policy() { return voiceRetentionPolicy(this.adapter.getSettings()); }
-    retentionText() { const p = this.policy(); return p.keep ? `${p.days} ${p.days === 1 ? 'día' : 'días'}` : 'No guardar'; }
+    retentionText() { const p = this.policy(); return p.keep ? voiceRetentionLabel(p.days) : 'No guardar'; }
     aliasesFor(id) { return this.aliases?.find(row => row.employeeId === id)?.aliases || []; }
     aliasCount() { return this.adapter.getEmployees().reduce((sum, employee) => sum + this.aliasesFor(employee.id).length, 0); }
     employee() { return this.adapter.getEmployees().find(employee => employee.id === this.employeeId); }
@@ -262,7 +262,7 @@ export class VoiceSettingsUI {
             }); return;
         }
         if (action === 'retention-days') {
-            const days = Number(value); if (!Number.isInteger(days) || days < 0 || days > 5) return;
+            const days = Number(value); if (!isValidVoiceRetentionChoice(days)) return;
             const old = this.policy(), apply = async generation => {
                 this.guard(generation); await this.adapter.setAudioRetention(days); this.guard(generation);
                 if (this.view === 'confirm') this.view = this.stack.pop() || 'retention';

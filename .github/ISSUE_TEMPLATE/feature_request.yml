@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest an improvement to the application.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the need without including passwords, tokens, or employee data.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: What would you like to change?
+      description: Describe your proposed solution without passwords, tokens, or employee data.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: How will we know it works?
+      description: List observable success criteria without passwords, tokens, or employee data.
+    validations:
+      required: true

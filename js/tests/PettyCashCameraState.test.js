@@ -4,6 +4,7 @@
  */
 import { cameraItemsState, applyReceiptFix, rereadReceipt, copyCameraDiagnostics, PettyCashTab } from '../modules/features/pettycash/PettyCashUI.js';
 import { state } from '../modules/core/AppState.js';
+import { commitAutoSaveSwitch } from '../modules/ui/SettingsUI.js';
 import { SettingsTestsTab } from '../modules/ui/settings/SettingsTestsTab.js';
 
 const seed = (movements) => {
@@ -82,25 +83,52 @@ describe('applyReceiptFix (corregir desde la vista previa)', () => {
 describe('botón Cámara en Caja chica', () => {
     afterEach(() => { state.pettyCash = null; state.settings = {}; });
 
-    test('por defecto usa la cámara del sistema; con la prueba activa abre la cámara nueva', () => {
+    test('por defecto abre la cámara de la app; si se apaga en Pruebas, usa la cámara del sistema', () => {
         seed([]);
         state.settings = {};
         document.body.innerHTML = PettyCashTab();
+        expect(document.querySelector('[data-app-fn="pcOpenCamera"]')).not.toBeNull();
+
+        state.settings = { newReceiptCamera: false };
+        document.body.innerHTML = PettyCashTab();
         expect(document.querySelector('input[capture="environment"][onchange*="pcCameraBatchPhoto"]')).not.toBeNull();
         expect(document.querySelector('[data-app-fn="pcOpenCamera"]')).toBeNull();
-
-        state.settings = { newReceiptCamera: true };
-        document.body.innerHTML = PettyCashTab();
-        expect(document.querySelector('[data-app-fn="pcOpenCamera"]')).not.toBeNull();
     });
 });
 
 describe('Configuración → Tests: cámara de facturas nueva', () => {
-    test('interruptor apagado por defecto y refleja lo guardado', () => {
+    test('interruptor encendido por defecto y refleja lo guardado', () => {
         document.body.innerHTML = SettingsTestsTab({ state: { settings: {} } });
-        expect(document.getElementById('newReceiptCamera').checked).toBe(false);
-        document.body.innerHTML = SettingsTestsTab({ state: { settings: { newReceiptCamera: true } } });
         expect(document.getElementById('newReceiptCamera').checked).toBe(true);
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: { newReceiptCamera: false } } });
+        expect(document.getElementById('newReceiptCamera').checked).toBe(false);
+    });
+});
+
+describe('Configuración → Tests: cámara de facturas 2.1', () => {
+    test('interruptor apagado por defecto, refleja lo guardado y dice qué cambia', () => {
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: {} } });
+        const input = document.getElementById('receiptCamera21');
+        expect(input).not.toBeNull();
+        expect(input.checked).toBe(false);
+        const card = input.closest('section');
+        expect(card.textContent).toContain('2.1');
+        expect(card.textContent).toMatch(/resolución/i);
+        expect(card.textContent).toMatch(/fecha, total y NCF/i);
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: { receiptCamera21: true } } });
+        expect(document.getElementById('receiptCamera21').checked).toBe(true);
+    });
+    test('se guarda en state.settings y dispara el guardado', () => {
+        const st = { settings: {} };
+        const calls = { save: 0 };
+        const deps = { state: st, batchSetState: (cb) => cb(), save: () => { calls.save++; }, now: () => 99 };
+        expect(commitAutoSaveSwitch({ id: 'receiptCamera21', checked: true, deps })).toEqual({ committed: true, key: 'receiptCamera21' });
+        expect(st.settings.receiptCamera21).toBe(true);
+        expect(calls.save).toBe(1);
+    });
+    test('si la cámara de la app está apagada, lo avisa', () => {
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: { newReceiptCamera: false } } });
+        expect(document.getElementById('receiptCamera21').closest('section').textContent).toMatch(/cámara de la app está apagada/i);
     });
 });
 
@@ -128,7 +156,7 @@ describe('Configuración → Tests: diagnóstico de la cámara', () => {
     test('sin datos lo dice; con la cámara apagada no aparece', () => {
         document.body.innerHTML = SettingsTestsTab({ state: { settings: { newReceiptCamera: true } } });
         expect(document.querySelector('[data-pcam-diag]').textContent).toContain('Aún no hay datos');
-        document.body.innerHTML = SettingsTestsTab({ state: { settings: {} } });
+        document.body.innerHTML = SettingsTestsTab({ state: { settings: { newReceiptCamera: false } } });
         expect(document.querySelector('[data-pcam-diag]')).toBeNull();
     });
 

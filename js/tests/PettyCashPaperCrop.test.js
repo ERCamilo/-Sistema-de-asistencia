@@ -33,6 +33,14 @@ describe('detectPaper', () => {
         expect(r.x1 - r.x0).toBeLessThan(0.75);
         expect(m).toBeGreaterThan(0);
     });
+    test('por defecto (cámara 2.0) el margen es de 6 %; la 2.1 pide 3 % y el recorte queda más ajustado', () => {
+        expect(PAPER_MARGIN).toBe(0.06);
+        const wide = detectPaper(paperOn(40, PAPER));
+        const tight = detectPaper(paperOn(40, PAPER), { margin: 0.03 });
+        expect(tight.x1 - tight.x0).toBeLessThan(wide.x1 - wide.x0);
+        expect(tight.x0).toBeLessThanOrEqual(70 / W);
+        expect(tight.y1).toBeGreaterThanOrEqual(260 / H);
+    });
     test('el margen es generoso: ningún borde del papel queda dentro del recorte', () => {
         const r = detectPaper(paperOn(40, PAPER));
         expect(r.x0 * W).toBeLessThan(70 - 2);

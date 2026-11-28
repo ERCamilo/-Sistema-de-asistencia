@@ -1,4 +1,4 @@
-import { voiceAudioExpiry, voiceStorageStatus, VOICE_AUDIO_BUDGET, VOICE_DAY } from './VoiceRetention.js';
+import { voiceAudioExpiry, voiceStorageStatus, VOICE_AUDIO_BUDGET, VOICE_DAY, VOICE_RETENTION_MAX_DAYS } from './VoiceRetention.js';
 import { normalizeVoiceName } from './VoiceCore.js';
 import { voiceCanProcess, voiceKeepPending, voiceRequestDescriptor, VOICE_PROCESSING_LEASE_MS } from './VoicePending.js';
 
@@ -208,7 +208,7 @@ export class VoiceStore {
                     guard();
                     const row = cursor.result; if (!row) return;
                     const r = row.value;
-                    const expiry = voiceAudioExpiry(r, r.uid === uid ? policy : { keep: true, days: 5 });
+                    const expiry = voiceAudioExpiry(r, r.uid === uid ? policy : { keep: true, days: VOICE_RETENTION_MAX_DAYS });
                     if (r.audio && expiry <= now) {
                         if (r.completedLoanId) row.update({ uid: r.uid, projectKey: r.projectKey, requestId: r.requestId, createdAt: r.createdAt, registeredAt: r.registeredAt, completedLoanId: r.completedLoanId, selectedEmployeeId: r.selectedEmployeeId, audioDiscardedAt: now });
                         else if (voiceKeepPending(r)) row.update({ uid: r.uid, projectKey: r.projectKey, requestId: r.requestId, createdAt: r.createdAt, audioDiscardedAt: now, audioDiscardReason: 'expired', processingState: 'expired' });

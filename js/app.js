@@ -62,6 +62,7 @@ import { VoiceNameEnrollmentUI } from './modules/features/voice/VoiceNameEnrollm
 import { NfcIntegration } from './modules/features/nfc/NfcIntegration.js';
 import { VoiceMvpUI } from './modules/features/voice/VoiceUI.js';
 import { VoiceSettingsUI } from './modules/features/voice/VoiceSettingsUI.js';
+import { captureVoiceRetentionUpgradeContext, createVoiceRetentionUpgradePrompt, defaultCanShowVoiceRetentionPrompt } from './modules/features/voice/VoiceRetentionUpgradePrompt.js';
 import { isDeveloperMode } from './modules/ui/settings/DeveloperMode.js';
 import { openVoiceAttendanceEmployee } from './modules/features/voice/VoiceAttendanceNavigation.js';
 import { getTotalDue as voiceLoanTotal, generateInstallmentSchedule as voiceLoanSchedule, validateLoanInput as validateVoiceLoan, round2 as roundVoiceMoney } from './modules/features/loans/LoansService.js';
@@ -1271,6 +1272,7 @@ function reserveVoiceReturn(kind, summary = {}, restore = null) {
         }
     });
 }
+let voiceRetentionUpgradePrompt = null;
 const voiceMvp = new VoiceMvpUI({
     beginReturn: reserveVoiceReturn,
     onSettings: initial => window.openVoiceSettings(initial),
@@ -1286,6 +1288,7 @@ const voiceMvp = new VoiceMvpUI({
     setAudioRetention: days => {
         if (days) commitAutoSaveOption({ name: 'voiceAudioRetentionDays', value: String(days) });
         commitAutoSaveSwitch({ id: 'voiceKeepLoanAudio', checked: days > 0 });
+        voiceRetentionUpgradePrompt?.markSeen();
     },
     notify: (message, type) => window.showNotification?.(message, type),
     getLoanDefaults: employee => ({ periods: getAccountPayPeriods(), previousRate: previousVoiceInterest({ loans: (employee?.loans || []).filter(loan => entityInScope(loan, peekEntityScope())) }), usePrevious: state.settings?.voiceUsePreviousInterest === true }),
@@ -8024,7 +8027,18 @@ function _initOutgoingConflictGuard() {
         // el default existe antes de que cualquier código post-hydrate pregunte
         // por el proyecto activo.
         await initProjectsInfrastructure();
+        const voiceRetentionUpgradeContext = captureVoiceRetentionUpgradeContext();
         startAppUpdates();
+        voiceRetentionUpgradePrompt = createVoiceRetentionUpgradePrompt({
+            getSettings: () => state.settings,
+            setAudioRetention: days => voiceMvp.adapter.setAudioRetention(days),
+            onApplied: () => voiceMvp.refreshStorageStatus({ force: true }),
+            canShow: () => defaultCanShowVoiceRetentionPrompt(document) && !isSettingsDraftDirty(document),
+            subscribeSettings: callback => eventBus.on('render:complete', callback),
+            upgradedFromVersion: voiceRetentionUpgradeContext.upgradedFromVersion,
+            notify: (message, type) => window.showNotification?.(message, type)
+        });
+        voiceRetentionUpgradePrompt.start();
         // La cuenta existente ya tiene roster local: mostrar su asignación
         // pendiente antes del primer render, aunque M2 tenga un marker viejo.
         await refreshProjectReconciliationSnapshot();

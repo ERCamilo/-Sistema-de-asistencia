@@ -317,6 +317,7 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'voiceFeedback',
     'voiceReviewBeforeSend',
     'newReceiptCamera',
+    'receiptCamera21',
     'receiptAutoCrop',
     'receiptStraighten',
     'newPettyCashScreen',
@@ -324,7 +325,7 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'attendancePositionWatermarks'
 ]);
 const AUTO_SAVE_OPTION_VALUES = new Map([
-    ['voiceAudioRetentionDays', new Set(['1', '2', '3', '4', '5'])],
+    ['voiceAudioRetentionDays', new Set(['1', '5', '7', '15', '31'])],
     ['voiceAmbiguousAction', new Set(['loan', 'cash', 'ask'])],
     ['voiceMatchPrecision', new Set(['precise', 'high', 'medium', 'low'])],
     ['attendanceWatermarkVisibility', new Set(['always', 'present'])],
