@@ -15,6 +15,7 @@ import {createLoan} from '/js/modules/features/loans/LoansService.js';
 import {LoanAccountDetail} from '/js/modules/features/loans/LoanAccountView.js';
 import {openVoiceAccountPaymentDraft,laUseClassicView,laSetTab,registerLoanAccountGlobals} from '/js/modules/features/loans/LoanAccountController.js';
 import {openVoiceNoteDraft,registerLegacyGlobals} from '/js/modules/features/notes/NotesController.js';
+import {NotesCenter} from '/js/modules/features/notes/NotesCenter.js';
 import {NoteEditorModal} from '/js/modules/features/notes/NoteEditorModal.js';
 stateManager.batchSetState(()=>{
  state.settings={regularHoursPerDay:8,overtimeFactor:1.5,holidays:[],legacyNavigation:true,voiceMvpEnabled:true,payPeriod:{periodStart:'2026-08-21',periodLength:21,payDay:'2026-09-12'}};
@@ -24,7 +25,7 @@ createLoan(state.employees[0],{principal:1000,interestRate:20,interestIncluded:f
 window.state=state;window.saveCount=0;
 window.showNotification=(message)=>{window.lastNotice=message;};window.showAlert=window.showNotification;
 registerLegacyGlobals();registerLoanAccountGlobals();
-setRootComponent(()=>'<main><h1>Prueba de voz</h1><button id="note" onclick="startAction(&quot;crear_nota&quot;)">Nota por voz</button> <button id="payment" onclick="startAction(&quot;registrar_abono&quot;)">Abono por voz</button>'+ (state.showNoteModal?NoteEditorModal():LoanAccountDetail(state.employees[0]))+'</main>');
+setRootComponent(()=>'<main><h1>Prueba de voz</h1><button id="notes-center-entry" data-app-fn="openNotesCenter">Notas</button><button id="note" onclick="startAction(&quot;crear_nota&quot;)">Nota por voz</button> <button id="payment" onclick="startAction(&quot;registrar_abono&quot;)">Abono por voz</button>'+ (state.showNoteModal?NoteEditorModal():LoanAccountDetail(state.employees[0]))+NotesCenter()+'</main>');
 document.addEventListener('click',event=>{const button=event.target.closest('[data-app-fn]');if(button&&!button.disabled)window[button.dataset.appFn]?.(button.dataset.arg,button.dataset.arg2);});
 const store=new VoiceStore({name:'voice-note-payment-fixture'});
 window.ui=new VoiceMvpUI({getUser:()=>({uid:'fixture'}),getScope:()=>({enabled:false}),getEmployees:()=>state.employees,getSettings:()=>state.settings,isEnabled:()=>true,
@@ -51,7 +52,7 @@ const server=http.createServer((req,res)=>{
   const {default:puppeteer}=await import('puppeteer-core');browser=await puppeteer.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage']});
   const origin='http://127.0.0.1:'+server.address().port;
   for(const width of [320,390,1440]){
-   const page=await browser.newPage(),errors=[],businessRequests=[];await page.setViewport({width,height:844});await page.emulateTimezone('America/Santo_Domingo');
+   const page=await browser.newPage(),errors=[],businessRequests=[];await page.setViewport({width,height:844,hasTouch:true});await page.emulateTimezone('America/Santo_Domingo');
    page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);page.on('request',req=>{if(req.url().startsWith(origin)||req.url().startsWith('blob:')||req.url().startsWith('data:'))req.continue();else{if(/n8n|firestore|identitytoolkit/i.test(req.url()))businessRequests.push(req.url());req.abort();}});
    await page.goto(origin+'/fixture');await page.waitForFunction(()=>window.ready).catch(e=>{throw Error(e.message+' — '+JSON.stringify(errors));});
    await page.click('#note');await page.waitForSelector('#note-modal-text');assert.equal(await page.$eval('#note-modal-text',el=>el.value),'no vino');assert.equal(await page.evaluate(()=>saveCount),0);
@@ -66,12 +67,45 @@ const server=http.createServer((req,res)=>{
    const shot=async name=>{if(process.env.VOICE_ACTION_SHOTS){fs.mkdirSync(process.env.VOICE_ACTION_SHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.VOICE_ACTION_SHOTS,width+'-'+name+'.png')});}};
    await shot('nota');await page.click('[data-app-fn=saveNoteModal]');await page.waitForFunction(()=>saveCount===1&&!state.showNoteModal);
    assert.equal(await page.evaluate(()=>Object.values(state.attendance)[0].present),false);
+   await page.locator('[data-app-fn="closeNotesCenter"]').click();
+   await page.waitForSelector('.notes-center',{hidden:true});
    await page.click('#payment');await page.waitForSelector('#la-channel');assert.equal(await page.$eval('#la-channel',el=>el.value),'');assert.equal(await page.$eval('[data-app-fn=laSave]',el=>el.disabled),true);
    await page.select('#la-channel','cash');await page.waitForFunction(()=>!document.querySelector('[data-app-fn=laSave]').disabled);await checkDesign();await shot('abono');
    const bounds=await page.$eval('.la-md',el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,width:innerWidth};});assert.ok(bounds.left>=0&&bounds.right<=bounds.width+1,JSON.stringify(bounds));
    await page.click('[data-app-fn=laVoiceChangeEmployee]');await page.waitForSelector('[data-voice-view=employees]');assert.equal(await page.evaluate(()=>saveCount),1);
    await page.click('[data-voice-action=select][data-id=a]');await page.waitForSelector('#la-channel');assert.equal(await page.$eval('#la-channel',el=>el.value),'cash');
    await page.click('[data-app-fn=laSave]');await page.waitForFunction(()=>saveCount===2);assert.equal(await page.evaluate(()=>state.employees[0].loans[0].payments[0].amount),500);
+   await page.locator('#notes-center-entry').click();
+   await page.waitForSelector('.notes-center__card-open');
+   assert.match(await page.$eval('.notes-center__card-open',el=>el.textContent),/no vino/);
+   const card=await page.$('.notes-center__card-open'), box=await card.boundingBox();
+   const cdp=await page.createCDPSession();
+   const point={x:Math.round(box.x+box.width-20),y:Math.round(box.y+24)};
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point]});
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:point.x-90,y:point.y}]});
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+   await page.waitForSelector('.notes-center__row.is-revealed');
+   await new Promise(resolve=>setTimeout(resolve,180));
+   await shot('notes-center');
+   await page.locator('.notes-center__swipe-action').click();
+   await page.waitForFunction(()=>!document.querySelector('.notes-center__card-open'));
+   await page.locator('[data-app-fn="undoNoteCard"]').click();
+   await page.waitForSelector('.notes-center__card-open');
+   await page.locator('[data-app-fn="notesToggleSearch"]').click();
+   await page.waitForSelector('#notes-search');
+   await page.type('#notes-search','mendez');
+   assert.equal(await page.$eval('#notes-search',el=>el.value),'mendez');
+   await page.locator('.notes-center__card-open').click();
+   await page.waitForSelector('.notes-center__detail');
+   await page.locator('.notes-center__header summary').click();
+   await page.locator('.notes-center__header [data-arg2="trash"]').click();
+   await page.locator('[data-app-fn="notesChooseFolder"][data-arg="trash"]').click();
+   await page.locator('.notes-center__card summary').click();
+   await page.locator('.notes-center__card [data-arg2="restore"]').click();
+   await page.locator('[data-app-fn="notesChooseFolder"][data-arg="active"]').click();
+   await page.waitForSelector('.notes-center__card-open');
+   const centerBounds=await page.$eval('.notes-center__shell',el=>({width:el.scrollWidth,viewport:innerWidth}));
+   assert.ok(centerBounds.width<=centerBounds.viewport);
    assert.deepEqual(errors,[]);assert.deepEqual(businessRequests,[]);console.log('Voz notas/abonos '+width+'px: original forms, review, change employee, one save, no cloud calls');await page.close();
   }
  }finally{if(browser)await browser.close();server.close();}

@@ -27,6 +27,8 @@
 
 import { effectiveProjectId, peekEntityScope } from '../projects/EntityProjectScope.js';
 
+import { readNoteCard } from '../notes/NoteCardState.js';
+
 export function mergeAttendanceRecords(local, incoming) {
     const merged = { ...(local || {}) };
     const scope = peekEntityScope();
@@ -58,6 +60,16 @@ export function mergeAttendanceRecords(local, incoming) {
                 delete combined.voiceNoteRequests;
                 if (noteRecord.voiceNoteRequests) combined.voiceNoteRequests = noteRecord.voiceNoteRequests;
                 merged[key] = combined;
+            }
+        }
+        // Filing changes are independent even from the note text revision.
+        if (sameProject) {
+            const localCard = readNoteCard(localRecord);
+            const incomingCard = readNoteCard(incomingRecord);
+            const card = incomingCard.updatedAt > localCard.updatedAt ? incomingCard : localCard;
+            const current = readNoteCard(merged[key]);
+            if (card.updatedAt && (current.updatedAt !== card.updatedAt || current.folder !== card.folder || current.pinned !== card.pinned)) {
+                merged[key] = { ...merged[key], noteCard: card };
             }
         }
         // empate o incoming más viejo → se conserva local (ya está en merged)

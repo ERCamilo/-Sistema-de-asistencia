@@ -53,6 +53,7 @@ import {
     payrollClosureBlockerMessage
 } from './PayrollClosureUI.js';
 import { renderPayrollHistoryView } from './PayrollHistoryUI.js';
+import { printPayrollHistoryClosure } from './PayrollHistoryPrint.js';
 import { buildClosureReview, voidDuplicatePayrollClosure } from './PayrollClosureReview.js';
 import {
     applyRegistrationLoans,
@@ -277,6 +278,7 @@ const _ACTION_MAP = {
     'prepare-payroll-correction': (closureId) => window.PayrollUI?.preparePayrollCorrection?.(closureId),
     'open-payroll-history-detail': (closureId) => window.PayrollUI?.openPayrollHistoryDetail?.(closureId),
     'close-payroll-history-detail': () => window.PayrollUI?.closePayrollHistoryDetail?.(),
+    'print-payroll-history-detail': () => window.PayrollUI?.printPayrollHistoryDetail?.(),
     'remove-duplicate-payroll-closure': (closureId) => window.PayrollUI?.removeDuplicatePayrollClosure?.(closureId),
     'start-payroll-registration': (period, target) => window.PayrollUI?.startPayrollRegistration?.(
         period,
@@ -5077,6 +5079,21 @@ export async function openPayrollHistoryDetail(closureId) {
     context?.render?.();
     if (payrollHistoryState.selectedClosure) {
         focusPayrollHistoryControl('close-payroll-history-detail');
+    }
+}
+
+export function printPayrollHistoryDetail() {
+    if (!payrollHistoryState.selectedClosure || payrollHistoryState.loading || payrollHistoryState.error) {
+        window.showNotification?.('Abre un cierre completo antes de imprimir.', 'warning');
+        return null;
+    }
+    try {
+        return printPayrollHistoryClosure(payrollHistoryState.selectedClosure, {
+            leaderId: payrollHistoryState.detailFilters.leaderId
+        });
+    } catch (error) {
+        window.showNotification?.(error.message || 'No se pudo preparar la impresión.', 'error');
+        return null;
     }
 }
 

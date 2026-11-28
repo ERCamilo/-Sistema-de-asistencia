@@ -9,6 +9,7 @@
  * sibling files; the UI will use these helpers instead of inlining the logic.
  */
 
+import { readNoteCard, updateNoteCard } from './NoteCardState.js';
 import { stampBirthProject } from '../attendance/AttendanceRecordWriter.js';
 
 // Legacy tombstones may carry stale text. A versioned note has its own
@@ -45,8 +46,8 @@ export function upsertNote(state, employeeId, dateKey, text, opts = {}) {
     // F1.5: una nota que NACE con registro mínimo también nace project-aware;
     // un registro preexistente conserva su propio dueño (jamás re-etiquetado).
     const previous = state.attendance[key];
-    if (previous && !noteCanBeEdited(previous)) return null;
-    const existing = previous ? { ...previous } : stampBirthProject({
+    if (previous && (!noteCanBeEdited(previous) || readNoteCard(previous).folder === 'trash')) return null;
+    let existing = previous ? { ...previous } : stampBirthProject({
         employeeId,
         date: dateKey,
         present: false,
@@ -59,6 +60,7 @@ export function upsertNote(state, employeeId, dateKey, text, opts = {}) {
         updatedAt: -1
     });
 
+    if (!previous?.notes && previous?.noteCard) existing = updateNoteCard(existing, { folder: 'active', pinned: false });
     if (opts.voiceSource) existing.voiceNoteRequests = [...(existing.voiceNoteRequests || []), { ...opts.voiceSource }];
     existing.notes = trimmed;
     existing.noteUpdatedAt = Math.max(Date.now(), (previous?.noteUpdatedAt || 0) + 1);

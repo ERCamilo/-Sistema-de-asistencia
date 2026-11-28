@@ -5,6 +5,7 @@
  * desde el navegador, sin afectar datos reales del usuario.
  */
 
+import { receiptCameraEnabled } from '../../features/pettycash/PettyCashCameraProfile.js';
 import icons from '../IconSystem.js';
 import { createCameraDiagnostics } from '../../features/pettycash/PettyCashCameraDiagnostics.js';
 import { SettingsNfcReadTestCard } from './NfcReadTest.js';
@@ -95,20 +96,38 @@ function cameraDiagnosticsBlock() {
                 </div>`;
 }
 
-// Prueba de la cámara de facturas a pantalla completa (PettyCashCamera.js).
+// Cámara de facturas a pantalla completa (PettyCashCamera.js): activa por defecto, se puede apagar.
 function newReceiptCameraCard(settings = {}) {
-    const on = settings.newReceiptCamera === true;
+    const on = receiptCameraEnabled(settings);
     return `
             <section class="stg-card" aria-labelledby="new-receipt-camera-test-title" style="margin-bottom:20px;">
-                <h3 id="new-receipt-camera-test-title">Cámara de facturas nueva</h3>
+                <h3 id="new-receipt-camera-test-title">Cámara de facturas</h3>
                 <label class="stg-switch-row ${on ? 'is-active' : ''}" role="switch" aria-checked="${on}">
                     <input type="checkbox" id="newReceiptCamera" ${on ? 'checked' : ''}>
                     <span class="stg-switch-copy">
                         <strong>Cámara a pantalla completa en Caja chica</strong>
-                        <small>Varias fotos seguidas, con las facturas en una pila junto al disparador y vista previa de cada una. Si el navegador no lo permite, se usa la cámara del teléfono.</small>
+                        <small>Activa por defecto (versión 2.0). Varias fotos seguidas, con las facturas en una pila junto al disparador y vista previa de cada una. Apágala para usar la cámara del teléfono; si el navegador no la permite, también se usa la del teléfono.</small>
                     </span>
                     <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
                 </label>${on ? cameraDiagnosticsBlock() : ''}
+            </section>`;
+}
+
+// Cámara de facturas 2.1 (PettyCashCameraProfile.js): prueba, apagada por defecto.
+function receiptCamera21Card(settings = {}) {
+    const on = settings.receiptCamera21 === true;
+    const off = !receiptCameraEnabled(settings);
+    return `
+            <section class="stg-card" aria-labelledby="receipt-camera-21-title" style="margin-bottom:20px;">
+                <h3 id="receipt-camera-21-title">Cámara de facturas 2.1</h3>
+                <label class="stg-switch-row ${on ? 'is-active' : ''}" role="switch" aria-checked="${on}">
+                    <input type="checkbox" id="receiptCamera21" ${on ? 'checked' : ''}>
+                    <span class="stg-switch-copy">
+                        <strong>Probar la versión 2.1 de la cámara</strong>
+                        <small>Fotos con más resolución sin pesar más (las facturas largas y angostas conservan su ancho), y más resolución para el lector y la vista previa. El recorte deja menos fondo. Al tocar el visor enfoca y mide la luz en ese punto en más teléfonos, y si disparas enseguida espera a que enfoque. En la revisión rápida, botones de fecha, total y NCF que llevan a cada dato en la foto, además del RNC y el ITBIS.${off ? ' <b>La cámara de la app está apagada:</b> enciéndela arriba para usar esta versión.' : ''}</small>
+                    </span>
+                    <span class="stg-switch-track" aria-hidden="true"><span class="stg-switch-handle"></span></span>
+                </label>
             </section>`;
 }
 
@@ -207,7 +226,7 @@ export function SettingsTestsTab(context) {
     const state = context?.state || {};
     const splitxActiveUrl = state.settings?.splitxUrl || 'https://splitx.erlin.do';
 
-    const experiments = `${SettingsNfcReadTestCard(NfcSettingsFields())}${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}${receiptAutoCropCard(state.settings)}${receiptStraightenCard(state.settings)}${newPettyCashScreenCard(state.settings)}${pettyCashReadConfidenceCard(state.settings)}`;
+    const experiments = `${SettingsNfcReadTestCard(NfcSettingsFields())}${newBottomNavCard(state.settings)}${newReceiptCameraCard(state.settings)}${receiptCamera21Card(state.settings)}${receiptAutoCropCard(state.settings)}${receiptStraightenCard(state.settings)}${newPettyCashScreenCard(state.settings)}${pettyCashReadConfidenceCard(state.settings)}`;
     const diagnostics = `            <div class="stg-header" style="margin-bottom: 20px;">
                 <div>
                     <h3>Pruebas del Sistema</h3>

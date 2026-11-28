@@ -29,7 +29,8 @@ export function createReceiptQueueProcessor({
     now = () => Date.now(),
     setTimer = (callback, delay) => setTimeout(callback, delay),
     clearTimer = (timer) => clearTimeout(timer),
-    onProgress = () => {}
+    onProgress = () => {},
+    prepareForOcr = prepareReceiptForOcr
 }) {
     let running = false;
     let retryTimer = null;
@@ -116,7 +117,8 @@ export function createReceiptQueueProcessor({
                 await notify();
 
                 try {
-                    const prepared = await prepareReceiptForOcr(job.originalBlob);
+                    // La cámara 2.1 guarda con qué ancho se lee su foto; las demás usan el de siempre.
+                    const prepared = await prepareForOcr(job.originalBlob, Number(job.ocrMaxWidth) > 0 ? { maxWidth: Number(job.ocrMaxWidth) } : {});
                     const raw = await requestReceiptOcr({
                         url: getOcrUrl(),
                         idToken,

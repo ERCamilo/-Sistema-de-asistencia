@@ -11,6 +11,9 @@ export class Attendance {
         this.positionHours = data.positionHours || [];
         if (data.positionAssignments) this.positionAssignments = data.positionAssignments;
         this.notes = data.notes || '';
+        if (Number.isFinite(data.noteUpdatedAt)) this.noteUpdatedAt = data.noteUpdatedAt;
+        if (data.noteCard) this.noteCard = data.noteCard;
+        if (Array.isArray(data.voiceNoteRequests)) this.voiceNoteRequests = data.voiceNoteRequests;
         this.deviceId = data.deviceId || null;
         // Fase 1 (U1a): frescura por-registro. `updatedAt` sobrevive el
         // round-trip persistir→cargar (antes se descartaba acá y en toJSON),
@@ -79,6 +82,9 @@ export class Attendance {
             positionHours: this.positionHours,
             ...(this.positionAssignments ? { positionAssignments: this.positionAssignments } : {}),
             notes: this.notes,
+            ...(Number.isFinite(this.noteUpdatedAt) ? { noteUpdatedAt: this.noteUpdatedAt } : {}),
+            ...(this.noteCard ? { noteCard: this.noteCard } : {}),
+            ...(this.voiceNoteRequests ? { voiceNoteRequests: this.voiceNoteRequests } : {}),
             // Fase 1 (U1a): persistir/subir la frescura y el tombstone. El
             // null explícito de deletedAt importa — Firestore distingue
             // ausencia de null, y el merge por-registro chequea != null.

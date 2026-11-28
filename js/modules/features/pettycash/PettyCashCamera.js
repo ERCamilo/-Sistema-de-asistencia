@@ -28,7 +28,9 @@
  * Probado en js/tests/PettyCashCamera.test.js.
  */
 import { parseReceiptDate, fixesFor, validateFixInput } from './PettyCashReceiptChecks.js';
-import { stitchParts, bottomBand, liveAlignment, OVERLAP_FRACTION } from './PettyCashStitch.js';
+import { QUICK_FIELDS } from './PettyCashCameraData.js';
+import { CAMERA_V2 } from './PettyCashCameraProfile.js';
+import { stitchParts, bottomBand, liveAlignment, OVERLAP_FRACTION, MAX_STITCH_WIDTH } from './PettyCashStitch.js';
 import { takeShot, renderShot, encodeImage, photoFromShot, extensionFor } from './PettyCashCapture.js';
 import { assessCapturedShot } from './PettyCashShotQuality.js';
 import { cropShotToPaper } from './PettyCashPaperCrop.js';
@@ -132,6 +134,10 @@ const shortDate = (iso) => {
     const [, m, d] = iso.split('-').map(Number);
     return `${d} ${MONTHS[m - 1]}`;
 };
+const longDate = (iso) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : String(iso || '');
+};
 const tag = (text, kind = '') => `<span class="pcam-tag${kind ? ` is-${kind}` : ''}">${text}</span>`;
 
 /** Cuerpo de un aviso: lo leído frente a lo calculado o lo que falta. */
@@ -160,8 +166,8 @@ function issueBody(issue) {
     }
 }
 
-/** Ancho máximo de cada parte de una factura larga en memoria (la unión sale a 1600 px). */
-const PART_MAX_WIDTH = 1600;
+/** Ancho máximo de cada parte de una factura larga en memoria (el mismo de la unión; la cámara 2.1 pide más). */
+const PART_MAX_WIDTH = MAX_STITCH_WIDTH;
 
 /** Texto de cada botón para resolver un aviso (ver fixesFor). */
 function fixLabel(issue, fix) {
@@ -179,14 +185,14 @@ function fixLabel(issue, fix) {
 }
 const FIX_PLACEHOLDER = { ncf: 'B0100000000', rnc: 'RNC o cédula', 'rnc-client': 'RNC del cliente', amount: '0.00', date: 'dd/mm/aaaa' };
 
-async function defaultToBitmap(blob, doc) {
+async function defaultToBitmap(blob, doc, maxWidth = PART_MAX_WIDTH) {
     if (typeof globalThis.createImageBitmap === 'function') {
         // Las partes se guardan en memoria hasta unirlas: se reducen para no gastar de más.
         const bitmap = await globalThis.createImageBitmap(blob);
-        if (bitmap.width <= PART_MAX_WIDTH) return bitmap;
+        if (bitmap.width <= maxWidth) return bitmap;
         const resized = await globalThis.createImageBitmap(bitmap, {
-            resizeWidth: PART_MAX_WIDTH,
-            resizeHeight: Math.round(bitmap.height * (PART_MAX_WIDTH / bitmap.width)),
+            resizeWidth: maxWidth,
+            resizeHeight: Math.round(bitmap.height * (maxWidth / bitmap.width)),
             resizeQuality: 'high'
         });
         bitmap.close?.();
@@ -245,9 +251,13 @@ function defaultDrawGhost(canvas, bitmap) {
  */
 /** Lo que dura el enfoque en el punto tocado antes de volver al enfoque continuo. */
 export const FOCUS_HOLD_MS = 3000;
+/** `view.focus` cuando lo resaltado es un dato de la vista rápida (no un aviso). */
+const JUMP_FOCUS = 1000;
+/** Tiempo que se le da al enfoque tras tocar el visor: un disparo antes de esto espera lo que falte. */
+export const FOCUS_SETTLE_MS = 450;
 /** Lo que se pide al abrir la cámara. `applyConstraints` reemplaza el conjunto: se repite al enfocar o encender la linterna. */
-const VIDEO_CONSTRAINTS = { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1440 }, aspectRatio: { ideal: 4 / 3 } };
-const withAdvanced = (advanced) => ({ ...VIDEO_CONSTRAINTS, advanced: [advanced] });
+// La cámara 2.1 pide 2560 × 1920 (≈ 5 MP): donde no hay foto del sensor (iPhone) la foto sale del video.
+const videoConstraints = (profile = CAMERA_V2) => ({ facingMode: 'environment', width: { ideal: profile.video.width }, height: { ideal: profile.video.height }, aspectRatio: { ideal: 4 / 3 } });
 const TAP_SLOP_PX = 10;
 const TAP_MAX_MS = 500;
 
@@ -256,10 +266,12 @@ export function createReceiptCamera({
     mediaDevices = globalThis.navigator?.mediaDevices,
     grabFrame = (video, track) => takeShot({ video, track, doc }),
     assessShot = (shot) => assessCapturedShot(shot, { doc }),
+    /** Versión de la cámara (PettyCashCameraProfile.js): 2.0 por defecto, 2.1 en Pruebas. Se lee al abrir. */
+    profile = () => CAMERA_V2,
     autoCrop = () => false,
-    cropShot = (shot) => cropShotToPaper(shot, { doc }),
+    cropShot = (shot) => cropShotToPaper(shot, { doc, margin: profile().paperMargin }),
     straighten = () => false,
-    straightenShot = (shot, hooks) => straightenShotToPaper(shot, { doc, ...hooks }),
+    straightenShot = (shot, hooks) => straightenShotToPaper(shot, { doc, margin: profile().straightenMargin, ...hooks }),
     capture,
     getItemsState = async () => new Map(),
     onReview = () => {},
@@ -273,8 +285,8 @@ export function createReceiptCamera({
     vibrate = (p) => { try { globalThis.navigator?.vibrate?.(p); } catch (_) { /* opcional */ } },
     fallbackPick = () => {},
     periodLabel = () => '',
-    toBitmap = (shot) => (shot instanceof Blob ? defaultToBitmap(shot, doc) : renderShot(shot, { doc, maxWidth: PART_MAX_WIDTH })),
-    toPhoto = (shot) => photoFromShot(shot, { doc }),
+    toBitmap = (shot) => (shot instanceof Blob ? defaultToBitmap(shot, doc, profile().stitchWidth) : renderShot(shot, { doc, maxWidth: profile().stitchWidth })),
+    toPhoto = (shot) => photoFromShot(shot, { doc, photo: profile().photo }),
     stitch = (bitmaps, options) => stitchParts(doc, bitmaps, options),
     makeBand = (bitmap) => bottomBand(doc, bitmap),
     checkAlignment = (video, band) => liveAlignment(doc, video, band),
@@ -282,6 +294,8 @@ export function createReceiptCamera({
     drawGhostContext = defaultDrawGhostContext
 } = {}) {
     let root = null;
+    let P = CAMERA_V2;      // versión de la cámara de esta sesión (se lee al abrir)
+    const withAdvanced = (advanced) => ({ ...videoConstraints(P), advanced: [advanced] });
     let stream = null;
     let track = null;
     let torchOn = false;
@@ -409,7 +423,12 @@ export function createReceiptCamera({
 
     const itemSig = (item) => JSON.stringify([item.state, item.reason, item.issues, item.notes, item.data]);
 
-    const dataRows = (data = {}) => {
+    /**
+     * Cámara 2.1 — vista rápida: botones de fecha, total y NCF que acercan la foto a su recuadro (para
+     * comprobar el dato de un vistazo), y debajo el resto de lo leído.
+     */
+    /** Cámara 2.0: comercio, NCF, total y categoría, como siempre. */
+    const plainRows = (data = {}) => {
         const rows = [
             ['Comercio', data.paidTo], ['NCF', data.ncf],
             ['Total', data.total ?? data.amount], ['Categoría', data.category]
@@ -417,6 +436,24 @@ export function createReceiptCamera({
         return rows.length
             ? `<dl class="pcam-rows">${rows.map(([k, v]) => `<div class="pcam-in"><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`
             : '';
+    };
+
+    const dataRows = (data = {}) => {
+        if (!P.quickReview) return plainRows(data);
+        const boxes = data.boxes || {};
+        const quick = QUICK_FIELDS.map(([key, label]) => {
+            const raw = key === 'total' ? (data.total ?? data.amount) : data[key];
+            if (raw === undefined || raw === null || raw === '') return '';
+            const value = key === 'date' ? longDate(raw) : raw;
+            const can = !!boxes[key];
+            return `<button type="button" class="pcam-jump" data-pcam-jump="${key}" aria-pressed="${view.jump === key}"${can ? ` aria-label="${label}: ${esc(value)}. Ver en la foto"` : ' disabled title="Sin ubicación en la foto"'}><span>${can ? '⌖ ' : ''}${label}</span><b>${esc(value)}</b></button>`;
+        }).join('');
+        const rows = [
+            ['Comercio', data.paidTo], ['RNC', data.rncEmisor], ['ITBIS', data.itbis], ['Categoría', data.category]
+        ].filter(([, v]) => v !== undefined && v !== null && v !== '');
+        return `${quick ? `<div class="pcam-quick pcam-in">${quick}</div>` : ''}${rows.length
+            ? `<dl class="pcam-rows">${rows.map(([k, v]) => `<div class="pcam-in"><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`
+            : ''}`;
     };
 
     /** Botones para resolver el aviso aquí mismo (usar lo calculado, escribir el dato, darlo por bueno). */
@@ -574,9 +611,10 @@ export function createReceiptCamera({
         if (hint) hint.textContent = view.s > 1 ? `${Math.round(view.s * 100)}% · arrastra para mover` : 'Toca dos veces para acercar';
         if (!keepFocus && view.focus >= 0) {
             view.focus = -1;
+            view.jump = null;
             const hl = q('[data-pcam-hl]');
             if (hl) hl.hidden = true;
-            root?.querySelectorAll('[data-pcam-issue]').forEach(b => b.setAttribute('aria-pressed', 'false'));
+            root?.querySelectorAll('[data-pcam-issue], [data-pcam-jump]').forEach(b => b.setAttribute('aria-pressed', 'false'));
         }
     };
     const setZoom = (s, px = view.px, py = view.py) => {
@@ -602,25 +640,37 @@ export function createReceiptCamera({
         const dy = (clientY ?? r.top + r.height / 2) - (r.top + r.height / 2);
         setZoom(s, -dx * (s - 1), -dy * (s - 1));
     };
-    /** Enfoca el recuadro [y0, x0, y1, x1] (0–1000) del aviso `index`. */
-    const focusIssue = (index) => {
-        const issue = items[previewIndex]?.issues?.[index];
-        if (!issue?.box) return;
-        const [y0, x0, y1, x1] = highlightBox(issue.box);
+    /** Acerca la foto al recuadro [y0, x0, y1, x1] (0–1000) y lo resalta. */
+    const zoomToBox = (box, mark) => {
+        const [y0, x0, y1, x1] = highlightBox(box);
         const { pw, ph, w, h } = photoBox();
         const bw = ((x1 - x0) / 1000) * w;
         const bh = ((y1 - y0) / 1000) * h;
         const s = Math.max(1.6, Math.min(MAX_ZOOM, bw && bh ? Math.min((pw * 0.75) / bw, (ph * 0.35) / bh) : MAX_ZOOM));
         const cx = (((x0 + x1) / 2000) - 0.5) * w;
         const cy = (((y0 + y1) / 2000) - 0.5) * h;
-        view = { ...view, ...clampView(s, -cx * s, -cy * s), focus: index };
+        view = { ...view, ...clampView(s, -cx * s, -cy * s), ...mark };
         applyView({ keepFocus: true });
         const hl = q('[data-pcam-hl]');
         Object.assign(hl.style, { top: `${y0 / 10}%`, left: `${x0 / 10}%`, height: `${(y1 - y0) / 10}%`, width: `${(x1 - x0) / 10}%` });
         hl.hidden = false;
         restart(hl, 'is-on');
-        root.querySelectorAll('[data-pcam-issue]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.pcamIssue) === index)));
+        root.querySelectorAll('[data-pcam-issue]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.pcamIssue) === view.focus && !view.jump)));
+        root.querySelectorAll('[data-pcam-jump]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.pcamJump === view.jump)));
         vibrate(8);
+    };
+    /** Enfoca el recuadro del aviso `index`. */
+    const focusIssue = (index) => {
+        const issue = items[previewIndex]?.issues?.[index];
+        if (!issue?.box) return;
+        zoomToBox(issue.box, { focus: index, jump: null });
+    };
+    /** Botón rápido (fecha, total, NCF): lleva al dato en la foto; otra vez, vuelve a la foto completa. */
+    const jumpTo = (key) => {
+        const box = items[previewIndex]?.data?.boxes?.[key];
+        if (!box) return;
+        if (view.jump === key) { setZoom(1); return; }
+        zoomToBox(box, { focus: JUMP_FOCUS, jump: key });
     };
 
     const onPhotoDown = (event) => {
@@ -950,7 +1000,7 @@ export function createReceiptCamera({
             let info = {};
             const parts = long.parts.length;
             const hints = long.parts.slice(1).map(p => p.hint ?? null);
-            const blob = await stitch(long.parts.map(p => p.bitmap), { onInfo: (i) => { info = i || {}; }, hints });
+            const blob = await stitch(long.parts.map(p => p.bitmap), { onInfo: (i) => { info = i || {}; }, hints, maxWidth: P.stitchWidth });
             note('stitch', { parts, found: info.found ?? null, total: info.total ?? null, ms: Math.round(clock() - stitchStart) });
             const type = blob.type || 'image/jpeg';
             const file = new File([blob], `factura-larga-${Date.now()}.${extensionFor(type)}`, { type });
@@ -988,6 +1038,10 @@ export function createReceiptCamera({
         if (grabbing || !root) return;
         grabbing = true;
         q('[data-pcam-shutter]')?.setAttribute('aria-busy', 'true');
+        // Recién se tocó para enfocar: se espera a que termine, si no la foto sale borrosa.
+        const settle = P.focusAtPoint ? focusSettleLeft() : 0;
+        if (settle > 0) await new Promise((resolve) => setTimeout(resolve, settle));
+        if (!root) { grabbing = false; return; }
         vibrate(12);
         flash();
         // Factura larga: la franja para alinear en vivo sale del mismo video que
@@ -1092,10 +1146,17 @@ export function createReceiptCamera({
     };
     const setupFocus = () => { if (focusModes().includes('continuous')) applyFocus({ focusMode: 'continuous' }); };
     const hideFocusRing = () => { const ring = q('[data-pcam-focus-ring]'); if (ring) ring.hidden = true; };
+    const capabilities = () => { try { return track?.getCapabilities?.() || {}; } catch (_) { return {}; } };
+    // Sin enfoque de un toque, muchos Android aceptan igual el punto de interés con el enfoque continuo
+    // (lo anuncian en getSettings): enfocan y miden la luz en esa zona.
+    const pointsSupported = () => { try { return 'pointsOfInterest' in (track?.getSettings?.() || {}); } catch (_) { return false; } };
+    let lastTapAt = 0;
     const focusAt = async (clientX, clientY) => {
         const modes = focusModes();
         const frame = q('[data-pcam-frame]');
-        if (!modes.includes('single-shot') || !frame) return;
+        const single = modes.includes('single-shot');
+        const continuousAtPoint = P.focusAtPoint && !single && modes.includes('continuous') && pointsSupported();
+        if ((!single && !continuousAtPoint) || !frame) return;
         const rect = frame.getBoundingClientRect();
         if (!(rect.width > 0) || !(rect.height > 0)) return;
         const unit = (n) => Math.min(1, Math.max(0, n));
@@ -1103,7 +1164,10 @@ export function createReceiptCamera({
         const y = unit((clientY - rect.top) / rect.height);
         const ring = q('[data-pcam-focus-ring]');
         if (ring) { ring.style.left = `${Math.round(clientX - rect.left)}px`; ring.style.top = `${Math.round(clientY - rect.top)}px`; ring.hidden = false; restart(ring, 'is-on'); }
-        await applyFocus({ focusMode: 'single-shot', pointsOfInterest: [{ x, y }] });
+        lastTapAt = Date.now();
+        // La luz también se mide en el punto tocado, si el teléfono lo permite: el papel blanco no sale quemado.
+        const exposure = P.focusAtPoint && (capabilities().exposureMode || []).includes?.('continuous') ? { exposureMode: 'continuous' } : {};
+        await applyFocus({ focusMode: single ? 'single-shot' : 'continuous', ...exposure, pointsOfInterest: [{ x, y }] });
         clearTimeout(focusTimer);
         focusTimer = setTimeout(() => {
             focusTimer = null;
@@ -1111,6 +1175,8 @@ export function createReceiptCamera({
             if (root && modes.includes('continuous')) applyFocus({ focusMode: 'continuous' });
         }, FOCUS_HOLD_MS);
     };
+    /** Lo que falta para que el enfoque tras un toque termine (0 si no hubo toque reciente). */
+    const focusSettleLeft = () => Math.max(0, FOCUS_SETTLE_MS - (Date.now() - lastTapAt));
     const onFrameDown = (event) => { tapStart = { id: event.pointerId, x: event.clientX, y: event.clientY, t: Date.now() }; };
     const onFrameUp = (event) => {
         const start = tapStart;
@@ -1273,6 +1339,7 @@ export function createReceiptCamera({
         if (t.matches('[data-pcam-zoom-out]')) { setZoom(Math.ceil(view.s) - 1); return; }
         if (t.matches('[data-pcam-zoom-fit]')) { fitWidth(); return; }
         if (t.matches('[data-pcam-issue]')) { focusIssue(Number(t.dataset.pcamIssue)); return; }
+        if (t.matches('[data-pcam-jump]')) { jumpTo(t.dataset.pcamJump); return; }
         const action = t.dataset.pcamAction;
         if (action === 'back') closePreview();
         else if (action === 'finish') finish();
@@ -1297,6 +1364,7 @@ export function createReceiptCamera({
 
     async function open() {
         if (root) return;
+        try { P = profile() || CAMERA_V2; } catch (_) { P = CAMERA_V2; }
         if (!mediaDevices?.getUserMedia) {
             notify('Este navegador no permite usar la cámara dentro de la app. Se abrirá la cámara del teléfono.', 'warning');
             fallbackPick();
@@ -1304,7 +1372,7 @@ export function createReceiptCamera({
         }
         try {
             // 4:3 como el sensor: así la foto completa (takePhoto) coincide con lo que se ve.
-            stream = await mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS, audio: false });
+            stream = await mediaDevices.getUserMedia({ video: videoConstraints(P), audio: false });
         } catch (error) {
             stream = null;
             notify('No se pudo abrir la cámara dentro de la app. Se abrirá la cámara del teléfono.', 'warning');
@@ -1354,7 +1422,7 @@ export function createReceiptCamera({
         clearTimeout(receivedTimer); receivedTimer = null;
         clearTimeout(tipTimer); tipTimer = null;
         clearTimeout(advanceTimer); advanceTimer = null;
-        clearTimeout(focusTimer); focusTimer = null; tapStart = null;
+        clearTimeout(focusTimer); focusTimer = null; tapStart = null; lastTapAt = 0;
         pending = false;
         stopAlign();
         releaseParts();
