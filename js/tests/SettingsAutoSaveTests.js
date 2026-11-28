@@ -207,14 +207,15 @@ testRunner.addSuite('SettingsUI — conservación de audio', {
         testRunner.assert(!commitAutoSaveOption({name:'voiceMatchPrecision',value:'0.1',deps}).committed);
         testRunner.assertEquals(calls.save,4);
     },
-    'acepta de uno a cinco días y rechaza valores fuera del dominio'() {
+    'acepta 1, 5, 7, 15 y 31 días y rechaza valores fuera del dominio'() {
         const {deps,st,calls}=makeHarness();
-        for (const value of ['1','2','3','4','5']) {
+        for (const value of ['1','5','7','15','31']) {
             testRunner.assert(commitAutoSaveOption({name:'voiceAudioRetentionDays',value,deps}).committed);
             testRunner.assertEquals(st.settings.voiceAudioRetentionDays,value);
         }
-        testRunner.assert(!commitAutoSaveOption({name:'voiceAudioRetentionDays',value:'6',deps}).committed);
-        testRunner.assert(!commitAutoSaveOption({name:'voiceAudioRetentionDays',value:'0',deps}).committed);
+        for (const invalid of ['0','2','3','4','6','32']) {
+            testRunner.assert(!commitAutoSaveOption({name:'voiceAudioRetentionDays',value:invalid,deps}).committed);
+        }
         testRunner.assertEquals(calls.save,5);
     }
 });

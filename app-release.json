@@ -12,6 +12,15 @@
       ]
     },
     {
+      "version": "1.7.156",
+      "date": "2026-11-27",
+      "title": "Nuevos plazos para conservar audios de préstamos",
+      "items": [
+        "Elige conservar los audios de préstamos por 1 día, 5 días, 1 semana, 15 días o 31 días (o no guardar), con 1 día como valor predeterminado.",
+        "Al actualizar, un aviso te permite cambiar al nuevo plazo predeterminado o elegir otro límite directamente."
+      ]
+    },
+    {
       "version": "1.7.155",
       "date": "2026-11-26",
       "title": "Centro de notas con tarjetas",

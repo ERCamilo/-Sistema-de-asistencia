@@ -71,8 +71,8 @@ test('lectura bloqueada termina en error; la respuesta tardía no sobrescribe un
 });
 test('un cambio de retención vuelve a consultar y conserva el aviso de poco espacio', async () => {
     const { settings, backing, render } = fixture({ mount: true, store: { storageStatus: jest.fn().mockResolvedValue({ bytes: 1, count: 1, low: true }) } });
-    await flush(); settings.voiceAudioRetentionDays = 2; render(); await flush();
-    expect(backing.maintain).toHaveBeenLastCalledWith('one', { keep: true, days: 2 });
+    await flush(); settings.voiceAudioRetentionDays = 7; render(); await flush();
+    expect(backing.maintain).toHaveBeenLastCalledWith('one', { keep: true, days: 7 });
     expect(document.querySelector('[data-voice-storage-warning]').hidden).toBe(false);
 });
 test('una API sin cifras disponibles ofrece reintento, sin afirmar cero', async () => {
@@ -99,4 +99,14 @@ test('un audio de otro proyecto no queda habilitado por reutilizar el total del 
     render(); await flush();
     expect(document.querySelector('[data-voice-loan-audio]').textContent).toBe('Audio no disponible');
     expect(backing.storageStatus).toHaveBeenCalledTimes(1);
+});
+
+test('385: no implicit shortening of already recorded loan audio when legacy account has no explicit retention field', async () => {
+    const { backing, settings } = fixture();
+    delete settings.voiceAudioRetentionDays;
+    await ui.maintenance();
+    expect(backing.maintain).toHaveBeenCalledWith('one', {keep:true,days:5});
+    settings.voiceAudioRetentionDays = '1';
+    await ui.refreshStorageStatus();
+    expect(backing.maintain).toHaveBeenLastCalledWith('one', {keep:true,days:1});
 });
