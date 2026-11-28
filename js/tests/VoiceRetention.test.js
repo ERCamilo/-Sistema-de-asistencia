@@ -63,3 +63,18 @@ test('storage warning and retention policy default to 1 day, accept 1/5/7/15/31,
     expect(voiceRetentionLabel(15)).toBe('15 días');
     expect(voiceRetentionLabel(31)).toBe('31 días');
 });
+
+test('legacy implicit preference preserves existing deadlines, while new default stays one day', async () => {
+    const { voiceStoredAudioPolicy, voiceAudioExpiry } = await import('../modules/features/voice/VoiceRetention.js');
+    const previous = loan({registeredAt: now - 2 * VOICE_DAY, audioExpiresAt: now + 3 * VOICE_DAY});
+    await store.put(previous);
+    await store.maintain('one', voiceStoredAudioPolicy({}), now);
+    expect((await store.get('one','request')).audio).toBeDefined();
+    const newExpiry = voiceAudioExpiry(loan(), voiceRetentionPolicy({}));
+    expect(newExpiry).toBe(now + VOICE_DAY);
+    await store.put(loan({requestId:'new', audioExpiresAt:newExpiry}));
+    await store.maintain('one', voiceStoredAudioPolicy({}), now);
+    expect((await store.get('one','new')).audioExpiresAt).toBe(newExpiry);
+    await store.maintain('one', voiceStoredAudioPolicy({voiceAudioRetentionDays:'1'}), now);
+    expect((await store.get('one','request')).audio).toBeUndefined();
+});

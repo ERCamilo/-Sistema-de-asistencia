@@ -9,7 +9,7 @@ import { VoiceEmployeeView } from './VoiceEmployeeView.js';
 import { VoiceAliasView, needsVoiceAliasPrompt } from './VoiceAliasView.js';
 import { pickAutomaticVoiceMatch } from './VoiceMatching.js';
 import { VoiceAudioView } from './VoiceAudioView.js';
-import { voiceRetentionPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET, VOICE_RETENTION_OPTIONS, isValidVoiceRetentionChoice, voiceRetentionParts } from './VoiceRetention.js';
+import { voiceRetentionPolicy, voiceStoredAudioPolicy, voiceAudioExpiry, VOICE_AUDIO_BUDGET, VOICE_RETENTION_OPTIONS, isValidVoiceRetentionChoice, voiceRetentionParts } from './VoiceRetention.js';
 import { VoiceStore } from './VoiceStore.js';
 import { VoiceRecorder } from './VoiceRecorder.js';
 import { voiceAudioNeedsReview } from './VoiceAudioQuality.js';
@@ -313,7 +313,7 @@ export class VoiceMvpUI {
     }
     // Background refresh reports inline; explicit voice actions still use run().
     storageContext() {
-        return JSON.stringify([this.adapter.getUser()?.uid, voiceRetentionPolicy(this.adapter.getSettings?.()), !!this.wiped]);
+        return JSON.stringify([this.adapter.getUser()?.uid, voiceStoredAudioPolicy(this.adapter.getSettings?.()), !!this.wiped]);
     }
     async refreshStorageStatus({ force = false } = {}) {
         if (this.destroyed) return;
@@ -339,7 +339,7 @@ export class VoiceMvpUI {
         this.paintStorageStatus('loading');
         let timer;
         const read = async () => {
-            await this.store.maintain?.(user.uid, voiceRetentionPolicy(this.adapter.getSettings?.()));
+            await this.store.maintain?.(user.uid, voiceStoredAudioPolicy(this.adapter.getSettings?.()));
             return this.store.storageStatus?.();
         };
         const timeout = new Promise((_, reject) => {
@@ -353,7 +353,7 @@ export class VoiceMvpUI {
                 const available = Number.isFinite(storage?.bytes) && storage.bytes >= 0
                     && Number.isInteger(storage?.count) && storage.count >= 0;
                 this.paintStorageStatus(available ? 'ready' : 'error', storage);
-                if (this.view === 'playback' && this.record && voiceAudioExpiry(this.record, voiceRetentionPolicy(this.adapter.getSettings?.())) <= Date.now()) { this.close(); this.adapter.notify?.('El audio venció y fue eliminado.', 'info'); }
+                if (this.view === 'playback' && this.record && voiceAudioExpiry(this.record, voiceStoredAudioPolicy(this.adapter.getSettings?.())) <= Date.now()) { this.close(); this.adapter.notify?.('El audio venció y fue eliminado.', 'info'); }
                 await this.refreshLoanAudioButtons();
             } catch (error) {
                 if (this.destroyed || this.wiped || this.adapter.getUser()?.uid !== user.uid) return;
@@ -382,7 +382,7 @@ export class VoiceMvpUI {
             if (!button.isConnected) continue;
             const available = !this.wiped && record?.audio && record.projectKey === scope
                 && String(record.selectedEmployeeId) === button.dataset.arg && String(record.completedLoanId) === button.dataset.loanId
-                && voiceAudioExpiry(record, voiceRetentionPolicy(this.adapter.getSettings?.())) > Date.now();
+                && voiceAudioExpiry(record, voiceStoredAudioPolicy(this.adapter.getSettings?.())) > Date.now();
             button.disabled = !available;
             button.textContent = available ? 'Escuchar audio' : failed ? 'No se pudo consultar el audio' : 'Audio no disponible';
             button.title = available ? 'Grabación local de la instrucción' : failed
@@ -396,7 +396,7 @@ export class VoiceMvpUI {
         if (!loan) throw Error('Préstamo no disponible en el proyecto activo.');
         const record = await this.store.get(identity.uid, requestId);
         if (this.adapter.getUser()?.uid !== identity.uid || projectKey(this.adapter.getScope()) !== identity.projectKey) throw Error('Cambió la cuenta o proyecto.');
-        if (!record?.audio || record.projectKey !== identity.projectKey || String(record.completedLoanId) !== String(loan.id) || String(record.selectedEmployeeId) !== String(employeeId) || voiceAudioExpiry(record, voiceRetentionPolicy(this.adapter.getSettings?.())) <= Date.now()) throw Error('Audio no disponible en este navegador.');
+        if (!record?.audio || record.projectKey !== identity.projectKey || String(record.completedLoanId) !== String(loan.id) || String(record.selectedEmployeeId) !== String(employeeId) || voiceAudioExpiry(record, voiceStoredAudioPolicy(this.adapter.getSettings?.())) <= Date.now()) throw Error('Audio no disponible en este navegador.');
         this.record = record; this.view = 'playback'; this.message = ''; this.render(); this.dialog.showModal();
     }
     async openStorage() {

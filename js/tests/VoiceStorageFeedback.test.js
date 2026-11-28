@@ -100,3 +100,13 @@ test('un audio de otro proyecto no queda habilitado por reutilizar el total del 
     expect(document.querySelector('[data-voice-loan-audio]').textContent).toBe('Audio no disponible');
     expect(backing.storageStatus).toHaveBeenCalledTimes(1);
 });
+
+test('385: no implicit shortening of already recorded loan audio when legacy account has no explicit retention field', async () => {
+    const { backing, settings } = fixture();
+    delete settings.voiceAudioRetentionDays;
+    await ui.maintenance();
+    expect(backing.maintain).toHaveBeenCalledWith('one', {keep:true,days:5});
+    settings.voiceAudioRetentionDays = '1';
+    await ui.refreshStorageStatus();
+    expect(backing.maintain).toHaveBeenLastCalledWith('one', {keep:true,days:1});
+});

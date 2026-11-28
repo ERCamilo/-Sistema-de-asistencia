@@ -1,11 +1,11 @@
 import { normalizeVoiceName } from './VoiceMatching.js';
-import { voiceAudioExpiry, voiceRetentionPolicy, VOICE_DAY } from './VoiceRetention.js';
+import { voiceAudioExpiry, voiceStoredAudioPolicy, VOICE_DAY } from './VoiceRetention.js';
 
 export const voiceProjectKey = scope => scope?.enabled ? String(scope.projectId || 'pending') : 'legacy';
 export const voiceBytes = bytes => `${(Number(bytes || 0) / 1048576).toFixed(1)} MiB`;
 
 export function voiceRecordingInfo(record, settings = {}, now = Date.now()) {
-    const expiresAt = voiceAudioExpiry(record, voiceRetentionPolicy(settings));
+    const expiresAt = voiceAudioExpiry(record, voiceStoredAudioPolicy(settings));
     const available = !!record.audio && expiresAt > now;
     return { record, expiresAt, available, soon: available && expiresAt - now <= VOICE_DAY,
         bytes: available ? record.audio.size : 0,

@@ -30,6 +30,18 @@ export function voiceRetentionPolicy(settings = {}) {
         : (VOICE_RETENTION_LEGACY_DAY_MAP.get(parsed) ?? VOICE_RETENTION_DEFAULT_DAYS);
     return { keep: settings?.voiceKeepLoanAudio !== false, days };
 }
+// A missing legacy preference used to mean 5 days. Keep previously
+// recorded audio under that limit until an explicit choice is saved.
+// Newly completed recordings still receive the 1-day default deadline.
+export function voiceStoredAudioPolicy(settings = {}) {
+    const policy = voiceRetentionPolicy(settings);
+    const raw = settings?.voiceAudioRetentionDays;
+    if (policy.keep && (raw === undefined || raw === null || raw === '')) {
+        return { ...policy, days: 5 };
+    }
+    return policy;
+}
+
 export function voiceAudioExpiry(record, policy = { keep: true, days: VOICE_RETENTION_DEFAULT_DAYS }) {
     if (!record.completedLoanId) return Number.isFinite(Number(record.createdAt)) ? Number(record.createdAt) + VOICE_DAY : 0;
     const registeredAt = Number(record.registeredAt || record.createdAt);

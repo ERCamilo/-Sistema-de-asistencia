@@ -7,7 +7,8 @@ import {
     isValidVoiceRetentionChoice,
     voiceRetentionLabel,
     voiceRetentionParts,
-    voiceRetentionPolicy
+    voiceRetentionPolicy,
+    voiceStoredAudioPolicy
 } from './VoiceRetention.js';
 
 export const VOICE_RETENTION_UPGRADE_VERSION = '1.7.156';
@@ -116,7 +117,12 @@ export function createVoiceRetentionUpgradePrompt({
     function show() {
         if (modal?.isOpen || !isEligible()) return false;
         const settings = getSettings?.() || {};
-        const currentPolicy = voiceRetentionPolicy(settings);
+        const hasLegacyImplicitDefault = isSemver(upgradedFromVersion)
+            && compareVersions(upgradedFromVersion, targetVersion) < 0
+            && (settings.voiceAudioRetentionDays == null || settings.voiceAudioRetentionDays === '');
+        const currentPolicy = hasLegacyImplicitDefault
+            ? voiceStoredAudioPolicy(settings)
+            : voiceRetentionPolicy(settings);
         const currentChoice = currentPolicy.keep ? currentPolicy.days : 0;
         const rawDays = Number(settings.voiceAudioRetentionDays);
         const isLegacyDays = currentPolicy.keep && LEGACY_REMOVED_DAYS.has(rawDays);
@@ -174,7 +180,7 @@ export function createVoiceRetentionUpgradePrompt({
             if (handled) return;
             handled = true;
             markSeen();
-            if (isLegacyDays) {
+            if (isLegacyDays || (hasLegacyImplicitDefault && currentPolicy.keep)) {
                 Promise.resolve(setAudioRetention?.(currentPolicy.days))
                     .then(() => onApplied?.(currentPolicy.days))
                     .catch(() => {});

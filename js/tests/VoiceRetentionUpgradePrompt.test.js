@@ -181,3 +181,11 @@ test('markSeen cancels a scheduled popup when the user updates retention manuall
     jest.advanceTimersByTime(200);
     expect(document.getElementById('voice-retention-upgrade-modal')).toBeNull();
 });
+
+test('385: upgrade from implicit old 5-day default shows its actual limit and warns before shortening', () => {
+    const { prompt } = makeFixture({ settings: {} });
+    prompt.show();
+    const modal = document.getElementById('voice-retention-upgrade-modal');
+    expect(modal.querySelector('.vru-current').textContent).toContain('5 días');
+    expect(modal.querySelector('.vru-warning').hidden).toBe(false);
+});
