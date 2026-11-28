@@ -12,11 +12,8 @@
  *     se agrega tal cual.
  *   - Empleado SOLO local, nunca antes visto en un snapshot entrante
  *     (alta local todavía no subida): se conserva.
- *   - Empleado SOLO local, que SÍ estuvo antes en un snapshot entrante
- *     (borrado confirmado en el servidor): se remueve — SALVO que la
- *     edición local sea más nueva que la última versión confirmada del
- *     servidor, en cuyo caso se conserva (podría ser una edición offline
- *     todavía no subida, en carrera con el borrado de otro dispositivo).
+ *   - Empleado SOLO local, aunque se viera en la nube antes: se conserva.
+ *     La ausencia no es evidencia de borrado explícito (#361).
  *   - La "línea de base" (última versión conocida del servidor) se
  *     actualiza en cada llamada para reflejar el snapshot entrante actual.
  */
@@ -63,7 +60,7 @@ testRunner.addSuite("EmployeesIncomingMerge — fusión por-registro (Fase 2, U2
         testRunner.assertEquals(result[0].id, 'e-nuevo');
     },
 
-    "empleado borrado remotamente (visto antes, ausente ahora) se remueve si no hay edición local más nueva"() {
+    "empleado antes visto y ahora ausente se conserva sin baja explícita"() {
         resetIncomingMergeBaseline();
         // 1ª llamada: el empleado existe en el servidor — establece la línea de base.
         mergeIncomingEmployees(
@@ -75,7 +72,7 @@ testRunner.addSuite("EmployeesIncomingMerge — fusión por-registro (Fase 2, U2
             [{ id: 'e1', name: 'Ana', updatedAt: 100 }], // local sin cambios desde la última sync
             []
         );
-        testRunner.assertEquals(result.length, 0, 'El empleado borrado remotamente debe desaparecer');
+        testRunner.assertEquals(result.length, 1, 'La ausencia remota no acredita una baja explícita');
     },
 
     "empleado borrado remotamente pero con edición local MÁS NUEVA que la última sync se conserva (no confía en el borrado)"() {
@@ -96,7 +93,7 @@ testRunner.addSuite("EmployeesIncomingMerge — fusión por-registro (Fase 2, U2
         testRunner.assertEquals(result[0].name, 'Ana (editada offline tras la sync)');
     },
 
-    "tras remover un borrado confirmado, una alta local nueva y distinta sigue viva"() {
+    "tras omisión de un registro conocido, una alta local adicional también sigue viva"() {
         resetIncomingMergeBaseline();
         // 1ª llamada: e1 existe en el servidor — establece la línea de base.
         let result = mergeIncomingEmployees(
@@ -105,15 +102,15 @@ testRunner.addSuite("EmployeesIncomingMerge — fusión por-registro (Fase 2, U2
         );
         // 2ª llamada: otro dispositivo borró e1 — ya no está en el snapshot entrante.
         result = mergeIncomingEmployees(result, []);
-        testRunner.assertEquals(result.length, 0, 'e1 debe removerse (borrado confirmado)');
+        testRunner.assertEquals(result.length, 1, 'e1 se conserva sin marca explícita de baja');
 
         // 3ª llamada: ESTE dispositivo crea un empleado e2 nuevo (todavía no
         // subido) mientras la nube sigue sin e1 — e2 debe sobrevivir, la
         // línea de base actualizada tras el borrado de e1 no debe afectarlo.
         const localWithNewEmployee = [...result, { id: 'e2', name: 'Recién creado', updatedAt: 999 }];
         result = mergeIncomingEmployees(localWithNewEmployee, []);
-        testRunner.assertEquals(result.length, 1, 'e2 (alta local nueva) debe conservarse');
-        testRunner.assertEquals(result[0].id, 'e2');
+        testRunner.assertEquals(result.length, 2, 'ambos empleados deben conservarse');
+        testRunner.assert(result.some(e => e.id === 'e2'), 'el nuevo empleado aparece');
     },
 
     "defensivo: incoming null/local null no rompe"() {
@@ -152,7 +149,7 @@ testRunner.addSuite("EmployeesIncomingMerge — fusión por-registro (Fase 2, U2
             'Un updatedAt NaN en la línea de base no debe bloquear para siempre una edición local genuina');
     },
 
-    "un id '__proto__' (backup crafteado) se rastrea como cualquier otro — su borrado remoto se propaga (revisión 2)"() {
+    "un id '__proto__' (backup crafteado) también se conserva si falta del snapshot"() {
         resetIncomingMergeBaseline();
         // Con un objeto plano como línea de base, baseline['__proto__'] = ts es
         // un no-op silencioso y la lectura devuelve Object.prototype (no
@@ -167,8 +164,8 @@ testRunner.addSuite("EmployeesIncomingMerge — fusión por-registro (Fase 2, U2
             [{ id: '__proto__', name: 'Crafteado', updatedAt: 100 }],
             []
         );
-        testRunner.assertEquals(result.length, 0,
-            'El borrado remoto de un empleado con id __proto__ debe propagarse igual que cualquier otro');
+        testRunner.assertEquals(result.length, 1,
+            'El id __proto__ no se elimina por ausencia en el snapshot');
     }
 
 });

@@ -1,6 +1,14 @@
 {
-  "version": "1.7.157",
+  "version": "1.7.158",
   "changelog": [
+    {
+      "version": "1.7.158",
+      "date": "2026-11-28",
+      "title": "Conservación de registros ante descargas incompletas",
+      "items": [
+        "Una descarga parcial o vacía no elimina por sí sola el personal, los puestos ni los líderes conservados localmente."
+      ]
+    },
     {
       "version": "1.7.157",
       "date": "2026-11-28",

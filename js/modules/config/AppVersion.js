@@ -1,6 +1,7 @@
 // Release logic: pure data and injected IO, without browser globals.
-const APP_VERSION = '1.7.157';
+const APP_VERSION = '1.7.158';
 const CHANGELOG = [
+    { version: '1.7.158', date: '2026-11-28', title: 'Conservación de registros ante descargas incompletas', items: ['Una descarga parcial o vacía no elimina por sí sola el personal, los puestos ni los líderes conservados localmente.'] },
     { version: '1.7.157', date: '2026-11-28', title: 'Verificación remota de configuraciones Multiobra', items: ['Antes de recuperar una configuración huérfana, comprueba en Firebase si su obra original existe, tiene un alias o fue eliminada explícitamente.', 'La recuperación se bloquea si el origen no pudo verificarse o la obra todavía existe.', 'El diagnóstico .log incluye códigos de verificación anónimos sin divulgar identificadores personales.'] },
     { version: '1.7.156', date: '2026-11-27', title: 'Nuevos plazos para conservar audios de préstamos', items: ['Elige conservar los audios de préstamos por 1 día, 5 días, 1 semana, 15 días o 31 días (o no guardar), con 1 día como valor predeterminado.', 'Al actualizar, un aviso te permite cambiar al nuevo plazo predeterminado o elegir otro límite directamente.'] },
     { version: '1.7.155', date: '2026-11-26', title: 'Centro de notas con tarjetas', items: ['Busca notas existentes por empleado o texto. Fija, archiva o envía notas a la papelera, con opción de deshacer.', 'Desliza una tarjeta para revelar Archivar. Puedes guardar una nota manual desde la lista de empleados.'] },

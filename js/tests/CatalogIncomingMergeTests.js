@@ -9,8 +9,8 @@
  *
  * Este merge replica el patrón de EmployeesIncomingMerge para entidades
  * escalares: LWW por registro + línea de base del último snapshot entrante
- * para distinguir "borrado remoto confirmado" de "alta local sin subir" y
- * de "carrera con una edición local no subida".
+ * para preservar datos locales ante omisiones de cualquier snapshot.
+ * La eliminación requiere evidencia explícita: la ausencia no basta.
  */
 
 import { createCatalogIncomingMerge } from '../modules/services/CatalogIncomingMerge.js';
@@ -58,7 +58,7 @@ testRunner.addSuite('CatalogIncomingMerge — LWW por registro con línea de bas
         testRunner.assertEquals(out.find(p => p.id === 'a').name, 'A', 'la copia local más nueva gana el LWW');
     },
 
-    'borrado remoto confirmado: estaba en la línea de base y el local no editó después → se elimina'() {
+    'la ausencia de un puesto visto antes no autoriza eliminarlo'() {
         const merge = freshMerge();
         // Snapshot 1: la nube conoce p1 y p2.
         merge([], [{ id: 'p1', updatedAt: 100 }, { id: 'p2', updatedAt: 100 }]);
@@ -67,8 +67,8 @@ testRunner.addSuite('CatalogIncomingMerge — LWW por registro con línea de bas
             [{ id: 'p1', updatedAt: 100 }, { id: 'p2', updatedAt: 100 }],
             [{ id: 'p1', updatedAt: 100 }]
         );
-        testRunner.assertEquals(out.length, 1, 'el borrado remoto debe propagarse');
-        testRunner.assertEquals(out[0].id, 'p1', 'solo sobrevive el que sigue en la nube');
+        testRunner.assertEquals(out.length, 2, 'un snapshot parcial no permite borrar el puesto');
+        testRunner.assert(out.some(p => p.id === 'p2'), 'se conserva el puesto ausente');
     },
 
     'carrera: edición local POSTERIOR a la última sync sobrevive al borrado remoto'() {

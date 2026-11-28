@@ -13,12 +13,12 @@
  *     que es la copia confirmada);
  *   - solo local y NUNCA visto en un snapshot entrante → alta local sin
  *     subir: se conserva;
- *   - solo local pero SÍ estaba en la línea de base → borrado remoto
- *     confirmado: se elimina, SALVO que la copia local tenga una edición
- *     posterior a la última sync (carrera con un cambio offline no subido).
+ *   - solo local, aunque antes estuviera en la línea de base → conservar.
+ *     Una ausencia no es evidencia explícita de baja y jamás destruye
+ *     registros locales por diferencia de listas (#361).
  *
- * Cada catálogo usa su PROPIA instancia (línea de base separada):
- * mergeIncomingPositions y mergeIncomingLeaders.
+ * Cada catálogo mantiene un combinador independiente para compatibilidad,
+ * pero ninguna ausencia de registros implica una eliminación.
  */
 
 function _ts(rec) {
@@ -26,10 +26,6 @@ function _ts(rec) {
 }
 
 export function createCatalogIncomingMerge() {
-    // Map, no objeto plano: un id "__proto__" sobre un objeto plano es un
-    // no-op silencioso (misma razón que EmployeesIncomingMerge).
-    let _lastKnownIncomingById = new Map();
-
     function mergeIncoming(localList, incomingList) {
         const local = Array.isArray(localList) ? localList : [];
         const incoming = Array.isArray(incomingList) ? incomingList : [];
@@ -54,36 +50,16 @@ export function createCatalogIncomingMerge() {
         });
 
         localById.forEach((localRecord, id) => {
-            if (incomingById.has(id)) return; // ya resuelto arriba
-
-            const lastKnownUpdatedAt = _lastKnownIncomingById.get(id);
-            if (!Number.isFinite(lastKnownUpdatedAt)) {
-                // Nunca visto en un snapshot entrante: alta local sin subir.
-                result.push(localRecord);
-                return;
-            }
-            const localUpdatedAt = _ts(localRecord) ?? -Infinity;
-            if (localUpdatedAt > lastKnownUpdatedAt) {
-                // Edición local posterior a la última sync confirmada: puede
-                // ser una carrera con un cambio offline — no confiar en el
-                // borrado remoto.
-                result.push(localRecord);
-            }
-            // si no: borrado remoto confirmado — no se agrega.
+            // Las descargas vacías, parciales o de caché conservan
+            // todas las entidades que no traen una baja explícita.
+            if (!incomingById.has(id)) result.push(localRecord);
         });
-
-        // Nueva línea de base: SIEMPRE el snapshot entrante actual completo.
-        const nextBaseline = new Map();
-        incomingById.forEach((rec, id) => {
-            nextBaseline.set(id, Number.isFinite(rec?.updatedAt) ? rec.updatedAt : 0);
-        });
-        _lastKnownIncomingById = nextBaseline;
 
         return result;
     }
 
     /** Utilidad de test: reinicia la línea de base. */
-    mergeIncoming.resetBaseline = () => { _lastKnownIncomingById = new Map(); };
+    mergeIncoming.resetBaseline = () => {}; // compatibilidad con pruebas previas
 
     return mergeIncoming;
 }
